@@ -282,3 +282,6 @@ export const seedCMSSources: readonly CMSSource[] = Object.freeze([
     paymentConsequence: 'reporting-only',
   },
 ]);
+
+// Re-export the full measure catalog + factory.
+export { ALL_CMS_MEASURES, ESRD_QIP_MEASURES, HOSPITAL_IQR_MEASURES, HOSPITAL_VBP_MEASURES, MIPS_MEASURES, PI_HOSPITAL_MEASURES, NHSN_MEASURES, CMS_0057_F_MEASURES } from './cms-measure-catalog.js';

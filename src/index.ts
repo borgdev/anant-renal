@@ -5,3 +5,8 @@ export * from './agentic/index.js';
 export * from './adapters/index.js';
 export * from './hypergraph/index.js';
 export * from './server/index.js';
+export * from './agents/index.js';
+export * from './config/index.js';
+export * from './ontology/index.js';
+export * from './lifecycle/index.js';
+export * from './assessments/index.js';

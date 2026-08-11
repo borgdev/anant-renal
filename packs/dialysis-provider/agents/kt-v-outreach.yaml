@@ -1,0 +1,96 @@
+id: kt-v-outreach
+version: 1.0.0
+packId: dialysis-provider
+displayName: Kt/V Sub-Threshold Outreach
+description: >
+  Runs when a patient's monthly Kt/V falls below the facility-configured
+  threshold. Flags the case in the QAPI worklist, drafts a clinician alert,
+  and, on clinician approval via HITL, opens a nutrition + dialysis-Rx
+  consult ticket and records outcome-oracle attestation when adequacy
+  returns to threshold on the next reading.
+scope: facility
+trigger:
+  kind: event
+  eventType: measure.kt-v.below-threshold
+inputs:
+  patientId:
+    type: string
+    required: true
+    description: Patient identifier
+  latestKtV:
+    type: number
+    required: true
+    description: Most recent Kt/V value
+  facilityThreshold:
+    type: number
+    required: true
+    description: Facility-scoped Kt/V threshold override
+outputs:
+  ticketId:
+    type: string
+    description: QAPI worklist ticket id
+plan:
+  type: sequence
+  children:
+    - type: step
+      step:
+        id: draft-alert
+        skill: llm.call
+        inputs:
+          prompt: "Draft a clinician alert for patient ${input.patientId} whose Kt/V is ${input.latestKtV} (facility threshold ${input.facilityThreshold})."
+        outputBinding: alertDraft
+    - type: step
+      step:
+        id: clinician-approval
+        skill: hitl.approve
+        inputs:
+          role: nephrologist
+          slaMinutes: 240
+          payload:
+            patientId: "${input.patientId}"
+            draft: "${alertDraft.text}"
+        outputBinding: approval
+    - type: step
+      step:
+        id: open-consult
+        skill: http.call
+        when: "state.approval.decision === 'approved'"
+        inputs:
+          url: "https://internal.example.local/qapi/tickets"
+          method: POST
+          body:
+            patientId: "${input.patientId}"
+            category: adequacy
+            severity: high
+governance:
+  phiHandling: read-write
+  purposeOfUse: [treatment, operations]
+  clearanceRequired: phi
+  hitlGates:
+    - afterStepId: draft-alert
+      role: nephrologist
+      slaMinutes: 240
+  breakGlassAllowed: false
+  evidenceRequired: [clinical:kt-v-value, admin:facility-threshold]
+billing:
+  baseFeeUsd: 0.25
+  meteredUnits:
+    - unit: llm.tokens.input
+      priceUsdPerUnit: 0.000003
+    - unit: llm.tokens.output
+      priceUsdPerUnit: 0.000015
+    - unit: hitl.minutes
+      priceUsdPerUnit: 0.05
+    - unit: tool.call
+      priceUsdPerUnit: 0.002
+  outcomeTier:
+    outcomeType: kt-v.returned-to-threshold
+    payoutUsd: 5.00
+    oracleSkillId: outcome.oracle.attest
+  budgetCapMonthlyUsd: 500
+slas:
+  p95LatencyMs: 30000
+  maxCostUsd: 1.50
+labels:
+  domain: dialysis
+  program: cms:esrd-qip

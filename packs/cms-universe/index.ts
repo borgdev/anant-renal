@@ -4,7 +4,7 @@
 // backward-compatible `CMS_PROGRAMS` snapshot for existing consumers.
 
 import type { DomainPack } from '../../src/control-plane/pack-registry.js';
-import { seedCMSSources, CMSSourceRegistry, type CMSSource, type CMSMeasureSpec } from '../../src/healthcare-core/cms-source-registry.js';
+import { seedCMSSources, CMSSourceRegistry, ALL_CMS_MEASURES, type CMSSource, type CMSMeasureSpec } from '../../src/healthcare-core/cms-source-registry.js';
 
 export interface CmsProgram {
   id: string;
@@ -18,11 +18,12 @@ export interface CmsProgram {
   effectiveFrom?: string;
 }
 
-/** Build the executable registry the harness runs against. */
+/** Build the executable registry the harness runs against. Loads all default CMS measures. */
 export function buildCMSRegistry(extraSources: readonly CMSSource[] = [], extraMeasures: readonly CMSMeasureSpec[] = []): CMSSourceRegistry {
   const r = new CMSSourceRegistry();
   for (const s of seedCMSSources) r.registerSource(s);
   for (const s of extraSources) r.registerSource(s);
+  for (const m of ALL_CMS_MEASURES) r.registerMeasure(m);
   for (const m of extraMeasures) r.registerMeasure(m);
   return r;
 }

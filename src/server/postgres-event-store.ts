@@ -83,6 +83,111 @@ export const MIGRATIONS: readonly string[] = Object.freeze([
    );`,
   `CREATE INDEX IF NOT EXISTS audit_chain_scope_time
      ON __schema__.audit_chain (scope_id, occurred_at DESC);`,
+  // ---- Agent + billing + facility-config additions ----
+  `CREATE TABLE IF NOT EXISTS __schema__.agent_spec_mirror (
+     agent_id TEXT NOT NULL,
+     version TEXT NOT NULL,
+     pack_id TEXT NOT NULL,
+     source TEXT NOT NULL CHECK (source IN ('git', 'studio')),
+     git_sha TEXT,
+     yaml_body TEXT NOT NULL,
+     parsed_json JSONB NOT NULL,
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_by TEXT NOT NULL,
+     PRIMARY KEY (agent_id, version)
+   );`,
+  `CREATE INDEX IF NOT EXISTS agent_spec_mirror_pack_idx ON __schema__.agent_spec_mirror (pack_id);`,
+  `CREATE TABLE IF NOT EXISTS __schema__.agent_runs (
+     run_id TEXT PRIMARY KEY,
+     agent_id TEXT NOT NULL,
+     agent_version TEXT NOT NULL,
+     scope_id TEXT NOT NULL,
+     facility_id TEXT,
+     status TEXT NOT NULL,
+     started_at TIMESTAMPTZ NOT NULL,
+     ended_at TIMESTAMPTZ,
+     trigger JSONB NOT NULL,
+     inputs JSONB NOT NULL,
+     outputs JSONB,
+     error JSONB,
+     trace_id TEXT NOT NULL,
+     parent_run_id TEXT
+   );`,
+  `CREATE INDEX IF NOT EXISTS agent_runs_scope_idx ON __schema__.agent_runs (scope_id, started_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS agent_runs_agent_idx ON __schema__.agent_runs (agent_id, started_at DESC);`,
+  `CREATE TABLE IF NOT EXISTS __schema__.agent_run_steps (
+     step_uid TEXT PRIMARY KEY,
+     run_id TEXT NOT NULL REFERENCES __schema__.agent_runs(run_id) ON DELETE CASCADE,
+     step_id TEXT NOT NULL,
+     skill_id TEXT NOT NULL,
+     started_at TIMESTAMPTZ NOT NULL,
+     ended_at TIMESTAMPTZ,
+     status TEXT NOT NULL,
+     inputs JSONB NOT NULL,
+     outputs JSONB,
+     error JSONB,
+     cost_usd NUMERIC(12,6) DEFAULT 0,
+     metered_units JSONB DEFAULT '[]'::jsonb
+   );`,
+  `CREATE INDEX IF NOT EXISTS agent_run_steps_run_idx ON __schema__.agent_run_steps (run_id, started_at ASC);`,
+  `CREATE TABLE IF NOT EXISTS __schema__.metering_events (
+     event_id TEXT PRIMARY KEY,
+     scope_id TEXT NOT NULL,
+     facility_id TEXT,
+     agent_id TEXT NOT NULL,
+     run_id TEXT NOT NULL,
+     step_uid TEXT,
+     unit TEXT NOT NULL,
+     quantity NUMERIC(18,6) NOT NULL,
+     unit_price_usd NUMERIC(12,6) NOT NULL,
+     total_usd NUMERIC(14,6) NOT NULL,
+     currency TEXT NOT NULL DEFAULT 'USD',
+     occurred_at TIMESTAMPTZ NOT NULL,
+     billing_period TEXT NOT NULL,
+     invoiced BOOLEAN NOT NULL DEFAULT FALSE
+   );`,
+  `CREATE INDEX IF NOT EXISTS metering_events_scope_period ON __schema__.metering_events (scope_id, billing_period);`,
+  `CREATE INDEX IF NOT EXISTS metering_events_facility_period ON __schema__.metering_events (facility_id, billing_period);`,
+  `CREATE TABLE IF NOT EXISTS __schema__.invoices (
+     invoice_id TEXT PRIMARY KEY,
+     scope_id TEXT NOT NULL,
+     facility_id TEXT,
+     billing_period TEXT NOT NULL,
+     total_usd NUMERIC(14,6) NOT NULL,
+     line_items JSONB NOT NULL,
+     issued_at TIMESTAMPTZ NOT NULL,
+     paid_at TIMESTAMPTZ
+   );`,
+  `CREATE TABLE IF NOT EXISTS __schema__.facility_config (
+     config_id TEXT PRIMARY KEY,
+     scope_level TEXT NOT NULL CHECK (scope_level IN ('org', 'region', 'facility')),
+     scope_id TEXT NOT NULL,
+     category TEXT NOT NULL,
+     key TEXT NOT NULL,
+     value JSONB NOT NULL,
+     valid_from TIMESTAMPTZ NOT NULL,
+     valid_to TIMESTAMPTZ,
+     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     updated_by TEXT NOT NULL,
+     UNIQUE (scope_level, scope_id, category, key, valid_from)
+   );`,
+  `CREATE INDEX IF NOT EXISTS facility_config_lookup ON __schema__.facility_config (category, key, scope_level, scope_id);`,
+  `CREATE TABLE IF NOT EXISTS __schema__.job_dedup (
+     key TEXT PRIMARY KEY,
+     processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   );`,
+  `CREATE TABLE IF NOT EXISTS __schema__.hitl_gates (
+     gate_id TEXT PRIMARY KEY,
+     run_id TEXT NOT NULL,
+     step_id TEXT NOT NULL,
+     role_required TEXT NOT NULL,
+     opened_at TIMESTAMPTZ NOT NULL,
+     sla_deadline TIMESTAMPTZ NOT NULL,
+     resolved_at TIMESTAMPTZ,
+     resolved_by TEXT,
+     decision TEXT,
+     rationale TEXT
+   );`,
 ]);
 
 export class PostgresEventStore {
@@ -172,6 +277,16 @@ export class PostgresEventStore {
               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`),
       [row.sequence, row.hash, row.previousHash, row.scopeId, row.actorRef, row.action, row.traceId, row.occurredAt, JSON.stringify(row.payload)],
     );
+  }
+
+  /** Escape-hatch execute for extension modules. Use sparingly. */
+  async execRaw(sql: string, params: readonly unknown[]): Promise<void> {
+    await this.pool.query(this.q(sql), params as unknown[]);
+  }
+  /** Escape-hatch query for extension modules. */
+  async queryRaw<T = Record<string, unknown>>(sql: string, params: readonly unknown[]): Promise<T[]> {
+    const res = await this.pool.query(this.q(sql), params as unknown[]);
+    return res.rows as T[];
   }
 
   /** Transaction helper. */
