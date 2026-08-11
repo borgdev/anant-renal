@@ -1,0 +1,31 @@
+id: dialysis-provider
+version: 0.1.0
+extends:
+  - id: healthcare-core
+    version_range: ^0.1.0
+applies_to:
+  organization_kinds: [provider, health-system]
+  facility_kinds: [outpatient-dialysis, home-dialysis]
+capabilities:
+  - treatment-operations
+  - missed-treatment-recovery
+  - scheduling-recovery
+  - hospitalization-transition
+  - qapi
+  - esrd-quality-reporting
+cms_universe:
+  - id: esrd-conditions-for-coverage
+    title: ESRD Conditions for Coverage
+    authority: CMS
+  - id: esrd-qip
+    title: ESRD Quality Incentive Program
+    authority: CMS
+  - id: esrd-pps
+    title: ESRD Prospective Payment System
+    authority: CMS
+required_controls:
+  - access-policy
+  - audit-provenance
+  - data-quality
+  - simulation-suite
+  - observability-dashboard

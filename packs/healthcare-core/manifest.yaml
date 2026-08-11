@@ -1,0 +1,19 @@
+id: healthcare-core
+version: 0.1.0
+extends: []
+applies_to:
+  organization_kinds: [provider, payer, health-system, practice]
+capabilities:
+  - organization-and-scope-model
+  - phi-aware-access
+  - document-provenance
+  - connector-lineage
+  - temporal-hypergraph
+  - quality-and-evidence
+  - simulation
+required_controls:
+  - access-policy
+  - audit-provenance
+  - data-quality
+  - simulation-suite
+  - observability-dashboard
