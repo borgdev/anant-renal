@@ -1,6 +1,7 @@
-// Canonical event vocabulary. Adapters (FHIR, HL7 v2, CSV, SQL, event streams)
-// map their native payloads into this shape so the harness only speaks one
-// language. Every event carries provenance and a source classification.
+// Canonical event vocabulary. Adapters (FHIR, HL7 v2, CSV, X12, CDA, HIE,
+// SQL, event streams, SFTP, claims file) map their native payloads into this
+// shape so the harness only speaks one language. Every event carries
+// provenance and a source classification.
 
 import type { Provenance } from '../kernel/hypergraph.js';
 
@@ -14,11 +15,34 @@ export type CanonicalEventType =
   | 'schedule.changed'
   | 'hospitalization.admitted'
   | 'hospitalization.discharged'
+  | 'hospitalization.transfer'
   | 'lab.result-arrived'
+  | 'lab.result-available'
   | 'contact.attempted'
   | 'contact.failed'
   | 'transport.issue'
-  | 'facility.staffing-change';
+  | 'facility.staffing-change'
+  // interoperability additions:
+  | 'coverage.inquiry'
+  | 'coverage.active'
+  | 'coverage.inactive'
+  | 'prior-auth.submitted'
+  | 'prior-auth.approved'
+  | 'prior-auth.denied'
+  | 'prior-auth.appealed'
+  | 'claim.submitted'
+  | 'claim.denied'
+  | 'claim.remittance'
+  | 'condition.recorded'
+  | 'medication.ordered'
+  | 'medication.updated'
+  | 'procedure.performed'
+  | 'vital.observed'
+  | 'encounter.summary'
+  | 'device.observation'
+  | 'nutrition.assessment'
+  | 'dry-weight.recorded'
+  | 'protocol.deviation';
 
 export interface CanonicalEvent {
   id: string;
@@ -31,6 +55,8 @@ export interface CanonicalEvent {
   provenance: Provenance;
   classification: 'internal' | 'confidential' | 'phi';
 }
+
+export type EventPayload = Record<string, unknown>;
 
 export interface EventBatch {
   id: string;
