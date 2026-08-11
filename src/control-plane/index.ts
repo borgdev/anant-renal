@@ -10,3 +10,4 @@ export * from './break-glass.js';
 export * from './feature-flags.js';
 export * from './schema-drift.js';
 export * from './cross-pack-workflows.js';
+export * from './pack-boundaries.js';

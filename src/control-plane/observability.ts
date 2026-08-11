@@ -29,7 +29,7 @@ export interface SLO {
   evaluate(points: readonly MetricPoint[]): { met: boolean; observed: number };
 }
 
-export class Telemetry {
+export class SLOTelemetry {
   private readonly spans = new Map<string, Span>();
   private readonly metrics: MetricPoint[] = [];
   private readonly slos = new Map<string, SLO>();

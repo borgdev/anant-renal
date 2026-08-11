@@ -13,7 +13,7 @@ export interface Provenance {
   lineage?: readonly string[];
 }
 
-export interface HyperNode {
+export interface LegacyHyperNode {
   id: HyperNodeId;
   type: string;
   properties: Readonly<Record<string, unknown>>;
@@ -23,7 +23,7 @@ export interface HyperNode {
   classification?: 'public' | 'internal' | 'confidential' | 'phi' | 'restricted-phi';
 }
 
-export interface Hyperedge {
+export interface LegacyHyperedge {
   id: HyperedgeId;
   type: string;
   participants: ReadonlyArray<{ nodeId: HyperNodeId; role: string }>;
@@ -37,17 +37,17 @@ export interface HypergraphVersion {
   id: string;
   parentId?: string;
   createdAt: string;
-  nodes: ReadonlyMap<HyperNodeId, HyperNode>;
-  edges: ReadonlyMap<HyperedgeId, Hyperedge>;
+  nodes: ReadonlyMap<HyperNodeId, LegacyHyperNode>;
+  edges: ReadonlyMap<HyperedgeId, LegacyHyperedge>;
 }
 
-const freezeNode = (n: HyperNode): HyperNode => Object.freeze({
+const freezeNode = (n: LegacyHyperNode): LegacyHyperNode => Object.freeze({
   ...n,
   properties: Object.freeze({ ...n.properties }),
   provenance: Object.freeze(n.provenance.map((p) => Object.freeze({ ...p, lineage: p.lineage ? Object.freeze([...p.lineage]) : undefined }))) as readonly Provenance[],
 });
 
-const freezeEdge = (e: Hyperedge): Hyperedge => Object.freeze({
+const freezeEdge = (e: LegacyHyperedge): LegacyHyperedge => Object.freeze({
   ...e,
   participants: Object.freeze(e.participants.map((p) => Object.freeze({ ...p }))),
   properties: Object.freeze({ ...e.properties }),
@@ -76,13 +76,13 @@ export class TemporalHypergraphStore {
     return this.log;
   }
 
-  upsertNode(node: HyperNode, now = new Date().toISOString()): HypergraphVersion {
+  upsertNode(node: LegacyHyperNode, now = new Date().toISOString()): HypergraphVersion {
     const nodes = new Map(this.current.nodes);
     nodes.set(node.id, freezeNode(node));
     return this.advance({ nodes, edges: this.current.edges }, now);
   }
 
-  upsertEdge(edge: Hyperedge, now = new Date().toISOString()): HypergraphVersion {
+  upsertEdge(edge: LegacyHyperedge, now = new Date().toISOString()): HypergraphVersion {
     for (const p of edge.participants) {
       if (!this.current.nodes.has(p.nodeId)) throw new Error(`Unknown participant: ${p.nodeId}`);
     }
@@ -123,11 +123,11 @@ export class TemporalHypergraphStore {
   }
 
   /** All edges that reference a node. */
-  edgesTouching(nodeId: HyperNodeId): Hyperedge[] {
+  edgesTouching(nodeId: HyperNodeId): LegacyHyperedge[] {
     return [...this.current.edges.values()].filter((e) => e.participants.some((p) => p.nodeId === nodeId));
   }
 
-  private advance(next: { nodes: ReadonlyMap<HyperNodeId, HyperNode>; edges: ReadonlyMap<HyperedgeId, Hyperedge> }, now: string): HypergraphVersion {
+  private advance(next: { nodes: ReadonlyMap<HyperNodeId, LegacyHyperNode>; edges: ReadonlyMap<HyperedgeId, LegacyHyperedge> }, now: string): HypergraphVersion {
     const nextId = `version:${this.log.length}`;
     const version: HypergraphVersion = { id: nextId, parentId: this.current.id, createdAt: now, ...next };
     this.current = version;

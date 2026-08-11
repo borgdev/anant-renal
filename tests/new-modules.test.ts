@@ -28,16 +28,16 @@ import {
 } from '../src/control-plane/index.js';
 import { InMemorySecretsProvider, AuditingSecretsProvider } from '../src/control-plane/secrets.js';
 import { parseX12, x12ToEvents, parseCDA, cdaToEvents, claimsRowsToEvents, hieNotificationToEvent } from '../src/adapters/index.js';
-import { decideUMCase } from '../../healthcare-harness/packs/payer/utilization-management.js';
-import { stratifyRisk } from '../../healthcare-harness/packs/payer/care-management.js';
-import { evaluateEligibility } from '../../healthcare-harness/packs/payer/network-and-benefits.js';
-import { adjudicateClaim } from '../../healthcare-harness/packs/payer/claims-operations.js';
-import { decideAppeal } from '../../healthcare-harness/packs/payer/appeals.js';
-import { evaluateAnemia } from '../../healthcare-harness/packs/dialysis-provider/medication/index.js';
-import { evaluateProtocol } from '../../healthcare-harness/packs/dialysis-provider/protocol-compliance/index.js';
-import { evaluateIDWG, evaluateNutrition } from '../../healthcare-harness/packs/dialysis-provider/nutrition/index.js';
-import { detectRecurrence } from '../../healthcare-harness/packs/dialysis-provider/transport/index.js';
-import { generateQAPIPacket } from '../../healthcare-harness/packs/dialysis-provider/qapi-evidence/index.js';
+import { decideUMCase } from '../packs/payer/utilization-management.js';
+import { stratifyRisk } from '../packs/payer/care-management.js';
+import { evaluateEligibility } from '../packs/payer/network-and-benefits.js';
+import { adjudicateClaim } from '../packs/payer/claims-operations.js';
+import { decideAppeal } from '../packs/payer/appeals.js';
+import { evaluateAnemia } from '../packs/dialysis-provider/medication/index.js';
+import { evaluateProtocol } from '../packs/dialysis-provider/protocol-compliance/index.js';
+import { evaluateIDWG, evaluateNutrition } from '../packs/dialysis-provider/nutrition/index.js';
+import { detectRecurrence } from '../packs/dialysis-provider/transport/index.js';
+import { generateQAPIPacket } from '../packs/dialysis-provider/qapi-evidence/index.js';
 
 describe('terminology', () => {
   it('resolves seed value sets and tests membership', () => {
