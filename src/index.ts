@@ -12,3 +12,4 @@ export * from './lifecycle/index.js';
 export * from './assessments/index.js';
 export * as policyGraph from './policy-graph/index.js';
 export * as manualIngestion from './ingestion/index.js';
+export * as research from './research/index.js';

@@ -1,0 +1,67 @@
+id: clinical-trial-matcher
+version: 1.0.0
+packId: research-pharma
+displayName: "Clinical Trial Matcher (ClinicalTrials.gov)"
+description: >
+  For a patient snapshot (conditions + active meds + location), returns
+  candidate recruiting trials with a match score + reasoning. Attribution:
+  Data courtesy of the U.S. National Library of Medicine.
+scope: facility
+trigger:
+  kind: event
+  eventType: patient.opt-in.trial-matching
+inputs:
+  patientId:
+    type: string
+    required: true
+    description: Patient identifier
+outputs:
+  resultRef:
+    type: string
+    description: Match results artifact
+plan:
+  type: sequence
+  children:
+    - type: step
+      step:
+        id: build-snapshot
+        skill: sql.query
+        inputs: {}
+    - type: step
+      step:
+        id: call-ctgov
+        skill: http.call
+        inputs: {}
+    - type: step
+      step:
+        id: score
+        skill: llm.call
+        inputs: {}
+    - type: step
+      step:
+        id: patient-notify
+        skill: http.call
+        inputs: {}
+governance:
+  phiHandling: read-write
+  purposeOfUse: [research, treatment]
+  clearanceRequired: phi
+  hitlGates: []
+  breakGlassAllowed: false
+  evidenceRequired: [attribution:nlm]
+billing:
+  baseFeeUsd: 0.15
+  meteredUnits:
+    - unit: llm.tokens.input
+      priceUsdPerUnit: 0.000003
+    - unit: llm.tokens.output
+      priceUsdPerUnit: 0.000015
+    - unit: tool.call
+      priceUsdPerUnit: 0.003
+  budgetCapMonthlyUsd: 150
+slas:
+  p95LatencyMs: 45000
+  maxCostUsd: 1.00
+labels:
+  setting: primary-care
+  lifecycleStage: active-care

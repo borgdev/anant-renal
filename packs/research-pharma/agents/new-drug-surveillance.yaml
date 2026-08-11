@@ -1,0 +1,83 @@
+id: new-drug-surveillance
+version: 1.0.0
+packId: research-pharma
+displayName: "New Drug Surveillance (openFDA + DailyMed + PubMed + FAERS)"
+description: >
+  Composite pipeline that watches openFDA, DailyMed, PubMed and FAERS
+  for newly approved / newly labeled meds relevant to the formulary,
+  producing a candidate list with evidence + FAERS safety snapshot.
+scope: organization
+trigger:
+  kind: cron
+  cronExpression: "0 6 * * *"
+inputs:
+  formularyRef:
+    type: string
+    required: true
+    description: Formulary reference
+outputs:
+  resultRef:
+    type: string
+    description: Candidates artifact
+plan:
+  type: sequence
+  children:
+    - type: step
+      step:
+        id: pull-formulary
+        skill: sql.query
+        inputs: {}
+    - type: step
+      step:
+        id: openfda-scan
+        skill: http.call
+        inputs: {}
+    - type: step
+      step:
+        id: dailymed-scan
+        skill: http.call
+        inputs: {}
+    - type: step
+      step:
+        id: pubmed-scan
+        skill: http.call
+        inputs: {}
+    - type: step
+      step:
+        id: faers-scan
+        skill: http.call
+        inputs: {}
+    - type: step
+      step:
+        id: pharmacist-review
+        skill: hitl.approve
+        inputs: {}
+governance:
+  phiHandling: none
+  purposeOfUse: [operations, research]
+  clearanceRequired: none
+  hitlGates:
+    - id: pharmacist-review
+      role: pharmacist
+      description: Pharmacist reviews FAERS signals and evidence before formulary suggestion
+      requiredArtifacts: [candidate-list, faers-summary]
+  breakGlassAllowed: false
+  evidenceRequired: [attribution:nlm, attribution:fda]
+billing:
+  baseFeeUsd: 0.50
+  meteredUnits:
+    - unit: llm.tokens.input
+      priceUsdPerUnit: 0.000003
+    - unit: llm.tokens.output
+      priceUsdPerUnit: 0.000015
+    - unit: tool.call
+      priceUsdPerUnit: 0.003
+    - unit: hitl.minutes
+      priceUsdPerUnit: 0.10
+  budgetCapMonthlyUsd: 250
+slas:
+  p95LatencyMs: 120000
+  maxCostUsd: 3.00
+labels:
+  setting: any
+  lifecycleStage: active-care
