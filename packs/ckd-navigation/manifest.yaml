@@ -1,0 +1,15 @@
+id: ckd-navigation
+version: 0.1.0
+extends:
+  - id: healthcare-core
+    version_range: ^0.2.0
+applies_to:
+  organization_kinds: [provider, health-system, practice]
+capabilities:
+  - ckd-stage-tracking
+  - modality-education
+  - transition-to-esrd
+required_controls:
+  - access-policy
+  - audit-provenance
+  - data-quality

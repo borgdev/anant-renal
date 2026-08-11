@@ -1,8 +1,8 @@
 id: dialysis-provider
-version: 0.1.0
+version: 0.2.0
 extends:
   - id: healthcare-core
-    version_range: ^0.1.0
+    version_range: ^0.2.0
 applies_to:
   organization_kinds: [provider, health-system]
   facility_kinds: [outpatient-dialysis, home-dialysis]
@@ -11,6 +11,8 @@ capabilities:
   - missed-treatment-recovery
   - scheduling-recovery
   - hospitalization-transition
+  - lab-review
+  - vascular-access-surveillance
   - qapi
   - esrd-quality-reporting
 cms_universe:

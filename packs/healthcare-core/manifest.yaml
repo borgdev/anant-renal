@@ -1,5 +1,5 @@
 id: healthcare-core
-version: 0.1.0
+version: 0.2.0
 extends: []
 applies_to:
   organization_kinds: [provider, payer, health-system, practice]
@@ -11,6 +11,7 @@ capabilities:
   - temporal-hypergraph
   - quality-and-evidence
   - simulation
+  - replay
 required_controls:
   - access-policy
   - audit-provenance

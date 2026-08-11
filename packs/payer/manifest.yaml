@@ -1,0 +1,17 @@
+id: payer
+version: 0.1.0
+extends:
+  - id: healthcare-core
+    version_range: ^0.2.0
+applies_to:
+  organization_kinds: [payer]
+capabilities:
+  - prior-authorization
+  - utilization-management
+  - appeals
+  - claims-adjudication-signal
+required_controls:
+  - access-policy
+  - audit-provenance
+  - data-quality
+  - simulation-suite

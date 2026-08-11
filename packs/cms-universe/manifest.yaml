@@ -1,0 +1,14 @@
+id: cms-universe
+version: 0.1.0
+extends:
+  - id: healthcare-core
+    version_range: ^0.2.0
+applies_to:
+  organization_kinds: [provider, payer, health-system, practice]
+capabilities:
+  - executable-regulatory-metadata
+  - measure-catalog
+  - reporting-obligations
+required_controls:
+  - access-policy
+  - audit-provenance
