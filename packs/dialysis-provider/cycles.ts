@@ -1,0 +1,3 @@
+export interface DialysisTreatmentCycle { id: string; patientId: string; facilityId: string; cadence: 'MWF' | 'TTS' | 'custom'; expectedIntervalsHours: number[]; timezone: string; phase: 'pre-treatment' | 'treatment-due' | 'post-treatment' | 'recovery'; }
+export function expectedGapHours(cycle: DialysisTreatmentCycle, treatmentIndex: number): number { return cycle.expectedIntervalsHours[treatmentIndex % cycle.expectedIntervalsHours.length] ?? 0; }
+export function hasCycleBreak(expectedAt: Date, completedAt: Date | undefined, toleranceMinutes: number, now = new Date()): boolean { if (!completedAt) return now.getTime() > expectedAt.getTime() + toleranceMinutes * 60_000; return Math.abs(completedAt.getTime() - expectedAt.getTime()) > toleranceMinutes * 60_000; }
