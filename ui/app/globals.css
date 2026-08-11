@@ -1,0 +1,41 @@
+:root {
+  color-scheme: light dark;
+  --bg: #0b0d10;
+  --panel: #121519;
+  --panel-2: #171b21;
+  --border: #232830;
+  --text: #e6ebf1;
+  --muted: #8a94a2;
+  --accent: #6ea8fe;
+  --accent-2: #7ce7c1;
+  --danger: #ff6b6b;
+  --warn: #f7c948;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: inherit; text-decoration: none; }
+
+.hh-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px; border-bottom: 1px solid var(--border); background: var(--panel); position: sticky; top: 0; z-index: 5; }
+.hh-brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: .5px; }
+.hh-logo { color: var(--accent-2); }
+.hh-nav { display: flex; gap: 16px; }
+.hh-nav-link { padding: 6px 10px; border-radius: 6px; color: var(--muted); font-size: 14px; }
+.hh-nav-link:hover { color: var(--text); background: var(--panel-2); }
+.hh-main { padding: 28px; max-width: 1200px; margin: 0 auto; }
+.hh-footer { border-top: 1px solid var(--border); padding: 16px 28px; color: var(--muted); font-size: 13px; text-align: center; }
+.hh-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+.hh-card h2 { margin: 0 0 10px 0; font-size: 18px; }
+.hh-card p { color: var(--muted); margin: 6px 0; line-height: 1.5; }
+.hh-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.hh-kv { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed var(--border); font-size: 14px; }
+.hh-kv:last-child { border-bottom: none; }
+.hh-kv .k { color: var(--muted); }
+.hh-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--panel-2); color: var(--muted); }
+.hh-tag.critical { background: rgba(255,107,107,.15); color: var(--danger); }
+.hh-tag.urgent { background: rgba(247,201,72,.15); color: var(--warn); }
+.hh-tag.ok { background: rgba(124,231,193,.15); color: var(--accent-2); }
+.hh-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.hh-table th, .hh-table td { padding: 10px; border-bottom: 1px solid var(--border); text-align: left; }
+.hh-table th { color: var(--muted); font-weight: 500; }
+h1 { font-size: 22px; margin: 0 0 20px 0; }
