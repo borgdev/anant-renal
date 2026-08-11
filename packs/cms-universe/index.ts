@@ -1,8 +1,10 @@
 // CMS-universe pack: turn CMS regulatory programs into executable metadata
-// that other packs can bind their measures and workflows to. Each entry has a
-// stable id, a citation, and the measures/controls it triggers.
+// that other packs can bind their measures and workflows to. This pack now
+// delegates to `CMSSourceRegistry` in healthcare-core and preserves a
+// backward-compatible `CMS_PROGRAMS` snapshot for existing consumers.
 
 import type { DomainPack } from '../../src/control-plane/pack-registry.js';
+import { seedCMSSources, CMSSourceRegistry, type CMSSource, type CMSMeasureSpec } from '../../src/healthcare-core/cms-source-registry.js';
 
 export interface CmsProgram {
   id: string;
@@ -16,39 +18,24 @@ export interface CmsProgram {
   effectiveFrom?: string;
 }
 
-export const CMS_PROGRAMS: readonly CmsProgram[] = [
-  {
-    id: 'esrd-conditions-for-coverage',
-    title: 'ESRD Conditions for Coverage',
-    authority: 'CMS',
-    citation: '42 CFR Part 494',
-    triggers: {
-      measures: ['esrd-qip.ktv-adequacy', 'esrd-qip.missed-treatment-ratio', 'esrd-qip.anemia-management'],
-      controls: ['access-policy', 'audit-provenance', 'data-quality'],
-    },
-    effectiveFrom: '2008-10-14',
-  },
-  {
-    id: 'esrd-qip',
-    title: 'ESRD Quality Incentive Program',
-    authority: 'CMS',
-    citation: '42 CFR §413.177-178',
-    triggers: {
-      measures: ['esrd-qip.ktv-adequacy', 'esrd-qip.missed-treatment-ratio', 'esrd-qip.anemia-management'],
-      controls: ['simulation-suite', 'observability-dashboard'],
-    },
-  },
-  {
-    id: 'esrd-pps',
-    title: 'ESRD Prospective Payment System',
-    authority: 'CMS',
-    citation: '42 CFR §413.230',
-    triggers: {
-      measures: [],
-      controls: ['audit-provenance', 'data-quality'],
-    },
-  },
-];
+/** Build the executable registry the harness runs against. */
+export function buildCMSRegistry(extraSources: readonly CMSSource[] = [], extraMeasures: readonly CMSMeasureSpec[] = []): CMSSourceRegistry {
+  const r = new CMSSourceRegistry();
+  for (const s of seedCMSSources) r.registerSource(s);
+  for (const s of extraSources) r.registerSource(s);
+  for (const m of extraMeasures) r.registerMeasure(m);
+  return r;
+}
+
+/** Backward-compatible snapshot of CMS programs, derived from the registry. */
+export const CMS_PROGRAMS: readonly CmsProgram[] = seedCMSSources.map((s) => ({
+  id: s.id,
+  title: s.title,
+  authority: s.steward as 'CMS' | 'CDC' | 'FDA',
+  citation: s.citation,
+  triggers: { measures: [], controls: ['audit-provenance', 'data-quality'] },
+  effectiveFrom: s.effectiveFrom,
+}));
 
 export function programsFor(measureId: string): CmsProgram[] {
   return CMS_PROGRAMS.filter((p) => p.triggers.measures.includes(measureId));
@@ -56,10 +43,16 @@ export function programsFor(measureId: string): CmsProgram[] {
 
 export const cmsUniversePack: DomainPack = Object.freeze({
   id: 'cms-universe',
-  version: '0.1.0',
+  version: '0.2.0',
   extends: [{ id: 'healthcare-core', versionRange: '^0.2.0' }],
   appliesTo: { organizationKinds: ['provider', 'payer', 'health-system', 'practice'] },
-  capabilities: ['executable-regulatory-metadata', 'measure-catalog', 'reporting-obligations'],
-  cmsUniverse: CMS_PROGRAMS.map((p) => ({ id: p.id, title: p.title, authority: p.authority, ...(p.effectiveFrom ? { effectiveFrom: p.effectiveFrom } : {}) })),
-  requiredControls: ['access-policy', 'audit-provenance'],
+  capabilities: [
+    'executable-regulatory-metadata',
+    'measure-catalog',
+    'reporting-obligations',
+    'source-change-detection',
+    'authoritative-registry',
+  ],
+  cmsUniverse: seedCMSSources.map((s) => ({ id: s.id, title: s.title, authority: s.steward, ...(s.effectiveFrom ? { effectiveFrom: s.effectiveFrom } : {}) })),
+  requiredControls: ['access-policy', 'audit-provenance', 'source-registry'],
 });
