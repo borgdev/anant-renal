@@ -57,3 +57,26 @@ See `ARCHITECTURE.md` for the deeper walk-through.
 ## License
 
 Private. All rights reserved.
+
+## M6 — Admin API + UI shell + Testcontainers
+
+Admin API (mounted by `buildApp` at `/admin/*`):
+
+| Route | Description |
+|---|---|
+| `GET /admin/summary` | Rollup counts across agents (per pack), CMS measures, assessments, lifecycle stages, and research sources |
+| `GET /admin/agents` | List all agents; supports `?pack=`, `?setting=`, `?lifecycleStage=`, `?q=` filters |
+| `GET /admin/agents/:id` | Full agent spec |
+| `GET /admin/measures` | CMS measure catalog; supports `?program=` filter |
+| `GET /admin/assessments` | Validated assessment library (PHQ-9, GAD-7, AUDIT-C, MoCA, Braden, Morse, KDQOL-36, MNA-SF, CAM, FRAIL, SDOH-5, ADL-Katz, IADL-Lawton) |
+| `GET /admin/lifecycle` | 11-stage patient lifecycle definition |
+| `GET /admin/research/sources` | 21 public research + pharma source specs |
+| `GET /admin/ui/*` | Static admin UI shell (see `admin-ui/index.html`) |
+
+Static admin UI shell at `admin-ui/index.html` — vanilla HTML/CSS/JS single-page app that
+consumes the admin API and renders summary, agents, measures, assessments, lifecycle,
+and research-source views.
+
+Integration tests: `tests/postgres-integration.test.ts` spins up a real Postgres via
+Testcontainers, applies the harness schema migrations, and roundtrips events. Skipped
+by default; run with `RUN_POSTGRES_IT=1 npm test`.

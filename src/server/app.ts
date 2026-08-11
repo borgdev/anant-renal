@@ -17,6 +17,7 @@
 // memory store and telemetry sink; production wires a real Postgres pool and
 // stdout sink from `bootstrap.ts`.
 
+import { registerAdminRoutes } from './admin-routes.js';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
@@ -135,5 +136,6 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     return { received: scenario.events?.length ?? 0, replayed: true };
   });
 
+  await registerAdminRoutes(app);
   return app;
 }

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Healthcare Harness — Admin</title>
+  <style>
+    :root { color-scheme: light dark; --fg:#111; --bg:#fafafa; --muted:#666; --card:#fff; --brand:#0d47a1; --border:#e6e6e6; }
+    @media (prefers-color-scheme: dark) { :root { --fg:#eee; --bg:#111; --muted:#aaa; --card:#1a1a1a; --brand:#7ab7ff; --border:#333; } }
+    * { box-sizing: border-box; }
+    html,body { margin:0; padding:0; font-family: system-ui, -apple-system, sans-serif; color:var(--fg); background:var(--bg); }
+    header { padding: 16px 24px; border-bottom: 1px solid var(--border); display:flex; align-items:center; gap:16px; }
+    header h1 { margin:0; font-size:18px; }
+    nav { padding: 12px 24px; display:flex; gap:8px; border-bottom:1px solid var(--border); flex-wrap: wrap; }
+    nav button { background:transparent; border:1px solid var(--border); color:var(--fg); padding:8px 12px; border-radius:6px; cursor:pointer; font-size:13px; }
+    nav button.active { background:var(--brand); color:white; border-color:var(--brand); }
+    main { padding: 24px; }
+    .cards { display:grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin-bottom: 24px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; }
+    .card .num { font-size: 32px; font-weight: 700; color: var(--brand); }
+    .card .label { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    table { width:100%; border-collapse: collapse; background: var(--card); border:1px solid var(--border); border-radius:8px; overflow:hidden; font-size: 13px; }
+    th,td { text-align:left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { background: color-mix(in srgb, var(--brand) 5%, var(--bg)); font-weight: 600; }
+    tr:last-child td { border-bottom: none; }
+    .filters { display:flex; gap:8px; margin-bottom:12px; flex-wrap: wrap; }
+    .filters input, .filters select { padding: 8px 10px; border:1px solid var(--border); border-radius:6px; background: var(--card); color: var(--fg); font-size: 13px; }
+    .pill { display:inline-block; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--brand) 15%, transparent); color: var(--brand); font-size: 11px; }
+    pre { background: var(--card); border:1px solid var(--border); border-radius:6px; padding:12px; overflow:auto; font-size:12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Healthcare Harness — Admin</h1>
+    <span class="pill" id="ver">loading…</span>
+  </header>
+  <nav>
+    <button class="active" data-view="summary">Summary</button>
+    <button data-view="agents">Agents</button>
+    <button data-view="measures">CMS measures</button>
+    <button data-view="assessments">Assessments</button>
+    <button data-view="lifecycle">Lifecycle</button>
+    <button data-view="research">Research sources</button>
+  </nav>
+  <main id="app">Loading…</main>
+  <script>
+    const api = (p) => fetch(p).then(r => r.json());
+    const app = document.getElementById('app');
+    const nav = document.querySelector('nav');
+    let currentView = 'summary';
+
+    function h(html){ return html; }
+    function esc(s){ return String(s ?? '').replace(/[&<>"']/g,(c)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+    async function render() {
+      if (currentView === 'summary') {
+        const s = await api('/admin/summary');
+        document.getElementById('ver').textContent = `v${s.agents.total} agents · ${s.measures.total} measures`;
+        const rows = Object.entries(s.agents.byPack).map(([k,v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join('');
+        app.innerHTML = h(`
+          <div class="cards">
+            <div class="card"><div class="num">${s.agents.total}</div><div class="label">agents (all packs)</div></div>
+            <div class="card"><div class="num">${s.measures.total}</div><div class="label">CMS measures</div></div>
+            <div class="card"><div class="num">${s.assessments.total}</div><div class="label">validated assessments</div></div>
+            <div class="card"><div class="num">${s.lifecycleStages}</div><div class="label">patient lifecycle stages</div></div>
+            <div class="card"><div class="num">${s.researchSources}</div><div class="label">research + pharma sources</div></div>
+          </div>
+          <table><thead><tr><th>Pack</th><th>Agents</th></tr></thead><tbody>${rows}</tbody></table>
+        `);
+      } else if (currentView === 'agents') {
+        app.innerHTML = h(`
+          <div class="filters">
+            <select id="pack"><option value="">All packs</option>${['flagship-agents','dialysis-deep','primary-care-deep','urgent-care-deep','research-pharma','dialysis-provider'].map(p=>`<option>${p}</option>`).join('')}</select>
+            <input id="q" placeholder="Search agents…" />
+          </div>
+          <div id="agents-body">Loading…</div>
+        `);
+        const load = async () => {
+          const pack = document.getElementById('pack').value;
+          const q = document.getElementById('q').value;
+          const qs = new URLSearchParams();
+          if (pack) qs.set('pack', pack);
+          if (q) qs.set('q', q);
+          const data = await api('/admin/agents?' + qs.toString());
+          document.getElementById('agents-body').innerHTML = h(`
+            <p style="color:var(--muted);font-size:13px;">Showing ${data.count} of ${data.total}</p>
+            <table><thead><tr><th>ID</th><th>Name</th><th>Pack</th><th>Setting</th><th>Trigger</th><th>Base fee</th></tr></thead>
+            <tbody>${data.agents.map(a=>`<tr><td><code>${esc(a.id)}</code></td><td>${esc(a.displayName)}</td><td><span class="pill">${esc(a.packId)}</span></td><td>${esc(a.setting ?? '')}</td><td>${esc(a.triggerKind)}${a.triggerEventType?': '+esc(a.triggerEventType):''}</td><td>${a.baseFeeUsd?'$'+a.baseFeeUsd:''}</td></tr>`).join('')}</tbody></table>
+          `);
+        };
+        document.getElementById('pack').addEventListener('change', load);
+        document.getElementById('q').addEventListener('input', () => { clearTimeout(window.__t); window.__t = setTimeout(load, 200); });
+        load();
+      } else if (currentView === 'measures') {
+        const d = await api('/admin/measures');
+        app.innerHTML = h(`<table><thead><tr><th>ID</th><th>Program</th><th>Description</th></tr></thead><tbody>${d.measures.map(m=>`<tr><td><code>${esc(m.id)}</code></td><td>${esc(m.programId ?? '')}</td><td>${esc(m.name ?? m.description ?? '')}</td></tr>`).join('')}</tbody></table>`);
+      } else if (currentView === 'assessments') {
+        const d = await api('/admin/assessments');
+        app.innerHTML = h(`<table><thead><tr><th>ID</th><th>Title</th><th>LOINC</th><th>Domain</th><th>Items</th></tr></thead><tbody>${d.assessments.map(a=>`<tr><td><code>${esc(a.id)}</code></td><td>${esc(a.title)}</td><td>${esc(a.loinc ?? '')}</td><td>${esc(a.domain)}</td><td>${a.itemCount}</td></tr>`).join('')}</tbody></table>`);
+      } else if (currentView === 'lifecycle') {
+        const d = await api('/admin/lifecycle');
+        app.innerHTML = h(`<table><thead><tr><th>#</th><th>ID</th><th>Description</th></tr></thead><tbody>${d.stages.map((s,i)=>`<tr><td>${i+1}</td><td><code>${esc(s.id)}</code></td><td>${esc(s.description ?? s.name ?? '')}</td></tr>`).join('')}</tbody></table>`);
+      } else if (currentView === 'research') {
+        const d = await api('/admin/research/sources');
+        app.innerHTML = h(`<table><thead><tr><th>ID</th><th>Name</th><th>Kind</th><th>URL</th></tr></thead><tbody>${d.sources.map(s=>`<tr><td><code>${esc(s.id)}</code></td><td>${esc(s.name)}</td><td>${esc(s.kind ?? '')}</td><td><a href="${esc(s.baseUrl ?? s.url ?? '#')}" target="_blank">${esc(s.baseUrl ?? s.url ?? '')}</a></td></tr>`).join('')}</tbody></table>`);
+      }
+    }
+
+    nav.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-view]');
+      if (!btn) return;
+      nav.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentView = btn.dataset.view;
+      render();
+    });
+    render();
+  </script>
+</body>
+</html>
