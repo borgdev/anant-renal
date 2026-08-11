@@ -1,0 +1,63 @@
+id: drug-drug-interaction-check
+version: 1.0.0
+packId: flagship-agents
+displayName: "Drug-Drug Interaction Check"
+description: >
+  Runs DDI against active med list + new order using RxNav Interaction API; classifies severity; blocks or warns; requests pharmacist override for major.
+scope: facility
+trigger:
+  kind: event
+  eventType: medication.prescribed
+inputs:
+  patientId:
+    type: string
+    required: true
+    description: Patient identifier
+outputs:
+  resultRef:
+    type: string
+    description: Result artifact reference
+plan:
+  type: sequence
+  children:
+    - type: step
+      step:
+        id: build-payload
+        skill: sql.query
+        inputs: {}
+    - type: step
+      step:
+        id: call-rxnav
+        skill: http.call
+        inputs: {}
+    - type: step
+      step:
+        id: pharmacist-override
+        skill: hitl.approve
+        inputs: {}
+
+governance:
+  phiHandling: read-write
+  purposeOfUse: [treatment, operations]
+  clearanceRequired: phi
+  hitlGates: []
+  breakGlassAllowed: false
+  evidenceRequired: []
+billing:
+  baseFeeUsd: 0.10
+  meteredUnits:
+    - unit: llm.tokens.input
+      priceUsdPerUnit: 0.000003
+    - unit: llm.tokens.output
+      priceUsdPerUnit: 0.000015
+    - unit: tool.call
+      priceUsdPerUnit: 0.002
+    - unit: hitl.minutes
+      priceUsdPerUnit: 0.05
+  budgetCapMonthlyUsd: 200
+slas:
+  p95LatencyMs: 30000
+  maxCostUsd: 0.75
+labels:
+  setting: any
+  lifecycleStage: active-care

@@ -1,0 +1,63 @@
+id: sdoh-community-resource-referral
+version: 1.0.0
+packId: flagship-agents
+displayName: "SDOH Community Resource Referral"
+description: >
+  On SDOH-positive screen, matches identified needs (food, housing, transportation, utilities, safety) to CBOs via Unite Us / Findhelp; tracks acceptance and outcomes.
+scope: facility
+trigger:
+  kind: event
+  eventType: sdoh.screen.positive
+inputs:
+  patientId:
+    type: string
+    required: true
+    description: Patient identifier
+outputs:
+  resultRef:
+    type: string
+    description: Result artifact reference
+plan:
+  type: sequence
+  children:
+    - type: step
+      step:
+        id: match-cbo
+        skill: http.call
+        inputs: {}
+    - type: step
+      step:
+        id: draft-referral
+        skill: llm.call
+        inputs: {}
+    - type: step
+      step:
+        id: send-referral
+        skill: http.call
+        inputs: {}
+
+governance:
+  phiHandling: read-write
+  purposeOfUse: [treatment, operations]
+  clearanceRequired: phi
+  hitlGates: []
+  breakGlassAllowed: false
+  evidenceRequired: []
+billing:
+  baseFeeUsd: 0.10
+  meteredUnits:
+    - unit: llm.tokens.input
+      priceUsdPerUnit: 0.000003
+    - unit: llm.tokens.output
+      priceUsdPerUnit: 0.000015
+    - unit: tool.call
+      priceUsdPerUnit: 0.002
+    - unit: hitl.minutes
+      priceUsdPerUnit: 0.05
+  budgetCapMonthlyUsd: 200
+slas:
+  p95LatencyMs: 30000
+  maxCostUsd: 0.75
+labels:
+  setting: any
+  lifecycleStage: active-care

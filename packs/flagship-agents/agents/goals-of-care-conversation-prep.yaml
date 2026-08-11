@@ -1,0 +1,58 @@
+id: goals-of-care-conversation-prep
+version: 1.0.0
+packId: flagship-agents
+displayName: "Goals-of-Care Conversation Prep"
+description: >
+  Drafts a personalized Serious Illness Conversation Guide with prognosis framing, preference elicitation prompts, POLST/DNR status.
+scope: facility
+trigger:
+  kind: event
+  eventType: palliative.consult.ordered
+inputs:
+  patientId:
+    type: string
+    required: true
+    description: Patient identifier
+outputs:
+  resultRef:
+    type: string
+    description: Result artifact reference
+plan:
+  type: sequence
+  children:
+    - type: step
+      step:
+        id: pull-context
+        skill: sql.query
+        inputs: {}
+    - type: step
+      step:
+        id: draft-guide
+        skill: llm.call
+        inputs: {}
+
+governance:
+  phiHandling: read-write
+  purposeOfUse: [treatment, operations]
+  clearanceRequired: phi
+  hitlGates: []
+  breakGlassAllowed: false
+  evidenceRequired: []
+billing:
+  baseFeeUsd: 0.10
+  meteredUnits:
+    - unit: llm.tokens.input
+      priceUsdPerUnit: 0.000003
+    - unit: llm.tokens.output
+      priceUsdPerUnit: 0.000015
+    - unit: tool.call
+      priceUsdPerUnit: 0.002
+    - unit: hitl.minutes
+      priceUsdPerUnit: 0.05
+  budgetCapMonthlyUsd: 200
+slas:
+  p95LatencyMs: 30000
+  maxCostUsd: 0.75
+labels:
+  setting: any
+  lifecycleStage: palliative

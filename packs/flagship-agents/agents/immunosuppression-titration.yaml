@@ -1,0 +1,63 @@
+id: immunosuppression-titration
+version: 1.0.0
+packId: flagship-agents
+displayName: "Immunosuppression Titration"
+description: >
+  Trough-based tacrolimus/CNI titration recommendation with pharmacist HITL; monitors drug levels, kidney function, DSA.
+scope: facility
+trigger:
+  kind: event
+  eventType: lab.resulted
+inputs:
+  patientId:
+    type: string
+    required: true
+    description: Patient identifier
+outputs:
+  resultRef:
+    type: string
+    description: Result artifact reference
+plan:
+  type: sequence
+  children:
+    - type: step
+      step:
+        id: pull-trough
+        skill: sql.query
+        inputs: {}
+    - type: step
+      step:
+        id: propose-adjustment
+        skill: llm.call
+        inputs: {}
+    - type: step
+      step:
+        id: pharmacist-approval
+        skill: hitl.approve
+        inputs: {}
+
+governance:
+  phiHandling: read-write
+  purposeOfUse: [treatment, operations]
+  clearanceRequired: phi
+  hitlGates: []
+  breakGlassAllowed: false
+  evidenceRequired: []
+billing:
+  baseFeeUsd: 0.10
+  meteredUnits:
+    - unit: llm.tokens.input
+      priceUsdPerUnit: 0.000003
+    - unit: llm.tokens.output
+      priceUsdPerUnit: 0.000015
+    - unit: tool.call
+      priceUsdPerUnit: 0.002
+    - unit: hitl.minutes
+      priceUsdPerUnit: 0.05
+  budgetCapMonthlyUsd: 200
+slas:
+  p95LatencyMs: 30000
+  maxCostUsd: 0.75
+labels:
+  setting: transplant-center
+  lifecycleStage: post-transplant

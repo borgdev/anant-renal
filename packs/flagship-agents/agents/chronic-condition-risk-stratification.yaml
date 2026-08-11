@@ -1,0 +1,63 @@
+id: chronic-condition-risk-stratification
+version: 1.0.0
+packId: flagship-agents
+displayName: "Chronic Condition Risk Stratification"
+description: >
+  Daily re-scores CKD, HF, DM cohorts by risk tier; publishes to care team dashboards; triggers care-manager outreach for tier upgrades.
+scope: facility
+trigger:
+  kind: event
+  eventType: daily.batch
+inputs:
+  patientId:
+    type: string
+    required: true
+    description: Patient identifier
+outputs:
+  resultRef:
+    type: string
+    description: Result artifact reference
+plan:
+  type: sequence
+  children:
+    - type: step
+      step:
+        id: compute-risk
+        skill: sql.query
+        inputs: {}
+    - type: step
+      step:
+        id: stratify
+        skill: llm.call
+        inputs: {}
+    - type: step
+      step:
+        id: notify-care-team
+        skill: http.call
+        inputs: {}
+
+governance:
+  phiHandling: read-write
+  purposeOfUse: [treatment, operations]
+  clearanceRequired: phi
+  hitlGates: []
+  breakGlassAllowed: false
+  evidenceRequired: []
+billing:
+  baseFeeUsd: 0.10
+  meteredUnits:
+    - unit: llm.tokens.input
+      priceUsdPerUnit: 0.000003
+    - unit: llm.tokens.output
+      priceUsdPerUnit: 0.000015
+    - unit: tool.call
+      priceUsdPerUnit: 0.002
+    - unit: hitl.minutes
+      priceUsdPerUnit: 0.05
+  budgetCapMonthlyUsd: 200
+slas:
+  p95LatencyMs: 30000
+  maxCostUsd: 0.75
+labels:
+  setting: primary-care
+  lifecycleStage: active-care
