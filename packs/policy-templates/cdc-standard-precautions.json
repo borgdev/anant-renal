@@ -1,0 +1,28 @@
+{
+  "title": "Standard Precautions for All Patient Care",
+  "authority": "CDC",
+  "citation": "CDC Guidelines for Isolation Precautions 2007 (updated 2024)",
+  "url": "https://www.cdc.gov/infection-control/hcp/isolation-precautions/index.html",
+  "version": "2024",
+  "effectiveFrom": "2007-06-01",
+  "sections": [
+    {
+      "path": "HH",
+      "title": "Hand Hygiene",
+      "ordinal": 1,
+      "body": "Healthcare personnel must perform hand hygiene before touching a patient, before clean or aseptic procedures, after body-fluid exposure risk, after touching a patient, and after touching patient surroundings. Alcohol-based hand rub is preferred except when hands are visibly soiled. Soap and water must be used when hands are visibly soiled or after care of a patient with suspected or proven Clostridioides difficile."
+    },
+    {
+      "path": "PPE",
+      "title": "Personal Protective Equipment",
+      "ordinal": 2,
+      "body": "Personnel must select PPE based on anticipated exposure. Gloves must be worn when contact with blood, body fluids, mucous membranes, non-intact skin, or contaminated surfaces is anticipated. Gowns must be worn during procedures likely to generate splashes. Masks and eye protection must be worn during procedures likely to generate splashes or sprays. Personnel are required to remove PPE in a manner that prevents contamination and to perform hand hygiene immediately after removal."
+    },
+    {
+      "path": "IS",
+      "title": "Injection Safety",
+      "ordinal": 3,
+      "body": "Personnel must use aseptic technique to avoid contamination of sterile injection equipment. Needles, cannulas, and syringes are sterile single-use items and must not be reused for another patient. Single-dose vials must be used for only one patient. Personnel must not administer medications from single-dose vials to multiple patients. Multi-dose vials must be dedicated to a single patient whenever possible."
+    }
+  ]
+}

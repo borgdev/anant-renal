@@ -1,0 +1,28 @@
+{
+  "title": "Bloodborne Pathogens Standard",
+  "authority": "OSHA",
+  "citation": "29 CFR 1910.1030",
+  "url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.1030",
+  "version": "2024",
+  "effectiveFrom": "1991-12-06",
+  "sections": [
+    {
+      "path": "d",
+      "title": "Methods of Compliance",
+      "ordinal": 1,
+      "body": "Employers must use universal precautions to prevent contact with blood or other potentially infectious materials. Engineering and work practice controls shall be used to eliminate or minimize employee exposure. Where occupational exposure remains after institution of these controls, personal protective equipment shall also be used. Employers are required to ensure that employees use appropriate personal protective equipment."
+    },
+    {
+      "path": "f",
+      "title": "Hepatitis B Vaccination and Post-Exposure Follow-Up",
+      "ordinal": 2,
+      "body": "Employers must make available the hepatitis B vaccine and vaccination series to all employees who have occupational exposure. The vaccine must be made available within 10 working days of initial assignment. Post-exposure evaluation and follow-up must be made available at no cost to any employee who has had an exposure incident. All post-exposure follow-up must be documented in the employee medical record."
+    },
+    {
+      "path": "g",
+      "title": "Training",
+      "ordinal": 3,
+      "body": "Employers shall ensure that all employees with occupational exposure participate in a training program at no cost to the employee. Training must be provided at the time of initial assignment and at least annually thereafter. Training records shall be maintained for 3 years from the date on which the training occurred."
+    }
+  ]
+}

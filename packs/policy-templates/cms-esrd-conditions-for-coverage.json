@@ -1,0 +1,34 @@
+{
+  "title": "ESRD Conditions for Coverage - 42 CFR Part 494 (SOM Appendix H)",
+  "authority": "CMS",
+  "citation": "42 CFR 494",
+  "url": "https://www.ecfr.gov/current/title-42/chapter-IV/subchapter-G/part-494",
+  "version": "2024-01-01",
+  "effectiveFrom": "2008-10-14",
+  "sections": [
+    {
+      "path": "494.60",
+      "title": "Condition: Physical Environment",
+      "ordinal": 1,
+      "body": "The dialysis facility must be designed, constructed, equipped and maintained to provide dialysis patients, staff and the public a safe, functional and comfortable treatment environment. The facility must provide and maintain a safe physical environment for patients, staff and visitors. The facility must have a plan for management of medical emergencies. Staff must be trained in emergency preparedness and demonstrate competency annually."
+    },
+    {
+      "path": "494.80",
+      "title": "Condition: Patient Assessment",
+      "ordinal": 2,
+      "body": "The interdisciplinary team must provide each patient with an individualized and comprehensive assessment of the patient's needs. The comprehensive assessment must be used to develop the patient's plan of care. The initial comprehensive assessment must be completed no later than the latter of 30 calendar days or 13 outpatient hemodialysis sessions beginning with the first outpatient dialysis session. A reassessment must occur at least annually for stable patients and at least monthly for unstable patients. The interdisciplinary team must include the patient or the patient's designee, a registered nurse, a physician treating the patient for ESRD, a social worker, and a dietitian."
+    },
+    {
+      "path": "494.90",
+      "title": "Condition: Patient Plan of Care",
+      "ordinal": 3,
+      "body": "The interdisciplinary team must develop and implement a written, individualized comprehensive plan of care that specifies the services necessary to address the patient's needs. The plan of care must address the patient's dose of dialysis, nutritional status, mineral metabolism, anemia, vascular access, psychosocial status, modality options including home dialysis and transplantation status. The plan of care must be evaluated by the interdisciplinary team and must be signed by team members. For adult in-center hemodialysis patients, the facility must achieve a delivered dose of hemodialysis with a spKt/V of at least 1.2 for adult patients using thrice weekly conventional hemodialysis prescription."
+    },
+    {
+      "path": "494.180",
+      "title": "Condition: Governance",
+      "ordinal": 4,
+      "body": "The dialysis facility is under the control of an identifiable governing body, or designated person(s) with full legal authority and responsibility for the governance and operation of the facility. The governing body adopts and enforces rules and regulations. The medical director is responsible for the delivery of patient care and outcomes in the facility. Facilities must report to the CMS designated data repository all measure data required for the ESRD Quality Incentive Program."
+    }
+  ]
+}

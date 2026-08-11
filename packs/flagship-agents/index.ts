@@ -14,5 +14,6 @@ export const flagshipAgentsPack: DomainPack = Object.freeze({
     'reference-implementation',
     'lifecycle-spanning-workflows',
   ],
+  cmsUniverse: [],
   requiredControls: ['access-policy', 'audit-provenance', 'phi-handling', 'billing-metering'],
 });

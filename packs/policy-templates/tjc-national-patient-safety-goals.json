@@ -1,0 +1,34 @@
+{
+  "title": "National Patient Safety Goals - Hospital 2025",
+  "authority": "TJC",
+  "citation": "TJC NPSG 2025 (Hospital)",
+  "url": "https://www.jointcommission.org/standards/national-patient-safety-goals/",
+  "version": "2025",
+  "effectiveFrom": "2025-01-01",
+  "sections": [
+    {
+      "path": "NPSG.01.01.01",
+      "title": "Identify patients correctly",
+      "ordinal": 1,
+      "body": "Use at least two patient identifiers when providing care, treatment or services. Do not use the patient's room number or physical location as an identifier. Identifiers must include one that is patient-specific such as name and one such as date of birth or medical record number. Verification is required prior to any medication administration, procedure, or transfusion."
+    },
+    {
+      "path": "NPSG.03.06.01",
+      "title": "Maintain and communicate accurate patient medication information",
+      "ordinal": 2,
+      "body": "Obtain and document information on the medications the patient is currently taking. Compare the medication information the patient brought to the hospital with the medications ordered for the patient in order to identify and resolve discrepancies. Provide the patient with written information on the medications the patient should be taking when discharged. Explain the importance of managing medication information to the patient."
+    },
+    {
+      "path": "NPSG.07.01.01",
+      "title": "Prevent infection through hand hygiene",
+      "ordinal": 3,
+      "body": "Comply with either the current Centers for Disease Control and Prevention hand hygiene guidelines or the current World Health Organization hand hygiene guidelines. Set goals for improving compliance with hand hygiene guidelines. Improve compliance with hand hygiene guidelines based on established goals."
+    },
+    {
+      "path": "NPSG.15.01.01",
+      "title": "Reduce the risk for suicide",
+      "ordinal": 4,
+      "body": "Conduct an environmental risk assessment that identifies features in the physical environment that could be used to attempt suicide. Screen all patients being evaluated or treated for behavioral health conditions as their primary reason for care using a validated screening tool. Use an evidence-based process to conduct a suicide assessment of patients who have screened positive for suicidal ideation."
+    }
+  ]
+}

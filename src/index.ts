@@ -10,3 +10,5 @@ export * from './config/index.js';
 export * from './ontology/index.js';
 export * from './lifecycle/index.js';
 export * from './assessments/index.js';
+export * as policyGraph from './policy-graph/index.js';
+export * as manualIngestion from './ingestion/index.js';
