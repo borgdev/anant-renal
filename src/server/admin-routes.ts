@@ -308,6 +308,72 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     return r.selfModel.narrativeTemplate(presence, r.episodes);
   });
 
+  // ---- M12 routes ----
+
+  // Approvals queue (HITL)
+  app.get<{ Params: { id: string }; Querystring: { status?: string } }>('/admin/realms/:id/approvals', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    const items = req.query.status === 'pending' ? r.hitl.pending() : r.hitl.all();
+    return { items, gates: r.hitl.listGates() };
+  });
+
+  app.post<{ Params: { id: string; approvalId: string }; Body: { decision: 'approve' | 'reject'; decidedBy: string; note?: string } }>('/admin/realms/:id/approvals/:approvalId/decide', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    try {
+      const rec = r.hitl.decide(req.params.approvalId, req.body.decision, req.body.decidedBy, req.body.note);
+      return { decided: rec };
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message });
+    }
+  });
+
+  // Cost / outcome rollup
+  app.get<{ Params: { id: string } }>('/admin/realms/:id/cost', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    return { rollup: r.cost.rollup(), records: r.cost.list() };
+  });
+
+  // Intent submission + plan retrieval
+  app.post<{ Params: { id: string }; Body: { intentKind: string; subjectRef?: string; description: string; priority: 'low' | 'normal' | 'high' | 'critical'; by: string } }>('/admin/realms/:id/intents', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    try {
+      const result = await r.submitIntent(req.body);
+      return result;
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>('/admin/realms/:id/intents', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    return { intents: r.listIntents(), plans: r.listPlans() };
+  });
+
+  // Org-graph
+  app.get<{ Params: { id: string } }>('/admin/realms/:id/org', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    return { nodes: r.graph.listKind('org-node').map((n) => ({ id: n.id, ...n.state })) };
+  });
+
+  // Operator seat — parse + apply
+  app.post<{ Params: { id: string }; Body: { text: string; adminPresenceId: string; apply?: boolean } }>('/admin/realms/:id/operator', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    const parsed = await r.operatorSeat.parse(req.body.text);
+    if (!parsed) return reply.code(400).send({ error: 'unparseable-directive', hint: 'try: spawn a nurse in unit-a; bias nurse-1 toward hold-med by 0.3; get pt-1 discharged safely; explain nurse-1' });
+    if (req.body.apply === true) {
+      const result = r.operatorSeat.apply(parsed, req.body.adminPresenceId);
+      return { parsed, applied: result };
+    }
+    return { parsed, applied: null };
+  });
+
   // GET /admin/summary — count-only rollup for admin dashboard
   app.get('/admin/summary', async () => {
     const agents = loadAllAgents();

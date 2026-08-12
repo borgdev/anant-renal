@@ -21,7 +21,16 @@ export type EntityKind =
   | 'insurance'
   | 'agent-run'
   | 'presence'
-  | 'effect';
+  | 'effect'
+  // M12 additions — org, physical, work-artifact
+  | 'org-node'          // department, team, role node in the org-graph
+  | 'physical-object'   // chair, station, machine, cart, room-resource
+  | 'work-artifact'     // ticket, task, document, call, approval
+  | 'intent'            // top-level goal an operator or agent pursues
+  | 'plan'              // decomposed plan-graph for an intent
+  | 'approval'          // HITL suspension record
+  | 'cost-record'       // per-episode scored outcome vector
+  | 'operator-directive'; // NL directive from the operator seat
 
 export type EntityUrn = `urn:realm:${string}:${EntityKind}:${string}`;
 
@@ -87,7 +96,25 @@ export type WorldEffect =
   | { kind: 'flag-safety-event'; patientId: string; safetyKind: string; severity: 'low' | 'moderate' | 'high' | 'critical' }
   | { kind: 'submit-claim'; encounterId: string; payerId: string; cptCodes: string[]; icd10Codes: string[] }
   | { kind: 'request-prior-auth'; patientId: string; payerId: string; serviceCode: string }
-  | { kind: 'record-agent-thought'; note: string }; // observability
+  | { kind: 'record-agent-thought'; note: string } // observability
+  // ---- M12 additions ----
+  // Physical-object interaction
+  | { kind: 'assign-object'; objectId: string; toPatientId?: string; toPresenceId?: string; reason?: string }
+  | { kind: 'release-object'; objectId: string; reason?: string }
+  | { kind: 'mark-object-state'; objectId: string; newState: 'idle' | 'in-use' | 'cleaning' | 'maintenance' | 'down'; reason?: string }
+  // Work-artifact lifecycle (tickets, tasks, documents, calls, approvals)
+  | { kind: 'open-ticket'; ticketKind: string; subjectRef?: string; assigneeRole?: string; priority: 'low' | 'normal' | 'high' | 'critical'; summary: string }
+  | { kind: 'update-ticket'; ticketId: string; patch: Record<string, unknown> }
+  | { kind: 'close-ticket'; ticketId: string; resolution: 'resolved' | 'wont-fix' | 'duplicate' | 'escalated'; note?: string }
+  // Org-graph escalation
+  | { kind: 'escalate'; fromRole: string; toRole: string; artifactRef?: string; reason: string }
+  // Intent + plan
+  | { kind: 'submit-intent'; intentKind: string; subjectRef?: string; description: string; priority: 'low' | 'normal' | 'high' | 'critical' }
+  | { kind: 'advance-plan'; planId: string; stepId: string; outcome: 'started' | 'completed' | 'blocked' | 'aborted'; note?: string }
+  // Approval / HITL
+  | { kind: 'approve-effect'; approvalId: string; decision: 'approve' | 'reject'; note?: string }
+  // Operator seat directives (recorded as effects so they're auditable)
+  | { kind: 'operator-directive'; verb: 'spawn' | 'nudge-preference' | 'add-rule' | 'submit-intent' | 'explain'; targetRef?: string; payload: Record<string, unknown>; originalText: string };
 
 export interface EmittedEffect {
   effectId: string;

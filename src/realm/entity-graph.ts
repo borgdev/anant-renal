@@ -67,6 +67,16 @@ export class EntityGraph {
     this.indexRelation(rel, urn, target);
   }
 
+  /** Forward relation lookup: entities that this urn points to via rel.
+   *  Also supports '<rel>-inv' as an inverse-relation lookup. */
+  related(urn: EntityUrn, rel: string): EntityUrn[] {
+    if (rel.endsWith('-inv')) {
+      const base = rel.slice(0, -4);
+      return [...(this.byRelation.get(`${base}:to:${urn}`) ?? [])];
+    }
+    return [...(this.byRelation.get(`${rel}:from:${urn}`) ?? [])];
+  }
+
   listKind(kind: EntityKind): EntityRecord[] {
     const set = this.byKind.get(kind);
     if (!set) return [];

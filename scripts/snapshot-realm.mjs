@@ -94,6 +94,48 @@ if (meds5.length > 0) {
 }
 for (let i = 0; i < 6; i++) realm.clock.advanceBy(60 * 60 * 1000);
 
+// ==== M12 scenarios ====
+// Seed physical objects (dialysis chairs) and tickets, run intents through the planner,
+// exercise HITL gates, and record an operator directive so the UI shows all M12 primitives.
+for (let i = 1; i <= 4; i++) {
+  realm.graph.create('physical-object', `chair-${i}`, { objectKind: 'chair', state: 'idle', locationUnitId: i <= 2 ? 'dvc-nash-ICH-A' : 'dvc-nash-ICH-B' });
+}
+realm.graph.create('physical-object', 'ro-machine-1', { objectKind: 'ro-system', state: 'idle', locationUnitId: 'dvc-nash-facility' });
+
+// Assign a chair to a patient, mark another for maintenance
+realm.emit(rnA.presence.presenceId, { kind: 'assign-object', objectId: 'chair-1', toPatientId: 'dvc-nash-pt-0001', reason: 'session start' });
+realm.emit(rnA.presence.presenceId, { kind: 'mark-object-state', objectId: 'chair-3', newState: 'maintenance', reason: 'weekly clean' });
+
+// Open an IT/facilities ticket and close it
+const t1 = realm.emit(rnB.presence.presenceId, { kind: 'open-ticket', ticketKind: 'facilities', assigneeRole: 'facilities-tech', priority: 'high', summary: 'RO alarm on ro-machine-1', subjectRef: 'ro-machine-1' });
+const t1Id = realm.graph.listKind('work-artifact').filter((w) => (w.state).ticketKind === 'facilities')[0]?.id;
+if (t1Id) realm.emit(rnB.presence.presenceId, { kind: 'close-ticket', ticketId: t1Id, resolution: 'resolved', note: 'RO valve reseated' });
+
+// Submit a real intent → plan
+await realm.submitIntent({ intentKind: 'discharge-patient-safely', subjectRef: 'dvc-nash-pt-0006', description: 'Safe discharge pt-0006 to home', priority: 'normal', by: md.presence.presenceId });
+await realm.submitIntent({ intentKind: 'fix-station', subjectRef: 'chair-3', description: 'Chair 3 needs service', priority: 'high', by: rnA.presence.presenceId });
+
+// Trigger a HITL gate: a critical safety event should be suspended
+realm.emit(safety.presence.presenceId, { kind: 'flag-safety-event', patientId: 'dvc-nash-pt-0002', safetyKind: 'anaphylaxis', severity: 'critical' });
+// And a high-dollar claim gate (>=4 CPT codes)
+realm.emit(coder.presence.presenceId, { kind: 'submit-claim', encounterId: 'dvc-nash-enc-0001', payerId: 'medicare-part-b', cptCodes: ['90999', '99215', '90935', '90945'], icd10Codes: ['N18.6'] });
+
+// Approve the first pending HITL entry so we get a full round-trip visible.
+const pending = realm.hitl.pending();
+if (pending.length > 0) {
+  realm.hitl.decide(pending[0].approvalId, 'approve', 'admin-demo', 'Reviewed — legitimate.');
+}
+
+// Spawn an admin presence and record an operator directive so audit log has one
+const adminP = realm.spawnPresence({
+  agentSpecId: 'admin-console', runId: 'admin-run', role: 'admin', clearance: 'internal', purposeOfUse: ['operations'],
+  location: { facilityId: 'dvc-nash' }, perceptualRange: { units: ['*'], patients: [], eventTypes: ['*'] },
+});
+const directive = await realm.operatorSeat.parse(`bias ${rnA.presence.presenceId} toward hold-med by 0.25`);
+if (directive) realm.operatorSeat.apply(directive, adminP.presenceId);
+
+for (let i = 0; i < 4; i++) realm.clock.advanceBy(60 * 60 * 1000);
+
 // ==== Build the payload the static UI consumes ====
 const snap = realm.snapshot();
 const units = realm.graph.listKind('unit').map((u) => ({ id: u.id, code: (u.state).code }));
@@ -165,6 +207,17 @@ lifecycle.cohorts.discharged = 1;
 lifecycle.cohorts.transplant = 0;
 lifecycle.cohorts.mortality = 0;
 
+// M12 payload extensions
+const orgNodes = realm.graph.listKind('org-node').map((n) => ({ id: n.id, ...n.state }));
+const physicalObjects = realm.graph.listKind('physical-object').map((o) => ({ id: o.id, ...o.state }));
+const workArtifacts = realm.graph.listKind('work-artifact').map((w) => ({ id: w.id, ...w.state }));
+const intents = realm.listIntents();
+const plans = realm.listPlans();
+const approvals = realm.hitl.all();
+const costRollup = realm.cost.rollup();
+const costRecords = realm.cost.list();
+const operatorDirectives = realm.graph.listKind('operator-directive').map((d) => ({ id: d.id, ...d.state }));
+
 const payload = {
   realm: { id: realm.id, mode: realm.mode, seq: realm.clock.seq, realmAt: realm.clock.realmAt.toISOString(), counts: snap.counts },
   facility: { id: 'dvc-nash', kind: 'dialysis', name: 'DVC Nashville' },
@@ -174,6 +227,16 @@ const payload = {
   attributions: realm.attribution.all(),
   rules: realm.rules.list(),
   lifecycle,
+  // M12
+  org: { nodes: orgNodes },
+  physicalObjects,
+  workArtifacts,
+  intents,
+  plans,
+  approvals,
+  hitl: { gates: realm.hitl.listGates().map((g) => ({ id: g.id, reason: g.reason })), pending: realm.hitl.pending().length, all: approvals.length },
+  cost: { rollup: costRollup, records: costRecords },
+  operatorDirectives,
 };
 
 writeFileSync('/home/user/workspace/hh-admin-ui/realm.json', JSON.stringify(payload, null, 2));
@@ -181,4 +244,7 @@ console.log('wrote realm.json —', {
   patients: patients.length, presences: presences.length, effects: effects.length,
   perception: perception.length, episodes: episodes.length, selfModels: selfModels.length,
   experiences: experiences.length, seq: realm.clock.seq,
+  org: orgNodes.length, physicalObjects: physicalObjects.length, workArtifacts: workArtifacts.length,
+  intents: intents.length, plans: plans.length, approvals: approvals.length, operatorDirectives: operatorDirectives.length,
+  costEpisodes: costRollup.episodeCount,
 });

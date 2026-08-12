@@ -63,6 +63,12 @@ export class EpisodeStore {
   private byId = new Map<string, Episode>();
   private byPresence = new Map<string, string[]>();
   private open = new Map<string, string>(); // presenceId -> current open episodeId
+  private closeHooks: Array<(ep: Episode) => void> = [];
+
+  onClose(cb: (ep: Episode) => void): () => void {
+    this.closeHooks.push(cb);
+    return () => { this.closeHooks = this.closeHooks.filter((h) => h !== cb); };
+  }
 
   openEpisode(input: {
     presence: AgentPresence;
@@ -120,6 +126,7 @@ export class EpisodeStore {
     updated.hash = hashEpisode(({ ...updated, hash: undefined } as unknown) as Omit<Episode, 'hash'>);
     this.byId.set(episodeId, updated);
     if (this.open.get(ep.presenceId) === episodeId) this.open.delete(ep.presenceId);
+    for (const h of this.closeHooks) h(updated);
   }
 
   currentOpenFor(presenceId: string): Episode | undefined {

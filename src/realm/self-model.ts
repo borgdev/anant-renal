@@ -128,6 +128,19 @@ export class SelfModelRegistry {
     return this.preferences.get(presenceId)?.get(effectKind) ?? DEFAULT_PREF;
   }
 
+  /** Directly shift a preference by delta (operator directive). Bounded by floor/ceiling. */
+  nudgePreference(presenceId: string, effectKind: string, delta: number, cause: string): number {
+    void cause;
+    const prefs = this.preferences.get(presenceId) ?? new Map<string, number>();
+    const current = prefs.get(effectKind) ?? DEFAULT_PREF;
+    const next = Math.min(PREF_CEIL, Math.max(PREF_FLOOR, current + delta));
+    prefs.set(effectKind, next);
+    this.preferences.set(presenceId, prefs);
+    const sm = this.byPresence.get(presenceId);
+    if (sm) sm.preferences = Object.fromEntries(prefs);
+    return next;
+  }
+
   get(presenceId: string): SelfModelStats | undefined { return this.byPresence.get(presenceId); }
   list(): SelfModelStats[] { return [...this.byPresence.values()]; }
 
