@@ -139,6 +139,13 @@
       <div class="nav-item" data-view="research">Research sources <span class="count" id="c-research">—</span></div>
     </div>
     <div class="nav-section">
+      <div class="label">World</div>
+      <div class="nav-item" data-view="realm">Realm <span class="count" id="c-realm">—</span></div>
+      <div class="nav-item" data-view="presences">Presences <span class="count" id="c-presences">—</span></div>
+      <div class="nav-item" data-view="effects">Effect ledger <span class="count" id="c-effects">—</span></div>
+      <div class="nav-item" data-view="perception">Perception log</div>
+    </div>
+    <div class="nav-section">
       <div class="label">Governance</div>
       <div class="nav-item" data-view="audit">Audit log</div>
     </div>
@@ -160,12 +167,15 @@ const FILES = {
   '/admin/assessments': 'assessments.json',
   '/admin/lifecycle': 'lifecycle.json',
   '/admin/research/sources': 'research.json',
+  '/admin/realms/demo': 'realm.json',
 };
 const cache = {};
-const drafts = JSON.parse(localStorage.getItem('hh-drafts') || '[]');
-const auditLog = JSON.parse(localStorage.getItem('hh-audit') || '[]');
-function saveDrafts() { localStorage.setItem('hh-drafts', JSON.stringify(drafts)); }
-function saveAudit() { localStorage.setItem('hh-audit', JSON.stringify(auditLog)); }
+// In-session state only (preview iframe blocks localStorage). Production wires
+// these to the real /admin/drafts routes backed by the AgentAuthoringService.
+const drafts = [];
+const auditLog = [];
+function saveDrafts() { /* in-memory */ }
+function saveAudit() { /* in-memory */ }
 function audit(action, packId, agentId, note) { auditLog.unshift({ timestamp: new Date().toISOString(), actorRef: 'user:you', action, packId, agentId, note: note || undefined }); saveAudit(); }
 async function loadFile(name) {
   if (!cache[name]) cache[name] = await fetch(name).then(r => r.json());
@@ -191,6 +201,7 @@ async function api(method, path, body) {
     if (base === '/admin/assessments') return { count: raw.length, assessments: raw };
     if (base === '/admin/lifecycle') return { stages: raw };
     if (base === '/admin/research/sources') return { count: raw.length, sources: raw };
+    if (base === '/admin/realms/demo') return raw;
     return {};
   }
   // Writes: local-only for the demo
@@ -278,6 +289,12 @@ async function updateSidebarCounts() {
   document.getElementById('c-measures').textContent = s.measures.total;
   document.getElementById('c-assessments').textContent = s.assessments.total;
   document.getElementById('c-research').textContent = s.researchSources;
+  try {
+    const r = await api('GET', '/admin/realms/demo');
+    document.getElementById('c-realm').textContent = (r.patients?.length ?? 0) + 'p';
+    document.getElementById('c-presences').textContent = r.presences?.length ?? '—';
+    document.getElementById('c-effects').textContent = r.effects?.length ?? '—';
+  } catch (_) { /* realm snapshot not present */ }
 }
 
 nav.addEventListener('click', (e) => {
@@ -295,6 +312,10 @@ async function render() {
   if (view === 'summary') return renderSummary();
   if (view === 'agents') return renderAgents();
   if (view === 'drafts') return renderDrafts();
+  if (view === 'realm') return renderRealm();
+  if (view === 'presences') return renderPresences();
+  if (view === 'effects') return renderEffects();
+  if (view === 'perception') return renderPerception();
   if (view === 'new') return renderEditor({});
   if (view === 'measures') return renderMeasures();
   if (view === 'assessments') return renderAssessments();
@@ -649,6 +670,119 @@ async function renderResearch() {
     <div class="table-wrap"><table>
       <thead><tr><th>ID</th><th>Name</th><th>Kind</th><th>URL</th></tr></thead>
       <tbody>${d.sources.map(s => `<tr><td><code>${esc(s.id)}</code></td><td>${esc(s.name)}</td><td><span class="pill muted">${esc(s.kind || '')}</span></td><td><a href="${esc(s.baseUrl || s.url || '#')}" target="_blank">${esc(s.baseUrl || s.url || '')}</a></td></tr>`).join('')}</tbody>
+    </table></div>
+  `;
+}
+
+// ---------- Realm renderers ----------
+async function renderRealm() {
+  const r = await api('GET', '/admin/realms/demo');
+  if (!r || !r.realm) { main.innerHTML = '<div class="detail muted" style="text-align:center;padding:40px;">No realm snapshot bundled.</div>'; return; }
+  const byUnit = {};
+  for (const p of r.patients) (byUnit[p.unit] ??= []).push(p);
+  const trajPill = t => `<span class="pill ${t==='decompensating'||t==='anemic-worsening'||t==='hyperphosphatemia'||t==='underdialyzed'?'bad':t==='stable'?'good':'muted'}">${esc(t)}</span>`;
+  main.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2 class="page-title">Realm — ${esc(r.facility.name)}</h2>
+        <p class="page-sub">${esc(r.facility.kind)} facility · mode <code>${esc(r.realm.mode)}</code> · tick <code>${r.realm.seq}</code> · realm-time ${new Date(r.realm.realmAt).toLocaleString()}</p>
+      </div>
+    </div>
+    <div class="cards">
+      <div class="stat-card"><div class="stat-value">${r.patients.length}</div><div class="stat-label">Patients present</div></div>
+      <div class="stat-card"><div class="stat-value">${r.units.length}</div><div class="stat-label">Units</div></div>
+      <div class="stat-card"><div class="stat-value">${r.presences.length}</div><div class="stat-label">Agent presences</div></div>
+      <div class="stat-card"><div class="stat-value">${r.effects.length}</div><div class="stat-label">Effects emitted</div></div>
+      <div class="stat-card"><div class="stat-value">${r.perception.length}</div><div class="stat-label">Perceived events</div></div>
+    </div>
+    <h3 style="margin: 24px 0 12px;">Units · patients · agents in place</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;">
+      ${r.units.map(u => `
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <div style="font-weight:600;">${esc(u.code)}</div>
+            <div class="muted" style="font-size:12px;">${(byUnit[u.id]||[]).length} patients</div>
+          </div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px;">
+            ${r.presences.filter(p => p.location.unitId === u.id).map(p => `<span class="pill" title="${esc(p.agentSpecId)}">${esc(p.role)}: ${esc(p.agentSpecId.split('.').pop())}</span>`).join('') || '<span class="muted" style="font-size:12px;">no agents present</span>'}
+          </div>
+          <table style="width:100%;font-size:12px;">
+            ${(byUnit[u.id]||[]).slice(0, 8).map(p => `<tr><td><code>${esc(p.id.split('-').pop())}</code></td><td>${trajPill(p.trajectory)}</td><td class="muted">HR ${p.vitals?.hr ?? '—'} · SpO₂ ${p.vitals?.spo2 ?? '—'}</td></tr>`).join('')}
+          </table>
+        </div>
+      `).join('')}
+    </div>
+    <h3 style="margin: 24px 0 12px;">Facility-scoped agents (no unit assignment)</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">${r.presences.filter(p => !p.location.unitId).map(p => `<span class="pill">${esc(p.role)}: ${esc(p.agentSpecId)}</span>`).join('') || '<span class="muted">none</span>'}</div>
+  `;
+}
+
+async function renderPresences() {
+  const r = await api('GET', '/admin/realms/demo');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Presences</h2><p class="page-sub">Every agent has a body in the realm. Presence determines perception and effect authority.</p></div></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Agent</th><th>Role</th><th>Facility</th><th>Unit</th><th>Perceptual range</th><th>Attention</th><th>Spawned</th></tr></thead>
+      <tbody>${r.presences.map(p => `<tr>
+        <td><code>${esc(p.agentSpecId)}</code></td>
+        <td><span class="pill">${esc(p.role)}</span></td>
+        <td>${esc(p.location.facilityId)}</td>
+        <td>${esc(p.location.unitId || '—')}</td>
+        <td class="muted" style="font-size:12px;">units: ${p.perceptualRange.units.join(',')} · pts: ${p.perceptualRange.patients.slice(0,3).join(',')}${p.perceptualRange.patients.length>3?'…':''}</td>
+        <td><span class="pill ${p.attention==='active'?'good':'muted'}">${esc(p.attention)}</span></td>
+        <td class="muted">${new Date(p.spawnedAt).toLocaleTimeString()}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  `;
+}
+
+async function renderEffects() {
+  const r = await api('GET', '/admin/realms/demo');
+  const fmtEffect = e => {
+    const kind = e.kind;
+    switch (kind) {
+      case 'admit-patient': return `admit <code>${esc(e.patientId)}</code> to <code>${esc(e.unitId)}</code>`;
+      case 'order-lab': return `order <code>${esc(e.code)}</code> lab for <code>${esc(e.patientId)}</code> (${esc(e.priority)})`;
+      case 'result-lab': return `result <code>${esc(e.code)}</code>=${esc(String(e.value))} ${esc(e.unit)}${e.abnormal?` <span class="pill bad">${esc(e.abnormal)}</span>`:''}`;
+      case 'order-med': return `order <code>${esc(e.code)}</code> ${esc(e.dose)} ${esc(e.route)} ${esc(e.frequency)} for <code>${esc(e.patientId)}</code>`;
+      case 'hold-med': return `hold med <code>${esc(e.medOrderId)}</code> — ${esc(e.reason)}`;
+      case 'record-vitals': return `vitals for <code>${esc(e.patientId)}</code>: HR ${e.hr ?? '—'} BP ${esc(e.bp||'—')} SpO₂ ${e.spo2 ?? '—'}`;
+      case 'record-assessment': return `assessment <code>${esc(e.assessmentId)}</code> score ${e.score}${e.band?` (${esc(e.band)})`:''} for <code>${esc(e.patientId)}</code>`;
+      case 'submit-claim': return `claim for encounter <code>${esc(e.encounterId)}</code> → ${esc(e.payerId)} · CPT ${(e.cptCodes||[]).join(',')}`;
+      case 'record-agent-thought': return `<span class="muted">thought:</span> “${esc(e.note)}”`;
+      default: return `<code>${esc(kind)}</code> ${esc(JSON.stringify(e).slice(0,120))}`;
+    }
+  };
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Effect ledger</h2><p class="page-sub">Append-only log of every world effect. Immutable; reversal requires a compensating effect.</p></div></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Realm time</th><th>Agent</th><th>Status</th><th>Effect</th></tr></thead>
+      <tbody>${r.effects.map(e => `<tr>
+        <td class="muted" style="font-size:12px;">${new Date(e.realmAt).toLocaleString()}</td>
+        <td><code>${esc(e.agentSpecId)}</code></td>
+        <td><span class="pill ${e.status==='bound'?'good':e.status==='rejected'?'bad':'muted'}">${esc(e.status)}</span></td>
+        <td>${fmtEffect(e.effect)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  `;
+}
+
+async function renderPerception() {
+  const r = await api('GET', '/admin/realms/demo');
+  const byPresence = {};
+  for (const e of r.perception) (byPresence[e.presenceId] ??= []).push(e);
+  const nameFor = pid => r.presences.find(p => p.presenceId === pid)?.agentSpecId || pid.slice(0,8);
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Perception log</h2><p class="page-sub">${r.perception.length} events delivered to presences (governance + locality filtered).</p></div></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>At</th><th>Perceived by</th><th>Kind</th><th>Entity</th><th>Payload</th></tr></thead>
+      <tbody>${r.perception.slice(-100).reverse().map(e => `<tr>
+        <td class="muted" style="font-size:12px;">${new Date(e.realmAt).toLocaleTimeString()}</td>
+        <td><code>${esc(nameFor(e.presenceId))}</code></td>
+        <td><span class="pill">${esc(e.kind)}</span></td>
+        <td class="muted" style="font-size:11px;">${esc((e.entityUrn||'').split(':').slice(-2).join(':'))}</td>
+        <td class="muted" style="font-size:12px;">${esc(JSON.stringify(e.payload).slice(0,140))}</td>
+      </tr>`).join('')}</tbody>
     </table></div>
   `;
 }

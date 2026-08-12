@@ -16,6 +16,7 @@ import { RESEARCH_SOURCES } from '../research/index.js';
 import { PHQ9, GAD7, AUDIT_C, BRADEN, MORSE, KDQOL_36_SUMMARY, MNA_SF, CAM_DELIRIUM, FRAIL_SCALE, SDOH_5_DOMAIN, ADL_KATZ, IADL_LAWTON, MOCA_SUMMARY } from '../assessments/index.js';
 import { LIFECYCLE_STAGES } from '../lifecycle/index.js';
 import { AgentAuthoringService } from './agent-authoring.js';
+import { RealmRegistry, populateFacility, type RealmMode, type WorldEffect } from '../realm/index.js';
 
 const authoring = new AgentAuthoringService();
 
@@ -166,6 +167,68 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/admin/audit-log', async () => ({ entries: authoring.auditLog() }));
+
+  // --- Realms: worlds the agents inhabit ---
+
+  app.get('/admin/realms', async () => ({
+    realms: RealmRegistry.list().map((r) => r.snapshot()),
+  }));
+
+  app.get<{ Params: { id: string } }>('/admin/realms/:id', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    return { ...r.snapshot(), presences: r.presences.list(), entitiesByKind: r.graph.snapshot().countsByKind };
+  });
+
+  app.post<{ Body: { id: string; mode: RealmMode; seed?: { facilityId: string; kind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital'; name: string; units: string[]; patientCount: number } } }>('/admin/realms', async (req, reply) => {
+    try {
+      const { id, mode, seed } = req.body ?? {} as { id: string; mode: RealmMode; seed?: Parameters<typeof populateFacility>[1] };
+      if (!id || !mode) return reply.code(400).send({ error: 'id-and-mode-required' });
+      const realm = RealmRegistry.create({ id, mode });
+      if (seed) populateFacility(realm, seed);
+      realm.start();
+      return realm.snapshot();
+    } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  });
+
+  app.post<{ Params: { id: string }; Body: { deltaMs?: number } }>('/admin/realms/:id/tick', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    const tick = r.clock.advanceBy(req.body?.deltaMs ?? 60_000);
+    return { tick, snapshot: r.snapshot() };
+  });
+
+  app.post<{ Params: { id: string }; Body: { agentSpecId: string; role: string; clearance: string; facilityId: string; unitId?: string } }>('/admin/realms/:id/presences', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    try {
+      const p = r.spawnPresence({
+        realmId: r.id, agentSpecId: req.body.agentSpecId, runId: `manual-${Date.now()}`,
+        role: req.body.role as 'nurse', clearance: req.body.clearance as 'phi', purposeOfUse: ['treatment'],
+        location: { facilityId: req.body.facilityId, ...(req.body.unitId ? { unitId: req.body.unitId } : {}) },
+      });
+      return p;
+    } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  });
+
+  app.post<{ Params: { id: string }; Body: { presenceId: string; effect: WorldEffect } }>('/admin/realms/:id/emit', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    try { return r.emit(req.body.presenceId, req.body.effect); }
+    catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  });
+
+  app.get<{ Params: { id: string } }>('/admin/realms/:id/effects', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    return { effects: r.ledger.listAll() };
+  });
+
+  app.get<{ Params: { id: string } }>('/admin/realms/:id/perception', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    return { events: r.perception.recentLog(200) };
+  });
 
   // GET /admin/summary — count-only rollup for admin dashboard
   app.get('/admin/summary', async () => {
