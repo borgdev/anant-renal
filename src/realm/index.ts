@@ -9,3 +9,8 @@ export * from './ambient.js';
 export * from './realm.js';
 export * from './sim-populator.js';
 export * from './registry.js';
+export * from './episode.js';
+export * from './self-model.js';
+export * from './choice.js';
+export * from './rules.js';
+export * from './agent-runtime.js';

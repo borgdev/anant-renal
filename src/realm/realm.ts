@@ -11,6 +11,9 @@ import { PresenceRegistry, type PresenceInit } from './presence.js';
 import { PerceptionRouter } from './perception.js';
 import { EffectReducer, DEFAULT_AUTHORITY, type EffectAuthorityMap } from './effect-reducer.js';
 import { AmbientProcessRegistry, type AmbientContext, type AmbientProcess, LabMaturationProcess, PatientTrajectoryProcess, InsuranceClockProcess } from './ambient.js';
+import { EpisodeStore } from './episode.js';
+import { SelfModelRegistry } from './self-model.js';
+import { createDefaultEngine, RulesEngine } from './rules.js';
 import type { AgentPresence, EmittedEffect, EntityUrn, RealmId, RealmMode, WorldEffect } from './types.js';
 
 export interface RealmOpts {
@@ -20,6 +23,7 @@ export interface RealmOpts {
   authority?: EffectAuthorityMap;
   boundEffects?: Array<WorldEffect['kind']>;
   ambientProcesses?: AmbientProcess[];
+  rules?: RulesEngine;
 }
 
 export class Realm {
@@ -32,7 +36,11 @@ export class Realm {
   readonly perception: PerceptionRouter;
   readonly reducer: EffectReducer;
   readonly ambient: AmbientProcessRegistry;
+  readonly episodes: EpisodeStore;
+  readonly selfModel: SelfModelRegistry;
+  readonly rules: RulesEngine;
   private clockSub: (() => void) | undefined;
+  private effectSub: (() => void) | undefined;
 
   constructor(opts: RealmOpts) {
     this.id = opts.id;
@@ -45,6 +53,9 @@ export class Realm {
     this.presences = new PresenceRegistry();
     this.perception = new PerceptionRouter(this.presences);
     this.ambient = new AmbientProcessRegistry();
+    this.episodes = new EpisodeStore();
+    this.selfModel = new SelfModelRegistry();
+    this.rules = opts.rules ?? createDefaultEngine();
     const bound = new Set(opts.boundEffects ?? []);
     this.reducer = new EffectReducer(this.graph, this.ledger, this.perception, this.clock, {
       mode: this.mode,
@@ -57,7 +68,16 @@ export class Realm {
 
     this.clockSub = this.clock.subscribe((tick) => {
       this.ambient.tick(this.ambientContext(), tick);
+      this.rules.onTick(this.graph);
       this.perception.broadcast({ kind: 'clock.tick', payload: { seq: tick.seq, realmAt: tick.realmAt, deltaMs: tick.deltaMs }, realmAt: tick.realmAt });
+    });
+    // Feed effects into the rules engine to produce Experiences.
+    this.effectSub = this.ledger.onAppend((emitted) => {
+      this.rules.onEffect(emitted, this.graph);
+    });
+    // Route Experiences into perception so agents can react to them.
+    this.rules.subscribe((exp) => {
+      this.perception.broadcast({ kind: `experience.${exp.kind}`, payload: exp as unknown as Record<string, unknown>, ...(exp.subjectUrn ? { entityUrn: exp.subjectUrn as EntityUrn } : {}), realmAt: exp.producedAt });
     });
     // Expose realmId on graph for ambient processes to reference (used by lab maturation).
     (this.graph as unknown as { realmId: string }).realmId = this.id;
@@ -92,7 +112,7 @@ export class Realm {
   }
 
   start(): void { this.clock.start(); }
-  stop(): void { this.clock.stop(); if (this.clockSub) { this.clockSub(); this.clockSub = undefined; } }
+  stop(): void { this.clock.stop(); if (this.clockSub) { this.clockSub(); this.clockSub = undefined; } if (this.effectSub) { this.effectSub(); this.effectSub = undefined; } }
 
   snapshot() {
     return {
@@ -105,6 +125,9 @@ export class Realm {
       effects: this.ledger.listAll().length,
       recentEffects: this.ledger.listAll().slice(-25),
       recentPerception: this.perception.recentLog(50),
+      episodes: this.episodes.stats(),
+      experiences: this.rules.history().slice(-25),
+      rules: this.rules.list(),
     };
   }
 }

@@ -140,10 +140,18 @@
     </div>
     <div class="nav-section">
       <div class="label">World</div>
+      <div class="nav-item" data-view="world-builder">+ Build a world</div>
       <div class="nav-item" data-view="realm">Realm <span class="count" id="c-realm">—</span></div>
       <div class="nav-item" data-view="presences">Presences <span class="count" id="c-presences">—</span></div>
       <div class="nav-item" data-view="effects">Effect ledger <span class="count" id="c-effects">—</span></div>
       <div class="nav-item" data-view="perception">Perception log</div>
+      <div class="nav-item" data-view="experiences">Experiences <span class="count" id="c-experiences">—</span></div>
+      <div class="nav-item" data-view="rules">World rules</div>
+    </div>
+    <div class="nav-section">
+      <div class="label">Agents' inner lives</div>
+      <div class="nav-item" data-view="episodes">Episodes <span class="count" id="c-episodes">—</span></div>
+      <div class="nav-item" data-view="sentience">Sentience panel</div>
     </div>
     <div class="nav-section">
       <div class="label">Governance</div>
@@ -294,6 +302,8 @@ async function updateSidebarCounts() {
     document.getElementById('c-realm').textContent = (r.patients?.length ?? 0) + 'p';
     document.getElementById('c-presences').textContent = r.presences?.length ?? '—';
     document.getElementById('c-effects').textContent = r.effects?.length ?? '—';
+    const ce = document.getElementById('c-experiences'); if (ce) ce.textContent = r.experiences?.length ?? '—';
+    const cep = document.getElementById('c-episodes'); if (cep) cep.textContent = r.episodes?.length ?? '—';
   } catch (_) { /* realm snapshot not present */ }
 }
 
@@ -316,6 +326,11 @@ async function render() {
   if (view === 'presences') return renderPresences();
   if (view === 'effects') return renderEffects();
   if (view === 'perception') return renderPerception();
+  if (view === 'world-builder') return renderWorldBuilder();
+  if (view === 'experiences') return renderExperiences();
+  if (view === 'rules') return renderRules();
+  if (view === 'episodes') return renderEpisodes();
+  if (view === 'sentience') return renderSentience();
   if (view === 'new') return renderEditor({});
   if (view === 'measures') return renderMeasures();
   if (view === 'assessments') return renderAssessments();
@@ -654,13 +669,64 @@ async function renderAssessments() {
   `;
 }
 async function renderLifecycle() {
-  const d = await api('GET', '/admin/lifecycle');
+  // Diagrammatic persona lifecycle. Reads the lifecycle graph baked into the
+  // realm snapshot (nodes, edges, cohort counts). Falls back to the plain
+  // stages list if the realm isn't bundled.
+  const r = await api('GET', '/admin/realms/demo');
+  const stages = (await api('GET', '/admin/lifecycle')).stages;
+  const g = r?.lifecycle;
+  if (!g) {
+    main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Persona lifecycle</h2><p class="page-sub">${stages.length} canonical stages.</p></div></div><div class="table-wrap"><table><thead><tr><th>#</th><th>ID</th></tr></thead><tbody>${stages.map((s,i)=>`<tr><td>${i+1}</td><td><code>${esc(s.id)}</code></td></tr>`).join('')}</tbody></table></div>`;
+    return;
+  }
+  const columns = { entry: 0, process: 1, risk: 2, good: 2, 'exit-good': 3, exit: 3, 'exit-bad': 3 };
+  const colors = { entry: '#7c93ff', process: '#4c74e8', risk: '#e0824c', good: '#3ea87a', 'exit-good': '#3ea87a', exit: '#6b7280', 'exit-bad': '#c05252' };
+  // Assign positions
+  const perCol = {};
+  g.nodes.forEach(n => { const c = columns[n.kind] ?? 1; (perCol[c] ??= []).push(n); });
+  const W = 900, H = 480, pad = 60, colW = (W - pad*2)/3;
+  const laid = {};
+  Object.entries(perCol).forEach(([col, arr]) => {
+    const rowH = (H - pad*2) / Math.max(arr.length, 1);
+    arr.forEach((n, i) => { laid[n.id] = { x: pad + col*colW + colW/2, y: pad + rowH*i + rowH/2, node: n }; });
+  });
+  const cohort = g.cohorts ?? {};
+  const totalCohort = Object.values(cohort).reduce((a,b)=>a+b,0) || 1;
+  const edgePath = (a, b) => {
+    const dx = b.x - a.x, cx1 = a.x + dx*0.55, cx2 = b.x - dx*0.55;
+    return `M ${a.x} ${a.y} C ${cx1} ${a.y}, ${cx2} ${b.y}, ${b.x} ${b.y}`;
+  };
+  // Draw
+  const edgesSvg = g.edges.map(e => {
+    const a = laid[e.from], b = laid[e.to]; if (!a || !b) return '';
+    const w = 1 + Math.min(6, (cohort[e.from] ?? 0) / 3);
+    const color = colors[b.node.kind] ?? '#8898b5';
+    return `<path d="${edgePath(a,b)}" stroke="${color}" stroke-opacity="0.35" stroke-width="${w}" fill="none" />`;
+  }).join('');
+  const nodesSvg = Object.values(laid).map(({ x, y, node }) => {
+    const count = cohort[node.id] ?? 0;
+    const r = 22 + Math.min(28, count * 3);
+    const color = colors[node.kind] ?? '#8898b5';
+    return `<g>
+      <circle cx="${x}" cy="${y}" r="${r}" fill="${color}" fill-opacity="0.15" stroke="${color}" stroke-width="2" />
+      <text x="${x}" y="${y-4}" text-anchor="middle" style="font-size:12px;font-weight:600;fill:${color}">${count}</text>
+      <text x="${x}" y="${y+r+16}" text-anchor="middle" style="font-size:12px;fill:var(--fg)">${esc(node.label)}</text>
+    </g>`;
+  }).join('');
+  const labels = ['Entry', 'Care', 'Risk / Stable', 'Exit'].map((t,i) => `<text x="${pad + i*colW + colW/2}" y="22" text-anchor="middle" style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;fill:var(--muted)">${t}</text>`).join('');
   main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Patient lifecycle</h2><p class="page-sub">${d.stages.length} canonical stages every agent can hook into.</p></div></div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>ID</th><th>Description</th></tr></thead>
-      <tbody>${d.stages.map((s, i) => `<tr><td>${i+1}</td><td><code>${esc(s.id)}</code></td><td>${esc(s.description || s.name || '')}</td></tr>`).join('')}</tbody>
-    </table></div>
+    <div class="page-header"><div><h2 class="page-title">Persona lifecycle</h2><p class="page-sub">Live cohorts across ${g.nodes.length} stages — node size scales with population, edge width with flow.</p></div></div>
+    <div class="detail">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;background:var(--card);border-radius:8px;border:1px solid var(--border);">
+        ${labels}
+        ${edgesSvg}
+        ${nodesSvg}
+      </svg>
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:6px;">Canonical stages (${stages.length})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">${stages.map(s => `<span class="pill">${esc(s.id)}</span>`).join('')}</div>
+    </div>
   `;
 }
 async function renderResearch() {
@@ -784,6 +850,135 @@ async function renderPerception() {
         <td class="muted" style="font-size:12px;">${esc(JSON.stringify(e.payload).slice(0,140))}</td>
       </tr>`).join('')}</tbody>
     </table></div>
+  `;
+}
+
+// ---------- World Builder wizard ----------
+async function renderWorldBuilder() {
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Build a world</h2><p class="page-sub">Every world is governed by its own rules, materialized as experiences for agents. This wizard configures a realm you can spawn agents into.</p></div></div>
+    <div class="detail" style="max-width:820px;">
+      <div style="display:grid;grid-template-columns:180px 1fr;gap:16px 20px;align-items:center;">
+        <label>Realm id</label><input id="wb-id" value="realm:my-facility" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);"/>
+        <label>Archetype</label>
+        <select id="wb-arch" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);">
+          <option value="dialysis">Dialysis facility</option>
+          <option value="primary-care">Primary care clinic</option>
+          <option value="urgent-care">Urgent care</option>
+          <option value="hospital">Hospital ward</option>
+        </select>
+        <label>Units</label><input id="wb-units" value="ICH-A,ICH-B,ICH-C" placeholder="comma separated" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);"/>
+        <label>Patients</label><input id="wb-pt" type="number" value="20" min="1" max="200" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);"/>
+        <label>Clock</label>
+        <select id="wb-clock" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);">
+          <option value="sim">Sim (accelerated — 1hr / 50ms)</option>
+          <option value="twin">Twin (wall clock)</option>
+        </select>
+        <label>Staff packs</label>
+        <div>
+          <label style="display:block;"><input type="checkbox" checked id="wb-md"/> Rounding MD</label>
+          <label style="display:block;"><input type="checkbox" checked id="wb-nurse"/> Charge nurses (one per unit)</label>
+          <label style="display:block;"><input type="checkbox" checked id="wb-rx"/> Pharmacist review</label>
+          <label style="display:block;"><input type="checkbox" checked id="wb-coder"/> Claims coder</label>
+          <label style="display:block;"><input type="checkbox" id="wb-safety"/> Safety monitor</label>
+        </div>
+        <label>Rules</label>
+        <div>
+          <label style="display:block;"><input type="checkbox" checked/> Default YAML rules (hyperkalemia, ready-to-bill)</label>
+          <label style="display:block;"><input type="checkbox" checked/> Default TS rules (insurance-expiring)</label>
+        </div>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px;">
+        <button class="btn primary" onclick="wbSubmit()">Create realm</button>
+        <button class="btn" onclick="nav.querySelector('[data-view=realm]').click()">Cancel</button>
+      </div>
+      <div id="wb-out" style="margin-top:16px;font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);"></div>
+    </div>
+  `;
+}
+window.wbSubmit = function() {
+  const id = document.getElementById('wb-id').value;
+  const arch = document.getElementById('wb-arch').value;
+  const units = document.getElementById('wb-units').value.split(',').map(s => s.trim()).filter(Boolean);
+  const pt = +document.getElementById('wb-pt').value;
+  const clock = document.getElementById('wb-clock').value;
+  const staff = ['md','nurse','rx','coder','safety'].filter(k => document.getElementById('wb-'+k).checked);
+  const out = document.getElementById('wb-out');
+  out.innerHTML = 'Realm blueprint prepared:<br/><pre style="background:var(--bg);padding:10px;border-radius:6px;">' + esc(JSON.stringify({ id, archetype: arch, units, patientCount: pt, clock, staff }, null, 2)) + '</pre><br/>In the deployed static preview realms are not spawned live — the operator API endpoint <code>POST /admin/realms</code> would accept this blueprint in a running server.';
+};
+
+// ---------- Experiences ----------
+async function renderExperiences() {
+  const r = await api('GET', '/admin/realms/demo');
+  const xs = r?.experiences ?? [];
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Experiences</h2><p class="page-sub">The world produces experiences via its rules; agents perceive them and may respond.</p></div></div>
+    ${xs.length === 0 ? '<div class="detail muted" style="text-align:center;padding:40px;">No experiences yet.</div>' :
+    `<div class="table-wrap"><table>
+      <thead><tr><th>When</th><th>Kind</th><th>Severity</th><th>Source</th><th>Rule</th><th>Payload</th></tr></thead>
+      <tbody>${xs.map(x => `<tr><td class="muted">${esc(x.producedAt)}</td><td><code>${esc(x.kind)}</code></td><td><span class="pill ${x.severity==='critical'?'bad':x.severity==='warning'?'':x.severity==='notice'?'good':'muted'}">${esc(x.severity)}</span></td><td><span class="pill muted">${esc(x.ruleSource)}</span></td><td><code>${esc(x.ruleId)}</code></td><td class="muted" style="font-family:ui-monospace,monospace;font-size:11px;">${esc(JSON.stringify(x.payload))}</td></tr>`).join('')}</tbody>
+    </table></div>`}
+  `;
+}
+
+// ---------- Rules ----------
+async function renderRules() {
+  const r = await api('GET', '/admin/realms/demo');
+  const rules = r?.rules ?? { yaml: [], ts: [] };
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">World rules</h2><p class="page-sub">Rules govern the physics of the world. Hybrid model: declarative YAML for policies, TS modules for advanced physics. Both produce Experiences.</p></div></div>
+    <div class="detail"><h3 style="margin-top:0;">YAML rules (${rules.yaml.length})</h3>
+      ${rules.yaml.map(y => `<div style="padding:10px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;"><div style="display:flex;justify-content:space-between;align-items:center;"><code>${esc(y.id)}</code><span class="pill muted">${esc(y.on)}</span></div><div class="muted" style="margin-top:4px;font-size:12px;">${esc(y.description)}</div><div style="margin-top:6px;font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);">when: ${esc(JSON.stringify(y.when))} then: ${esc(JSON.stringify(y.then))}</div></div>`).join('')}
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">TS module rules (${rules.ts.length})</h3>
+      ${rules.ts.map(t => `<div style="padding:10px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;"><code>${esc(t.id)}</code><div class="muted" style="margin-top:4px;font-size:12px;">${esc(t.description)}</div></div>`).join('')}
+    </div>
+  `;
+}
+
+// ---------- Episodes ----------
+async function renderEpisodes() {
+  const r = await api('GET', '/admin/realms/demo');
+  const eps = r?.episodes ?? [];
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Episodes</h2><p class="page-sub">Every meaningful moment for an agent is an Episode — structured, hashed, replayable, prunable. This is the corpus of world play.</p></div></div>
+    ${eps.length === 0 ? '<div class="detail muted" style="text-align:center;padding:40px;">No episodes yet — spawn presences and tick the clock.</div>' :
+    `<div class="table-wrap"><table>
+      <thead><tr><th>Opened</th><th>Agent</th><th>Role</th><th>Local goal</th><th>Effects</th><th>Importance</th><th>Status</th><th>Hash</th></tr></thead>
+      <tbody>${eps.map(e => `<tr><td class="muted">${esc(e.openedAt)}</td><td><code>${esc(e.agentSpecId)}</code></td><td><span class="pill muted">${esc(e.role)}</span></td><td>${esc(e.localGoal)}</td><td>${e.effectCount} <span class="muted">(${e.effectKinds.slice(0,3).join(', ')})</span></td><td><span class="pill ${e.importance==='critical'?'bad':e.importance==='notable'?'':'muted'}">${esc(e.importance)}</span></td><td><span class="pill ${e.status==='pruned'?'muted':e.status==='closed'?'good':''}">${esc(e.status)}</span></td><td><code style="font-size:11px;">${esc(e.hash)}</code></td></tr>`).join('')}</tbody>
+    </table></div>`}
+  `;
+}
+
+// ---------- Sentience panel ----------
+async function renderSentience() {
+  const r = await api('GET', '/admin/realms/demo');
+  const sms = r?.selfModels ?? [];
+  const eps = r?.episodes ?? [];
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Sentience panel</h2><p class="page-sub">Every agent carries a Universal Goal (know thyself) and Local Goals per episode. Free will is enacted at Choice Points where alternatives were seen and weighed.</p></div></div>
+    ${sms.length === 0 ? '<div class="detail muted" style="text-align:center;padding:40px;">No self-models yet.</div>' : ''}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px;">
+      ${sms.map(s => {
+        const mine = eps.filter(e => e.presenceId === s.presenceId);
+        const critical = mine.filter(e => e.importance === 'critical').length;
+        const topEffect = Object.entries(s.effects.byKind || {}).sort((a,b)=>b[1]-a[1])[0];
+        const prefShifts = Object.entries(s.preferences || {}).filter(([,w]) => Math.abs(w-1) > 0.05);
+        return `<div class="detail">
+          <div style="display:flex;justify-content:space-between;align-items:start;"><div><h3 style="margin:0 0 4px 0;">${esc(s.agentSpecId)}</h3><span class="pill muted">${esc(s.role)}</span></div>
+            <div style="text-align:right;"><div style="font-size:20px;font-weight:600;color:var(--brand)">${(s.competence.score*100).toFixed(0)}%</div><div class="muted" style="font-size:11px;">competence</div></div>
+          </div>
+          <div style="margin-top:10px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;">
+            <div><div style="font-weight:600;">${s.episodes.total}</div><div class="muted" style="font-size:11px;">episodes</div></div>
+            <div><div style="font-weight:600;">${s.choices.deliberated}</div><div class="muted" style="font-size:11px;">deliberations</div></div>
+            <div><div style="font-weight:600;color:${critical>0?'#c05252':'var(--fg)'}">${critical}</div><div class="muted" style="font-size:11px;">critical eps</div></div>
+          </div>
+          <div style="margin-top:10px;font-size:12px;">Most frequent action: ${topEffect ? `<code>${esc(topEffect[0])}</code> ×${topEffect[1]}` : '<span class="muted">none yet</span>'}</div>
+          <div style="margin-top:6px;font-size:12px;">Preference shifts: ${prefShifts.length ? prefShifts.map(([k,w]) => `<span class="pill ${w>1?'good':'bad'}">${esc(k)} ${w.toFixed(2)}</span>`).join(' ') : '<span class="muted">baseline</span>'}</div>
+          <div style="margin-top:6px;font-size:12px;">Milestones: ${(s.milestones || []).map(m => `<span class="pill muted">${esc(m)}</span>`).join(' ') || '<span class="muted">none</span>'}</div>
+        </div>`;
+      }).join('')}
+    </div>
   `;
 }
 

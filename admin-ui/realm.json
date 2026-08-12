@@ -3,16 +3,16 @@
     "id": "realm:demo-dvc-nashville",
     "mode": "sim",
     "seq": 18,
-    "realmAt": "2026-08-13T07:49:20.242Z",
+    "realmAt": "2026-08-13T08:07:50.806Z",
     "counts": {
       "facility": 1,
       "unit": 3,
       "patient": 12,
-      "agent-run": 1,
+      "agent-run": 2,
       "order": 2,
       "medication": 1,
       "result": 2,
-      "insurance": 1
+      "insurance": 2
     }
   },
   "facility": {
@@ -44,13 +44,14 @@
         "hr": 88,
         "bp": "148/92",
         "spo2": 96,
-        "at": "2026-08-12T13:49:20.242Z"
+        "at": "2026-08-12T14:07:50.806Z"
       },
       "problems": [
         "ESRD",
         "HTN",
         "DM2"
-      ]
+      ],
+      "stage": "active"
     },
     {
       "id": "dvc-nash-pt-0002",
@@ -61,14 +62,15 @@
         "hr": 85,
         "bp": "128/78",
         "spo2": 93,
-        "at": "2026-08-13T05:49:20.242Z"
+        "at": "2026-08-13T06:07:50.806Z"
       },
       "problems": [
         "ESRD",
         "HTN",
         "DM2",
         "Sepsis-risk"
-      ]
+      ],
+      "stage": "active"
     },
     {
       "id": "dvc-nash-pt-0003",
@@ -79,13 +81,14 @@
         "hr": 70,
         "bp": "128/78",
         "spo2": 97,
-        "at": "2026-08-13T05:49:20.242Z"
+        "at": "2026-08-13T06:07:50.806Z"
       },
       "problems": [
         "ESRD",
         "HTN",
         "DM2"
-      ]
+      ],
+      "stage": "active"
     },
     {
       "id": "dvc-nash-pt-0004",
@@ -96,14 +99,15 @@
         "hr": 75,
         "bp": "128/78",
         "spo2": 97,
-        "at": "2026-08-13T05:49:20.242Z"
+        "at": "2026-08-13T06:07:50.806Z"
       },
       "problems": [
         "ESRD",
         "HTN",
         "DM2",
         "CKD-anemia"
-      ]
+      ],
+      "stage": "active"
     },
     {
       "id": "dvc-nash-pt-0005",
@@ -114,32 +118,34 @@
         "hr": 76,
         "bp": "128/78",
         "spo2": 97,
-        "at": "2026-08-13T05:49:20.242Z"
+        "at": "2026-08-13T06:07:50.806Z"
       },
       "problems": [
         "ESRD",
         "HTN",
         "DM2",
         "CKD-anemia"
-      ]
+      ],
+      "stage": "active"
     },
     {
       "id": "dvc-nash-pt-0006",
       "unit": "dvc-nash-ICH-C",
       "trajectory": "underdialyzed",
-      "admitted": true,
+      "admitted": false,
       "vitals": {
         "hr": 77,
         "bp": "128/78",
         "spo2": 97,
-        "at": "2026-08-13T05:49:20.242Z"
+        "at": "2026-08-13T06:07:50.806Z"
       },
       "problems": [
         "ESRD",
         "HTN",
         "DM2",
         "Underdialysis"
-      ]
+      ],
+      "stage": "active"
     },
     {
       "id": "dvc-nash-pt-0007",
@@ -150,7 +156,7 @@
         "hr": 78,
         "bp": "128/78",
         "spo2": 97,
-        "at": "2026-08-13T05:49:20.242Z"
+        "at": "2026-08-13T06:07:50.806Z"
       },
       "problems": [
         "ESRD",
@@ -158,7 +164,8 @@
         "DM2",
         "Hyperphosphatemia",
         "CKD-MBD"
-      ]
+      ],
+      "stage": "active"
     },
     {
       "id": "dvc-nash-pt-0008",
@@ -169,13 +176,14 @@
         "hr": 79,
         "bp": "128/78",
         "spo2": 97,
-        "at": "2026-08-12T13:49:20.242Z"
+        "at": "2026-08-12T14:07:50.806Z"
       },
       "problems": [
         "ESRD",
         "HTN",
         "DM2"
-      ]
+      ],
+      "stage": "active"
     },
     {
       "id": "dvc-nash-pt-0009",
@@ -186,14 +194,15 @@
         "hr": 92,
         "bp": "128/78",
         "spo2": 93,
-        "at": "2026-08-13T05:49:20.242Z"
+        "at": "2026-08-13T06:07:50.806Z"
       },
       "problems": [
         "ESRD",
         "HTN",
         "DM2",
         "Sepsis-risk"
-      ]
+      ],
+      "stage": "active"
     },
     {
       "id": "dvc-nash-pt-0010",
@@ -204,13 +213,14 @@
         "hr": 77,
         "bp": "128/78",
         "spo2": 97,
-        "at": "2026-08-13T05:49:20.242Z"
+        "at": "2026-08-13T06:07:50.806Z"
       },
       "problems": [
         "ESRD",
         "HTN",
         "DM2"
-      ]
+      ],
+      "stage": "active"
     },
     {
       "id": "dvc-nash-pt-0011",
@@ -221,14 +231,15 @@
         "hr": 72,
         "bp": "128/78",
         "spo2": 97,
-        "at": "2026-08-13T05:49:20.242Z"
+        "at": "2026-08-13T06:07:50.806Z"
       },
       "problems": [
         "ESRD",
         "HTN",
         "DM2",
         "CKD-anemia"
-      ]
+      ],
+      "stage": "active"
     },
     {
       "id": "dvc-nash-pt-0012",
@@ -239,210 +250,123 @@
         "hr": 73,
         "bp": "128/78",
         "spo2": 97,
-        "at": "2026-08-13T05:49:20.242Z"
+        "at": "2026-08-13T06:07:50.806Z"
       },
       "problems": [
         "ESRD",
         "HTN",
         "DM2",
         "CKD-anemia"
-      ]
+      ],
+      "stage": "active"
     }
   ],
   "presences": [
     {
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "agentSpecId": "flagship.charge-rn",
-      "role": "nurse",
-      "location": {
-        "facilityId": "dvc-nash",
-        "unitId": "dvc-nash-ICH-A"
-      },
-      "perceptualRange": {
-        "units": [
-          "dvc-nash-ICH-A"
-        ],
-        "patients": [
-          "*"
-        ],
-        "eventTypes": [
-          "*"
-        ]
-      },
-      "attention": "active",
-      "spawnedAt": "2026-08-12T13:49:20.243Z"
-    },
-    {
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "agentSpecId": "flagship.charge-rn",
-      "role": "nurse",
-      "location": {
-        "facilityId": "dvc-nash",
-        "unitId": "dvc-nash-ICH-B"
-      },
-      "perceptualRange": {
-        "units": [
-          "dvc-nash-ICH-B"
-        ],
-        "patients": [
-          "*"
-        ],
-        "eventTypes": [
-          "*"
-        ]
-      },
-      "attention": "active",
-      "spawnedAt": "2026-08-12T13:49:20.243Z"
-    },
-    {
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "agentSpecId": "dialysis.rounding-md",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "agentSpecId": "rounding",
       "role": "md",
       "location": {
         "facilityId": "dvc-nash",
         "unitId": "dvc-nash-ICH-A"
       },
-      "perceptualRange": {
-        "units": [
-          "dvc-nash-ICH-A"
-        ],
-        "patients": [
-          "*"
-        ],
-        "eventTypes": [
-          "*"
-        ]
-      },
-      "attention": "active",
-      "spawnedAt": "2026-08-12T13:49:20.243Z"
+      "spawnedAt": "2026-08-12T14:07:51.060Z"
     },
     {
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "agentSpecId": "flagship.pharmacist-review",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "agentSpecId": "nurse",
+      "role": "nurse",
+      "location": {
+        "facilityId": "dvc-nash",
+        "unitId": "dvc-nash-ICH-A"
+      },
+      "spawnedAt": "2026-08-12T14:07:51.060Z"
+    },
+    {
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "agentSpecId": "nurse-b",
+      "role": "nurse",
+      "location": {
+        "facilityId": "dvc-nash",
+        "unitId": "dvc-nash-ICH-B"
+      },
+      "spawnedAt": "2026-08-12T14:07:51.060Z"
+    },
+    {
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "agentSpecId": "pharmac",
       "role": "pharmacist",
       "location": {
         "facilityId": "dvc-nash"
       },
-      "perceptualRange": {
-        "units": [
-          "*"
-        ],
-        "patients": [
-          "*"
-        ],
-        "eventTypes": [
-          "*"
-        ]
-      },
-      "attention": "active",
-      "spawnedAt": "2026-08-12T13:49:20.243Z"
+      "spawnedAt": "2026-08-12T14:07:51.060Z"
     },
     {
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "agentSpecId": "flagship.claims-coder",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "agentSpecId": "coder",
       "role": "coder",
       "location": {
         "facilityId": "dvc-nash"
       },
-      "perceptualRange": {
-        "units": [
-          "*"
-        ],
-        "patients": [
-          "*"
-        ],
-        "eventTypes": [
-          "*"
-        ]
+      "spawnedAt": "2026-08-12T14:07:51.060Z"
+    },
+    {
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "agentSpecId": "safety",
+      "role": "auditor",
+      "location": {
+        "facilityId": "dvc-nash"
       },
-      "attention": "active",
-      "spawnedAt": "2026-08-12T13:49:20.243Z"
+      "spawnedAt": "2026-08-12T14:07:51.060Z"
     }
   ],
   "effects": [
     {
-      "effectId": "3922e9fd-94f7-4396-8941-7818c33abb4a",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "agentSpecId": "dialysis.rounding-md",
-      "emittedAt": "2026-08-12T13:49:20.243Z",
-      "realmAt": "2026-08-12T13:49:20.242Z",
+      "effectId": "9113fbec-b324-49da-89c3-43f0b0a58e45",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "agentSpecId": "rounding",
+      "emittedAt": "2026-08-12T14:07:51.061Z",
+      "realmAt": "2026-08-12T14:07:50.806Z",
       "status": "shadow",
       "effect": {
         "kind": "record-agent-thought",
         "note": "Rounding pt-0001 — check K+ and HGB trends."
-      },
-      "mutations": [
-        {
-          "urn": "urn:realm:realm:demo-dvc-nashville:agent-run:thought-ae7abd68-c238-4522-9e4a-27a9a75c4fd8-0-13csu4",
-          "patch": {
-            "kind": "thought",
-            "note": "Rounding pt-0001 — check K+ and HGB trends.",
-            "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-            "at": "2026-08-12T13:49:20.242Z"
-          }
-        }
-      ]
+      }
     },
     {
-      "effectId": "3c9051c8-c52c-469c-b5ea-9446e6329291",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "agentSpecId": "dialysis.rounding-md",
-      "emittedAt": "2026-08-12T13:49:20.244Z",
-      "realmAt": "2026-08-12T13:49:20.242Z",
+      "effectId": "0f3c9344-75e5-44c9-b75b-ee17e3531fbb",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "agentSpecId": "rounding",
+      "emittedAt": "2026-08-12T14:07:51.063Z",
+      "realmAt": "2026-08-12T14:07:50.806Z",
       "status": "shadow",
       "effect": {
         "kind": "order-lab",
         "patientId": "dvc-nash-pt-0001",
         "code": "K",
         "priority": "stat"
-      },
-      "mutations": [
-        {
-          "urn": "urn:realm:realm:demo-dvc-nashville:order:dvc-nash-pt-0001-K-0",
-          "patch": {
-            "kind": "lab",
-            "code": "K",
-            "priority": "stat",
-            "patientId": "dvc-nash-pt-0001",
-            "status": "ordered",
-            "orderedAt": "2026-08-12T13:49:20.242Z"
-          }
-        }
-      ]
+      }
     },
     {
-      "effectId": "99331a05-a2d5-4fc2-8e9f-871fec59bd78",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "agentSpecId": "dialysis.rounding-md",
-      "emittedAt": "2026-08-12T13:49:20.244Z",
-      "realmAt": "2026-08-12T13:49:20.242Z",
+      "effectId": "0f48cbb1-af22-463c-85ad-a82fcd424189",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "agentSpecId": "rounding",
+      "emittedAt": "2026-08-12T14:07:51.063Z",
+      "realmAt": "2026-08-12T14:07:50.806Z",
       "status": "shadow",
       "effect": {
         "kind": "order-lab",
         "patientId": "dvc-nash-pt-0001",
         "code": "HGB",
         "priority": "routine"
-      },
-      "mutations": [
-        {
-          "urn": "urn:realm:realm:demo-dvc-nashville:order:dvc-nash-pt-0001-HGB-0",
-          "patch": {
-            "kind": "lab",
-            "code": "HGB",
-            "priority": "routine",
-            "patientId": "dvc-nash-pt-0001",
-            "status": "ordered",
-            "orderedAt": "2026-08-12T13:49:20.242Z"
-          }
-        }
-      ]
+      }
     },
     {
-      "effectId": "84432599-7fbd-45f2-bdae-a2ccc7b6fcfd",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "agentSpecId": "flagship.charge-rn",
-      "emittedAt": "2026-08-12T13:49:20.244Z",
-      "realmAt": "2026-08-12T13:49:20.242Z",
+      "effectId": "d546d0cb-57b9-47a6-86ae-5217c21439bc",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "agentSpecId": "nurse",
+      "emittedAt": "2026-08-12T14:07:51.063Z",
+      "realmAt": "2026-08-12T14:07:50.806Z",
       "status": "shadow",
       "effect": {
         "kind": "record-vitals",
@@ -450,27 +374,14 @@
         "hr": 88,
         "bp": "148/92",
         "spo2": 96
-      },
-      "mutations": [
-        {
-          "urn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0001",
-          "patch": {
-            "lastVitals": {
-              "hr": 88,
-              "bp": "148/92",
-              "spo2": 96,
-              "at": "2026-08-12T13:49:20.242Z"
-            }
-          }
-        }
-      ]
+      }
     },
     {
-      "effectId": "2673458e-500c-41fc-8cfa-98c721ba5c65",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "agentSpecId": "dialysis.rounding-md",
-      "emittedAt": "2026-08-12T13:49:20.244Z",
-      "realmAt": "2026-08-12T13:49:20.242Z",
+      "effectId": "2ee96ce3-7aee-4a39-81bc-7d5d4389df1a",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "agentSpecId": "rounding",
+      "emittedAt": "2026-08-12T14:07:51.063Z",
+      "realmAt": "2026-08-12T14:07:50.806Z",
       "status": "shadow",
       "effect": {
         "kind": "order-med",
@@ -480,30 +391,14 @@
         "route": "PO",
         "frequency": "daily",
         "indication": "HTN"
-      },
-      "mutations": [
-        {
-          "urn": "urn:realm:realm:demo-dvc-nashville:medication:dvc-nash-pt-0002-lisinopril-0",
-          "patch": {
-            "kind": "order",
-            "code": "lisinopril",
-            "dose": "10mg",
-            "route": "PO",
-            "frequency": "daily",
-            "indication": "HTN",
-            "patientId": "dvc-nash-pt-0002",
-            "status": "active",
-            "orderedAt": "2026-08-12T13:49:20.242Z"
-          }
-        }
-      ]
+      }
     },
     {
-      "effectId": "fef19d04-b462-4388-9015-074542862a82",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "agentSpecId": "flagship.charge-rn",
-      "emittedAt": "2026-08-12T13:49:20.245Z",
-      "realmAt": "2026-08-12T13:49:20.242Z",
+      "effectId": "fc60a00f-1be5-4f95-9843-ec4fad23c8f9",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "agentSpecId": "nurse-b",
+      "emittedAt": "2026-08-12T14:07:51.064Z",
+      "realmAt": "2026-08-12T14:07:50.806Z",
       "status": "shadow",
       "effect": {
         "kind": "record-assessment",
@@ -511,27 +406,14 @@
         "assessmentId": "phq9",
         "score": 7,
         "band": "mild"
-      },
-      "mutations": [
-        {
-          "urn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
-          "patch": {
-            "lastAssessment": {
-              "id": "phq9",
-              "score": 7,
-              "band": "mild",
-              "at": "2026-08-12T13:49:20.242Z"
-            }
-          }
-        }
-      ]
+      }
     },
     {
-      "effectId": "54ca79bc-61ef-4a5a-8ff9-105fb9749b3d",
-      "presenceId": "system-lab-3c9051c8-c52c-469c-b5ea-9446e6329291",
+      "effectId": "4bc8a2cd-c85d-4c89-b604-d5af7f1e19f2",
+      "presenceId": "system-lab-0f3c9344-75e5-44c9-b75b-ee17e3531fbb",
       "agentSpecId": "system.lab-maturation",
-      "emittedAt": "2026-08-12T13:49:20.245Z",
-      "realmAt": "2026-08-12T14:49:20.242Z",
+      "emittedAt": "2026-08-12T14:07:51.064Z",
+      "realmAt": "2026-08-12T15:07:50.806Z",
       "status": "shadow",
       "effect": {
         "kind": "result-lab",
@@ -539,57 +421,77 @@
         "code": "K",
         "value": 3.9,
         "unit": "mmol/L"
-      },
-      "mutations": [
-        {
-          "urn": "urn:realm:realm:demo-dvc-nashville:result:dvc-nash-pt-0001-K-0-result",
-          "patch": {
-            "code": "K",
-            "value": 3.9,
-            "unit": "mmol/L",
-            "orderId": "dvc-nash-pt-0001-K-0",
-            "at": "2026-08-12T14:49:20.242Z"
-          }
-        }
-      ]
+      }
     },
     {
-      "effectId": "9a46e1d3-026e-44a0-8d88-d4b39d243fc2",
-      "presenceId": "system-lab-99331a05-a2d5-4fc2-8e9f-871fec59bd78",
+      "effectId": "e86f9c66-95a2-4546-8b2a-56f1c0e33242",
+      "presenceId": "system-lab-0f48cbb1-af22-463c-85ad-a82fcd424189",
       "agentSpecId": "system.lab-maturation",
-      "emittedAt": "2026-08-12T13:49:20.245Z",
-      "realmAt": "2026-08-12T17:49:20.242Z",
+      "emittedAt": "2026-08-12T14:07:51.065Z",
+      "realmAt": "2026-08-12T18:07:50.806Z",
       "status": "shadow",
       "effect": {
         "kind": "result-lab",
         "orderId": "dvc-nash-pt-0001-HGB-0",
         "code": "HGB",
-        "value": 11.3,
+        "value": 11.7,
         "unit": "g/dL"
-      },
-      "mutations": [
-        {
-          "urn": "urn:realm:realm:demo-dvc-nashville:result:dvc-nash-pt-0001-HGB-0-result",
-          "patch": {
-            "code": "HGB",
-            "value": 11.3,
-            "unit": "g/dL",
-            "orderId": "dvc-nash-pt-0001-HGB-0",
-            "at": "2026-08-12T17:49:20.242Z"
-          }
-        }
-      ]
+      }
     },
     {
-      "effectId": "7f565452-737d-4ca4-9414-e658f4b84460",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "agentSpecId": "flagship.claims-coder",
-      "emittedAt": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T19:49:20.242Z",
+      "effectId": "25b282d9-1c27-4cc6-88b2-9ad53f80bebf",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "agentSpecId": "rounding",
+      "emittedAt": "2026-08-12T14:07:51.066Z",
+      "realmAt": "2026-08-12T20:07:50.806Z",
+      "status": "shadow",
+      "effect": {
+        "kind": "discharge-patient",
+        "patientId": "dvc-nash-pt-0006",
+        "disposition": "home"
+      }
+    },
+    {
+      "effectId": "61ee7b45-07bf-4bdf-8838-8993db314e60",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "agentSpecId": "coder",
+      "emittedAt": "2026-08-12T14:07:51.066Z",
+      "realmAt": "2026-08-12T20:07:50.806Z",
+      "status": "shadow",
+      "effect": {
+        "kind": "record-agent-thought",
+        "note": "[coder.claims] Discharge — building claim for dvc-nash-pt-0006."
+      }
+    },
+    {
+      "effectId": "faf13e28-0d64-4bc9-af64-e8e4003b4070",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "agentSpecId": "coder",
+      "emittedAt": "2026-08-12T14:07:51.066Z",
+      "realmAt": "2026-08-12T20:07:50.806Z",
       "status": "shadow",
       "effect": {
         "kind": "submit-claim",
-        "encounterId": "dvc-nash-enc-0001",
+        "encounterId": "dvc-nash-pt-0006-enc",
+        "payerId": "medicare-part-b",
+        "cptCodes": [
+          "90999"
+        ],
+        "icd10Codes": [
+          "N18.6"
+        ]
+      }
+    },
+    {
+      "effectId": "6d4845f3-96db-4f8c-a586-f9e1e46d8a4c",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "agentSpecId": "coder",
+      "emittedAt": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "status": "shadow",
+      "effect": {
+        "kind": "submit-claim",
+        "encounterId": "dvc-nash-enc-0006",
         "payerId": "medicare-part-b",
         "cptCodes": [
           "90999"
@@ -598,554 +500,15 @@
           "N18.6",
           "I12.0"
         ]
-      },
-      "mutations": [
-        {
-          "urn": "urn:realm:realm:demo-dvc-nashville:insurance:claim-dvc-nash-enc-0001-6",
-          "patch": {
-            "kind": "claim",
-            "encounterId": "dvc-nash-enc-0001",
-            "payerId": "medicare-part-b",
-            "cptCodes": [
-              "90999"
-            ],
-            "icd10Codes": [
-              "N18.6",
-              "I12.0"
-            ],
-            "status": "submitted",
-            "submittedAt": "2026-08-12T19:49:20.242Z"
-          }
-        }
-      ]
+      }
     }
   ],
   "perception": [
     {
-      "eventId": "ffecafe8-f8e9-47d7-9e2c-f53d8998d11f",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
-      "payload": {
-        "hr": 72,
-        "spo2": 97,
-        "trajectory": "recovering"
-      }
-    },
-    {
-      "eventId": "867374a7-0945-4bd4-9745-7caa1bf76c30",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
-      "payload": {
-        "hr": 72,
-        "spo2": 97,
-        "trajectory": "recovering"
-      }
-    },
-    {
-      "eventId": "fc765fca-2fb8-4a76-b0a3-de0ef7dd40a1",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
-      "payload": {
-        "hr": 72,
-        "spo2": 97,
-        "trajectory": "recovering"
-      }
-    },
-    {
-      "eventId": "800533d2-8eb3-4bf6-b898-d27c1abddcb7",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
-      "payload": {
-        "hr": 72,
-        "spo2": 97,
-        "trajectory": "recovering"
-      }
-    },
-    {
-      "eventId": "c3b7caf6-6f84-44ac-aec7-a7cc1b2da48d",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
-      "payload": {
-        "hr": 72,
-        "spo2": 97,
-        "trajectory": "recovering"
-      }
-    },
-    {
-      "eventId": "028b46ea-ad90-4dd0-8141-ff4dc6eedf4c",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
-      "payload": {
-        "hr": 75,
-        "spo2": 97,
-        "trajectory": "anemic-worsening"
-      }
-    },
-    {
-      "eventId": "82ff55a4-f4d0-490d-b016-ad2aec4c37f0",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
-      "payload": {
-        "hr": 75,
-        "spo2": 97,
-        "trajectory": "anemic-worsening"
-      }
-    },
-    {
-      "eventId": "d3fae110-2e58-4613-abcf-84d9cc990ba9",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
-      "payload": {
-        "hr": 75,
-        "spo2": 97,
-        "trajectory": "anemic-worsening"
-      }
-    },
-    {
-      "eventId": "fa0788fb-56df-407b-8dc3-e99ec66c60f1",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
-      "payload": {
-        "hr": 75,
-        "spo2": 97,
-        "trajectory": "anemic-worsening"
-      }
-    },
-    {
-      "eventId": "8fb34e60-7a01-4a80-bd4b-48de5a6a9125",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
-      "payload": {
-        "hr": 75,
-        "spo2": 97,
-        "trajectory": "anemic-worsening"
-      }
-    },
-    {
-      "eventId": "52d3f500-fb8d-4940-b871-b22a29ac3118",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
-      "payload": {
-        "hr": 76,
-        "spo2": 97,
-        "trajectory": "anemic-recovering"
-      }
-    },
-    {
-      "eventId": "bd7afa51-e1ed-4c07-b121-64c66063354e",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
-      "payload": {
-        "hr": 76,
-        "spo2": 97,
-        "trajectory": "anemic-recovering"
-      }
-    },
-    {
-      "eventId": "3b060731-3550-449f-bc49-fd78d7dd2fdd",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
-      "payload": {
-        "hr": 76,
-        "spo2": 97,
-        "trajectory": "anemic-recovering"
-      }
-    },
-    {
-      "eventId": "fb4a1644-ce13-4de1-97c5-724a2e4012d1",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
-      "payload": {
-        "hr": 76,
-        "spo2": 97,
-        "trajectory": "anemic-recovering"
-      }
-    },
-    {
-      "eventId": "599544e6-07c2-48a8-947d-674f8c2320e1",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
-      "payload": {
-        "hr": 76,
-        "spo2": 97,
-        "trajectory": "anemic-recovering"
-      }
-    },
-    {
-      "eventId": "305f136c-503f-4cac-97b5-b70117b72b0a",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
-      "payload": {
-        "hr": 77,
-        "spo2": 97,
-        "trajectory": "underdialyzed"
-      }
-    },
-    {
-      "eventId": "e74b0bb1-83c6-495b-82ca-afaa51b0aad1",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
-      "payload": {
-        "hr": 77,
-        "spo2": 97,
-        "trajectory": "underdialyzed"
-      }
-    },
-    {
-      "eventId": "5228c847-3d7d-43ab-a09f-76f61e3e5dec",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
-      "payload": {
-        "hr": 77,
-        "spo2": 97,
-        "trajectory": "underdialyzed"
-      }
-    },
-    {
-      "eventId": "cde82f61-6a65-44c2-9eab-f9633b634e75",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
-      "payload": {
-        "hr": 77,
-        "spo2": 97,
-        "trajectory": "underdialyzed"
-      }
-    },
-    {
-      "eventId": "c09fe2ef-661e-415f-ae34-60086232aba5",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
-      "payload": {
-        "hr": 77,
-        "spo2": 97,
-        "trajectory": "underdialyzed"
-      }
-    },
-    {
-      "eventId": "2dc93ede-8646-4612-a0b5-1698efbe97a3",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
-      "payload": {
-        "hr": 78,
-        "spo2": 97,
-        "trajectory": "hyperphosphatemia"
-      }
-    },
-    {
-      "eventId": "91420fa6-3aaa-4ff7-aef0-dbdd1ca8633d",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
-      "payload": {
-        "hr": 78,
-        "spo2": 97,
-        "trajectory": "hyperphosphatemia"
-      }
-    },
-    {
-      "eventId": "6906cbc6-1a1c-45ce-9d10-e8c78d50477b",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
-      "payload": {
-        "hr": 78,
-        "spo2": 97,
-        "trajectory": "hyperphosphatemia"
-      }
-    },
-    {
-      "eventId": "b2001c9b-e41b-41ea-887f-7307e9fdc10d",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
-      "payload": {
-        "hr": 78,
-        "spo2": 97,
-        "trajectory": "hyperphosphatemia"
-      }
-    },
-    {
-      "eventId": "ed5acff6-c313-4d6a-b0d6-df5271e6aa8c",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.246Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
-      "payload": {
-        "hr": 78,
-        "spo2": 97,
-        "trajectory": "hyperphosphatemia"
-      }
-    },
-    {
-      "eventId": "372c667b-81a3-48cd-8034-71ad7c31fdd0",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
-      "payload": {
-        "hr": 86,
-        "spo2": 95,
-        "trajectory": "decompensating"
-      }
-    },
-    {
-      "eventId": "205b876a-5ddd-4e1a-8aec-74930c4de6b1",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
-      "payload": {
-        "hr": 86,
-        "spo2": 95,
-        "trajectory": "decompensating"
-      }
-    },
-    {
-      "eventId": "58b95b4d-fa7f-4c8c-ac57-d58679019b61",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
-      "payload": {
-        "hr": 86,
-        "spo2": 95,
-        "trajectory": "decompensating"
-      }
-    },
-    {
-      "eventId": "5bcdd069-e868-44cb-a378-15d5aa8ade91",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
-      "payload": {
-        "hr": 86,
-        "spo2": 95,
-        "trajectory": "decompensating"
-      }
-    },
-    {
-      "eventId": "3acb99db-c2c4-4341-939d-c2e2206c75f5",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
-      "payload": {
-        "hr": 86,
-        "spo2": 95,
-        "trajectory": "decompensating"
-      }
-    },
-    {
-      "eventId": "5a3844fb-9c90-4a52-a31c-39408a4ee3ec",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
-      "payload": {
-        "hr": 79,
-        "spo2": 97,
-        "trajectory": "recovering"
-      }
-    },
-    {
-      "eventId": "1a956dd6-5992-48ef-995d-cc77ee0c116e",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
-      "payload": {
-        "hr": 79,
-        "spo2": 97,
-        "trajectory": "recovering"
-      }
-    },
-    {
-      "eventId": "115a9344-93e0-455c-a325-2165b62b2c06",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
-      "payload": {
-        "hr": 79,
-        "spo2": 97,
-        "trajectory": "recovering"
-      }
-    },
-    {
-      "eventId": "da3e4993-3861-429b-8217-27af02fe339d",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
-      "payload": {
-        "hr": 79,
-        "spo2": 97,
-        "trajectory": "recovering"
-      }
-    },
-    {
-      "eventId": "0d5936cc-59f8-45f5-996c-12e19d09e2aa",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
-      "payload": {
-        "hr": 79,
-        "spo2": 97,
-        "trajectory": "recovering"
-      }
-    },
-    {
-      "eventId": "2fafd5bb-e131-4ef5-b2dc-fa010ff931a9",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
-      "payload": {
-        "hr": 72,
-        "spo2": 97,
-        "trajectory": "anemic-worsening"
-      }
-    },
-    {
-      "eventId": "f4c12a0e-78ce-4de8-9bf9-0167cdc77daa",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
-      "payload": {
-        "hr": 72,
-        "spo2": 97,
-        "trajectory": "anemic-worsening"
-      }
-    },
-    {
-      "eventId": "fb36a72b-31c0-429f-995d-c8de52a4b471",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
-      "payload": {
-        "hr": 72,
-        "spo2": 97,
-        "trajectory": "anemic-worsening"
-      }
-    },
-    {
-      "eventId": "9263519d-9107-43dd-8d21-b549ebbd809e",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
-      "payload": {
-        "hr": 72,
-        "spo2": 97,
-        "trajectory": "anemic-worsening"
-      }
-    },
-    {
-      "eventId": "8d268a5d-9542-4847-a2bb-b05c8a2e22a0",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
-      "payload": {
-        "hr": 72,
-        "spo2": 97,
-        "trajectory": "anemic-worsening"
-      }
-    },
-    {
-      "eventId": "c268439c-b07c-44ce-bfb2-cb614ed6cea2",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
+      "eventId": "f51624e4-a6dc-4e9a-925b-a8521f145c64",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T22:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
       "payload": {
@@ -1155,10 +518,10 @@
       }
     },
     {
-      "eventId": "dbc290d4-a397-407a-93b8-0d7a5a459d85",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
+      "eventId": "6800206c-4b17-45f6-8222-34739a7b5283",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T22:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
       "payload": {
@@ -1168,289 +531,298 @@
       }
     },
     {
-      "eventId": "eb9b1a0b-f7ee-4cae-9868-43a67db5ddd9",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
-      "payload": {
-        "hr": 73,
-        "spo2": 97,
-        "trajectory": "anemic-recovering"
-      }
-    },
-    {
-      "eventId": "20542ffd-b570-4876-9b47-403b8ef6afd5",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
-      "payload": {
-        "hr": 73,
-        "spo2": 97,
-        "trajectory": "anemic-recovering"
-      }
-    },
-    {
-      "eventId": "3e891e07-e885-4e11-affa-835c9f1b2bdd",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
-      "kind": "ambient.vitals-drift",
-      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
-      "payload": {
-        "hr": 73,
-        "spo2": 97,
-        "trajectory": "anemic-recovering"
-      }
-    },
-    {
-      "eventId": "ae536495-5973-4cd0-9132-32f67e4e3f3a",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
+      "eventId": "4911dda3-e6a5-421c-9275-15322c9cdebc",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T22:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 8,
-        "realmAt": "2026-08-12T21:49:20.242Z",
+        "realmAt": "2026-08-12T22:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "417d7201-785d-41e4-b5b7-eac5dd67d182",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
+      "eventId": "1eeefd3a-6cec-491a-ac79-331997f861a2",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T22:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 8,
-        "realmAt": "2026-08-12T21:49:20.242Z",
+        "realmAt": "2026-08-12T22:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "d60f8e13-1fc2-4ffd-ba3a-1a25dd7bee64",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
+      "eventId": "e89bd66f-c633-430b-8461-58f75dac6362",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T22:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 8,
-        "realmAt": "2026-08-12T21:49:20.242Z",
+        "realmAt": "2026-08-12T22:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "c167824b-ae7e-4c2f-a6b1-1f8276b34e50",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
+      "eventId": "e41c923f-18b3-4b95-baeb-7f6b7390615c",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T22:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 8,
-        "realmAt": "2026-08-12T21:49:20.242Z",
+        "realmAt": "2026-08-12T22:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "399d1dbb-2666-4987-9c60-7884581a6666",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T21:49:20.242Z",
+      "eventId": "a4968bb1-8471-45f1-83af-933c4b6f387b",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T22:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 8,
-        "realmAt": "2026-08-12T21:49:20.242Z",
+        "realmAt": "2026-08-12T22:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "9c9134e1-3218-49f6-8fd5-0bf0ff26bd05",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T22:49:20.242Z",
+      "eventId": "a2b58323-f7ba-4405-b408-47083bb641b3",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T22:07:50.806Z",
+      "kind": "clock.tick",
+      "payload": {
+        "seq": 8,
+        "realmAt": "2026-08-12T22:07:50.806Z",
+        "deltaMs": 3600000
+      }
+    },
+    {
+      "eventId": "2c38a2e5-b13e-4cd6-9556-a581affb6535",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T23:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 9,
-        "realmAt": "2026-08-12T22:49:20.242Z",
+        "realmAt": "2026-08-12T23:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "dfe49946-6ebf-40ca-96c0-296a819ac3c0",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T22:49:20.242Z",
+      "eventId": "88460b3c-5cb4-4ac7-8156-089a56cf4d3e",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T23:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 9,
-        "realmAt": "2026-08-12T22:49:20.242Z",
+        "realmAt": "2026-08-12T23:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "550fa7d4-f125-4018-966e-8ec99b251bc9",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T22:49:20.242Z",
+      "eventId": "17ce8136-b8ee-4083-9b0e-16aaf0924c6f",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T23:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 9,
-        "realmAt": "2026-08-12T22:49:20.242Z",
+        "realmAt": "2026-08-12T23:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "6196c30a-c3ac-403c-9aa0-ee3edcc0794d",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T22:49:20.242Z",
+      "eventId": "951cb444-47e2-4007-a9a0-015cd2d40f63",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T23:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 9,
-        "realmAt": "2026-08-12T22:49:20.242Z",
+        "realmAt": "2026-08-12T23:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "e4d777ac-aa99-4655-b063-725294dac5b9",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T22:49:20.242Z",
+      "eventId": "c1aa9be5-4038-4006-b038-a7e50659a04d",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T23:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 9,
-        "realmAt": "2026-08-12T22:49:20.242Z",
+        "realmAt": "2026-08-12T23:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "09b46b1c-d4d6-4562-aa82-877b636c02ee",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T23:49:20.242Z",
+      "eventId": "f11e38e6-8ec6-4f21-9472-121988cb9ff9",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-12T23:07:50.806Z",
+      "kind": "clock.tick",
+      "payload": {
+        "seq": 9,
+        "realmAt": "2026-08-12T23:07:50.806Z",
+        "deltaMs": 3600000
+      }
+    },
+    {
+      "eventId": "16f26bf2-6fa6-469c-b7ea-3f607d3a9ae1",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T00:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 10,
-        "realmAt": "2026-08-12T23:49:20.242Z",
+        "realmAt": "2026-08-13T00:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "8d3d516d-06e1-4883-95ce-39a43ba56b2e",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T23:49:20.242Z",
+      "eventId": "d4ad37cd-c923-45d5-9e83-9167321504c5",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T00:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 10,
-        "realmAt": "2026-08-12T23:49:20.242Z",
+        "realmAt": "2026-08-13T00:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "fe193bbd-435c-4e9e-ad8c-e911e91020d0",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T23:49:20.242Z",
+      "eventId": "5d2dbe14-9928-4974-b8f6-cac2c4ee2d2a",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T00:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 10,
-        "realmAt": "2026-08-12T23:49:20.242Z",
+        "realmAt": "2026-08-13T00:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "ea434262-850d-49dd-8a34-aea9aca11094",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T23:49:20.242Z",
+      "eventId": "533f357f-cb5d-4de2-bb6f-db9e2c19203d",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T00:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 10,
-        "realmAt": "2026-08-12T23:49:20.242Z",
+        "realmAt": "2026-08-13T00:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "b22174a1-0bfc-4fc6-b63c-9637cce76cc5",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-12T23:49:20.242Z",
+      "eventId": "5a7a54c4-b8c6-493f-84e5-9e5419739155",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T00:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 10,
-        "realmAt": "2026-08-12T23:49:20.242Z",
+        "realmAt": "2026-08-13T00:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "78fd9a39-a4db-4681-b1cb-4216e950cad7",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T00:49:20.242Z",
+      "eventId": "69941c8d-3456-4a2c-96a5-ae098c721610",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T00:07:50.806Z",
+      "kind": "clock.tick",
+      "payload": {
+        "seq": 10,
+        "realmAt": "2026-08-13T00:07:50.806Z",
+        "deltaMs": 3600000
+      }
+    },
+    {
+      "eventId": "bdae6575-4f8a-47ae-be5b-40f33b3e1040",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T01:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 11,
-        "realmAt": "2026-08-13T00:49:20.242Z",
+        "realmAt": "2026-08-13T01:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "0b233b4e-f59a-4ca5-9d02-0a7ccad891fc",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T00:49:20.242Z",
+      "eventId": "40ccd85a-2ab0-4082-9eb9-63731882f5d3",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T01:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 11,
-        "realmAt": "2026-08-13T00:49:20.242Z",
+        "realmAt": "2026-08-13T01:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "79928f2d-b573-467d-9af8-9c875a71be28",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T00:49:20.242Z",
+      "eventId": "9b57da0d-7ba8-4dd6-bea5-0616ff367313",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T01:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 11,
-        "realmAt": "2026-08-13T00:49:20.242Z",
+        "realmAt": "2026-08-13T01:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "2c8ed8bf-77f6-4474-8449-16715fcfb5ce",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T00:49:20.242Z",
+      "eventId": "f0fc2761-544c-4cb8-958b-ce96f4dc8e00",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T01:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 11,
-        "realmAt": "2026-08-13T00:49:20.242Z",
+        "realmAt": "2026-08-13T01:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "8551e32b-205f-4e98-8502-c0fb1fccec1d",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T00:49:20.242Z",
+      "eventId": "907c5a83-2731-4891-84db-d0c2cec97d53",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T01:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 11,
-        "realmAt": "2026-08-13T00:49:20.242Z",
+        "realmAt": "2026-08-13T01:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "8e1e57cf-8270-4fff-8c2b-a042bbf54547",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "dceb275a-9195-49bb-913c-e40dac83dee3",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T01:07:50.806Z",
+      "kind": "clock.tick",
+      "payload": {
+        "seq": 11,
+        "realmAt": "2026-08-13T01:07:50.806Z",
+        "deltaMs": 3600000
+      }
+    },
+    {
+      "eventId": "c26eb430-8064-45a4-8f83-ad8325361970",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0002",
       "payload": {
@@ -1460,10 +832,10 @@
       }
     },
     {
-      "eventId": "7ac5f009-74da-4508-9399-b541890abf69",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "43821f82-1d01-4b45-92fd-d35272b0e95b",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0002",
       "payload": {
@@ -1473,10 +845,10 @@
       }
     },
     {
-      "eventId": "1ca2658c-df17-43b5-9065-8d5f02d8b78c",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "d62c9702-0858-48ff-9f2f-09990192fb0d",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0002",
       "payload": {
@@ -1486,10 +858,10 @@
       }
     },
     {
-      "eventId": "7c8d4d4e-266f-446b-ab8b-4946ada901aa",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "076465a4-63c0-40e4-b61d-bfc0c18b0b66",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0002",
       "payload": {
@@ -1499,10 +871,10 @@
       }
     },
     {
-      "eventId": "e98b7503-deb3-47b9-a3be-aa0f4ca6b6e8",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "0fac0a0e-f025-42f3-a11d-02e293fd64d4",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0002",
       "payload": {
@@ -1512,10 +884,23 @@
       }
     },
     {
-      "eventId": "afd2629e-72ec-48d6-8784-896cadfcfc66",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "ed2ee68a-89c1-4909-8722-35d42747d209",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0002",
+      "payload": {
+        "hr": 82,
+        "spo2": 94,
+        "trajectory": "decompensating"
+      }
+    },
+    {
+      "eventId": "01605a9d-f16b-40c3-9f13-aab0e4e585f9",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
       "payload": {
@@ -1525,10 +910,10 @@
       }
     },
     {
-      "eventId": "9da068c4-8ba4-45ec-86b7-765bf3e8b886",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "98a868cd-ffa5-455a-bbf3-8b345b9f95db",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
       "payload": {
@@ -1538,10 +923,10 @@
       }
     },
     {
-      "eventId": "0f850449-8187-4958-842f-2ba40da71a11",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "0444e6a5-72aa-446a-9f34-a44861c689d1",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
       "payload": {
@@ -1551,10 +936,10 @@
       }
     },
     {
-      "eventId": "82cf04b4-623b-49f2-ba8f-8701b2bf2c2f",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "308a86a8-d268-4f3e-aee8-fa1b545b3556",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
       "payload": {
@@ -1564,10 +949,10 @@
       }
     },
     {
-      "eventId": "258445d9-f562-4cd1-ac18-40b624494962",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "60cb69d9-7976-4bf6-9715-649c734d7ce2",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
       "payload": {
@@ -1577,10 +962,23 @@
       }
     },
     {
-      "eventId": "7ee7ff87-d913-45f1-acb4-ac326446c6fd",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "e2977186-2b68-43e7-bace-6cc6b269b6aa",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
+      "payload": {
+        "hr": 71,
+        "spo2": 97,
+        "trajectory": "recovering"
+      }
+    },
+    {
+      "eventId": "247ae004-15d0-4ece-83a2-e208fb51699e",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
       "payload": {
@@ -1590,10 +988,10 @@
       }
     },
     {
-      "eventId": "1e7a7e88-4061-4dba-910d-483f786f5e3f",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "8888dc88-b842-4c16-9f87-4b57a63b3f6e",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
       "payload": {
@@ -1603,10 +1001,10 @@
       }
     },
     {
-      "eventId": "06ea50fb-8481-49b4-ab3b-81f50c73c49f",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "b344cb03-e566-4666-8823-c5f8c44575e4",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
       "payload": {
@@ -1616,10 +1014,10 @@
       }
     },
     {
-      "eventId": "3387709c-d0f4-472d-a76d-b185ee3d9dfb",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "671ab151-9cfe-4c8d-a8e9-d1fe0f0ae209",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
       "payload": {
@@ -1629,10 +1027,10 @@
       }
     },
     {
-      "eventId": "2e30bf23-429d-4fdc-b417-15c870df3504",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "f501ac2d-3c8f-48bf-a89f-1604a295fc6a",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
       "payload": {
@@ -1642,10 +1040,23 @@
       }
     },
     {
-      "eventId": "3f2702c3-be6e-452a-8964-2d2f761112e3",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "5ddfe3dd-8b1e-4f2e-95cf-28c1120de068",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
+      "payload": {
+        "hr": 75,
+        "spo2": 97,
+        "trajectory": "anemic-worsening"
+      }
+    },
+    {
+      "eventId": "8ad04b87-5b34-489d-a9e6-04af846ffbe4",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
       "payload": {
@@ -1655,10 +1066,10 @@
       }
     },
     {
-      "eventId": "a8b72074-ec67-480a-89ed-30d1e327962b",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "a723b687-3831-4741-a494-3c757615fbea",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
       "payload": {
@@ -1668,10 +1079,10 @@
       }
     },
     {
-      "eventId": "4cfaecf3-7c73-4c19-8f9f-ec2e360a2689",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "d4069e45-b9ed-4392-bef1-f5c062740994",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
       "payload": {
@@ -1681,10 +1092,10 @@
       }
     },
     {
-      "eventId": "3c198b11-498d-498f-9032-256c2fce74a6",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "0630f0aa-59cb-4e75-ba48-26c7ea48c7a4",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
       "payload": {
@@ -1694,10 +1105,10 @@
       }
     },
     {
-      "eventId": "9000d461-90c6-4157-87a2-e0ff0ebd73d6",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "115267d9-ea5e-4e23-901d-325739471c83",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
       "payload": {
@@ -1707,10 +1118,23 @@
       }
     },
     {
-      "eventId": "a2987871-7198-4257-902c-0e5c13608878",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "48eb3ddf-af93-4ed5-9f7b-465d3d0d0957",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
+      "payload": {
+        "hr": 76,
+        "spo2": 97,
+        "trajectory": "anemic-recovering"
+      }
+    },
+    {
+      "eventId": "2410cc4a-38ec-46df-ae28-b032cbd67d77",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
       "payload": {
@@ -1720,10 +1144,10 @@
       }
     },
     {
-      "eventId": "01b743f6-56f2-48de-9509-fa4484b91df8",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "a57a78f0-a83f-4bc5-b304-a990eedd1833",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
       "payload": {
@@ -1733,10 +1157,10 @@
       }
     },
     {
-      "eventId": "6acf456b-2ff5-4822-8e90-14df3c5ef1c3",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "ddc24659-0710-44b2-a382-5acb3884f07e",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
       "payload": {
@@ -1746,10 +1170,10 @@
       }
     },
     {
-      "eventId": "5878643f-8b4d-4997-8887-500d196cb0c1",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "5ac491d1-dab1-4c0e-a1cd-16954fd77e0e",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
       "payload": {
@@ -1759,10 +1183,10 @@
       }
     },
     {
-      "eventId": "56aedd4a-355d-42d5-b00d-b6adde5a264a",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "8da4a04f-8a7f-45ae-8c8e-712c5976f4df",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
       "payload": {
@@ -1772,10 +1196,23 @@
       }
     },
     {
-      "eventId": "9177c4a1-ede9-4fae-8166-08ca6b765662",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "23d7b964-a37c-4fa3-b93f-31a4c2da922d",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
+      "payload": {
+        "hr": 77,
+        "spo2": 97,
+        "trajectory": "underdialyzed"
+      }
+    },
+    {
+      "eventId": "13dab4e3-2e1c-4b27-b2b5-146cf5d0f638",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
       "payload": {
@@ -1785,10 +1222,10 @@
       }
     },
     {
-      "eventId": "26ed5836-a805-4724-bb00-fa72f41f1054",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "51b4dc2a-4fc4-4cb9-bd31-fbb4d45b594b",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
       "payload": {
@@ -1798,10 +1235,10 @@
       }
     },
     {
-      "eventId": "a253bfd1-6194-435b-b480-9ba31fbe6b06",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "e4c3cceb-f4da-4755-a1c4-27dc0322764c",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
       "payload": {
@@ -1811,10 +1248,10 @@
       }
     },
     {
-      "eventId": "b7788d45-c126-4c24-b9be-1969b187ac2b",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "e236b8de-7d48-4b2f-a94d-e28130df640c",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
       "payload": {
@@ -1824,10 +1261,10 @@
       }
     },
     {
-      "eventId": "49982390-128d-485f-bede-47f12218ac5a",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "b1218744-288a-49ad-b430-351dc3b11c89",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
       "payload": {
@@ -1837,10 +1274,23 @@
       }
     },
     {
-      "eventId": "b8c183c2-ada3-426d-bad4-ed5cdb5ccfa2",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "511a68cb-fd25-4893-ab98-d96ddf583f74",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
+      "payload": {
+        "hr": 78,
+        "spo2": 97,
+        "trajectory": "hyperphosphatemia"
+      }
+    },
+    {
+      "eventId": "2f243b27-959f-4848-a9ff-d84bd1b67bc7",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
       "payload": {
@@ -1850,10 +1300,10 @@
       }
     },
     {
-      "eventId": "73d3520a-15ad-4038-b214-f9747cf907c2",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "ae117162-2746-4320-89f4-ad31a96aa0fb",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
       "payload": {
@@ -1863,10 +1313,10 @@
       }
     },
     {
-      "eventId": "062d3c0e-233d-4ea4-80f6-141cf3163d71",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "272093a9-267b-44c1-bef9-e285f48ff919",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
       "payload": {
@@ -1876,10 +1326,10 @@
       }
     },
     {
-      "eventId": "fdbeef92-cf50-4b83-a374-6666db642785",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "05d2b65c-335e-455f-987c-4abe22a8b41f",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
       "payload": {
@@ -1889,10 +1339,10 @@
       }
     },
     {
-      "eventId": "dccf733f-50fe-49c4-8bde-398a4ce8375c",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "1bede181-a575-44d4-89bf-09734fd6f427",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
       "payload": {
@@ -1902,10 +1352,23 @@
       }
     },
     {
-      "eventId": "f33401ff-9b4c-4077-a5ff-e3e4cc284a37",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "dcd0e411-885c-4d82-adbc-aad5c1e9ada5",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
+      "payload": {
+        "hr": 89,
+        "spo2": 94,
+        "trajectory": "decompensating"
+      }
+    },
+    {
+      "eventId": "011fd8b7-bf23-45f4-b5e4-ffcbe933edc0",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
       "payload": {
@@ -1915,10 +1378,10 @@
       }
     },
     {
-      "eventId": "3ae3baf1-3a81-4f37-bcd2-aef5b159e9c9",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "52e70585-8a77-4dd3-ab7f-63f80f26ec88",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
       "payload": {
@@ -1928,10 +1391,10 @@
       }
     },
     {
-      "eventId": "7f3cdedb-beee-43c8-b90b-63a73b3bb7e4",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "c378b2ea-be38-483b-9d39-9961c5c7c517",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
       "payload": {
@@ -1941,10 +1404,10 @@
       }
     },
     {
-      "eventId": "74a76207-fe27-4ffa-9a60-ee5f67289103",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "bb48fae8-3ae3-4bc0-9d9c-0625a0887231",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
       "payload": {
@@ -1954,10 +1417,10 @@
       }
     },
     {
-      "eventId": "7aba6d7e-451b-4712-b183-35a128577dff",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "696ffc47-b5e8-4ea9-bf36-c00db9508f81",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
       "payload": {
@@ -1967,10 +1430,23 @@
       }
     },
     {
-      "eventId": "fa2652b2-4d81-4661-a9be-24349a58c6a7",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "b62604ad-43bb-4961-bec4-18a9967b209c",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
+      "payload": {
+        "hr": 78,
+        "spo2": 97,
+        "trajectory": "recovering"
+      }
+    },
+    {
+      "eventId": "2ad78f02-4f09-4728-b907-f96f41d183c5",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
       "payload": {
@@ -1980,10 +1456,10 @@
       }
     },
     {
-      "eventId": "994cec7d-16f3-402f-82c1-72cd793d9e99",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "eb2aaa54-ef95-41d9-bb3d-bbb736e051fe",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
       "payload": {
@@ -1993,10 +1469,10 @@
       }
     },
     {
-      "eventId": "312c8326-f873-40d6-81ce-7636e3fee638",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "71917f77-4ce0-488f-91cb-2c5d4e4f5b57",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
       "payload": {
@@ -2006,10 +1482,10 @@
       }
     },
     {
-      "eventId": "e969266a-b5eb-4b22-87ab-346990121319",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "6ca05ce1-992e-4f3d-bc28-cbcc5e3fd6ba",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
       "payload": {
@@ -2019,10 +1495,10 @@
       }
     },
     {
-      "eventId": "13c66f46-d831-49d3-93e6-d1895abeecb9",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "8a934b3c-00fa-491f-b42b-4fb3f26ecba8",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
       "payload": {
@@ -2032,10 +1508,23 @@
       }
     },
     {
-      "eventId": "2c4208cb-5dd4-4339-ba5f-c63fa517eaa7",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "c28a9eef-9629-48e2-b7c6-8641a5b3f7cf",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
+      "payload": {
+        "hr": 72,
+        "spo2": 97,
+        "trajectory": "anemic-worsening"
+      }
+    },
+    {
+      "eventId": "1eeca492-99dc-44b6-adb5-28f3bcb86005",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
       "payload": {
@@ -2045,10 +1534,10 @@
       }
     },
     {
-      "eventId": "894ef643-d615-4463-8e61-2808e8f4f8fa",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "ec795cff-1e38-4c1c-b95f-bcefdee649a3",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
       "payload": {
@@ -2058,10 +1547,10 @@
       }
     },
     {
-      "eventId": "52672bf7-3bf9-4768-9c7b-1977584bdcac",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "504a3a5a-c34f-4e81-809e-e7af37651ddd",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
       "payload": {
@@ -2071,10 +1560,10 @@
       }
     },
     {
-      "eventId": "a8bc60f4-9004-4127-9f58-0031f496f87b",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "627e9a53-d611-4866-9822-25791e06d0ce",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
       "payload": {
@@ -2084,10 +1573,10 @@
       }
     },
     {
-      "eventId": "b4e45cf5-fcb8-4616-98df-f498c8130cf8",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "00597339-02f8-481c-a2a1-960f53c6ffc1",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
       "payload": {
@@ -2097,250 +1586,611 @@
       }
     },
     {
-      "eventId": "9bade07b-0ec6-4ea8-98cf-ed4b22e5b792",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "a6dc97bb-8d1e-43e9-b682-cba1f397db18",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
+      "payload": {
+        "hr": 73,
+        "spo2": 97,
+        "trajectory": "anemic-recovering"
+      }
+    },
+    {
+      "eventId": "6d4f573d-bdca-454f-96eb-bfdd3e93e75f",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 12,
-        "realmAt": "2026-08-13T01:49:20.242Z",
+        "realmAt": "2026-08-13T02:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "b3d9c32e-59dd-4822-8537-31b3ebc9111c",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "36599a0e-c48d-4b05-9d46-5bdcd5265110",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 12,
-        "realmAt": "2026-08-13T01:49:20.242Z",
+        "realmAt": "2026-08-13T02:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "76967d8a-9fd1-4233-8412-ee65e3434336",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "fe6019d4-d3da-4d4d-ae86-ac35a29ab92a",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 12,
-        "realmAt": "2026-08-13T01:49:20.242Z",
+        "realmAt": "2026-08-13T02:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "1710a121-f277-4d2a-bf6a-6429f04b8696",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "4bcae520-cd78-4e1b-83fa-2fccdc86ebed",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 12,
-        "realmAt": "2026-08-13T01:49:20.242Z",
+        "realmAt": "2026-08-13T02:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "e1106780-77c7-4dba-8868-ac3c61e326e0",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T01:49:20.242Z",
+      "eventId": "03e5f16d-afb2-4a08-9f04-b73367d208ce",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 12,
-        "realmAt": "2026-08-13T01:49:20.242Z",
+        "realmAt": "2026-08-13T02:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "8b79a41f-852b-4b0f-be7c-739db6ec3a39",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T02:49:20.242Z",
+      "eventId": "ddad0779-4345-42a0-86d7-c558d465b013",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "clock.tick",
+      "payload": {
+        "seq": 12,
+        "realmAt": "2026-08-13T02:07:50.806Z",
+        "deltaMs": 3600000
+      }
+    },
+    {
+      "eventId": "bd983f25-4cfc-4b47-a467-786735f63111",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "effect.applied",
+      "payload": {
+        "effectId": "6d4845f3-96db-4f8c-a586-f9e1e46d8a4c",
+        "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+        "agentSpecId": "coder",
+        "effect": {
+          "kind": "submit-claim",
+          "encounterId": "dvc-nash-enc-0006",
+          "payerId": "medicare-part-b",
+          "cptCodes": [
+            "90999"
+          ],
+          "icd10Codes": [
+            "N18.6",
+            "I12.0"
+          ]
+        },
+        "status": "shadow"
+      }
+    },
+    {
+      "eventId": "0919de83-7fbf-4fb8-b276-f6da37bf6561",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "effect.applied",
+      "payload": {
+        "effectId": "6d4845f3-96db-4f8c-a586-f9e1e46d8a4c",
+        "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+        "agentSpecId": "coder",
+        "effect": {
+          "kind": "submit-claim",
+          "encounterId": "dvc-nash-enc-0006",
+          "payerId": "medicare-part-b",
+          "cptCodes": [
+            "90999"
+          ],
+          "icd10Codes": [
+            "N18.6",
+            "I12.0"
+          ]
+        },
+        "status": "shadow"
+      }
+    },
+    {
+      "eventId": "800eb812-cd0a-42ce-b2e2-d3f56980a197",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "effect.applied",
+      "payload": {
+        "effectId": "6d4845f3-96db-4f8c-a586-f9e1e46d8a4c",
+        "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+        "agentSpecId": "coder",
+        "effect": {
+          "kind": "submit-claim",
+          "encounterId": "dvc-nash-enc-0006",
+          "payerId": "medicare-part-b",
+          "cptCodes": [
+            "90999"
+          ],
+          "icd10Codes": [
+            "N18.6",
+            "I12.0"
+          ]
+        },
+        "status": "shadow"
+      }
+    },
+    {
+      "eventId": "c714c105-f644-4117-bb70-f00c3b210614",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "effect.applied",
+      "payload": {
+        "effectId": "6d4845f3-96db-4f8c-a586-f9e1e46d8a4c",
+        "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+        "agentSpecId": "coder",
+        "effect": {
+          "kind": "submit-claim",
+          "encounterId": "dvc-nash-enc-0006",
+          "payerId": "medicare-part-b",
+          "cptCodes": [
+            "90999"
+          ],
+          "icd10Codes": [
+            "N18.6",
+            "I12.0"
+          ]
+        },
+        "status": "shadow"
+      }
+    },
+    {
+      "eventId": "66614aa6-16d8-40d2-9cc2-ed3dc4196e81",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "effect.applied",
+      "payload": {
+        "effectId": "6d4845f3-96db-4f8c-a586-f9e1e46d8a4c",
+        "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+        "agentSpecId": "coder",
+        "effect": {
+          "kind": "submit-claim",
+          "encounterId": "dvc-nash-enc-0006",
+          "payerId": "medicare-part-b",
+          "cptCodes": [
+            "90999"
+          ],
+          "icd10Codes": [
+            "N18.6",
+            "I12.0"
+          ]
+        },
+        "status": "shadow"
+      }
+    },
+    {
+      "eventId": "63272eb4-20a9-4863-9534-b7f1dde74e7b",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "effect.applied",
+      "payload": {
+        "effectId": "6d4845f3-96db-4f8c-a586-f9e1e46d8a4c",
+        "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+        "agentSpecId": "coder",
+        "effect": {
+          "kind": "submit-claim",
+          "encounterId": "dvc-nash-enc-0006",
+          "payerId": "medicare-part-b",
+          "cptCodes": [
+            "90999"
+          ],
+          "icd10Codes": [
+            "N18.6",
+            "I12.0"
+          ]
+        },
+        "status": "shadow"
+      }
+    },
+    {
+      "eventId": "acbd04b1-0547-4058-adbd-28fbfc19e8ed",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "entity.updated",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:insurance:claim-dvc-nash-enc-0006-12",
+      "payload": {
+        "patch": {
+          "kind": "claim",
+          "encounterId": "dvc-nash-enc-0006",
+          "payerId": "medicare-part-b",
+          "cptCodes": [
+            "90999"
+          ],
+          "icd10Codes": [
+            "N18.6",
+            "I12.0"
+          ],
+          "status": "submitted",
+          "submittedAt": "2026-08-13T02:07:50.806Z"
+        },
+        "cause": "effect:submit-claim"
+      }
+    },
+    {
+      "eventId": "2a731395-e2dd-443c-b8bb-4113024fee58",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "entity.updated",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:insurance:claim-dvc-nash-enc-0006-12",
+      "payload": {
+        "patch": {
+          "kind": "claim",
+          "encounterId": "dvc-nash-enc-0006",
+          "payerId": "medicare-part-b",
+          "cptCodes": [
+            "90999"
+          ],
+          "icd10Codes": [
+            "N18.6",
+            "I12.0"
+          ],
+          "status": "submitted",
+          "submittedAt": "2026-08-13T02:07:50.806Z"
+        },
+        "cause": "effect:submit-claim"
+      }
+    },
+    {
+      "eventId": "d90c3bb8-1867-4b58-a42f-897cf8d2eb28",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "entity.updated",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:insurance:claim-dvc-nash-enc-0006-12",
+      "payload": {
+        "patch": {
+          "kind": "claim",
+          "encounterId": "dvc-nash-enc-0006",
+          "payerId": "medicare-part-b",
+          "cptCodes": [
+            "90999"
+          ],
+          "icd10Codes": [
+            "N18.6",
+            "I12.0"
+          ],
+          "status": "submitted",
+          "submittedAt": "2026-08-13T02:07:50.806Z"
+        },
+        "cause": "effect:submit-claim"
+      }
+    },
+    {
+      "eventId": "ae355909-4056-4e66-be75-36f093f0e8ba",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "entity.updated",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:insurance:claim-dvc-nash-enc-0006-12",
+      "payload": {
+        "patch": {
+          "kind": "claim",
+          "encounterId": "dvc-nash-enc-0006",
+          "payerId": "medicare-part-b",
+          "cptCodes": [
+            "90999"
+          ],
+          "icd10Codes": [
+            "N18.6",
+            "I12.0"
+          ],
+          "status": "submitted",
+          "submittedAt": "2026-08-13T02:07:50.806Z"
+        },
+        "cause": "effect:submit-claim"
+      }
+    },
+    {
+      "eventId": "defcce3f-d8c0-49fe-acfa-07f966e4c985",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "entity.updated",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:insurance:claim-dvc-nash-enc-0006-12",
+      "payload": {
+        "patch": {
+          "kind": "claim",
+          "encounterId": "dvc-nash-enc-0006",
+          "payerId": "medicare-part-b",
+          "cptCodes": [
+            "90999"
+          ],
+          "icd10Codes": [
+            "N18.6",
+            "I12.0"
+          ],
+          "status": "submitted",
+          "submittedAt": "2026-08-13T02:07:50.806Z"
+        },
+        "cause": "effect:submit-claim"
+      }
+    },
+    {
+      "eventId": "8581a19c-6497-4b97-8bb4-bbd73ab3c7b1",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.067Z",
+      "realmAt": "2026-08-13T02:07:50.806Z",
+      "kind": "entity.updated",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:insurance:claim-dvc-nash-enc-0006-12",
+      "payload": {
+        "patch": {
+          "kind": "claim",
+          "encounterId": "dvc-nash-enc-0006",
+          "payerId": "medicare-part-b",
+          "cptCodes": [
+            "90999"
+          ],
+          "icd10Codes": [
+            "N18.6",
+            "I12.0"
+          ],
+          "status": "submitted",
+          "submittedAt": "2026-08-13T02:07:50.806Z"
+        },
+        "cause": "effect:submit-claim"
+      }
+    },
+    {
+      "eventId": "23aea63d-42b2-47cf-bbde-182555c5c83c",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T03:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 13,
-        "realmAt": "2026-08-13T02:49:20.242Z",
+        "realmAt": "2026-08-13T03:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "c71064da-e37e-4767-88a5-742c71ba4c22",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T02:49:20.242Z",
+      "eventId": "e2fd2e25-a26b-4907-84bc-ad1ebdf5a0b7",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T03:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 13,
-        "realmAt": "2026-08-13T02:49:20.242Z",
+        "realmAt": "2026-08-13T03:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "3ae8f15f-d124-4d8b-b6fe-3d12c2b78397",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T02:49:20.242Z",
+      "eventId": "90bdc70d-3e14-4601-865c-64908aae1349",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T03:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 13,
-        "realmAt": "2026-08-13T02:49:20.242Z",
+        "realmAt": "2026-08-13T03:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "3a858eb6-7777-445f-9ede-fc64710148e2",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T02:49:20.242Z",
+      "eventId": "851590b8-db27-4c43-898c-1e09284bc12d",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T03:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 13,
-        "realmAt": "2026-08-13T02:49:20.242Z",
+        "realmAt": "2026-08-13T03:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "0e089b29-37ed-477e-9c1f-1457796e48cd",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T02:49:20.242Z",
+      "eventId": "71d3119a-e343-418f-b24d-cc5fb5ce5bb1",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T03:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 13,
-        "realmAt": "2026-08-13T02:49:20.242Z",
+        "realmAt": "2026-08-13T03:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "1b0235f8-237f-4511-8f52-f2be945f99d2",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T03:49:20.242Z",
+      "eventId": "79909fe3-3bc3-407a-b955-ff7c4ea6e23b",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T03:07:50.806Z",
+      "kind": "clock.tick",
+      "payload": {
+        "seq": 13,
+        "realmAt": "2026-08-13T03:07:50.806Z",
+        "deltaMs": 3600000
+      }
+    },
+    {
+      "eventId": "73c8d65c-9fb7-4e2c-ab4b-eb1358fed381",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T04:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 14,
-        "realmAt": "2026-08-13T03:49:20.242Z",
+        "realmAt": "2026-08-13T04:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "5ce2c658-7759-4424-901f-aad1aa5f0c18",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T03:49:20.242Z",
+      "eventId": "7b9dda6d-bc1e-4d22-b8ee-9c945a9ba9a9",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T04:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 14,
-        "realmAt": "2026-08-13T03:49:20.242Z",
+        "realmAt": "2026-08-13T04:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "5ea72483-de04-47bb-b971-6afd17fd435a",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T03:49:20.242Z",
+      "eventId": "51c74d96-e387-480e-a0f4-9d3aaf512d14",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T04:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 14,
-        "realmAt": "2026-08-13T03:49:20.242Z",
+        "realmAt": "2026-08-13T04:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "537dfba4-fcee-4fcc-8a62-7e9119d12879",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T03:49:20.242Z",
+      "eventId": "830692a3-3aad-465b-aff2-de6d8a334bb9",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T04:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 14,
-        "realmAt": "2026-08-13T03:49:20.242Z",
+        "realmAt": "2026-08-13T04:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "e83a22e7-bbf5-4149-8bc3-737bc244f081",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T03:49:20.242Z",
+      "eventId": "f5996806-7bb4-43de-8fb3-68eb76073b58",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T04:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 14,
-        "realmAt": "2026-08-13T03:49:20.242Z",
+        "realmAt": "2026-08-13T04:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "f00d1d23-acd8-4f3d-9e7f-349a708a370a",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T04:49:20.242Z",
+      "eventId": "f48217b6-f6f4-49a7-86d4-d651280e05ca",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T04:07:50.806Z",
+      "kind": "clock.tick",
+      "payload": {
+        "seq": 14,
+        "realmAt": "2026-08-13T04:07:50.806Z",
+        "deltaMs": 3600000
+      }
+    },
+    {
+      "eventId": "6729ac70-47af-40be-b8f8-71e0561903f7",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T05:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 15,
-        "realmAt": "2026-08-13T04:49:20.242Z",
+        "realmAt": "2026-08-13T05:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "0e80b153-b53c-4814-8a9c-3af19208442e",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T04:49:20.242Z",
+      "eventId": "e398cca8-34cf-473f-b84a-ea044ee7532d",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T05:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 15,
-        "realmAt": "2026-08-13T04:49:20.242Z",
+        "realmAt": "2026-08-13T05:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "93427f40-5683-4a75-b20c-a6518d777327",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T04:49:20.242Z",
+      "eventId": "e821f316-c48c-4334-a27c-c2a0ca0c8755",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T05:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 15,
-        "realmAt": "2026-08-13T04:49:20.242Z",
+        "realmAt": "2026-08-13T05:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "415ac5db-d1ae-462d-822e-57c76c07c433",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T04:49:20.242Z",
+      "eventId": "a9153573-31d7-4ce8-bbb1-6540492ad1fb",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T05:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 15,
-        "realmAt": "2026-08-13T04:49:20.242Z",
+        "realmAt": "2026-08-13T05:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "636dc221-cf36-45df-b1d2-106d61c708ad",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T04:49:20.242Z",
+      "eventId": "4ba1eb49-708f-4046-9c8d-09ac01be06b4",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T05:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 15,
-        "realmAt": "2026-08-13T04:49:20.242Z",
+        "realmAt": "2026-08-13T05:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "ece6398d-3bd4-4f45-b2c9-57728c26f05c",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "f171315e-b572-4bab-8628-1cbf219186ba",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T05:07:50.806Z",
+      "kind": "clock.tick",
+      "payload": {
+        "seq": 15,
+        "realmAt": "2026-08-13T05:07:50.806Z",
+        "deltaMs": 3600000
+      }
+    },
+    {
+      "eventId": "8d036cd7-72e2-4143-8fb7-b64b2031fb45",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0002",
       "payload": {
@@ -2350,10 +2200,10 @@
       }
     },
     {
-      "eventId": "f9e02de4-da49-4bed-b88a-0b0e28b84f0a",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "62f6fed8-1a39-485e-9aa8-c249836a3cac",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0002",
       "payload": {
@@ -2363,10 +2213,10 @@
       }
     },
     {
-      "eventId": "1ac7bba5-2df0-4593-804b-48363f8c2570",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "47817953-e921-4c60-896c-210cc7507fb4",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0002",
       "payload": {
@@ -2376,10 +2226,10 @@
       }
     },
     {
-      "eventId": "1a7bdf06-89ac-4ba3-8d93-c699df7cdaff",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "e01017a4-009b-4ac2-b214-a73d8eb50bda",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0002",
       "payload": {
@@ -2389,10 +2239,10 @@
       }
     },
     {
-      "eventId": "ac75ed07-f35a-4a2e-af55-0e0432113f3c",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "af69cbd3-6e00-4765-b0a8-37439538068b",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0002",
       "payload": {
@@ -2402,10 +2252,23 @@
       }
     },
     {
-      "eventId": "2857c959-d38f-4c08-837e-531b4476d74e",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "682eba63-2bbd-46fd-b077-82fc4dfebe83",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0002",
+      "payload": {
+        "hr": 85,
+        "spo2": 93,
+        "trajectory": "decompensating"
+      }
+    },
+    {
+      "eventId": "707bec08-69b9-4392-8e5a-8fc59b23d7b8",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
       "payload": {
@@ -2415,10 +2278,10 @@
       }
     },
     {
-      "eventId": "fcbf7fc7-2691-4fae-afa1-1033797bf5e3",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "9aa4848e-6570-4f95-83f6-7a5aaa9db4fa",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
       "payload": {
@@ -2428,10 +2291,10 @@
       }
     },
     {
-      "eventId": "8a8f05ee-857e-496d-bd06-dbbf803c62d5",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "8f8b5174-4ab2-4323-8168-39a4623a0f9e",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
       "payload": {
@@ -2441,10 +2304,10 @@
       }
     },
     {
-      "eventId": "87c6885c-049f-4892-a550-f0b259f2dfef",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "5e146bf2-8002-4f9c-8ba4-8af5a6ab41ac",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
       "payload": {
@@ -2454,10 +2317,10 @@
       }
     },
     {
-      "eventId": "46d834ef-b50a-4278-8008-4a5ab759b138",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "dfd7b04d-6292-4a70-8fef-efc9762ae144",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
       "payload": {
@@ -2467,10 +2330,23 @@
       }
     },
     {
-      "eventId": "e0c9680a-55d3-4026-b3ab-26330d702a6d",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "95b5dfd1-5f84-4a86-8bea-b690f6d99ac6",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0003",
+      "payload": {
+        "hr": 70,
+        "spo2": 97,
+        "trajectory": "recovering"
+      }
+    },
+    {
+      "eventId": "81f32a84-4377-451f-b6d4-20b259aab6bd",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
       "payload": {
@@ -2480,10 +2356,10 @@
       }
     },
     {
-      "eventId": "2fea7a09-dea2-4a49-ac1f-ba69ff7c2ac9",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "b00f55e9-9f36-4486-af1a-1a22cf58353c",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
       "payload": {
@@ -2493,10 +2369,10 @@
       }
     },
     {
-      "eventId": "e640c555-68eb-4fca-9a7a-3fa5dd97ebc1",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "270b8e0c-73c8-441e-a759-46ba6a24bffd",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
       "payload": {
@@ -2506,10 +2382,10 @@
       }
     },
     {
-      "eventId": "e80ecaba-fcb9-4a5d-b1fc-36f93648318d",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "a63421ee-18f5-4203-a1e6-331f24b92ab1",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
       "payload": {
@@ -2519,10 +2395,10 @@
       }
     },
     {
-      "eventId": "e48c685e-be22-4789-aa12-f30cf4b61a82",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "347220c5-ce50-405d-818e-77a86bb5662e",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
       "payload": {
@@ -2532,10 +2408,23 @@
       }
     },
     {
-      "eventId": "f0124291-5e7d-4b8d-8956-e8eaca68fcae",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "48bc58a6-0854-4d02-b852-bd7cd9b7ad3c",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0004",
+      "payload": {
+        "hr": 75,
+        "spo2": 97,
+        "trajectory": "anemic-worsening"
+      }
+    },
+    {
+      "eventId": "6357f457-f11c-4ad2-9d6d-d66fb0434672",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
       "payload": {
@@ -2545,10 +2434,10 @@
       }
     },
     {
-      "eventId": "6a008752-1119-4715-9e07-aee583128034",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "198b442f-f7f5-45af-8062-8de738650186",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
       "payload": {
@@ -2558,10 +2447,10 @@
       }
     },
     {
-      "eventId": "5e5a0c23-a89b-4d3e-855b-229cf9760a52",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "adab4e0a-e3f0-4471-9f17-3e26e7b504d6",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
       "payload": {
@@ -2571,10 +2460,10 @@
       }
     },
     {
-      "eventId": "b9c9cf61-650a-4953-acac-b2a910b69fe3",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "6bfd244b-ddee-4391-bf5d-00ad1147de34",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
       "payload": {
@@ -2584,10 +2473,10 @@
       }
     },
     {
-      "eventId": "14d95663-8819-4d07-935f-717002255067",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "8f1ba21b-71e1-4d6f-a214-4052b88f5abf",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
       "payload": {
@@ -2597,10 +2486,23 @@
       }
     },
     {
-      "eventId": "b22f4aa0-d86a-466c-91b1-a60373703f2b",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "fc581d21-70ca-4d8e-b72a-d59c37efbe60",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0005",
+      "payload": {
+        "hr": 76,
+        "spo2": 97,
+        "trajectory": "anemic-recovering"
+      }
+    },
+    {
+      "eventId": "a808d3ec-ae39-4100-8aac-39db9bd92ee8",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
       "payload": {
@@ -2610,10 +2512,10 @@
       }
     },
     {
-      "eventId": "19d342f5-1b1b-4313-8b5e-21f09b98e17e",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "afbb51b3-a828-4a6e-98b3-f1c5da0f69e8",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
       "payload": {
@@ -2623,10 +2525,10 @@
       }
     },
     {
-      "eventId": "aa21b5f0-2d9a-441c-bdbd-d2d6695e4fc0",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "b77a4df2-c63d-4b01-b69d-a56b6697ba6c",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
       "payload": {
@@ -2636,10 +2538,10 @@
       }
     },
     {
-      "eventId": "226f170e-1eaf-42d6-a18d-9d90972ff34e",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "ade76ce7-8939-444f-9675-d774f8a8c1ad",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
       "payload": {
@@ -2649,10 +2551,10 @@
       }
     },
     {
-      "eventId": "dcf29148-4fe3-4414-b87a-2da669e1835f",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "c6d29ba7-79c0-40c1-a637-0f3b25fe0034",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
       "payload": {
@@ -2662,10 +2564,23 @@
       }
     },
     {
-      "eventId": "8cb41ff3-4fc6-40cf-9259-26f4e00aea69",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "efb60de2-7ff5-4d74-b5f1-a0d6617e8602",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0006",
+      "payload": {
+        "hr": 77,
+        "spo2": 97,
+        "trajectory": "underdialyzed"
+      }
+    },
+    {
+      "eventId": "bcdb0161-2f13-4096-bf4b-63c22e605e21",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
       "payload": {
@@ -2675,10 +2590,10 @@
       }
     },
     {
-      "eventId": "08efc2c0-2f54-4cd4-9ccb-a3d51ea28b57",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "7267bad1-645e-490e-95e6-11effc557475",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
       "payload": {
@@ -2688,10 +2603,10 @@
       }
     },
     {
-      "eventId": "31dc14a1-caf1-477b-8dd9-465ff8f5e9e8",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "1a47e6f3-0f53-4775-bdde-2920f3d6011d",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
       "payload": {
@@ -2701,10 +2616,10 @@
       }
     },
     {
-      "eventId": "ca9fe0b4-a125-45c3-8837-e53e0b1c8910",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "6009aab3-cd81-446f-86a2-45b150bf3a09",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
       "payload": {
@@ -2714,10 +2629,10 @@
       }
     },
     {
-      "eventId": "15b3614d-2972-4199-b197-232d6ea6ff68",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "1e7d6581-d696-4fd8-939a-1569d8a07b54",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
       "payload": {
@@ -2727,10 +2642,23 @@
       }
     },
     {
-      "eventId": "708bec88-c30b-49b0-a52b-ebe6c20ef7df",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "811b309a-91be-46f0-82fc-3cdcf452a7d8",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0007",
+      "payload": {
+        "hr": 78,
+        "spo2": 97,
+        "trajectory": "hyperphosphatemia"
+      }
+    },
+    {
+      "eventId": "ea30d97c-59fd-40c9-851a-bb38ec412fca",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
       "payload": {
@@ -2740,10 +2668,10 @@
       }
     },
     {
-      "eventId": "8b9dba77-aaa0-4a79-ab79-64dbfa18d153",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "f01649b8-fab4-43f4-9a7c-488de2da9a82",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
       "payload": {
@@ -2753,10 +2681,10 @@
       }
     },
     {
-      "eventId": "c9951d9e-224b-488c-9a41-84a1c33cfe3e",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "43f27443-395e-4616-a5e8-98f3f6504df4",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
       "payload": {
@@ -2766,10 +2694,10 @@
       }
     },
     {
-      "eventId": "118e1a96-8356-4bdc-8e82-a0cca2c31dd9",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "69f41053-0472-4bf7-9251-fd2d6a707493",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
       "payload": {
@@ -2779,10 +2707,10 @@
       }
     },
     {
-      "eventId": "3a484451-7f83-42bd-a9d0-ac930c182e7f",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "11ba06ec-d85c-42ae-8fe6-3b3b8b57c789",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
       "payload": {
@@ -2792,10 +2720,23 @@
       }
     },
     {
-      "eventId": "c1041b7a-230f-4eb2-94ea-58259535c409",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "2ef26b5c-f4ea-4cb7-bece-208f6c60aabb",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0009",
+      "payload": {
+        "hr": 92,
+        "spo2": 93,
+        "trajectory": "decompensating"
+      }
+    },
+    {
+      "eventId": "09dc886b-0106-41d9-b575-5d022c7ac34b",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
       "payload": {
@@ -2805,10 +2746,10 @@
       }
     },
     {
-      "eventId": "34bd1b8e-3c83-4f15-8f5d-42b706e5a630",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "0029b119-8c31-4fce-af76-9dbee374ee3f",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
       "payload": {
@@ -2818,10 +2759,10 @@
       }
     },
     {
-      "eventId": "3ff9fce8-bca9-457a-bb85-cbd085a8acc9",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "e7a0259c-f265-491b-9467-a12d2ddfcf93",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
       "payload": {
@@ -2831,10 +2772,10 @@
       }
     },
     {
-      "eventId": "3d216429-6633-4d85-94af-db71e64833a4",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "af173737-562b-4ce8-83cb-27afd876d430",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
       "payload": {
@@ -2844,10 +2785,10 @@
       }
     },
     {
-      "eventId": "f80537b6-0a4b-43c8-a5c0-3862026a98eb",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "4fdd31fe-8906-41ba-a99f-2f8094fed555",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
       "payload": {
@@ -2857,10 +2798,23 @@
       }
     },
     {
-      "eventId": "996f4741-fa57-4a9d-855b-d3c365591604",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "b529ae5d-7aee-4e11-b5c9-a2f91e304aef",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0010",
+      "payload": {
+        "hr": 77,
+        "spo2": 97,
+        "trajectory": "recovering"
+      }
+    },
+    {
+      "eventId": "ea0ba5ea-66df-44ad-abe3-56506b703ce3",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
       "payload": {
@@ -2870,10 +2824,10 @@
       }
     },
     {
-      "eventId": "32cebb99-c108-46f4-af56-edf53c7083fa",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "92e0bad6-3a8b-48f5-8bb7-933245df4e91",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
       "payload": {
@@ -2883,10 +2837,10 @@
       }
     },
     {
-      "eventId": "fdbbebb0-b440-4a1a-985a-eb595598d1cc",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "2365f33b-9fe7-4b7f-8e1f-6364dd7d6c90",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
       "payload": {
@@ -2896,10 +2850,10 @@
       }
     },
     {
-      "eventId": "98d0d077-2081-4d39-bf69-5cd1aec116de",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "647a8f13-c91e-48d3-9b47-14411097d978",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
       "payload": {
@@ -2909,10 +2863,10 @@
       }
     },
     {
-      "eventId": "c3d77e95-0ccd-44e8-aa86-7d93b6760ffc",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "2d81d18e-4e5d-4b53-b56d-d42affed43d3",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
       "payload": {
@@ -2922,10 +2876,23 @@
       }
     },
     {
-      "eventId": "47dcb0e1-9f53-4366-a547-e6bbaf75da00",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "15dcc8b1-b21c-4b1b-b77a-840c0902eeab",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0011",
+      "payload": {
+        "hr": 72,
+        "spo2": 97,
+        "trajectory": "anemic-worsening"
+      }
+    },
+    {
+      "eventId": "ca93f7ce-333e-4ff5-8ae3-10f38421d586",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
       "payload": {
@@ -2935,10 +2902,10 @@
       }
     },
     {
-      "eventId": "614df388-e3a8-4196-bb25-32b847a6cb00",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "b3372ed6-f332-411f-9a1c-c6f96c996afd",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
       "payload": {
@@ -2948,10 +2915,10 @@
       }
     },
     {
-      "eventId": "c7e430c4-f47b-4c5a-838e-9f7f977f28f8",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "bab2f654-3950-4491-8151-a386a8d1bda1",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
       "payload": {
@@ -2961,10 +2928,10 @@
       }
     },
     {
-      "eventId": "9389cbbe-a3ff-41cf-8f61-fb7d80bd731d",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "b5dcaff6-cf4a-4897-ba89-c35a2dfb9d2e",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
       "payload": {
@@ -2974,10 +2941,10 @@
       }
     },
     {
-      "eventId": "cea2c24e-4640-4771-80f5-757b90666cf2",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "7cb8dceb-daa3-4396-85ec-4123cb3cb6d2",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "ambient.vitals-drift",
       "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
       "payload": {
@@ -2987,184 +2954,666 @@
       }
     },
     {
-      "eventId": "e41fbb9e-335a-4c84-b298-d5f16351363e",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "0eab99e0-b030-4750-b6ae-bd6061c5cdf2",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
+      "kind": "ambient.vitals-drift",
+      "entityUrn": "urn:realm:realm:demo-dvc-nashville:patient:dvc-nash-pt-0012",
+      "payload": {
+        "hr": 73,
+        "spo2": 97,
+        "trajectory": "anemic-recovering"
+      }
+    },
+    {
+      "eventId": "af3921f3-f05f-4557-b55b-afb2b4138755",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 16,
-        "realmAt": "2026-08-13T05:49:20.242Z",
+        "realmAt": "2026-08-13T06:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "18578baa-2016-4e22-aeb2-a2750614029e",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "f928cf54-52d8-4bb3-bed8-866330802ffe",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 16,
-        "realmAt": "2026-08-13T05:49:20.242Z",
+        "realmAt": "2026-08-13T06:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "a4f06445-4db5-4fed-8065-1de0e7171dfd",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "4496983b-237d-4e3a-9173-19d58413f945",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 16,
-        "realmAt": "2026-08-13T05:49:20.242Z",
+        "realmAt": "2026-08-13T06:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "b619558a-6220-46a2-a6d3-fa86f4da2d27",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "b3dda682-c97e-4509-8daf-db36d3e359f2",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 16,
-        "realmAt": "2026-08-13T05:49:20.242Z",
+        "realmAt": "2026-08-13T06:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "45f07305-e8fe-4ba0-b774-3efe68c433f1",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T05:49:20.242Z",
+      "eventId": "9dd753d7-5606-4cbf-acd0-7b393d207fbd",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 16,
-        "realmAt": "2026-08-13T05:49:20.242Z",
+        "realmAt": "2026-08-13T06:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "5172c3b1-d542-4d91-a1b3-b316ef4890cf",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T06:49:20.242Z",
+      "eventId": "3c78f950-e528-4803-afb4-f7018791cfde",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T06:07:50.806Z",
+      "kind": "clock.tick",
+      "payload": {
+        "seq": 16,
+        "realmAt": "2026-08-13T06:07:50.806Z",
+        "deltaMs": 3600000
+      }
+    },
+    {
+      "eventId": "0987f503-624c-48c8-8aef-a6a4620f23f1",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T07:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 17,
-        "realmAt": "2026-08-13T06:49:20.242Z",
+        "realmAt": "2026-08-13T07:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "5cf7891c-d2ee-472e-b248-ec3ef714fa3b",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T06:49:20.242Z",
+      "eventId": "707542ca-c285-4e4e-8aeb-79504de04e7c",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T07:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 17,
-        "realmAt": "2026-08-13T06:49:20.242Z",
+        "realmAt": "2026-08-13T07:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "19eac949-bee8-4f18-b177-54acc6461a9a",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T06:49:20.242Z",
+      "eventId": "539a778d-8e68-43bb-97f8-6adac2c83c7f",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T07:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 17,
-        "realmAt": "2026-08-13T06:49:20.242Z",
+        "realmAt": "2026-08-13T07:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "0e631ef9-131e-42ea-abfe-3b6e094136b3",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T06:49:20.242Z",
+      "eventId": "f2cdd40c-66c6-4afd-a7a3-5ce1905bc62a",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T07:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 17,
-        "realmAt": "2026-08-13T06:49:20.242Z",
+        "realmAt": "2026-08-13T07:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "a65154b8-f084-4654-b346-9b8d3f7e6134",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T06:49:20.242Z",
+      "eventId": "302fe31d-3e4d-46ab-9bb1-7d3b77219e0f",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T07:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 17,
-        "realmAt": "2026-08-13T06:49:20.242Z",
+        "realmAt": "2026-08-13T07:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "f32af404-2b12-43d2-8e8d-12211dafd7cc",
-      "presenceId": "94b1ef76-d095-45b4-a8a9-97181876c873",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T07:49:20.242Z",
+      "eventId": "10541ce6-375f-4979-a53b-86acf112712f",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T07:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
-        "seq": 18,
-        "realmAt": "2026-08-13T07:49:20.242Z",
+        "seq": 17,
+        "realmAt": "2026-08-13T07:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "15632754-76bd-448f-8878-a67308c3e2de",
-      "presenceId": "c27c00ac-1e3e-4223-9593-2582e957db25",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T07:49:20.242Z",
+      "eventId": "a454c68c-f234-479b-9ecb-d5c48dcc73dc",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T08:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 18,
-        "realmAt": "2026-08-13T07:49:20.242Z",
+        "realmAt": "2026-08-13T08:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "e921084c-f0be-4328-8dd0-13898ec9e8ea",
-      "presenceId": "ae7abd68-c238-4522-9e4a-27a9a75c4fd8",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T07:49:20.242Z",
+      "eventId": "36cf769b-9ca5-44f3-9b2e-d8f864e4b2c2",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T08:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 18,
-        "realmAt": "2026-08-13T07:49:20.242Z",
+        "realmAt": "2026-08-13T08:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "cdef0ff1-d691-4761-a6a8-a28afde3e554",
-      "presenceId": "832716e7-945c-49ce-89c2-12d869973a9d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T07:49:20.242Z",
+      "eventId": "c1c90404-3668-4e18-9e4f-0eb80856c446",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T08:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 18,
-        "realmAt": "2026-08-13T07:49:20.242Z",
+        "realmAt": "2026-08-13T08:07:50.806Z",
         "deltaMs": 3600000
       }
     },
     {
-      "eventId": "0ca84556-2d4b-4c3e-a18d-0bed81d99d5e",
-      "presenceId": "bf186a46-9fdb-4b3a-a23e-71499def1d5d",
-      "at": "2026-08-12T13:49:20.247Z",
-      "realmAt": "2026-08-13T07:49:20.242Z",
+      "eventId": "f6702721-7b80-4ba5-ab21-02851a04cdfc",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T08:07:50.806Z",
       "kind": "clock.tick",
       "payload": {
         "seq": 18,
-        "realmAt": "2026-08-13T07:49:20.242Z",
+        "realmAt": "2026-08-13T08:07:50.806Z",
+        "deltaMs": 3600000
+      }
+    },
+    {
+      "eventId": "2573ecee-71fe-4538-959d-4f08837c447c",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T08:07:50.806Z",
+      "kind": "clock.tick",
+      "payload": {
+        "seq": 18,
+        "realmAt": "2026-08-13T08:07:50.806Z",
+        "deltaMs": 3600000
+      }
+    },
+    {
+      "eventId": "064f9c47-2770-4868-b851-62278d3991d2",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "at": "2026-08-12T14:07:51.068Z",
+      "realmAt": "2026-08-13T08:07:50.806Z",
+      "kind": "clock.tick",
+      "payload": {
+        "seq": 18,
+        "realmAt": "2026-08-13T08:07:50.806Z",
         "deltaMs": 3600000
       }
     }
-  ]
+  ],
+  "episodes": [
+    {
+      "episodeId": "f0657e06-10df-40e2-94f8-9fd588ecb3d9",
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "agentSpecId": "rounding",
+      "role": "md",
+      "openedAt": "2026-08-12T14:07:50.806Z",
+      "status": "open",
+      "importance": "routine",
+      "localGoal": "witness a record-agent-thought",
+      "effectCount": 0,
+      "effectKinds": [],
+      "hash": "fa8cb41f92"
+    },
+    {
+      "episodeId": "b2fa7161-c7e5-4943-8422-f78e3f6a123b",
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "agentSpecId": "nurse",
+      "role": "nurse",
+      "openedAt": "2026-08-12T14:07:50.806Z",
+      "status": "open",
+      "importance": "routine",
+      "localGoal": "witness a record-agent-thought",
+      "effectCount": 0,
+      "effectKinds": [],
+      "hash": "d2adae54b4"
+    },
+    {
+      "episodeId": "97545688-2ffa-4a65-a6fb-8de152428eda",
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "agentSpecId": "nurse-b",
+      "role": "nurse",
+      "openedAt": "2026-08-12T14:07:50.806Z",
+      "status": "open",
+      "importance": "routine",
+      "localGoal": "witness a record-agent-thought",
+      "effectCount": 0,
+      "effectKinds": [],
+      "hash": "d06669605e"
+    },
+    {
+      "episodeId": "6a65d40f-6353-4b47-8889-f05d16a67ab1",
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "agentSpecId": "pharmac",
+      "role": "pharmacist",
+      "openedAt": "2026-08-12T14:07:50.806Z",
+      "status": "open",
+      "importance": "routine",
+      "localGoal": "witness a record-agent-thought",
+      "effectCount": 0,
+      "effectKinds": [],
+      "hash": "55ae8005d6"
+    },
+    {
+      "episodeId": "c41c25e6-a630-428a-8d9e-5d0417e3801c",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "agentSpecId": "coder",
+      "role": "coder",
+      "openedAt": "2026-08-12T14:07:50.806Z",
+      "closedAt": "2026-08-12T21:07:50.806Z",
+      "status": "closed",
+      "importance": "routine",
+      "localGoal": "witness a record-agent-thought",
+      "effectCount": 2,
+      "effectKinds": [
+        "record-agent-thought",
+        "submit-claim"
+      ],
+      "hash": "fc4b8ca693"
+    },
+    {
+      "episodeId": "7d4363e9-6cca-47ae-a717-e1d682127bb5",
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "agentSpecId": "safety",
+      "role": "auditor",
+      "openedAt": "2026-08-12T14:07:50.806Z",
+      "status": "open",
+      "importance": "routine",
+      "localGoal": "witness a record-agent-thought",
+      "effectCount": 0,
+      "effectKinds": [],
+      "hash": "be3158fc94"
+    },
+    {
+      "episodeId": "7fcd126f-e6cf-40d0-9645-7bde15e38a95",
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "agentSpecId": "coder",
+      "role": "coder",
+      "openedAt": "2026-08-12T22:07:50.806Z",
+      "status": "open",
+      "importance": "routine",
+      "localGoal": "attend to coder",
+      "effectCount": 0,
+      "effectKinds": [],
+      "hash": "2c70cfbecd"
+    }
+  ],
+  "selfModels": [
+    {
+      "presenceId": "6171292d-9d1d-4eb7-9e3b-b77a12e029cc",
+      "agentSpecId": "rounding",
+      "role": "md",
+      "episodes": {
+        "total": 1,
+        "open": 1,
+        "closed": 0,
+        "pruned": 0
+      },
+      "choices": {
+        "total": 0,
+        "deterministic": 0,
+        "deliberated": 0
+      },
+      "effects": {
+        "total": 0,
+        "byKind": {}
+      },
+      "competence": {
+        "score": 0.5,
+        "sample": 0
+      },
+      "preferences": {},
+      "milestones": []
+    },
+    {
+      "presenceId": "891d766d-aebf-4264-9317-fa8e0ff998e2",
+      "agentSpecId": "nurse",
+      "role": "nurse",
+      "episodes": {
+        "total": 1,
+        "open": 1,
+        "closed": 0,
+        "pruned": 0
+      },
+      "choices": {
+        "total": 0,
+        "deterministic": 0,
+        "deliberated": 0
+      },
+      "effects": {
+        "total": 0,
+        "byKind": {}
+      },
+      "competence": {
+        "score": 0.5,
+        "sample": 0
+      },
+      "preferences": {},
+      "milestones": []
+    },
+    {
+      "presenceId": "1b8b2330-b93f-4388-a15a-5db6f81a607e",
+      "agentSpecId": "nurse-b",
+      "role": "nurse",
+      "episodes": {
+        "total": 1,
+        "open": 1,
+        "closed": 0,
+        "pruned": 0
+      },
+      "choices": {
+        "total": 0,
+        "deterministic": 0,
+        "deliberated": 0
+      },
+      "effects": {
+        "total": 0,
+        "byKind": {}
+      },
+      "competence": {
+        "score": 0.5,
+        "sample": 0
+      },
+      "preferences": {},
+      "milestones": []
+    },
+    {
+      "presenceId": "90b58ae9-8f9e-432f-99e3-2256435a7bf4",
+      "agentSpecId": "pharmac",
+      "role": "pharmacist",
+      "episodes": {
+        "total": 1,
+        "open": 1,
+        "closed": 0,
+        "pruned": 0
+      },
+      "choices": {
+        "total": 0,
+        "deterministic": 0,
+        "deliberated": 0
+      },
+      "effects": {
+        "total": 0,
+        "byKind": {}
+      },
+      "competence": {
+        "score": 0.5,
+        "sample": 0
+      },
+      "preferences": {},
+      "milestones": []
+    },
+    {
+      "presenceId": "74e4ef0c-0461-4e6a-8957-d39dbf7a2bfd",
+      "agentSpecId": "coder",
+      "role": "coder",
+      "episodes": {
+        "total": 2,
+        "open": 1,
+        "closed": 1,
+        "pruned": 0
+      },
+      "choices": {
+        "total": 0,
+        "deterministic": 0,
+        "deliberated": 0
+      },
+      "effects": {
+        "total": 2,
+        "byKind": {
+          "record-agent-thought": 1,
+          "submit-claim": 1
+        }
+      },
+      "competence": {
+        "score": 0.5,
+        "sample": 0
+      },
+      "preferences": {},
+      "milestones": [
+        "first-episode"
+      ]
+    },
+    {
+      "presenceId": "3d739c76-6a31-4a77-adce-ab700af55fbc",
+      "agentSpecId": "safety",
+      "role": "auditor",
+      "episodes": {
+        "total": 1,
+        "open": 1,
+        "closed": 0,
+        "pruned": 0
+      },
+      "choices": {
+        "total": 0,
+        "deterministic": 0,
+        "deliberated": 0
+      },
+      "effects": {
+        "total": 0,
+        "byKind": {}
+      },
+      "competence": {
+        "score": 0.5,
+        "sample": 0
+      },
+      "preferences": {},
+      "milestones": []
+    }
+  ],
+  "experiences": [
+    {
+      "experienceId": "hyperkalemia-critical-4bc8a2cd-c85d-4c89-b604-d5af7f1e19f2",
+      "ruleId": "hyperkalemia-critical",
+      "ruleSource": "yaml",
+      "kind": "hyperkalemia-suspected",
+      "severity": "critical",
+      "payload": {
+        "code": "K",
+        "value": 3.9
+      },
+      "producedAt": "2026-08-12T14:07:51.064Z"
+    },
+    {
+      "experienceId": "discharge-triggers-billing-25b282d9-1c27-4cc6-88b2-9ad53f80bebf",
+      "ruleId": "discharge-triggers-billing",
+      "ruleSource": "yaml",
+      "kind": "ready-to-bill",
+      "severity": "notice",
+      "payload": {
+        "patientId": "dvc-nash-pt-0006"
+      },
+      "producedAt": "2026-08-12T14:07:51.066Z"
+    }
+  ],
+  "rules": {
+    "yaml": [
+      {
+        "id": "hyperkalemia-critical",
+        "description": "K+ > 6.5 raises a critical hyperkalemia experience",
+        "on": "effect",
+        "when": {
+          "effectKind": "result-lab",
+          "attrPath": "code",
+          "compare": {
+            "op": "=",
+            "value": "K"
+          }
+        },
+        "then": {
+          "experienceKind": "hyperkalemia-suspected",
+          "severity": "critical",
+          "include": {
+            "code": "effect.code",
+            "value": "effect.value"
+          }
+        }
+      },
+      {
+        "id": "discharge-triggers-billing",
+        "description": "Discharge produces a billing experience for the coder",
+        "on": "effect",
+        "when": {
+          "effectKind": "discharge-patient"
+        },
+        "then": {
+          "experienceKind": "ready-to-bill",
+          "severity": "notice",
+          "include": {
+            "patientId": "effect.patientId"
+          }
+        }
+      }
+    ],
+    "ts": [
+      {
+        "id": "insurance-expiring",
+        "description": "Insurance policies with expiresAt within 5 days emit a warning on tick"
+      }
+    ]
+  },
+  "lifecycle": {
+    "nodes": [
+      {
+        "id": "referred",
+        "label": "Referred",
+        "kind": "entry"
+      },
+      {
+        "id": "onboarded",
+        "label": "Onboarded",
+        "kind": "process"
+      },
+      {
+        "id": "active",
+        "label": "Active care",
+        "kind": "process"
+      },
+      {
+        "id": "decompensating",
+        "label": "Decompensating",
+        "kind": "risk"
+      },
+      {
+        "id": "hospitalized",
+        "label": "Hospitalized",
+        "kind": "risk"
+      },
+      {
+        "id": "stable",
+        "label": "Stable",
+        "kind": "good"
+      },
+      {
+        "id": "transplant",
+        "label": "Transplant",
+        "kind": "exit-good"
+      },
+      {
+        "id": "discharged",
+        "label": "Discharged",
+        "kind": "exit"
+      },
+      {
+        "id": "mortality",
+        "label": "Mortality",
+        "kind": "exit-bad"
+      }
+    ],
+    "edges": [
+      {
+        "from": "referred",
+        "to": "onboarded"
+      },
+      {
+        "from": "onboarded",
+        "to": "active"
+      },
+      {
+        "from": "active",
+        "to": "stable"
+      },
+      {
+        "from": "active",
+        "to": "decompensating"
+      },
+      {
+        "from": "decompensating",
+        "to": "hospitalized"
+      },
+      {
+        "from": "hospitalized",
+        "to": "active"
+      },
+      {
+        "from": "hospitalized",
+        "to": "discharged"
+      },
+      {
+        "from": "hospitalized",
+        "to": "mortality"
+      },
+      {
+        "from": "stable",
+        "to": "transplant"
+      },
+      {
+        "from": "active",
+        "to": "discharged"
+      }
+    ],
+    "cohorts": {
+      "stable": 2,
+      "decompensating": 2,
+      "active": 8,
+      "referred": 2,
+      "onboarded": 3,
+      "hospitalized": 1,
+      "discharged": 1,
+      "transplant": 0,
+      "mortality": 0
+    }
+  }
 }
