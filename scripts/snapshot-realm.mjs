@@ -74,7 +74,24 @@ for (let i = 0; i < 6; i++) realm.clock.advanceBy(60 * 60 * 1000);
 
 // Emit a claim so we can see the effect ledger complete a billing cycle
 realm.emit(coder.presence.presenceId, { kind: 'submit-claim', encounterId: 'dvc-nash-enc-0006', payerId: 'medicare-part-b', cptCodes: ['90999'], icd10Codes: ['N18.6', 'I12.0'] });
+// Follow-up scheduled after the claim (positive attribution: claim-followup-scheduled)
+realm.emit(md.presence.presenceId, { kind: 'schedule-followup', patientId: 'dvc-nash-pt-0006', when: new Date(realm.clock.realmAt.getTime() + 7*24*3600_000).toISOString(), resource: 'nephrologist', followupKind: 'post-discharge' });
 
+for (let i = 0; i < 6; i++) realm.clock.advanceBy(60 * 60 * 1000);
+
+// Scenario: order-med followed by a safety event on the same patient produces
+// a negative attribution (safety-event-after-med-action).
+realm.emit(md.presence.presenceId, { kind: 'order-med', patientId: 'dvc-nash-pt-0003', code: 'gentamicin', dose: '80mg', route: 'IV', frequency: 'q8h', indication: 'sepsis' });
+for (let i = 0; i < 2; i++) realm.clock.advanceBy(60 * 60 * 1000); // close the episode
+realm.emit(rnA.presence.presenceId, { kind: 'flag-safety-event', patientId: 'dvc-nash-pt-0003', safetyKind: 'aki', severity: 'high' });
+for (let i = 0; i < 2; i++) realm.clock.advanceBy(60 * 60 * 1000);
+
+// Scenario: hold-med by pharmacist averts a safety event (positive attribution: hold-med-averted-safety)
+realm.emit(md.presence.presenceId, { kind: 'order-med', patientId: 'dvc-nash-pt-0005', code: 'lisinopril', dose: '10mg', route: 'PO', frequency: 'daily' });
+const meds5 = realm.graph.listKind('medication').filter((m) => (m.state).patientId === 'dvc-nash-pt-0005');
+if (meds5.length > 0) {
+  realm.emit(rx.presence.presenceId, { kind: 'hold-med', patientId: 'dvc-nash-pt-0005', medOrderId: meds5[meds5.length - 1].id, reason: 'K+ elevated' });
+}
 for (let i = 0; i < 6; i++) realm.clock.advanceBy(60 * 60 * 1000);
 
 // ==== Build the payload the static UI consumes ====
@@ -96,6 +113,8 @@ const episodes = realm.episodes.all().map((e) => ({
   openedAt: e.openedAt, closedAt: e.closedAt, status: e.status, importance: e.importance,
   localGoal: e.localGoal, effectCount: e.effects.length,
   effectKinds: e.effects.map((f) => f.kind), hash: e.hash.slice(0, 10),
+  choice: e.choice,
+  effects: e.effects,
 }));
 const selfModels = realm.selfModel.list().map((s) => ({
   presenceId: s.presenceId, agentSpecId: s.agentSpecId, role: s.role,
@@ -151,6 +170,8 @@ const payload = {
   facility: { id: 'dvc-nash', kind: 'dialysis', name: 'DVC Nashville' },
   units, patients, presences, effects, perception,
   episodes, selfModels, experiences,
+  attribution: realm.attribution.stats(),
+  attributions: realm.attribution.all(),
   rules: realm.rules.list(),
   lifecycle,
 };

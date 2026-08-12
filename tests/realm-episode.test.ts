@@ -71,7 +71,7 @@ describe('SelfModel', () => {
     const sm = new SelfModelRegistry();
     const p = fakePresence();
     sm.ensure(p);
-    const n = sm.narrative(p, store);
+    const n = sm.narrativeTemplate(p, store);
     expect(n.paragraphs.length).toBeGreaterThan(0);
     expect(n.generatedBy).toBe('template');
   });

@@ -47,6 +47,7 @@ class BehaviorRegistry {
   private behaviors: Behavior[] = [];
   register(b: Behavior) { this.behaviors.push(b); }
   find(spec: AgentSpec): Behavior | undefined { return this.behaviors.find((b) => b.matches(spec)); }
+  findAll(spec: AgentSpec): Behavior[] { return this.behaviors.filter((b) => b.matches(spec)); }
   list(): readonly Behavior[] { return this.behaviors; }
 }
 export const behaviorRegistry = new BehaviorRegistry();
@@ -108,7 +109,8 @@ export class AgentRealmRuntime {
         eventTypes: ['*'],
       },
     });
-    const behavior = behaviorRegistry.find(spec);
+    const behaviors = behaviorRegistry.findAll(spec);
+    const behavior = behaviors[0]; // primary, for legacy record shape
     // Ensure a self-model exists for this presence from spawn.
     this.realm.selfModel.ensure(presence);
 
@@ -141,7 +143,21 @@ export class AgentRealmRuntime {
     const unsubscribe = this.realm.subscribe(presence.presenceId, (evt) => {
       const ep = openEpisodeIfNeeded(evt);
       ctx.currentEpisode = ep;
-      try { behavior?.onPerceive?.(evt, ctx); } catch { /* behavior fault does not kill realm */ }
+      // When a presence acts via `realm.emit()` directly (bypassing ctx.emit),
+      // still attach the effect to the presence's current open episode so
+      // attribution / self-model reflect reality.
+      if (evt.kind === 'effect.applied') {
+        const p = evt.payload as { presenceId?: string; effectId?: string; effect?: WorldEffect };
+        if (p.presenceId === presence.presenceId && p.effect && p.effectId) {
+          const cur = this.realm.episodes.currentOpenFor(presence.presenceId);
+          if (cur && !cur.consequences.includes(p.effectId)) {
+            this.realm.episodes.recordEffect(cur.episodeId, p.effect, { effectId: p.effectId } as EmittedEffect);
+          }
+        }
+      }
+      for (const b of behaviors) {
+        try { b.onPerceive?.(evt, ctx); } catch { /* behavior fault does not kill realm */ }
+      }
       // Auto-close episodes on tick boundaries with importance derived from effects emitted.
       if (evt.kind === 'clock.tick') {
         const cur = this.realm.episodes.currentOpenFor(presence.presenceId);
@@ -149,13 +165,14 @@ export class AgentRealmRuntime {
           const importance = cur.effects.some((e) => e.kind === 'flag-safety-event' || e.kind === 'hold-med') ? 'critical'
             : cur.effects.length > 3 ? 'notable' : 'routine';
           this.realm.episodes.closeEpisode(cur.episodeId, evt.realmAt, importance);
+          this.realm.attribution.noteEpisodeClosed(cur.episodeId, Date.now());
           this.realm.selfModel.refresh(presence, this.realm.episodes);
         }
       }
     });
     const rec: SpawnedAgent = { presence, spec, unsubscribe, ...(behavior ? { behavior } : {}) };
     this.spawned.set(presence.presenceId, rec);
-    try { behavior?.onSpawn?.(ctx); } catch { /* ignore */ }
+    for (const b of behaviors) { try { b.onSpawn?.(ctx); } catch { /* ignore */ } }
     return rec;
   }
 
@@ -313,6 +330,36 @@ behaviorRegistry.register({
     });
     if (abnormals.length >= 2) {
       ctx.emit({ kind: 'flag-safety-event', patientId, safetyKind: 'repeated-abnormal-labs', severity: 'moderate' });
+    }
+  },
+});
+
+// Peer-coordination behavior — every presence perceives `experience.presence-acted`
+// events summarizing what other agents did. Nurses and pharmacists use these to
+// coordinate: a hold-med by a pharmacist triggers a nursing note; a peer's
+// flag-safety-event triggers a corroborating notify-staff.
+behaviorRegistry.register({
+  id: 'coord.peer-awareness',
+  description: 'React to peer actions. Nurses record observations when peers act on shared patients; safety monitors amplify peer safety events.',
+  matches: (s) => /nurse|charge|safety|adverse|risk-monitor|pharmac/i.test(s.id),
+  onPerceive: (evt, ctx) => {
+    if (evt.kind !== 'experience.presence-acted') return;
+    // evt.payload is the full Experience; the summarized action data lives in Experience.payload.
+    const exp = evt.payload as { payload?: { actorPresenceId?: string; actorSpecId?: string; actionKind?: string; patientId?: string } };
+    const p = exp.payload ?? {};
+    // Ignore my own actions.
+    if (p.actorPresenceId === ctx.presence.presenceId) return;
+    if (!p.patientId) return;
+    if (p.actionKind === 'hold-med' && /nurse|charge/i.test(ctx.spec.id)) {
+      ctx.emit({ kind: 'record-agent-thought', note: `[coord] Noted: ${p.actorSpecId} held a med on ${p.patientId}. Adjusting monitoring cadence.` });
+    }
+    if (p.actionKind === 'flag-safety-event' && /safety|risk-monitor/i.test(ctx.spec.id)) {
+      ctx.emit({ kind: 'record-agent-thought', note: `[coord] Peer flagged a safety event on ${p.patientId}. Reviewing pattern.` });
+      ctx.emit({ kind: 'notify-staff', targetRole: 'md', priority: 'high', message: `Corroborating safety concern on ${p.patientId} (peer: ${p.actorSpecId})`, patientRef: p.patientId });
+    }
+    if (p.actionKind === 'order-med' && /pharmac/i.test(ctx.spec.id)) {
+      // Pharmacist already reviews via pharmacist.review; this just marks awareness.
+      ctx.emit({ kind: 'record-agent-thought', note: `[coord] Peer ordered med on ${p.patientId}; queued for review.` });
     }
   },
 });

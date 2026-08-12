@@ -34,6 +34,10 @@ export interface Narrative {
   generatedBy: 'template' | 'llm';
 }
 
+export interface NarrativeAdapter {
+  generate(input: { stats: SelfModelStats; episodes: Episode[]; recentAttributions?: Array<{ ruleId: string; outcome: 'positive' | 'neutral' | 'negative'; kind: string }> }): Promise<string[]> | string[];
+}
+
 const DEFAULT_PREF = 1.0;
 const PREF_FLOOR = 0.1;
 const PREF_CEIL = 2.0;
@@ -127,9 +131,19 @@ export class SelfModelRegistry {
   get(presenceId: string): SelfModelStats | undefined { return this.byPresence.get(presenceId); }
   list(): SelfModelStats[] { return [...this.byPresence.values()]; }
 
-  // On-demand narrative. Template-based by default; an LLM adapter can
-  // subclass or the caller can request 'llm' mode via a hook.
-  narrative(presence: AgentPresence, store: EpisodeStore): Narrative {
+  // On-demand narrative. Template-based by default; pass a NarrativeAdapter
+  // to swap in richer prose (LLM, retrieval-augmented, etc.).
+  async narrative(presence: AgentPresence, store: EpisodeStore, adapter?: NarrativeAdapter, extras?: { recentAttributions?: Array<{ ruleId: string; outcome: 'positive' | 'neutral' | 'negative'; kind: string }> }): Promise<Narrative> {
+    const sm = this.refresh(presence, store);
+    if (adapter) {
+      const eps = store.listForPresence(presence.presenceId).filter((e) => e.status !== 'pruned');
+      const paragraphs = await adapter.generate({ stats: sm, episodes: eps, ...(extras?.recentAttributions ? { recentAttributions: extras.recentAttributions } : {}) });
+      return { presenceId: presence.presenceId, generatedAt: new Date().toISOString(), paragraphs, generatedBy: 'llm' };
+    }
+    return this.narrativeTemplate(presence, store);
+  }
+
+  narrativeTemplate(presence: AgentPresence, store: EpisodeStore): Narrative {
     const sm = this.refresh(presence, store);
     const eps = store.listForPresence(presence.presenceId).filter((e) => e.status !== 'pruned');
     const paragraphs: string[] = [];

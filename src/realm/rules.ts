@@ -174,6 +174,27 @@ export const DEFAULT_YAML_RULES: YamlRuleSpec[] = [
 
 export const DEFAULT_TS_RULES: TsRule[] = [
   {
+    id: 'presence-acted',
+    description: 'Broadcast a summarized coordination experience when any presence emits a hold-med, order-med, submit-claim, or flag-safety-event so peer agents can react without parsing raw effects.',
+    onEffect: (emitted, ctx) => {
+      const relevant = ['hold-med', 'order-med', 'flag-safety-event', 'submit-claim', 'transfer-patient', 'discharge-patient'];
+      const k = emitted.effect.kind;
+      if (!relevant.includes(k)) return;
+      const patientId = (emitted.effect as { patientId?: string }).patientId;
+      const subjectUrn = patientId ? ctx.graph.urnFor('patient', patientId) : undefined;
+      return [{
+        experienceId: `presence-acted-${emitted.effectId}`,
+        ruleId: 'presence-acted',
+        ruleSource: 'ts',
+        kind: 'presence-acted',
+        severity: k === 'flag-safety-event' ? 'critical' : 'notice',
+        ...(subjectUrn ? { subjectUrn } : {}),
+        payload: { effectId: emitted.effectId, actorPresenceId: emitted.presenceId, actorSpecId: emitted.agentSpecId, actionKind: k, patientId },
+        producedAt: emitted.realmAt,
+      }];
+    },
+  },
+  {
     id: 'insurance-expiring',
     description: 'Insurance policies with expiresAt within 5 days emit a warning on tick',
     onTick: (ctx) => {

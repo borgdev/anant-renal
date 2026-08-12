@@ -14,3 +14,6 @@ export * from './self-model.js';
 export * from './choice.js';
 export * from './rules.js';
 export * from './agent-runtime.js';
+export * from './attribution.js';
+export * from './narrative.js';
+export * from './replay.js';

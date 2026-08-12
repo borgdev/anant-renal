@@ -14,6 +14,7 @@ import { AmbientProcessRegistry, type AmbientContext, type AmbientProcess, LabMa
 import { EpisodeStore } from './episode.js';
 import { SelfModelRegistry } from './self-model.js';
 import { createDefaultEngine, RulesEngine } from './rules.js';
+import { ConsequenceAttributor } from './attribution.js';
 import type { AgentPresence, EmittedEffect, EntityUrn, RealmId, RealmMode, WorldEffect } from './types.js';
 
 export interface RealmOpts {
@@ -39,6 +40,7 @@ export class Realm {
   readonly episodes: EpisodeStore;
   readonly selfModel: SelfModelRegistry;
   readonly rules: RulesEngine;
+  readonly attribution: ConsequenceAttributor;
   private clockSub: (() => void) | undefined;
   private effectSub: (() => void) | undefined;
 
@@ -56,6 +58,7 @@ export class Realm {
     this.episodes = new EpisodeStore();
     this.selfModel = new SelfModelRegistry();
     this.rules = opts.rules ?? createDefaultEngine();
+    this.attribution = new ConsequenceAttributor(this.ledger, this.episodes, this.selfModel);
     const bound = new Set(opts.boundEffects ?? []);
     this.reducer = new EffectReducer(this.graph, this.ledger, this.perception, this.clock, {
       mode: this.mode,
@@ -128,6 +131,7 @@ export class Realm {
       episodes: this.episodes.stats(),
       experiences: this.rules.history().slice(-25),
       rules: this.rules.list(),
+      attribution: this.attribution.stats(),
     };
   }
 }

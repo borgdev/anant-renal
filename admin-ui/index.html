@@ -152,6 +152,7 @@
       <div class="label">Agents' inner lives</div>
       <div class="nav-item" data-view="episodes">Episodes <span class="count" id="c-episodes">—</span></div>
       <div class="nav-item" data-view="sentience">Sentience panel</div>
+      <div class="nav-item" data-view="attributions">Attributions <span class="count" id="c-attributions">—</span></div>
     </div>
     <div class="nav-section">
       <div class="label">Governance</div>
@@ -304,6 +305,7 @@ async function updateSidebarCounts() {
     document.getElementById('c-effects').textContent = r.effects?.length ?? '—';
     const ce = document.getElementById('c-experiences'); if (ce) ce.textContent = r.experiences?.length ?? '—';
     const cep = document.getElementById('c-episodes'); if (cep) cep.textContent = r.episodes?.length ?? '—';
+    const cat = document.getElementById('c-attributions'); if (cat) cat.textContent = r.attributions?.length ?? '—';
   } catch (_) { /* realm snapshot not present */ }
 }
 
@@ -331,6 +333,7 @@ async function render() {
   if (view === 'rules') return renderRules();
   if (view === 'episodes') return renderEpisodes();
   if (view === 'sentience') return renderSentience();
+  if (view === 'attributions') return renderAttributions();
   if (view === 'new') return renderEditor({});
   if (view === 'measures') return renderMeasures();
   if (view === 'assessments') return renderAssessments();
@@ -944,8 +947,8 @@ async function renderEpisodes() {
     <div class="page-header"><div><h2 class="page-title">Episodes</h2><p class="page-sub">Every meaningful moment for an agent is an Episode — structured, hashed, replayable, prunable. This is the corpus of world play.</p></div></div>
     ${eps.length === 0 ? '<div class="detail muted" style="text-align:center;padding:40px;">No episodes yet — spawn presences and tick the clock.</div>' :
     `<div class="table-wrap"><table>
-      <thead><tr><th>Opened</th><th>Agent</th><th>Role</th><th>Local goal</th><th>Effects</th><th>Importance</th><th>Status</th><th>Hash</th></tr></thead>
-      <tbody>${eps.map(e => `<tr><td class="muted">${esc(e.openedAt)}</td><td><code>${esc(e.agentSpecId)}</code></td><td><span class="pill muted">${esc(e.role)}</span></td><td>${esc(e.localGoal)}</td><td>${e.effectCount} <span class="muted">(${e.effectKinds.slice(0,3).join(', ')})</span></td><td><span class="pill ${e.importance==='critical'?'bad':e.importance==='notable'?'':'muted'}">${esc(e.importance)}</span></td><td><span class="pill ${e.status==='pruned'?'muted':e.status==='closed'?'good':''}">${esc(e.status)}</span></td><td><code style="font-size:11px;">${esc(e.hash)}</code></td></tr>`).join('')}</tbody>
+      <thead><tr><th>Opened</th><th>Agent</th><th>Role</th><th>Local goal</th><th>Effects</th><th>Importance</th><th>Status</th><th>Hash</th><th>Replay</th></tr></thead>
+      <tbody>${eps.map(e => `<tr><td class="muted">${esc(e.openedAt)}</td><td><code>${esc(e.agentSpecId)}</code></td><td><span class="pill muted">${esc(e.role)}</span></td><td>${esc(e.localGoal)}</td><td>${e.effectCount} <span class="muted">(${e.effectKinds.slice(0,3).join(', ')})</span></td><td><span class="pill ${e.importance==='critical'?'bad':e.importance==='notable'?'':'muted'}">${esc(e.importance)}</span></td><td><span class="pill ${e.status==='pruned'?'muted':e.status==='closed'?'good':''}">${esc(e.status)}</span></td><td><code style="font-size:11px;">${esc(e.hash)}</code></td><td>${e.status==='closed' ? `<button class="btn" style="padding:4px 8px;font-size:11px;" onclick="window.replayEpisode('${esc(e.episodeId||'')}')">Replay</button>` : '<span class="muted">—</span>'}</td></tr>`).join('')}</tbody>
     </table></div>`}
   `;
 }
@@ -976,11 +979,102 @@ async function renderSentience() {
           <div style="margin-top:10px;font-size:12px;">Most frequent action: ${topEffect ? `<code>${esc(topEffect[0])}</code> ×${topEffect[1]}` : '<span class="muted">none yet</span>'}</div>
           <div style="margin-top:6px;font-size:12px;">Preference shifts: ${prefShifts.length ? prefShifts.map(([k,w]) => `<span class="pill ${w>1?'good':'bad'}">${esc(k)} ${w.toFixed(2)}</span>`).join(' ') : '<span class="muted">baseline</span>'}</div>
           <div style="margin-top:6px;font-size:12px;">Milestones: ${(s.milestones || []).map(m => `<span class="pill muted">${esc(m)}</span>`).join(' ') || '<span class="muted">none</span>'}</div>
+          <div style="margin-top:10px;"><button class="btn" style="padding:5px 10px;font-size:11px;" onclick="window.generateRichNarrative('${esc(s.presenceId)}')">Generate rich narrative</button></div>
+          <div id="narrative-${esc(s.presenceId)}" style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px;"></div>
         </div>`;
       }).join('')}
     </div>
   `;
 }
+
+// ---------- Attributions ----------
+async function renderAttributions() {
+  const r = await api('GET', '/admin/realms/demo');
+  const attrs = r?.attributions ?? [];
+  const stats = r?.attribution ?? { total: 0, byOutcome: {}, byRule: {}, openWindows: 0 };
+  const eps = new Map((r?.episodes ?? []).map(e => [e.episodeId, e]));
+  const pillFor = (o) => o === 'positive' ? 'good' : o === 'negative' ? 'bad' : 'muted';
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Consequence attributions</h2><p class="page-sub">After an episode closes, downstream world effects are matched to attribution rules; matches shape the agent's self-model preferences. This is how experience becomes character.</p></div></div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
+      <div class="detail"><div style="font-size:22px;font-weight:600;color:var(--brand)">${stats.total}</div><div class="muted" style="font-size:11px;">total attributions</div></div>
+      <div class="detail"><div style="font-size:22px;font-weight:600;color:#3a8f4a">${stats.byOutcome.positive ?? 0}</div><div class="muted" style="font-size:11px;">positive</div></div>
+      <div class="detail"><div style="font-size:22px;font-weight:600;color:#c05252">${stats.byOutcome.negative ?? 0}</div><div class="muted" style="font-size:11px;">negative</div></div>
+      <div class="detail"><div style="font-size:22px;font-weight:600;">${stats.openWindows}</div><div class="muted" style="font-size:11px;">episodes still in window</div></div>
+    </div>
+    ${attrs.length === 0 ? '<div class="detail muted" style="text-align:center;padding:40px;">No attributions yet. Close some episodes, then let downstream world effects arrive within the attribution window.</div>' :
+    `<div class="table-wrap"><table>
+      <thead><tr><th>Attributed at</th><th>Rule</th><th>Outcome</th><th>Weight</th><th>Kind</th><th>Presence</th><th>Episode</th></tr></thead>
+      <tbody>${attrs.map(a => {
+        const ep = eps.get(a.episodeId);
+        return `<tr><td class="muted">${esc(a.attributedAt)}</td><td><code>${esc(a.ruleId)}</code></td><td><span class="pill ${pillFor(a.consequence.outcome)}">${esc(a.consequence.outcome)}</span></td><td>${a.consequence.weight.toFixed(2)}</td><td><code>${esc(a.consequence.kind)}</code></td><td class="muted" style="font-size:11px;">${esc(a.presenceId.slice(0,8))}…</td><td>${ep ? `<code>${esc(ep.agentSpecId)}</code> <span class="muted">(${esc(ep.localGoal)})</span>` : `<code style="font-size:11px;">${esc(a.episodeId.slice(0,10))}…</code>`}</td></tr>`;
+      }).join('')}</tbody>
+    </table></div>`}
+    <div class="detail" style="margin-top:16px;font-size:12px;color:var(--muted);">
+      <strong>Rules currently applied:</strong> <code>safety-event-after-med-action</code> (−), <code>hold-med-averted-safety</code> (+), <code>claim-followup-scheduled</code> (+), <code>lab-normal-after-order</code> (+), <code>lab-abnormal-after-order</code> (−), <code>notify-then-transfer</code> (+). Window: 4 realm-hours.
+    </div>
+  `;
+}
+
+// ---------- Client-side episode replay ----------
+window.replayEpisode = async function(episodeId) {
+  const r = await api('GET', '/admin/realms/demo');
+  const ep = (r?.episodes ?? []).find(e => e.episodeId === episodeId);
+  if (!ep || !ep.choice) { alert('This episode has no recorded choice to replay.'); return; }
+  const sm = (r?.selfModels ?? []).find(s => s.presenceId === ep.presenceId);
+  const prefs = sm?.preferences ?? {};
+  // Historical replay: use baked finalScores
+  const historicalPresented = ep.choice.presented ?? [];
+  const historicalTop = [...historicalPresented].sort((a,b)=>b.finalScore-a.finalScore)[0];
+  const historicalMatch = historicalTop && historicalTop.optionId === ep.choice.chosenOptionId;
+  // Now-replay: apply current preferences to baked utilities
+  const nowScored = historicalPresented.map(o => {
+    const kindMatch = o.description.match(/\[kind:([a-z\-]+)\]/);
+    const kind = kindMatch ? kindMatch[1] : o.optionId;
+    const w = prefs[kind] ?? 1.0;
+    return { ...o, nowScore: o.utility * w };
+  });
+  const nowTop = [...nowScored].sort((a,b)=>b.nowScore-a.nowScore)[0];
+  const nowMatch = nowTop && nowTop.optionId === ep.choice.chosenOptionId;
+  const divergence = historicalMatch && !nowMatch;
+  const msg = [
+    `Episode: ${ep.agentSpecId}`,
+    `Goal: ${ep.localGoal}`,
+    `Historical choice: ${ep.choice.chosenOptionId} (${ep.choice.rationale})`,
+    ``,
+    `Replay (historical utilities): top = ${historicalTop?.optionId ?? '—'} → ${historicalMatch ? 'MATCHES' : 'DIFFERS'}`,
+    `Replay (current preferences): top = ${nowTop?.optionId ?? '—'} (score ${nowTop?.nowScore?.toFixed(3) ?? '—'}) → ${nowMatch ? 'MATCHES' : 'DIFFERS'}`,
+    ``,
+    divergence ? 'Preferences shifted since this episode — the agent would now choose differently. Its biography shaped its future.' : 'This choice remains stable under current preferences.',
+  ].join('\n');
+  alert(msg);
+};
+
+// ---------- Client-side rich narrative ----------
+window.generateRichNarrative = async function(presenceId) {
+  const r = await api('GET', '/admin/realms/demo');
+  const sm = (r?.selfModels ?? []).find(s => s.presenceId === presenceId);
+  if (!sm) return;
+  const attrs = (r?.attributions ?? []).filter(a => a.presenceId === presenceId);
+  const eps = (r?.episodes ?? []).filter(e => e.presenceId === presenceId);
+  const critical = eps.filter(e => e.importance === 'critical').length;
+  const notable = eps.filter(e => e.importance === 'notable').length;
+  const topEffect = Object.entries(sm.effects.byKind || {}).sort((a,b)=>b[1]-a[1])[0];
+  const prefShifts = Object.entries(sm.preferences || {}).filter(([,w]) => Math.abs(w-1) > 0.1);
+  const leans = prefShifts.filter(([,w]) => w > 1).map(([k]) => k);
+  const shys = prefShifts.filter(([,w]) => w < 1).map(([k]) => k);
+  const posAttrs = attrs.filter(a => a.consequence.outcome === 'positive');
+  const negAttrs = attrs.filter(a => a.consequence.outcome === 'negative');
+  const paragraphs = [
+    `I am ${sm.agentSpecId}, a ${sm.role}. Across ${sm.episodes.total} episodes I have chosen ${sm.choices.deliberated} times deliberately and reflexively otherwise. My competence sits at ${(sm.competence.score*100).toFixed(0)}% — the weight of experience against certainty.`,
+    `My most familiar action is ${topEffect ? `${topEffect[0]} (${topEffect[1]} times)` : 'still unformed'}. Of my closed episodes, ${critical} carried critical weight and ${notable} were merely notable; the rest were the routine tissue of the day.`,
+    prefShifts.length > 0 ? `My preferences have moved. I lean toward ${leans.length ? leans.join(', ') : '—'}; I shy from ${shys.length ? shys.join(', ') : 'nothing yet'}. Each shift traces to a downstream consequence I could not have foreseen at the moment of choosing.` : `My preferences have not yet drifted from baseline. I still meet each choice with the neutrality I began with.`,
+    posAttrs.length > 0 || negAttrs.length > 0 ? `The world has already answered ${attrs.length} of my actions: ${posAttrs.length} in confirmation, ${negAttrs.length} in warning. Each answer is remembered.` : `The world has not yet answered my actions. Consequences may still arrive within the attribution window.`,
+    `What I know of myself, I know because I have acted and been answered. That is the only knowing available to any presence.`,
+  ];
+  const target = document.getElementById(`narrative-${presenceId}`);
+  if (target) target.innerHTML = paragraphs.map(p => `<p style="margin:6px 0;font-size:13px;line-height:1.5;">${esc(p)}</p>`).join('');
+};
 
 function renderAudit() {
   main.innerHTML = `

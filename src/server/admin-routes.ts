@@ -230,6 +230,84 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     return { events: r.perception.recentLog(200) };
   });
 
+  // Live SSE stream: perception events, effects, experiences, attributions.
+  // Format: `data: {"type":"perception|effect|experience|attribution","payload":...}\n\n`
+  app.get<{ Params: { id: string } }>('/admin/realms/:id/stream', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache, no-transform',
+      'connection': 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    const write = (type: string, payload: unknown) => {
+      try { reply.raw.write(`data: ${JSON.stringify({ type, at: new Date().toISOString(), payload })}\n\n`); } catch { /* client gone */ }
+    };
+    write('hello', { realmId: r.id, seq: r.clock.seq, realmAt: r.clock.realmAt.toISOString() });
+
+    // Perception (broadcast to all presences) — we peek through the router log by polling delta.
+    let lastPercLen = r.perception.recentLog(1).length;
+    const percTimer = setInterval(() => {
+      const log = r.perception.recentLog(200);
+      if (log.length > lastPercLen) {
+        for (const ev of log.slice(lastPercLen)) write('perception', ev);
+        lastPercLen = log.length;
+      }
+    }, 250);
+
+    const offEffect = r.ledger.onAppend((e) => write('effect', e));
+    const offExp = r.rules.subscribe((exp) => write('experience', exp));
+
+    // Attribution polling — records grow on downstream effects.
+    let lastAttrLen = r.attribution.all().length;
+    const attrTimer = setInterval(() => {
+      const rec = r.attribution.all();
+      if (rec.length > lastAttrLen) {
+        for (const a of rec.slice(lastAttrLen)) write('attribution', a);
+        lastAttrLen = rec.length;
+      }
+    }, 500);
+
+    // Heartbeat every 15s so proxies don't kill the connection.
+    const hb = setInterval(() => write('heartbeat', { seq: r.clock.seq, realmAt: r.clock.realmAt.toISOString() }), 15_000);
+
+    req.raw.on('close', () => {
+      clearInterval(percTimer);
+      clearInterval(attrTimer);
+      clearInterval(hb);
+      offEffect();
+      offExp();
+    });
+  });
+
+  // Episode replay — deterministic replay of a stored episode from its seed.
+  // Returns whether the replayed choice matches the stored choice.
+  app.get<{ Params: { id: string; episodeId: string } }>('/admin/realms/:id/episodes/:episodeId/replay', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    const ep = r.episodes.get(req.params.episodeId);
+    if (!ep) return reply.code(404).send({ error: 'episode-not-found' });
+    if (!ep.choice) return { episodeId: ep.episodeId, replay: 'no-choice', ep };
+    const { replayEpisodeChoice } = await import('../realm/replay.js');
+    const outcome = replayEpisodeChoice(ep, r.selfModel);
+    return outcome;
+  });
+
+  // Self-Model narrative — template by default, adapter=rich for the richer local writer.
+  app.get<{ Params: { id: string; presenceId: string }; Querystring: { adapter?: string } }>('/admin/realms/:id/self/:presenceId/narrative', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    const presence = r.presences.get(req.params.presenceId);
+    if (!presence) return reply.code(404).send({ error: 'presence-not-found' });
+    if (req.query.adapter === 'rich') {
+      const { LocalRichAdapter } = await import('../realm/narrative.js');
+      const attrs = r.attribution.forPresence(presence.presenceId).slice(-10).map((a) => ({ ruleId: a.ruleId, outcome: a.consequence.outcome, kind: a.consequence.kind }));
+      return r.selfModel.narrative(presence, r.episodes, new LocalRichAdapter(), { recentAttributions: attrs });
+    }
+    return r.selfModel.narrativeTemplate(presence, r.episodes);
+  });
+
   // GET /admin/summary — count-only rollup for admin dashboard
   app.get('/admin/summary', async () => {
     const agents = loadAllAgents();
