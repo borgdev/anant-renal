@@ -15,6 +15,9 @@ import type { CMSMeasureSpec } from '../healthcare-core/cms-source-registry.js';
 import { RESEARCH_SOURCES } from '../research/index.js';
 import { PHQ9, GAD7, AUDIT_C, BRADEN, MORSE, KDQOL_36_SUMMARY, MNA_SF, CAM_DELIRIUM, FRAIL_SCALE, SDOH_5_DOMAIN, ADL_KATZ, IADL_LAWTON, MOCA_SUMMARY } from '../assessments/index.js';
 import { LIFECYCLE_STAGES } from '../lifecycle/index.js';
+import { AgentAuthoringService } from './agent-authoring.js';
+
+const authoring = new AgentAuthoringService();
 
 const PACK_ROOTS: readonly { id: string; dir: string }[] = [
   { id: 'flagship-agents', dir: 'packs/flagship-agents/agents' },
@@ -115,6 +118,54 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
   // GET /admin/research/sources — public research + pharma sources
   app.get('/admin/research/sources', async () => ({ count: RESEARCH_SOURCES.length, sources: RESEARCH_SOURCES }));
+
+  // --- Authoring: drafts + publish workflow ---
+
+  app.get('/admin/drafts', async () => ({ drafts: authoring.listDrafts() }));
+
+  app.get<{ Params: { packId: string; id: string } }>('/admin/drafts/:packId/:id', async (req, reply) => {
+    const d = authoring.getDraft(req.params.packId, req.params.id);
+    if (!d) return reply.code(404).send({ error: 'draft-not-found' });
+    return d;
+  });
+
+  app.post<{ Body: { packId: string; id: string; yaml: string; status?: 'draft' | 'in-review'; note?: string } }>('/admin/drafts', async (req, reply) => {
+    try {
+      const body = req.body;
+      if (!body?.packId || !body?.id || typeof body.yaml !== 'string') return reply.code(400).send({ error: 'bad-request' });
+      const draft = authoring.saveDraft({ ...body, actorRef: 'user:admin-ui' });
+      return draft;
+    } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  });
+
+  app.post<{ Body: { yaml: string } }>('/admin/drafts/validate', async (req, reply) => {
+    if (typeof req.body?.yaml !== 'string') return reply.code(400).send({ error: 'bad-request' });
+    return authoring.validateYaml(req.body.yaml);
+  });
+
+  app.post<{ Params: { packId: string; id: string }; Body: { note?: string } }>('/admin/drafts/:packId/:id/publish', async (req, reply) => {
+    try {
+      const note = req.body?.note;
+      return authoring.publish({ packId: req.params.packId, id: req.params.id, actorRef: 'user:admin-ui', ...(note !== undefined ? { note } : {}) });
+    } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  });
+
+  app.post<{ Params: { packId: string; id: string }; Body: { note: string } }>('/admin/drafts/:packId/:id/reject', async (req, reply) => {
+    try {
+      if (!req.body?.note) return reply.code(400).send({ error: 'note-required' });
+      authoring.reject({ packId: req.params.packId, id: req.params.id, actorRef: 'user:admin-ui', note: req.body.note });
+      return { rejected: true };
+    } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  });
+
+  app.post<{ Body: Parameters<AgentAuthoringService['scaffoldYaml']>[0] }>('/admin/drafts/scaffold', async (req, reply) => {
+    try {
+      const yaml = authoring.scaffoldYaml(req.body);
+      return { yaml };
+    } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  });
+
+  app.get('/admin/audit-log', async () => ({ entries: authoring.auditLog() }));
 
   // GET /admin/summary — count-only rollup for admin dashboard
   app.get('/admin/summary', async () => {

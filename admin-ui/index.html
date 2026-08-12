@@ -3,118 +3,668 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Healthcare Harness — Admin</title>
+  <title>Healthcare Harness — Operator Console</title>
   <style>
-    :root { color-scheme: light dark; --fg:#111; --bg:#fafafa; --muted:#666; --card:#fff; --brand:#0d47a1; --border:#e6e6e6; }
-    @media (prefers-color-scheme: dark) { :root { --fg:#eee; --bg:#111; --muted:#aaa; --card:#1a1a1a; --brand:#7ab7ff; --border:#333; } }
+    :root {
+      color-scheme: light dark;
+      --fg:#0f172a; --muted:#64748b; --bg:#f8fafc; --card:#ffffff; --border:#e2e8f0;
+      --brand:#1d4ed8; --brand-2:#4f46e5; --accent:#0891b2;
+      --good:#059669; --warn:#d97706; --bad:#dc2626;
+      --code-bg:#0f172a; --code-fg:#e2e8f0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --fg:#e2e8f0; --muted:#94a3b8; --bg:#0b1220; --card:#111827; --border:#1f2937; --brand:#60a5fa; --brand-2:#818cf8; --accent:#22d3ee; --code-bg:#020617; --code-fg:#e2e8f0; }
+    }
     * { box-sizing: border-box; }
-    html,body { margin:0; padding:0; font-family: system-ui, -apple-system, sans-serif; color:var(--fg); background:var(--bg); }
-    header { padding: 16px 24px; border-bottom: 1px solid var(--border); display:flex; align-items:center; gap:16px; }
-    header h1 { margin:0; font-size:18px; }
-    nav { padding: 12px 24px; display:flex; gap:8px; border-bottom:1px solid var(--border); flex-wrap: wrap; }
-    nav button { background:transparent; border:1px solid var(--border); color:var(--fg); padding:8px 12px; border-radius:6px; cursor:pointer; font-size:13px; }
-    nav button.active { background:var(--brand); color:white; border-color:var(--brand); }
-    main { padding: 24px; }
-    .cards { display:grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin-bottom: 24px; }
-    .card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; }
-    .card .num { font-size: 32px; font-weight: 700; color: var(--brand); }
-    .card .label { color: var(--muted); font-size: 13px; margin-top: 4px; }
-    table { width:100%; border-collapse: collapse; background: var(--card); border:1px solid var(--border); border-radius:8px; overflow:hidden; font-size: 13px; }
-    th,td { text-align:left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
-    th { background: color-mix(in srgb, var(--brand) 5%, var(--bg)); font-weight: 600; }
-    tr:last-child td { border-bottom: none; }
-    .filters { display:flex; gap:8px; margin-bottom:12px; flex-wrap: wrap; }
-    .filters input, .filters select { padding: 8px 10px; border:1px solid var(--border); border-radius:6px; background: var(--card); color: var(--fg); font-size: 13px; }
-    .pill { display:inline-block; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--brand) 15%, transparent); color: var(--brand); font-size: 11px; }
-    pre { background: var(--card); border:1px solid var(--border); border-radius:6px; padding:12px; overflow:auto; font-size:12px; }
+    html,body { margin:0; padding:0; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color:var(--fg); background:var(--bg); font-size:14px; line-height:1.5; }
+    a { color: var(--brand); text-decoration: none; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 1px 6px; background: color-mix(in srgb, var(--brand) 10%, transparent); border-radius: 4px; }
+
+    /* Layout */
+    .app { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+    .sidebar { background: var(--card); border-right: 1px solid var(--border); padding: 16px 12px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+    .brand { display:flex; align-items:center; gap:8px; padding: 4px 8px 16px; }
+    .brand-mark { width:24px; height:24px; border-radius:6px; background: linear-gradient(135deg, var(--brand), var(--brand-2)); }
+    .brand h1 { font-size:14px; font-weight:700; margin:0; }
+    .nav-section { margin-top: 16px; }
+    .nav-section .label { font-size:11px; text-transform: uppercase; letter-spacing:0.05em; color: var(--muted); padding: 4px 8px; }
+    .nav-item { display:flex; align-items:center; gap:8px; padding: 7px 10px; border-radius: 6px; cursor: pointer; color: var(--fg); font-size: 13px; }
+    .nav-item:hover { background: color-mix(in srgb, var(--brand) 8%, transparent); }
+    .nav-item.active { background: color-mix(in srgb, var(--brand) 15%, transparent); color: var(--brand); font-weight: 600; }
+    .nav-item .count { margin-left:auto; font-size:11px; color: var(--muted); background: var(--bg); padding: 1px 6px; border-radius: 999px; }
+
+    .main { padding: 24px 32px; overflow-x: auto; }
+    .page-header { display:flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; gap: 16px; flex-wrap: wrap; }
+    .page-title { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+    .page-sub { color: var(--muted); font-size: 13px; margin: 0; }
+    .btn { display:inline-flex; align-items:center; gap:6px; padding: 8px 14px; border-radius: 7px; border: 1px solid var(--border); background: var(--card); cursor: pointer; font-size:13px; font-weight: 500; }
+    .btn:hover { border-color: var(--brand); }
+    .btn-primary { background: var(--brand); color: white; border-color: var(--brand); }
+    .btn-primary:hover { background: color-mix(in srgb, var(--brand) 85%, black); }
+    .btn-danger { background: var(--bad); color: white; border-color: var(--bad); }
+    .btn-ghost { border-color: transparent; background: transparent; }
+
+    /* Cards */
+    .cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .stat-card { background: var(--card); border:1px solid var(--border); border-radius: 10px; padding: 16px; }
+    .stat-card .num { font-size: 26px; font-weight: 700; color: var(--brand); line-height:1; }
+    .stat-card .lbl { color: var(--muted); font-size:12px; margin-top: 6px; }
+
+    /* Tables */
+    .table-wrap { background: var(--card); border:1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    table { width:100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align:left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { background: color-mix(in srgb, var(--brand) 6%, var(--bg)); font-weight: 600; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: color-mix(in srgb, var(--brand) 4%, transparent); cursor: pointer; }
+
+    /* Pills */
+    .pill { display:inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; }
+    .pill.brand { background: color-mix(in srgb, var(--brand) 15%, transparent); color: var(--brand); }
+    .pill.good { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
+    .pill.warn { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
+    .pill.bad { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+    .pill.muted { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+
+    /* Filters */
+    .filters { display:flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+    .filters input, .filters select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); font-size: 13px; }
+    .filters input { min-width: 240px; }
+
+    /* Editor */
+    .editor { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 1100px) { .editor { grid-template-columns: 1fr; } }
+    .editor-pane { background: var(--card); border:1px solid var(--border); border-radius: 10px; padding: 20px; }
+    .editor-pane h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+    .form-row { display: grid; grid-template-columns: 140px 1fr; gap: 10px; align-items: center; margin-bottom: 10px; }
+    .form-row label { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .form-row input, .form-row select, .form-row textarea { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); font-size: 13px; }
+    .form-row textarea { min-height: 60px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
+    .steps-list { display: flex; flex-direction: column; gap: 6px; }
+    .step-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; }
+    .step-row input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); font-size: 12px; }
+    .step-row button { padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--card); cursor: pointer; }
+
+    #yaml-editor { width: 100%; min-height: 380px; padding: 12px 14px; background: var(--code-bg); color: var(--code-fg); border: 1px solid var(--border); border-radius: 8px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12.5px; line-height: 1.55; resize: vertical; }
+
+    .validation { margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+    .validation.ok { background: color-mix(in srgb, var(--good) 10%, transparent); color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 30%, transparent); }
+    .validation.err { background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
+    .validation ul { margin: 6px 0 0; padding-left: 20px; }
+
+    .actions { display:flex; gap:8px; margin-top: 16px; flex-wrap: wrap; }
+
+    /* Detail pane */
+    .detail { background: var(--card); border:1px solid var(--border); border-radius: 10px; padding: 20px; margin-top: 16px; }
+    .kv { display: grid; grid-template-columns: 160px 1fr; gap: 8px 16px; margin-bottom: 12px; font-size: 13px; }
+    .kv .k { color: var(--muted); }
+    pre.yaml { background: var(--code-bg); color: var(--code-fg); border-radius: 8px; padding: 14px; overflow: auto; font-size: 12px; line-height: 1.5; font-family: ui-monospace, SFMono-Regular, monospace; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 18px; background: var(--fg); color: var(--card); border-radius: 8px; font-size: 13px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); animation: slide 0.2s ease-out; }
+    .toast.err { background: var(--bad); color: white; }
+    .toast.good { background: var(--good); color: white; }
+    @keyframes slide { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    /* Utility */
+    .muted { color: var(--muted); }
+    .flex { display: flex; gap: 8px; align-items: center; }
+    .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Healthcare Harness — Admin</h1>
-    <span class="pill" id="ver">loading…</span>
-  </header>
-  <nav>
-    <button class="active" data-view="summary">Summary</button>
-    <button data-view="agents">Agents</button>
-    <button data-view="measures">CMS measures</button>
-    <button data-view="assessments">Assessments</button>
-    <button data-view="lifecycle">Lifecycle</button>
-    <button data-view="research">Research sources</button>
-  </nav>
-  <main id="app">Loading…</main>
-  <script>
-    const api = (p) => fetch(p).then(r => r.json());
-    const app = document.getElementById('app');
-    const nav = document.querySelector('nav');
-    let currentView = 'summary';
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <h1>Harness Console</h1>
+    </div>
+    <div class="nav-section">
+      <div class="label">Overview</div>
+      <div class="nav-item active" data-view="summary">Dashboard</div>
+    </div>
+    <div class="nav-section">
+      <div class="label">Agents</div>
+      <div class="nav-item" data-view="agents">Published <span class="count" id="c-agents">—</span></div>
+      <div class="nav-item" data-view="drafts">Drafts <span class="count" id="c-drafts">—</span></div>
+      <div class="nav-item" data-view="new">+ New agent</div>
+    </div>
+    <div class="nav-section">
+      <div class="label">Catalog</div>
+      <div class="nav-item" data-view="measures">CMS measures <span class="count" id="c-measures">—</span></div>
+      <div class="nav-item" data-view="assessments">Assessments <span class="count" id="c-assessments">—</span></div>
+      <div class="nav-item" data-view="lifecycle">Patient lifecycle</div>
+      <div class="nav-item" data-view="research">Research sources <span class="count" id="c-research">—</span></div>
+    </div>
+    <div class="nav-section">
+      <div class="label">Governance</div>
+      <div class="nav-item" data-view="audit">Audit log</div>
+    </div>
+  </aside>
 
-    function h(html){ return html; }
-    function esc(s){ return String(s ?? '').replace(/[&<>"']/g,(c)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+  <main class="main" id="main">Loading…</main>
+</div>
 
-    async function render() {
-      if (currentView === 'summary') {
-        const s = await api('/admin/summary');
-        document.getElementById('ver').textContent = `v${s.agents.total} agents · ${s.measures.total} measures`;
-        const rows = Object.entries(s.agents.byPack).map(([k,v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join('');
-        app.innerHTML = h(`
-          <div class="cards">
-            <div class="card"><div class="num">${s.agents.total}</div><div class="label">agents (all packs)</div></div>
-            <div class="card"><div class="num">${s.measures.total}</div><div class="label">CMS measures</div></div>
-            <div class="card"><div class="num">${s.assessments.total}</div><div class="label">validated assessments</div></div>
-            <div class="card"><div class="num">${s.lifecycleStages}</div><div class="label">patient lifecycle stages</div></div>
-            <div class="card"><div class="num">${s.researchSources}</div><div class="label">research + pharma sources</div></div>
-          </div>
-          <table><thead><tr><th>Pack</th><th>Agents</th></tr></thead><tbody>${rows}</tbody></table>
-        `);
-      } else if (currentView === 'agents') {
-        app.innerHTML = h(`
-          <div class="filters">
-            <select id="pack"><option value="">All packs</option>${['flagship-agents','dialysis-deep','primary-care-deep','urgent-care-deep','research-pharma','dialysis-provider'].map(p=>`<option>${p}</option>`).join('')}</select>
-            <input id="q" placeholder="Search agents…" />
-          </div>
-          <div id="agents-body">Loading…</div>
-        `);
-        const load = async () => {
-          const pack = document.getElementById('pack').value;
-          const q = document.getElementById('q').value;
-          const qs = new URLSearchParams();
-          if (pack) qs.set('pack', pack);
-          if (q) qs.set('q', q);
-          const data = await api('/admin/agents?' + qs.toString());
-          document.getElementById('agents-body').innerHTML = h(`
-            <p style="color:var(--muted);font-size:13px;">Showing ${data.count} of ${data.total}</p>
-            <table><thead><tr><th>ID</th><th>Name</th><th>Pack</th><th>Setting</th><th>Trigger</th><th>Base fee</th></tr></thead>
-            <tbody>${data.agents.map(a=>`<tr><td><code>${esc(a.id)}</code></td><td>${esc(a.displayName)}</td><td><span class="pill">${esc(a.packId)}</span></td><td>${esc(a.setting ?? '')}</td><td>${esc(a.triggerKind)}${a.triggerEventType?': '+esc(a.triggerEventType):''}</td><td>${a.baseFeeUsd?'$'+a.baseFeeUsd:''}</td></tr>`).join('')}</tbody></table>
-          `);
-        };
-        document.getElementById('pack').addEventListener('change', load);
-        document.getElementById('q').addEventListener('input', () => { clearTimeout(window.__t); window.__t = setTimeout(load, 200); });
-        load();
-      } else if (currentView === 'measures') {
-        const d = await api('/admin/measures');
-        app.innerHTML = h(`<table><thead><tr><th>ID</th><th>Program</th><th>Description</th></tr></thead><tbody>${d.measures.map(m=>`<tr><td><code>${esc(m.id)}</code></td><td>${esc(m.programId ?? '')}</td><td>${esc(m.name ?? m.description ?? '')}</td></tr>`).join('')}</tbody></table>`);
-      } else if (currentView === 'assessments') {
-        const d = await api('/admin/assessments');
-        app.innerHTML = h(`<table><thead><tr><th>ID</th><th>Title</th><th>LOINC</th><th>Domain</th><th>Items</th></tr></thead><tbody>${d.assessments.map(a=>`<tr><td><code>${esc(a.id)}</code></td><td>${esc(a.title)}</td><td>${esc(a.loinc ?? '')}</td><td>${esc(a.domain)}</td><td>${a.itemCount}</td></tr>`).join('')}</tbody></table>`);
-      } else if (currentView === 'lifecycle') {
-        const d = await api('/admin/lifecycle');
-        app.innerHTML = h(`<table><thead><tr><th>#</th><th>ID</th><th>Description</th></tr></thead><tbody>${d.stages.map((s,i)=>`<tr><td>${i+1}</td><td><code>${esc(s.id)}</code></td><td>${esc(s.description ?? s.name ?? '')}</td></tr>`).join('')}</tbody></table>`);
-      } else if (currentView === 'research') {
-        const d = await api('/admin/research/sources');
-        app.innerHTML = h(`<table><thead><tr><th>ID</th><th>Name</th><th>Kind</th><th>URL</th></tr></thead><tbody>${d.sources.map(s=>`<tr><td><code>${esc(s.id)}</code></td><td>${esc(s.name)}</td><td>${esc(s.kind ?? '')}</td><td><a href="${esc(s.baseUrl ?? s.url ?? '#')}" target="_blank">${esc(s.baseUrl ?? s.url ?? '')}</a></td></tr>`).join('')}</tbody></table>`);
-      }
+<script>
+// ---------- Bundled snapshot API shim ----------
+// In the deployed static site, GETs are served from bundled JSON snapshots.
+// In production the same routes are served by Fastify (see admin-routes.ts).
+// Writes (POST /admin/drafts, publish, reject) hit the local storage draft
+// store here so the create/publish workflow is fully interactive in the demo.
+const FILES = {
+  '/admin/summary': 'summary.json',
+  '/admin/agents': 'agents.json',
+  '/admin/measures': 'measures.json',
+  '/admin/assessments': 'assessments.json',
+  '/admin/lifecycle': 'lifecycle.json',
+  '/admin/research/sources': 'research.json',
+};
+const cache = {};
+const drafts = JSON.parse(localStorage.getItem('hh-drafts') || '[]');
+const auditLog = JSON.parse(localStorage.getItem('hh-audit') || '[]');
+function saveDrafts() { localStorage.setItem('hh-drafts', JSON.stringify(drafts)); }
+function saveAudit() { localStorage.setItem('hh-audit', JSON.stringify(auditLog)); }
+function audit(action, packId, agentId, note) { auditLog.unshift({ timestamp: new Date().toISOString(), actorRef: 'user:you', action, packId, agentId, note: note || undefined }); saveAudit(); }
+async function loadFile(name) {
+  if (!cache[name]) cache[name] = await fetch(name).then(r => r.json());
+  return cache[name];
+}
+
+async function api(method, path, body) {
+  if (method === 'GET') {
+    const [base, qs] = path.split('?');
+    const file = FILES[base];
+    if (!file) return {};
+    const raw = await loadFile(file);
+    const params = new URLSearchParams(qs || '');
+    if (base === '/admin/summary') return raw;
+    if (base === '/admin/agents') {
+      let list = raw;
+      const pack = params.get('pack'); if (pack) list = list.filter(a => a.packId === pack);
+      const q = (params.get('q') || '').toLowerCase();
+      if (q) list = list.filter(a => (a.id + ' ' + a.displayName + ' ' + (a.description||'')).toLowerCase().includes(q));
+      return { count: list.length, total: raw.length, agents: list };
     }
+    if (base === '/admin/measures') return { count: raw.length, measures: raw };
+    if (base === '/admin/assessments') return { count: raw.length, assessments: raw };
+    if (base === '/admin/lifecycle') return { stages: raw };
+    if (base === '/admin/research/sources') return { count: raw.length, sources: raw };
+    return {};
+  }
+  // Writes: local-only for the demo
+  if (path === '/admin/drafts/validate') return clientValidate(body.yaml);
+  if (path === '/admin/drafts' && method === 'POST') {
+    const v = clientValidate(body.yaml);
+    const existing = drafts.findIndex(d => d.packId === body.packId && d.id === body.id);
+    const rec = { packId: body.packId, id: body.id, yaml: body.yaml, status: body.status || 'draft', authorRef: 'user:you', updatedAt: new Date().toISOString(), validation: v };
+    if (existing >= 0) { drafts[existing] = rec; audit(body.status === 'in-review' ? 'submit-review' : 'update-draft', body.packId, body.id); }
+    else { drafts.unshift(rec); audit('create-draft', body.packId, body.id); }
+    saveDrafts();
+    return rec;
+  }
+  if (path.match(/\/admin\/drafts\/[^/]+\/[^/]+\/publish$/)) {
+    const [, , , packId, id] = path.split('/');
+    const idx = drafts.findIndex(d => d.packId === packId && d.id === id);
+    if (idx < 0) throw new Error('draft not found');
+    const d = drafts[idx];
+    if (!d.validation.ok) throw new Error('cannot publish invalid draft');
+    // Move into agents cache (mock: mark published + move to published list)
+    const agents = await loadFile('agents.json');
+    const spec = clientValidate(d.yaml).spec;
+    agents.unshift({ packId: d.packId, id: d.id, displayName: spec.displayName, description: spec.description, setting: spec.labels?.setting, lifecycleStage: spec.labels?.lifecycleStage, triggerKind: spec.trigger?.kind, triggerEventType: spec.trigger?.eventType, baseFeeUsd: spec.billing?.baseFeeUsd, __justPublished: true });
+    cache['agents.json'] = agents;
+    drafts.splice(idx, 1);
+    saveDrafts();
+    audit('publish', packId, id, body?.note);
+    return { published: true };
+  }
+  if (path.match(/\/admin\/drafts\/[^/]+\/[^/]+\/reject$/)) {
+    const [, , , packId, id] = path.split('/');
+    const d = drafts.find(x => x.packId === packId && x.id === id);
+    if (d) d.status = 'draft';
+    saveDrafts();
+    audit('reject', packId, id, body?.note);
+    return { rejected: true };
+  }
+  if (path.match(/\/admin\/drafts\/[^/]+\/[^/]+$/) && method === 'DELETE') {
+    const [, , , packId, id] = path.split('/');
+    const idx = drafts.findIndex(d => d.packId === packId && d.id === id);
+    if (idx >= 0) { drafts.splice(idx, 1); saveDrafts(); audit('delete-draft', packId, id); }
+    return { deleted: true };
+  }
+  return {};
+}
 
-    nav.addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-view]');
-      if (!btn) return;
-      nav.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      currentView = btn.dataset.view;
-      render();
-    });
-    render();
-  </script>
+// ---------- Client-side validation (mirrors src/agents/spec.ts) ----------
+function clientValidate(yamlText) {
+  let doc;
+  try { doc = window.jsyaml ? jsyaml.load(yamlText) : parseSimpleYaml(yamlText); }
+  catch (e) { return { ok: false, errors: ['YAML parse: ' + e.message] }; }
+  if (!doc || typeof doc !== 'object') return { ok: false, errors: ['Document is not a YAML object'] };
+  const errs = [];
+  const req = (path, val, cond, msg) => { if (!cond) errs.push(`${path}: ${msg}`); };
+  req('id', doc.id, typeof doc.id === 'string' && /^[a-z0-9][a-z0-9-]*$/.test(doc.id), 'must be kebab-case string');
+  req('version', doc.version, /^\d+\.\d+\.\d+$/.test(doc.version || ''), 'must be semver X.Y.Z');
+  req('packId', doc.packId, typeof doc.packId === 'string', 'required string');
+  req('displayName', doc.displayName, typeof doc.displayName === 'string' && doc.displayName.length > 0, 'required non-empty string');
+  req('scope', doc.scope, ['org','region','facility','patient'].includes(doc.scope), 'must be one of org|region|facility|patient');
+  req('trigger.kind', doc.trigger?.kind, ['event','cron','webhook','manual'].includes(doc.trigger?.kind), 'must be event|cron|webhook|manual');
+  if (doc.trigger?.kind === 'event') req('trigger.eventType', doc.trigger?.eventType, !!doc.trigger?.eventType, 'required for event triggers');
+  if (doc.trigger?.kind === 'cron') req('trigger.expression', doc.trigger?.expression, !!doc.trigger?.expression, 'required for cron triggers');
+  req('plan', doc.plan, doc.plan && typeof doc.plan === 'object', 'required');
+  if (doc.plan) req('plan.type', doc.plan.type, ['sequence','parallel','conditional','loop','step'].includes(doc.plan.type), 'invalid plan type');
+  req('governance.phiHandling', doc.governance?.phiHandling, ['none','read','read-write'].includes(doc.governance?.phiHandling), 'required: none|read|read-write');
+  req('governance.purposeOfUse', doc.governance?.purposeOfUse, Array.isArray(doc.governance?.purposeOfUse) && doc.governance.purposeOfUse.length > 0, 'required non-empty array');
+  req('governance.clearanceRequired', doc.governance?.clearanceRequired, ['public','internal','confidential','phi','restricted-phi'].includes(doc.governance?.clearanceRequired), 'required clearance level');
+  return { ok: errs.length === 0, errors: errs, spec: errs.length === 0 ? doc : undefined };
+}
+// Fallback minimal YAML if js-yaml is not loaded — we ship js-yaml from CDN in production.
+function parseSimpleYaml(t) { throw new Error('YAML parser unavailable'); }
+
+// ---------- Router + views ----------
+const main = document.getElementById('main');
+const nav = document.querySelector('.sidebar');
+let currentView = 'summary';
+
+function toast(msg, kind='') { const t = document.createElement('div'); t.className = 'toast ' + kind; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 3000); }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function updateSidebarCounts() {
+  const s = await api('GET', '/admin/summary');
+  document.getElementById('c-agents').textContent = s.agents.total;
+  document.getElementById('c-drafts').textContent = drafts.length;
+  document.getElementById('c-measures').textContent = s.measures.total;
+  document.getElementById('c-assessments').textContent = s.assessments.total;
+  document.getElementById('c-research').textContent = s.researchSources;
+}
+
+nav.addEventListener('click', (e) => {
+  const item = e.target.closest('.nav-item');
+  if (!item) return;
+  nav.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
+  item.classList.add('active');
+  currentView = item.dataset.view;
+  render();
+});
+
+async function render() {
+  await updateSidebarCounts();
+  const view = currentView;
+  if (view === 'summary') return renderSummary();
+  if (view === 'agents') return renderAgents();
+  if (view === 'drafts') return renderDrafts();
+  if (view === 'new') return renderEditor({});
+  if (view === 'measures') return renderMeasures();
+  if (view === 'assessments') return renderAssessments();
+  if (view === 'lifecycle') return renderLifecycle();
+  if (view === 'research') return renderResearch();
+  if (view === 'audit') return renderAudit();
+}
+
+async function renderSummary() {
+  const s = await api('GET', '/admin/summary');
+  const packRows = Object.entries(s.agents.byPack).map(([k, v]) => `<tr><td><code>${esc(k)}</code></td><td>${v}</td></tr>`).join('');
+  main.innerHTML = `
+    <div class="page-header">
+      <div><h2 class="page-title">Operator dashboard</h2><p class="page-sub">Governed agents, measures, and workflows across your healthcare organization.</p></div>
+      <button class="btn btn-primary" onclick="goTo('new')">+ Create agent</button>
+    </div>
+    <div class="cards">
+      <div class="stat-card"><div class="num">${s.agents.total}</div><div class="lbl">Published agents</div></div>
+      <div class="stat-card"><div class="num">${drafts.length}</div><div class="lbl">Drafts in progress</div></div>
+      <div class="stat-card"><div class="num">${s.measures.total}</div><div class="lbl">CMS measures wired</div></div>
+      <div class="stat-card"><div class="num">${s.assessments.total}</div><div class="lbl">Validated assessments</div></div>
+      <div class="stat-card"><div class="num">${s.lifecycleStages}</div><div class="lbl">Patient lifecycle stages</div></div>
+      <div class="stat-card"><div class="num">${s.researchSources}</div><div class="lbl">Research + pharma sources</div></div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Pack</th><th>Agents</th></tr></thead>
+      <tbody>${packRows}</tbody>
+    </table></div>
+  `;
+}
+
+async function renderAgents() {
+  main.innerHTML = `
+    <div class="page-header">
+      <div><h2 class="page-title">Published agents</h2><p class="page-sub">Live in the runtime — invocable via triggers, replayable, metered.</p></div>
+      <button class="btn btn-primary" onclick="goTo('new')">+ Create agent</button>
+    </div>
+    <div class="filters">
+      <select id="pack-filter"><option value="">All packs</option>${['flagship-agents','dialysis-deep','primary-care-deep','urgent-care-deep','research-pharma','dialysis-provider'].map(p => `<option>${p}</option>`).join('')}</select>
+      <input id="q-filter" placeholder="Search by id, name, or description…" />
+    </div>
+    <div id="agents-body">Loading…</div>
+  `;
+  const load = async () => {
+    const pack = document.getElementById('pack-filter').value;
+    const q = document.getElementById('q-filter').value;
+    const params = new URLSearchParams();
+    if (pack) params.set('pack', pack);
+    if (q) params.set('q', q);
+    const data = await api('GET', '/admin/agents?' + params.toString());
+    document.getElementById('agents-body').innerHTML = `
+      <p class="muted" style="margin-bottom:8px;">Showing ${data.count} of ${data.total}</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>ID</th><th>Name</th><th>Pack</th><th>Setting</th><th>Trigger</th><th>Base fee</th><th></th></tr></thead>
+        <tbody>${data.agents.map(a => `
+          <tr>
+            <td><code>${esc(a.id)}</code></td>
+            <td>${esc(a.displayName)} ${a.__justPublished ? '<span class="pill good">just published</span>' : ''}</td>
+            <td><span class="pill brand">${esc(a.packId)}</span></td>
+            <td>${esc(a.setting || '')}</td>
+            <td><span class="pill muted">${esc(a.triggerKind)}${a.triggerEventType ? ': ' + esc(a.triggerEventType) : ''}</span></td>
+            <td>${a.baseFeeUsd != null ? '$' + a.baseFeeUsd : '<span class="muted">—</span>'}</td>
+            <td class="row-actions"><button class="btn btn-ghost" onclick="cloneAgent('${esc(a.packId)}','${esc(a.id)}')">Clone</button></td>
+          </tr>
+        `).join('')}</tbody>
+      </table></div>
+    `;
+  };
+  document.getElementById('pack-filter').addEventListener('change', load);
+  document.getElementById('q-filter').addEventListener('input', () => { clearTimeout(window.__t); window.__t = setTimeout(load, 200); });
+  load();
+}
+
+function renderDrafts() {
+  const rows = drafts.map(d => `
+    <tr>
+      <td><code>${esc(d.id)}</code></td>
+      <td><span class="pill brand">${esc(d.packId)}</span></td>
+      <td>${d.status === 'in-review' ? '<span class="pill warn">in review</span>' : '<span class="pill muted">draft</span>'}</td>
+      <td>${d.validation.ok ? '<span class="pill good">valid</span>' : '<span class="pill bad">' + d.validation.errors.length + ' error(s)</span>'}</td>
+      <td class="muted">${new Date(d.updatedAt).toLocaleString()}</td>
+      <td class="row-actions">
+        <button class="btn btn-ghost" onclick="editDraft('${esc(d.packId)}','${esc(d.id)}')">Edit</button>
+        ${d.status === 'in-review' && d.validation.ok ? `<button class="btn btn-primary" onclick="publishDraft('${esc(d.packId)}','${esc(d.id)}')">Publish</button>` : ''}
+        <button class="btn" onclick="deleteDraft('${esc(d.packId)}','${esc(d.id)}')">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+  main.innerHTML = `
+    <div class="page-header">
+      <div><h2 class="page-title">Drafts</h2><p class="page-sub">Author agents locally, validate, submit for review, then publish. All actions audited.</p></div>
+      <button class="btn btn-primary" onclick="goTo('new')">+ New draft</button>
+    </div>
+    ${drafts.length === 0 ? `<div class="detail muted" style="text-align:center;padding:40px;">No drafts yet. Click <b>+ New draft</b> to create your first agent.</div>` :
+    `<div class="table-wrap"><table>
+      <thead><tr><th>ID</th><th>Pack</th><th>Status</th><th>Validation</th><th>Updated</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`}
+  `;
+}
+
+// ---------- Editor ----------
+let editorState = { id: '', packId: '', displayName: '', description: '', triggerKind: 'event', eventType: '', cron: '', scope: 'facility', phiHandling: 'read', purposeOfUse: 'treatment', clearanceRequired: 'phi', baseFeeUsd: 0, budgetCapMonthlyUsd: '', setting: '', lifecycleStage: '', steps: [{ id: 'step-1', skill: '' }], yaml: '' };
+
+function goTo(view) {
+  nav.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
+  const item = nav.querySelector(`[data-view="${view}"]`);
+  if (item) item.classList.add('active');
+  currentView = view;
+  render();
+}
+
+function renderEditor(initial) {
+  Object.assign(editorState, { id: '', packId: '', displayName: '', description: '', triggerKind: 'event', eventType: '', cron: '', scope: 'facility', phiHandling: 'read', purposeOfUse: 'treatment', clearanceRequired: 'phi', baseFeeUsd: 0, budgetCapMonthlyUsd: '', setting: '', lifecycleStage: '', steps: [{ id: 'step-1', skill: '' }], yaml: '' }, initial);
+  main.innerHTML = `
+    <div class="page-header">
+      <div><h2 class="page-title">${initial.id ? `Edit draft: <code>${esc(initial.id)}</code>` : 'New agent'}</h2><p class="page-sub">Fill the form to scaffold YAML, or edit the YAML directly on the right. Live validated.</p></div>
+      <div class="flex"><button class="btn" onclick="goTo('drafts')">Cancel</button></div>
+    </div>
+    <div class="editor">
+      <div class="editor-pane">
+        <h3>Structured form</h3>
+        <div class="form-row"><label>Agent ID</label><input id="f-id" placeholder="kebab-case-id" value="${esc(editorState.id)}" /></div>
+        <div class="form-row"><label>Pack</label><select id="f-pack">
+          <option value="">choose a pack…</option>
+          ${['flagship-agents','dialysis-deep','primary-care-deep','urgent-care-deep','research-pharma','dialysis-provider'].map(p => `<option${editorState.packId === p ? ' selected' : ''}>${p}</option>`).join('')}
+        </select></div>
+        <div class="form-row"><label>Display name</label><input id="f-name" value="${esc(editorState.displayName)}" /></div>
+        <div class="form-row"><label>Description</label><textarea id="f-desc">${esc(editorState.description)}</textarea></div>
+        <div class="form-row"><label>Scope</label><select id="f-scope">${['org','region','facility','patient'].map(x => `<option${editorState.scope===x?' selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="form-row"><label>Trigger</label><select id="f-trigger">${['event','cron','webhook','manual'].map(x => `<option${editorState.triggerKind===x?' selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="form-row" id="row-event" ${editorState.triggerKind !== 'event' ? 'style="display:none"' : ''}><label>Event type</label><input id="f-event" placeholder="lab.result-arrived" value="${esc(editorState.eventType)}" /></div>
+        <div class="form-row" id="row-cron" ${editorState.triggerKind !== 'cron' ? 'style="display:none"' : ''}><label>Cron</label><input id="f-cron" placeholder="0 9 * * *" value="${esc(editorState.cron)}" /></div>
+        <div class="form-row"><label>Plan steps</label>
+          <div>
+            <div class="steps-list" id="steps"></div>
+            <button class="btn btn-ghost" style="margin-top:6px;font-size:12px;" onclick="addStep()">+ Add step</button>
+          </div>
+        </div>
+        <div class="form-row"><label>PHI handling</label><select id="f-phi">${['none','read','read-write'].map(x => `<option${editorState.phiHandling===x?' selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="form-row"><label>Purpose of use</label><select id="f-pou">${['treatment','operations','compliance','research','break-glass'].map(x => `<option${editorState.purposeOfUse===x?' selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="form-row"><label>Clearance</label><select id="f-clearance">${['public','internal','confidential','phi','restricted-phi'].map(x => `<option${editorState.clearanceRequired===x?' selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="form-row"><label>Setting label</label><input id="f-setting" placeholder="dialysis|primary-care|urgent-care|…" value="${esc(editorState.setting)}" /></div>
+        <div class="form-row"><label>Lifecycle stage</label><input id="f-lifecycle" placeholder="active-care|onboarding|discharge|…" value="${esc(editorState.lifecycleStage)}" /></div>
+        <div class="form-row"><label>Base fee USD</label><input id="f-fee" type="number" step="0.01" value="${editorState.baseFeeUsd}" /></div>
+        <div class="form-row"><label>Monthly budget cap USD</label><input id="f-cap" type="number" step="1" value="${editorState.budgetCapMonthlyUsd}" placeholder="optional" /></div>
+        <div class="actions">
+          <button class="btn btn-primary" onclick="generateYaml()">Generate YAML →</button>
+        </div>
+      </div>
+
+      <div class="editor-pane">
+        <h3>YAML source <span class="pill muted" style="margin-left:6px;">live validated</span></h3>
+        <textarea id="yaml-editor" spellcheck="false" placeholder="Click 'Generate YAML' or paste an AgentSpec here…">${esc(editorState.yaml)}</textarea>
+        <div id="validation-result"></div>
+        <div class="actions">
+          <button class="btn" onclick="validateNow()">Validate</button>
+          <button class="btn" onclick="saveDraft('draft')">Save draft</button>
+          <button class="btn btn-primary" onclick="saveDraft('in-review')">Submit for review</button>
+        </div>
+      </div>
+    </div>
+  `;
+  renderSteps();
+  document.getElementById('f-trigger').addEventListener('change', (e) => {
+    editorState.triggerKind = e.target.value;
+    document.getElementById('row-event').style.display = editorState.triggerKind === 'event' ? '' : 'none';
+    document.getElementById('row-cron').style.display = editorState.triggerKind === 'cron' ? '' : 'none';
+  });
+  document.getElementById('yaml-editor').addEventListener('input', debounce(() => validateNow(), 400));
+  if (editorState.yaml) validateNow();
+}
+
+function debounce(fn, ms) { let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; }
+
+function renderSteps() {
+  document.getElementById('steps').innerHTML = editorState.steps.map((s, i) => `
+    <div class="step-row">
+      <input placeholder="step id" value="${esc(s.id)}" oninput="editorState.steps[${i}].id=this.value" />
+      <input placeholder="skill (e.g. sql.query)" value="${esc(s.skill)}" oninput="editorState.steps[${i}].skill=this.value" />
+      <button onclick="removeStep(${i})" ${editorState.steps.length === 1 ? 'disabled' : ''}>×</button>
+    </div>
+  `).join('');
+}
+function addStep() { editorState.steps.push({ id: 'step-' + (editorState.steps.length + 1), skill: '' }); renderSteps(); }
+function removeStep(i) { editorState.steps.splice(i, 1); renderSteps(); }
+
+function readForm() {
+  editorState.id = document.getElementById('f-id').value.trim();
+  editorState.packId = document.getElementById('f-pack').value;
+  editorState.displayName = document.getElementById('f-name').value;
+  editorState.description = document.getElementById('f-desc').value;
+  editorState.scope = document.getElementById('f-scope').value;
+  editorState.triggerKind = document.getElementById('f-trigger').value;
+  editorState.eventType = document.getElementById('f-event').value;
+  editorState.cron = document.getElementById('f-cron').value;
+  editorState.phiHandling = document.getElementById('f-phi').value;
+  editorState.purposeOfUse = document.getElementById('f-pou').value;
+  editorState.clearanceRequired = document.getElementById('f-clearance').value;
+  editorState.setting = document.getElementById('f-setting').value;
+  editorState.lifecycleStage = document.getElementById('f-lifecycle').value;
+  editorState.baseFeeUsd = parseFloat(document.getElementById('f-fee').value) || 0;
+  editorState.budgetCapMonthlyUsd = document.getElementById('f-cap').value ? parseFloat(document.getElementById('f-cap').value) : '';
+}
+
+function generateYaml() {
+  readForm();
+  const s = editorState;
+  if (!s.id || !s.packId || !s.displayName) return toast('Fill id, pack, and name first', 'err');
+  const lines = [
+    `id: ${s.id}`,
+    `version: 1.0.0`,
+    `packId: ${s.packId}`,
+    `displayName: ${JSON.stringify(s.displayName)}`,
+  ];
+  if (s.description) lines.push(`description: ${JSON.stringify(s.description)}`);
+  lines.push(`scope: ${s.scope}`);
+  lines.push(`trigger:`);
+  lines.push(`  kind: ${s.triggerKind}`);
+  if (s.triggerKind === 'event' && s.eventType) lines.push(`  eventType: ${s.eventType}`);
+  if (s.triggerKind === 'cron' && s.cron) lines.push(`  expression: ${JSON.stringify(s.cron)}`);
+  lines.push(`inputs: {}`);
+  lines.push(`outputs: {}`);
+  lines.push(`plan:`);
+  lines.push(`  type: sequence`);
+  lines.push(`  children:`);
+  for (const st of s.steps) {
+    lines.push(`    - type: step`);
+    lines.push(`      step:`);
+    lines.push(`        id: ${st.id}`);
+    lines.push(`        skill: ${st.skill || 'noop'}`);
+    lines.push(`        inputs: {}`);
+  }
+  lines.push(`governance:`);
+  lines.push(`  phiHandling: ${s.phiHandling}`);
+  lines.push(`  purposeOfUse: [${s.purposeOfUse}]`);
+  lines.push(`  clearanceRequired: ${s.clearanceRequired}`);
+  lines.push(`billing:`);
+  lines.push(`  baseFeeUsd: ${s.baseFeeUsd}`);
+  if (s.budgetCapMonthlyUsd !== '') lines.push(`  budgetCapMonthlyUsd: ${s.budgetCapMonthlyUsd}`);
+  if (s.setting || s.lifecycleStage) {
+    lines.push(`labels:`);
+    if (s.setting) lines.push(`  setting: ${s.setting}`);
+    if (s.lifecycleStage) lines.push(`  lifecycleStage: ${s.lifecycleStage}`);
+  }
+  editorState.yaml = lines.join('\n') + '\n';
+  document.getElementById('yaml-editor').value = editorState.yaml;
+  validateNow();
+}
+
+async function validateNow() {
+  const yaml = document.getElementById('yaml-editor').value;
+  editorState.yaml = yaml;
+  const v = await api('POST', '/admin/drafts/validate', { yaml });
+  const box = document.getElementById('validation-result');
+  if (v.ok) box.innerHTML = `<div class="validation ok">✓ Valid AgentSpec</div>`;
+  else box.innerHTML = `<div class="validation err"><b>${v.errors.length} error${v.errors.length===1?'':'s'}</b><ul>${v.errors.map(e => `<li>${esc(e)}</li>`).join('')}</ul></div>`;
+}
+
+async function saveDraft(status) {
+  const yaml = document.getElementById('yaml-editor').value;
+  if (!yaml.trim()) return toast('Nothing to save', 'err');
+  let doc;
+  try { doc = jsyaml.load(yaml); } catch { return toast('YAML parse error', 'err'); }
+  if (!doc?.id || !doc?.packId) return toast('YAML needs id and packId', 'err');
+  await api('POST', '/admin/drafts', { packId: doc.packId, id: doc.id, yaml, status });
+  toast(status === 'in-review' ? 'Submitted for review' : 'Draft saved', 'good');
+  goTo('drafts');
+}
+
+async function editDraft(packId, id) {
+  const d = drafts.find(x => x.packId === packId && x.id === id);
+  if (!d) return;
+  renderEditor({ id, packId, yaml: d.yaml });
+}
+
+async function publishDraft(packId, id) {
+  const d = drafts.find(x => x.packId === packId && x.id === id);
+  if (!d?.validation.ok) return toast('Cannot publish invalid draft', 'err');
+  const note = prompt('Publish note (optional):') || '';
+  try {
+    await api('POST', `/admin/drafts/${packId}/${id}/publish`, { note });
+    toast(`Published ${id}`, 'good');
+    goTo('agents');
+  } catch (e) { toast('Publish failed: ' + e.message, 'err'); }
+}
+
+async function deleteDraft(packId, id) {
+  if (!confirm(`Delete draft ${id}?`)) return;
+  await api('DELETE', `/admin/drafts/${packId}/${id}`);
+  toast('Draft deleted', 'good');
+  render();
+}
+
+async function cloneAgent(packId, id) {
+  const agents = await loadFile('agents.json');
+  const a = agents.find(x => x.packId === packId && x.id === id);
+  if (!a) return;
+  const newId = prompt(`Clone as new agent id:`, id + '-copy');
+  if (!newId) return;
+  // Build a minimal scaffold from the published agent summary
+  renderEditor({
+    id: newId,
+    packId: a.packId,
+    displayName: a.displayName + ' (copy)',
+    description: a.description || '',
+    triggerKind: a.triggerKind || 'event',
+    eventType: a.triggerEventType || '',
+    setting: a.setting || '',
+    lifecycleStage: a.lifecycleStage || '',
+    baseFeeUsd: a.baseFeeUsd || 0,
+    steps: [{ id: 'step-1', skill: '' }],
+  });
+  setTimeout(generateYaml, 100);
+}
+
+// ---------- Catalog views ----------
+async function renderMeasures() {
+  const d = await api('GET', '/admin/measures');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">CMS measure catalog</h2><p class="page-sub">${d.count} measures across ESRD-QIP, Hospital IQR/VBP, MIPS, PI, NHSN, CMS-0057-F.</p></div></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>ID</th><th>Program</th><th>Description</th></tr></thead>
+      <tbody>${d.measures.map(m => `<tr><td><code>${esc(m.id)}</code></td><td><span class="pill brand">${esc(m.programId || '')}</span></td><td>${esc(m.name || m.description || '')}</td></tr>`).join('')}</tbody>
+    </table></div>
+  `;
+}
+async function renderAssessments() {
+  const d = await api('GET', '/admin/assessments');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Validated assessments</h2><p class="page-sub">Screeners and scales included with LOINC codes, scoring bands, and provenance.</p></div></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>ID</th><th>Title</th><th>LOINC</th><th>Domain</th><th>Items</th></tr></thead>
+      <tbody>${d.assessments.map(a => `<tr><td><code>${esc(a.id)}</code></td><td>${esc(a.title)}</td><td>${esc(a.loinc || '')}</td><td><span class="pill muted">${esc(a.domain)}</span></td><td>${a.itemCount}</td></tr>`).join('')}</tbody>
+    </table></div>
+  `;
+}
+async function renderLifecycle() {
+  const d = await api('GET', '/admin/lifecycle');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Patient lifecycle</h2><p class="page-sub">${d.stages.length} canonical stages every agent can hook into.</p></div></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>ID</th><th>Description</th></tr></thead>
+      <tbody>${d.stages.map((s, i) => `<tr><td>${i+1}</td><td><code>${esc(s.id)}</code></td><td>${esc(s.description || s.name || '')}</td></tr>`).join('')}</tbody>
+    </table></div>
+  `;
+}
+async function renderResearch() {
+  const d = await api('GET', '/admin/research/sources');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Research + pharma sources</h2><p class="page-sub">${d.count} public data sources agents can query for clinical trials, drugs, evidence.</p></div></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>ID</th><th>Name</th><th>Kind</th><th>URL</th></tr></thead>
+      <tbody>${d.sources.map(s => `<tr><td><code>${esc(s.id)}</code></td><td>${esc(s.name)}</td><td><span class="pill muted">${esc(s.kind || '')}</span></td><td><a href="${esc(s.baseUrl || s.url || '#')}" target="_blank">${esc(s.baseUrl || s.url || '')}</a></td></tr>`).join('')}</tbody>
+    </table></div>
+  `;
+}
+
+function renderAudit() {
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Authoring audit log</h2><p class="page-sub">Every draft/publish/reject action is recorded with actor and content hash.</p></div></div>
+    ${auditLog.length === 0 ? '<div class="detail muted" style="text-align:center;padding:40px;">No actions yet.</div>' :
+    `<div class="table-wrap"><table>
+      <thead><tr><th>Timestamp</th><th>Actor</th><th>Action</th><th>Pack</th><th>Agent</th><th>Note</th></tr></thead>
+      <tbody>${auditLog.map(e => `<tr><td class="muted">${new Date(e.timestamp).toLocaleString()}</td><td><code>${esc(e.actorRef)}</code></td><td><span class="pill ${e.action==='publish'?'good':e.action==='reject'?'bad':'muted'}">${esc(e.action)}</span></td><td>${esc(e.packId)}</td><td><code>${esc(e.agentId)}</code></td><td class="muted">${esc(e.note || '')}</td></tr>`).join('')}</tbody>
+    </table></div>`}
+  `;
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script>render();</script>
 </body>
 </html>
