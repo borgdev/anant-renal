@@ -1,0 +1,21 @@
+id: radiology
+version: 1.0.0
+extends:
+  - id: healthcare-core
+    version_range: ^0.2.0
+applies_to:
+  organization_kinds: [provider, health-system, practice]
+  facility_kinds:
+    - radiology
+    - imaging-center
+    - hospital
+capabilities:
+  - worklist-priority
+  - critical-result-comm
+  - acr-appropriateness
+  - peer-learning
+  - contrast-safety
+required_controls:
+  - access-policy
+  - audit-provenance
+  - phi-handling

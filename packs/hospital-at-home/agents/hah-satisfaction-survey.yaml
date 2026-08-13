@@ -1,0 +1,61 @@
+id: hah-satisfaction-survey
+version: 1.0.0
+packId: hospital-at-home
+displayName: "Hah Satisfaction Survey"
+description: >
+  Hospital-at-home workflow: hah satisfaction survey.
+scope: facility
+trigger:
+  kind: event
+  eventType: patient.arrived
+inputs:
+  patientId:
+    type: string
+    required: true
+    description: Patient identifier
+outputs:
+  resultRef:
+    type: string
+    description: Result artifact
+plan:
+  type: sequence
+  children:
+    - type: step
+      step:
+        id: step-1
+        skill: sql.query
+        inputs: {}
+    - type: step
+      step:
+        id: step-2
+        skill: llm.call
+        inputs: {}
+    - type: step
+      step:
+        id: step-3
+        skill: http.call
+        inputs: {}
+
+governance:
+  phiHandling: read-write
+  purposeOfUse: [treatment]
+  clearanceRequired: phi
+  hitlGates: []
+  breakGlassAllowed: false
+  evidenceRequired: []
+billing:
+  baseFeeUsd: 0.1
+  meteredUnits:
+    - unit: llm.tokens.input
+      priceUsdPerUnit: 0.000003
+    - unit: llm.tokens.output
+      priceUsdPerUnit: 0.000015
+    - unit: tool.call
+      priceUsdPerUnit: 0.002
+  budgetCapMonthlyUsd: 200
+slas:
+  p95LatencyMs: 30000
+  maxCostUsd: 0.75
+labels:
+  setting: hospital-at-home
+  domain: hospital-at-home

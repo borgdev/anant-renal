@@ -340,6 +340,82 @@ writeFileSync('/home/user/workspace/hh-admin-ui/counterfactuals.json', JSON.stri
 writeFileSync('/home/user/workspace/hh-admin-ui/snapshots.json', JSON.stringify({ snapshots: SnapshotRegistry.list() }, null, 2));
 writeFileSync('/home/user/workspace/hh-admin-ui/plan-timelines.json', JSON.stringify({ timelines: planTimelines }, null, 2));
 
+// ---------- M15/M16/M17/M18 payloads ----------
+import { createOrgWithFacilities, ONBOARDING_TEMPLATES } from '../dist/src/onboarding/bootstrap.js';
+import { IdentityRegistry, createInvite, claimInvite, activateBreakGlass, reviewBreakGlass, pendingReviews, Scim, listInvites } from '../dist/src/identity/index.js';
+import { SelfServeAdmin } from '../dist/src/self-serve/admin.js';
+
+// Pack inventory (M15)
+import { readdirSync as _rd, existsSync as _ex } from 'node:fs';
+import { join as _jn } from 'node:path';
+const _packsRoot = new URL('../packs/', import.meta.url).pathname;
+const _packInventory = _rd(_packsRoot).filter((d) => _ex(_jn(_packsRoot, d, 'agents'))).map((d) => ({
+  packId: d,
+  agentCount: _rd(_jn(_packsRoot, d, 'agents')).filter((f) => f.endsWith('.yaml')).length,
+}));
+writeFileSync('/home/user/workspace/hh-admin-ui/packs-inventory.json', JSON.stringify({ packs: _packInventory, total: _packInventory.reduce((n, p) => n + p.agentCount, 0) }, null, 2));
+
+// Onboarding templates
+writeFileSync('/home/user/workspace/hh-admin-ui/onboarding-templates.json', JSON.stringify({
+  templates: ONBOARDING_TEMPLATES.map((t) => ({ id: t.id, displayName: t.displayName, description: t.description })),
+}, null, 2));
+
+// Sample bootstrap result — small independent clinic
+const _sampleBootstrap = createOrgWithFacilities({
+  orgId: 'demo-clinic', displayName: 'Demo Independent Clinic', sampleData: true,
+  facilities: [{ facilityId: 'main', kind: 'dialysis', name: 'Demo Site', units: ['A', 'B'], patientCount: 12 }],
+});
+writeFileSync('/home/user/workspace/hh-admin-ui/onboarding-sample.json', JSON.stringify(_sampleBootstrap, null, 2));
+
+// Identity: role mapping + a couple of invited users + a break-glass
+IdentityRegistry.setMapping({
+  orgId: 'demo-clinic', defaultRole: 'nurse',
+  entries: [
+    { idpGroup: 'okta-admins', role: 'admin', clearance: 'phi', purposeOfUse: ['operations', 'quality'] },
+    { idpGroup: 'okta-docs',   role: 'md',    clearance: 'phi', purposeOfUse: ['treatment'] },
+    { idpGroup: 'okta-rns',    role: 'nurse', clearance: 'phi', purposeOfUse: ['treatment'] },
+  ],
+});
+const _adminInv = createInvite({ orgId: 'demo-clinic', email: 'admin@democlinic.com', role: 'admin' });
+const _adminPrincipal = claimInvite(_adminInv.token, { displayName: 'Demo Admin' });
+const _mdInv = createInvite({ orgId: 'demo-clinic', email: 'dr.smith@democlinic.com', role: 'md' });
+const _mdPrincipal = claimInvite(_mdInv.token, { displayName: 'Dr. Smith' });
+const _bg = activateBreakGlass({ subjectId: _mdPrincipal.subjectId, reason: 'Acute code — external records lookup, patient dvc-nash-pt-0001.' });
+reviewBreakGlass(_bg.session.sessionId, _adminPrincipal.subjectId, 'Justified — verified event in EHR.', true);
+// SCIM sample
+const _scimUser = Scim.createUser('demo-clinic', {
+  userName: 'jane.doe@democlinic.com',
+  emails: [{ value: 'jane.doe@democlinic.com', primary: true }],
+  name: { givenName: 'Jane', familyName: 'Doe' },
+  groups: [{ value: 'okta-rns', display: 'okta-rns' }],
+  active: true,
+});
+
+writeFileSync('/home/user/workspace/hh-admin-ui/identity.json', JSON.stringify({
+  providers: IdentityRegistry.listProviders(),
+  mappings: IdentityRegistry.listMappings(),
+  principals: IdentityRegistry.listPrincipals(),
+  invites: listInvites(),
+  breakGlass: {
+    active: [],
+    pending: pendingReviews(),
+  },
+  audit: IdentityRegistry.listAudit(50),
+}, null, 2));
+
+// M18 sample
+SelfServeAdmin.setPackToggles({ realmId: 'demo-clinic-main', enabledPacks: ['flagship-agents', 'dialysis-deep', 'behavioral-health'], disabledAgents: [] }, _adminPrincipal.subjectId);
+SelfServeAdmin.addMeterOverride({ realmId: 'demo-clinic-main', unit: 'llm.tokens.input', priceUsdPerUnit: 0.000002, budgetCapMonthlyUsd: 500 }, _adminPrincipal.subjectId);
+SelfServeAdmin.addHitlGate({ realmId: 'demo-clinic-main', agentSelector: 'suicidality-*', afterStepId: 'step-3', role: 'md', slaMinutes: 15 }, _adminPrincipal.subjectId);
+SelfServeAdmin.setBranding({ realmId: 'demo-clinic-main', brandName: 'Demo Independent Clinic', primaryColor: '#03A9F4', supportEmail: 'support@democlinic.com' }, _adminPrincipal.subjectId);
+writeFileSync('/home/user/workspace/hh-admin-ui/self-serve.json', JSON.stringify({
+  packToggles: SelfServeAdmin.listPackToggles(),
+  meterOverrides: SelfServeAdmin.listMeterOverrides('demo-clinic-main'),
+  hitlGates: SelfServeAdmin.listHitlGates('demo-clinic-main'),
+  customEffects: SelfServeAdmin.listCustomEffects('demo-clinic-main'),
+  branding: SelfServeAdmin.listBranding(),
+}, null, 2));
+
 writeFileSync('/home/user/workspace/hh-admin-ui/realm.json', JSON.stringify(payload, null, 2));
 console.log('wrote realm.json —', {
   patients: patients.length, presences: presences.length, effects: effects.length,

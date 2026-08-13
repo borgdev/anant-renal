@@ -1,0 +1,22 @@
+id: oncology-deep
+version: 1.0.0
+extends:
+  - id: healthcare-core
+    version_range: ^0.2.0
+applies_to:
+  organization_kinds: [provider, health-system, practice]
+  facility_kinds:
+    - oncology
+    - infusion
+    - hospital
+capabilities:
+  - chemo-safety
+  - tumor-board-prep
+  - symptom-triage
+  - port-care
+  - survivorship
+  - clinical-trials-match
+required_controls:
+  - access-policy
+  - audit-provenance
+  - phi-handling

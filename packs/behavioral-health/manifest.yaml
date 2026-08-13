@@ -1,0 +1,22 @@
+id: behavioral-health
+version: 1.0.0
+extends:
+  - id: healthcare-core
+    version_range: ^0.2.0
+applies_to:
+  organization_kinds: [provider, health-system, practice]
+  facility_kinds:
+    - behavioral-health
+    - primary-care
+    - outpatient
+capabilities:
+  - phq9-tracking
+  - gad7-tracking
+  - controlled-substance-mgmt
+  - 42cfr-part2
+  - crisis-triage
+  - group-therapy-ops
+required_controls:
+  - access-policy
+  - audit-provenance
+  - phi-handling

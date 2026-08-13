@@ -13,6 +13,14 @@ import type { JobBus } from './job-bus.js';
 import { Telemetry, StdoutSink } from './telemetry.js';
 import { buildApp } from './app.js';
 import { healthcareCorePack } from '../../packs/healthcare-core/index.js';
+import { behavioralHealthPack } from '../../packs/behavioral-health/index.js';
+import { oncologyDeepPack } from '../../packs/oncology-deep/index.js';
+import { homeHealthPack } from '../../packs/home-health/index.js';
+import { longTermCarePack } from '../../packs/long-term-care/index.js';
+import { radiologyPack } from '../../packs/radiology/index.js';
+import { edThroughputPack } from '../../packs/ed-throughput/index.js';
+import { revenueCyclePack } from '../../packs/revenue-cycle/index.js';
+import { hospitalAtHomePack } from '../../packs/hospital-at-home/index.js';
 import { dialysisProviderPack } from '../../packs/dialysis-provider/index.js';
 import { payerPack } from '../../packs/payer/index.js';
 import { ckdNavigationPack } from '../../packs/ckd-navigation/index.js';
@@ -46,7 +54,12 @@ export async function main(): Promise<void> {
   const app = await buildApp({
     store,
     telemetry,
-    packs: [healthcareCorePack, dialysisProviderPack, payerPack, ckdNavigationPack, cmsUniversePack, oncologyProviderPack, infusionProviderPack, careManagementPack],
+    packs: [
+      healthcareCorePack, dialysisProviderPack, payerPack, ckdNavigationPack, cmsUniversePack,
+      oncologyProviderPack, infusionProviderPack, careManagementPack,
+      behavioralHealthPack, oncologyDeepPack, homeHealthPack, longTermCarePack,
+      radiologyPack, edThroughputPack, revenueCyclePack, hospitalAtHomePack,
+    ],
     authenticate,
     checkHealth: async () => {
       let db = false; let r = false;

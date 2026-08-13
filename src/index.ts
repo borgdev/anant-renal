@@ -13,3 +13,6 @@ export * from './assessments/index.js';
 export * as policyGraph from './policy-graph/index.js';
 export * as manualIngestion from './ingestion/index.js';
 export * as research from './research/index.js';
+export * as onboarding from './onboarding/bootstrap.js';
+export * as identity from './identity/index.js';
+export * as selfServe from './self-serve/admin.js';

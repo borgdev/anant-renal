@@ -1,0 +1,21 @@
+id: long-term-care
+version: 1.0.0
+extends:
+  - id: healthcare-core
+    version_range: ^0.2.0
+applies_to:
+  organization_kinds: [provider, health-system, practice]
+  facility_kinds:
+    - snf
+    - nursing-facility
+    - assisted-living
+capabilities:
+  - mds-3.0
+  - pdpm-billing
+  - care-plan-cadence
+  - ltc-quality-measures
+  - infection-preventionist
+required_controls:
+  - access-policy
+  - audit-provenance
+  - phi-handling

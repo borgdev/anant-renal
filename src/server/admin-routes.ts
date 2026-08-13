@@ -22,6 +22,43 @@ import { NotificationHub, attachBus } from '../realm/notifications.js';
 import { LLMRegistry } from '../realm/llm-registry.js';
 import { CounterfactualStore } from '../realm/counterfactual-store.js';
 import { captureSnapshot, restoreSnapshot, SnapshotRegistry } from '../realm/realm-snapshot.js';
+import {
+  createOrgWithFacilities,
+  parseFacilitiesCsv,
+  ONBOARDING_TEMPLATES,
+  findTemplate,
+  startWizard,
+  saveWizard,
+  getWizard,
+  listWizards,
+  completeWizard,
+  type OrganizationTemplate,
+  type FacilitySpec,
+  type WizardState,
+} from '../onboarding/bootstrap.js';
+import {
+  IdentityRegistry,
+  Scim,
+  createInvite,
+  listInvites,
+  revokeInvite,
+  claimInvite,
+  activateBreakGlass,
+  endBreakGlass,
+  reviewBreakGlass,
+  pendingReviews,
+  beginOidcAuth,
+  handleOidcCallback,
+  beginWorkOSSso,
+  handleWorkOSCallback,
+  syncWorkOSDirectory,
+  orgForToken,
+  type IdentityProviderConfig,
+  type RoleMapping,
+  type ScimUser,
+  type ScimGroup,
+} from '../identity/index.js';
+import { SelfServeAdmin } from '../self-serve/admin.js';
 
 const authoring = new AgentAuthoringService();
 
@@ -617,5 +654,203 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       lifecycleStages: LIFECYCLE_STAGES.length,
       researchSources: RESEARCH_SOURCES.length,
     };
+  });
+
+  // ================= M16: Onboarding =================
+  app.get('/admin/onboarding/templates', async () => ({
+    templates: ONBOARDING_TEMPLATES.map((t) => ({ id: t.id, displayName: t.displayName, description: t.description })),
+  }));
+
+  app.post<{ Body: { template?: string; orgId: string; displayName: string; facilities?: FacilitySpec[]; sampleData?: boolean } }>('/admin/onboarding/bootstrap', async (req, reply) => {
+    try {
+      let tmpl: OrganizationTemplate;
+      if (req.body.template) {
+        const t = findTemplate(req.body.template);
+        if (!t) return reply.code(404).send({ error: `template-not-found:${req.body.template}` });
+        tmpl = t.build(req.body.orgId, req.body.displayName);
+      } else {
+        tmpl = { orgId: req.body.orgId, displayName: req.body.displayName, facilities: req.body.facilities ?? [], sampleData: !!req.body.sampleData };
+      }
+      return createOrgWithFacilities(tmpl);
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post<{ Body: { csv: string; orgId: string; displayName: string; sampleData?: boolean } }>('/admin/onboarding/bootstrap-csv', async (req, reply) => {
+    try {
+      const facilities = parseFacilitiesCsv(req.body.csv);
+      return createOrgWithFacilities({ orgId: req.body.orgId, displayName: req.body.displayName, facilities, sampleData: !!req.body.sampleData });
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get('/admin/onboarding/wizards', async () => ({ wizards: listWizards() }));
+  app.post('/admin/onboarding/wizards', async () => ({ wizard: startWizard() }));
+  app.get<{ Params: { id: string } }>('/admin/onboarding/wizards/:id', async (req, reply) => {
+    const w = getWizard(req.params.id);
+    if (!w) return reply.code(404).send({ error: 'wizard-not-found' });
+    return { wizard: w };
+  });
+  app.put<{ Params: { id: string }; Body: Partial<WizardState> }>('/admin/onboarding/wizards/:id', async (req, reply) => {
+    const w = getWizard(req.params.id);
+    if (!w) return reply.code(404).send({ error: 'wizard-not-found' });
+    Object.assign(w, req.body);
+    return { wizard: saveWizard(w) };
+  });
+  app.post<{ Params: { id: string } }>('/admin/onboarding/wizards/:id/complete', async (req, reply) => {
+    try {
+      return { result: completeWizard(req.params.id) };
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // ================= M17: Identity =================
+  app.get('/admin/identity/providers', async () => ({ providers: IdentityRegistry.listProviders() }));
+  app.post<{ Body: IdentityProviderConfig }>('/admin/identity/providers', async (req) => ({ provider: IdentityRegistry.addProvider(req.body) }));
+  app.delete<{ Params: { id: string } }>('/admin/identity/providers/:id', async (req) => ({ ok: IdentityRegistry.removeProvider(req.params.id) }));
+  app.post<{ Params: { id: string }; Body: { enabled: boolean } }>('/admin/identity/providers/:id/enabled', async (req) => ({ ok: IdentityRegistry.setProviderEnabled(req.params.id, req.body.enabled) }));
+
+  app.get<{ Querystring: { orgId?: string } }>('/admin/identity/principals', async (req) => ({ principals: IdentityRegistry.listPrincipals(req.query.orgId) }));
+
+  app.get<{ Params: { orgId: string } }>('/admin/identity/mappings/:orgId', async (req) => ({ mapping: IdentityRegistry.getMapping(req.params.orgId) }));
+  app.put<{ Params: { orgId: string }; Body: Omit<RoleMapping, 'orgId'> }>('/admin/identity/mappings/:orgId', async (req) => ({
+    mapping: IdentityRegistry.setMapping({ orgId: req.params.orgId, ...req.body }),
+  }));
+
+  app.get('/admin/identity/audit', async () => ({ audit: IdentityRegistry.listAudit() }));
+
+  // Invites
+  app.post<{ Body: Parameters<typeof createInvite>[0] }>('/admin/identity/invites', async (req, reply) => {
+    try { return { invite: createInvite(req.body) }; }
+    catch (err) { return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) }); }
+  });
+  app.get<{ Querystring: { orgId?: string } }>('/admin/identity/invites', async (req) => ({ invites: listInvites(req.query.orgId) }));
+  app.post<{ Params: { id: string } }>('/admin/identity/invites/:id/revoke', async (req) => ({ ok: revokeInvite(req.params.id) }));
+  app.post<{ Body: { token: string; displayName?: string } }>('/invites/claim', async (req, reply) => {
+    try {
+      const principal = claimInvite(req.body.token, req.body.displayName ? { displayName: req.body.displayName } : {});
+      return { principal };
+    } catch (err) { return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) }); }
+  });
+
+  // Break-glass
+  app.post<{ Body: { subjectId: string; reason: string; durationMs?: number } }>('/admin/identity/break-glass/activate', async (req, reply) => {
+    try { return activateBreakGlass(req.body); }
+    catch (err) { return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) }); }
+  });
+  app.post<{ Body: { subjectId: string } }>('/admin/identity/break-glass/end', async (req) => ({ ok: endBreakGlass(req.body.subjectId) }));
+  app.post<{ Params: { id: string }; Body: { reviewedBy: string; note: string; approved: boolean } }>('/admin/identity/break-glass/:id/review', async (req) => ({
+    ok: reviewBreakGlass(req.params.id, req.body.reviewedBy, req.body.note, req.body.approved),
+  }));
+  app.get('/admin/identity/break-glass/pending', async () => ({ pending: pendingReviews() }));
+
+  // OIDC endpoints (auth entry + callback)
+  app.get<{ Querystring: { provider: string } }>('/auth/oidc/begin', async (req, reply) => {
+    try { return beginOidcAuth(req.query.provider); }
+    catch (err) { return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) }); }
+  });
+  app.get<{ Querystring: { code: string; state: string } }>('/auth/oidc/callback', async (req, reply) => {
+    try { return { principal: await handleOidcCallback({ code: req.query.code, state: req.query.state }) }; }
+    catch (err) { return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) }); }
+  });
+
+  // WorkOS endpoints
+  app.get<{ Querystring: { provider: string; redirectUri: string } }>('/auth/workos/begin', async (req, reply) => {
+    try { return beginWorkOSSso(req.query.provider, req.query.redirectUri); }
+    catch (err) { return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) }); }
+  });
+  app.get<{ Querystring: { code: string; state: string } }>('/auth/workos/callback', async (req, reply) => {
+    try { return { principal: await handleWorkOSCallback(req.query.state, req.query.code) }; }
+    catch (err) { return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) }); }
+  });
+  app.post<{ Params: { providerId: string } }>('/admin/identity/workos/:providerId/sync', async (req, reply) => {
+    try { return await syncWorkOSDirectory(req.params.providerId); }
+    catch (err) { return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) }); }
+  });
+
+  // SCIM 2.0 receiver (bearer-token auth, resolves to orgId)
+  const scimAuth = (req: { headers: Record<string, string | string[] | undefined> }) => {
+    const h = req.headers['authorization'];
+    const auth = Array.isArray(h) ? h[0] : h;
+    if (!auth?.startsWith('Bearer ')) return undefined;
+    return orgForToken(auth.slice(7));
+  };
+  app.post<{ Body: ScimUser }>('/scim/v2/Users', async (req, reply) => {
+    const orgId = scimAuth(req); if (!orgId) return reply.code(401).send({ error: 'unauthorized' });
+    return Scim.createUser(orgId, req.body);
+  });
+  app.get('/scim/v2/Users', async (req, reply) => {
+    const orgId = scimAuth(req); if (!orgId) return reply.code(401).send({ error: 'unauthorized' });
+    const filter = (req.query as Record<string, string> | undefined)?.['filter'];
+    return Scim.listUsers(orgId, filter);
+  });
+  app.get<{ Params: { id: string } }>('/scim/v2/Users/:id', async (req, reply) => {
+    const orgId = scimAuth(req); if (!orgId) return reply.code(401).send({ error: 'unauthorized' });
+    const u = Scim.getUser(req.params.id);
+    if (!u) return reply.code(404).send({ error: 'not-found' });
+    return u;
+  });
+  app.put<{ Params: { id: string }; Body: ScimUser }>('/scim/v2/Users/:id', async (req, reply) => {
+    const orgId = scimAuth(req); if (!orgId) return reply.code(401).send({ error: 'unauthorized' });
+    return Scim.replaceUser(orgId, req.params.id, req.body);
+  });
+  app.patch<{ Params: { id: string }; Body: { Operations: Array<{ op: 'add'|'remove'|'replace'; path?: string; value?: unknown }> } }>('/scim/v2/Users/:id', async (req, reply) => {
+    const orgId = scimAuth(req); if (!orgId) return reply.code(401).send({ error: 'unauthorized' });
+    return Scim.patchUser(orgId, req.params.id, req.body.Operations);
+  });
+  app.delete<{ Params: { id: string } }>('/scim/v2/Users/:id', async (req, reply) => {
+    const orgId = scimAuth(req); if (!orgId) return reply.code(401).send({ error: 'unauthorized' });
+    return { ok: Scim.deleteUser(req.params.id) };
+  });
+  app.post<{ Body: ScimGroup }>('/scim/v2/Groups', async (req, reply) => {
+    const orgId = scimAuth(req); if (!orgId) return reply.code(401).send({ error: 'unauthorized' });
+    return Scim.createGroup(orgId, req.body);
+  });
+  app.get('/scim/v2/Groups', async (req, reply) => {
+    const orgId = scimAuth(req); if (!orgId) return reply.code(401).send({ error: 'unauthorized' });
+    return Scim.listGroups();
+  });
+  app.patch<{ Params: { id: string }; Body: { Operations: Array<{ op: 'add'|'remove'|'replace'; path?: string; value?: unknown }> } }>('/scim/v2/Groups/:id', async (req, reply) => {
+    const orgId = scimAuth(req); if (!orgId) return reply.code(401).send({ error: 'unauthorized' });
+    return Scim.patchGroup(orgId, req.params.id, req.body.Operations);
+  });
+
+  // ================= M18: Self-serve admin =================
+  app.get<{ Params: { realmId: string } }>('/admin/self-serve/:realmId/pack-toggles', async (req) => ({ toggles: SelfServeAdmin.getPackToggles(req.params.realmId) }));
+  app.put<{ Params: { realmId: string }; Body: { enabledPacks: string[]; disabledAgents: string[]; actorSubjectId?: string } }>('/admin/self-serve/:realmId/pack-toggles', async (req, reply) => {
+    try {
+      const opts: { realmId: string; enabledPacks: string[]; disabledAgents: string[] } = { realmId: req.params.realmId, enabledPacks: req.body.enabledPacks, disabledAgents: req.body.disabledAgents };
+      return { toggles: SelfServeAdmin.setPackToggles(opts, req.body.actorSubjectId) };
+    } catch (err) { return reply.code(403).send({ error: err instanceof Error ? err.message : String(err) }); }
+  });
+  app.get<{ Params: { realmId: string } }>('/admin/self-serve/:realmId/meter-overrides', async (req) => ({ overrides: SelfServeAdmin.listMeterOverrides(req.params.realmId) }));
+  app.post<{ Params: { realmId: string }; Body: { unit: string; priceUsdPerUnit: number; budgetCapMonthlyUsd?: number; actorSubjectId?: string } }>('/admin/self-serve/:realmId/meter-overrides', async (req, reply) => {
+    try {
+      const body: { realmId: string; unit: string; priceUsdPerUnit: number; budgetCapMonthlyUsd?: number } = { realmId: req.params.realmId, unit: req.body.unit, priceUsdPerUnit: req.body.priceUsdPerUnit };
+      if (req.body.budgetCapMonthlyUsd !== undefined) body.budgetCapMonthlyUsd = req.body.budgetCapMonthlyUsd;
+      return { override: SelfServeAdmin.addMeterOverride(body, req.body.actorSubjectId) };
+    } catch (err) { return reply.code(403).send({ error: err instanceof Error ? err.message : String(err) }); }
+  });
+  app.get<{ Params: { realmId: string } }>('/admin/self-serve/:realmId/custom-effects', async (req) => ({ effects: SelfServeAdmin.listCustomEffects(req.params.realmId) }));
+  app.post<{ Params: { realmId: string }; Body: { kind: string; schema: Record<string, unknown>; purpose: string; hitlRequired: boolean; actorSubjectId?: string } }>('/admin/self-serve/:realmId/custom-effects', async (req, reply) => {
+    try {
+      return { effect: SelfServeAdmin.registerCustomEffect({ realmId: req.params.realmId, kind: req.body.kind, schema: req.body.schema, purpose: req.body.purpose, hitlRequired: req.body.hitlRequired }, req.body.actorSubjectId) };
+    } catch (err) { return reply.code(403).send({ error: err instanceof Error ? err.message : String(err) }); }
+  });
+  app.get<{ Params: { realmId: string } }>('/admin/self-serve/:realmId/hitl-gates', async (req) => ({ gates: SelfServeAdmin.listHitlGates(req.params.realmId) }));
+  app.post<{ Params: { realmId: string }; Body: { agentSelector: string; afterStepId: string; role: string; slaMinutes: number; actorSubjectId?: string } }>('/admin/self-serve/:realmId/hitl-gates', async (req, reply) => {
+    try {
+      return { gate: SelfServeAdmin.addHitlGate({ realmId: req.params.realmId, agentSelector: req.body.agentSelector, afterStepId: req.body.afterStepId, role: req.body.role, slaMinutes: req.body.slaMinutes }, req.body.actorSubjectId) };
+    } catch (err) { return reply.code(403).send({ error: err instanceof Error ? err.message : String(err) }); }
+  });
+  app.get<{ Params: { realmId: string } }>('/admin/self-serve/:realmId/branding', async (req) => ({ branding: SelfServeAdmin.getBranding(req.params.realmId) }));
+  app.put<{ Params: { realmId: string }; Body: Omit<Parameters<typeof SelfServeAdmin.setBranding>[0], 'realmId'> & { actorSubjectId?: string } }>('/admin/self-serve/:realmId/branding', async (req, reply) => {
+    try {
+      const { actorSubjectId, ...rest } = req.body;
+      return { branding: SelfServeAdmin.setBranding({ realmId: req.params.realmId, ...rest }, actorSubjectId) };
+    } catch (err) { return reply.code(403).send({ error: err instanceof Error ? err.message : String(err) }); }
   });
 }

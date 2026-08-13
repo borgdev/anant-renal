@@ -1,0 +1,66 @@
+id: psych-hold-tracker
+version: 1.0.0
+packId: ed-throughput
+displayName: "Psych Hold Tracker"
+description: >
+  ED throughput workflow: psych hold tracker.
+scope: facility
+trigger:
+  kind: event
+  eventType: patient.arrived
+inputs:
+  patientId:
+    type: string
+    required: true
+    description: Patient identifier
+outputs:
+  resultRef:
+    type: string
+    description: Result artifact
+plan:
+  type: sequence
+  children:
+    - type: step
+      step:
+        id: step-1
+        skill: sql.query
+        inputs: {}
+    - type: step
+      step:
+        id: step-2
+        skill: llm.call
+        inputs: {}
+    - type: step
+      step:
+        id: step-3
+        skill: hitl.approve
+        inputs: {}
+
+governance:
+  phiHandling: read-write
+  purposeOfUse: [treatment]
+  clearanceRequired: phi
+  hitlGates:
+    - afterStepId: step-3
+      role: clinician
+      slaMinutes: 60
+  breakGlassAllowed: false
+  evidenceRequired: []
+billing:
+  baseFeeUsd: 0.1
+  meteredUnits:
+    - unit: llm.tokens.input
+      priceUsdPerUnit: 0.000003
+    - unit: llm.tokens.output
+      priceUsdPerUnit: 0.000015
+    - unit: tool.call
+      priceUsdPerUnit: 0.002
+    - unit: hitl.minutes
+      priceUsdPerUnit: 0.05
+  budgetCapMonthlyUsd: 200
+slas:
+  p95LatencyMs: 30000
+  maxCostUsd: 0.75
+labels:
+  setting: ed-throughput
+  domain: ed
