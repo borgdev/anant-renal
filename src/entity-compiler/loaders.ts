@@ -6,6 +6,9 @@ import { extname, join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
 import type { CanonicalEntity, FieldSpec, RelationshipSpec, WorkflowStep, EntityKind } from './types.js';
+import { loadXlsx } from './xlsx-loader.js';
+
+export { loadXlsx };
 
 const PHI_HINT = /\b(patient|mrn|ssn|dob|birth|phone|email|address|name|nhs|medicaid|medicare|npi)\b/i;
 
@@ -271,6 +274,7 @@ export function loadDirectory(dir: string): CanonicalEntity[] {
       else if (ext === '.csv') out.push(...loadTabular(p));
       else if (ext === '.sql' || ext === '.ddl') out.push(...loadSqlDdl(p));
       else if (ext === '.md' || ext === '.markdown') out.push(...loadNarrative(p));
+      else if (ext === '.xlsx' || ext === '.xlsm') out.push(...loadXlsx(p));
     } catch (err) {
       // Never silently drop; add a placeholder rejection entity
       out.push({

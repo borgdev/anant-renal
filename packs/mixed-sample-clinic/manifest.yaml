@@ -20,5 +20,5 @@ required_controls:
   - phi-handling
 provenance:
   generatedBy: entity-compiler
-  generatedAt: 2026-08-13T05:34:40.210Z
-  agentCount: 13
+  generatedAt: 2026-08-13T05:50:14.157Z
+  agentCount: 24
