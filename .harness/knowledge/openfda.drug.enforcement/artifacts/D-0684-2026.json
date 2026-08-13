@@ -1,0 +1,102 @@
+{
+  "id": "D-0684-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0684-2026 · GOOD NEIGHBOR PHARMACY, Carbamide Peroxide 6.5%, 0.5 Fl Oz (15 mL), a) Kit - Washer Bulb Included, (NDC 46122-556-05); b",
+  "summary": "SubPotent Drug: low pH and significantly reduced assay (~0.6% vs expected ~6 7%).",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Belle Plaine",
+    "state": "MN",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "M014"
+      ],
+      "brand_name": [
+        "GOOD NEIGHBOR PHARMACY EARWAX REMOVAL",
+        "GOOD NEIGHBOR PHARMACY EARWAX REMOVAL DROPS"
+      ],
+      "generic_name": [
+        "CARBAMIDE PEROXIDE"
+      ],
+      "manufacturer_name": [
+        "Amerisource Bergen"
+      ],
+      "product_ndc": [
+        "46122-556",
+        "46122-557"
+      ],
+      "product_type": [
+        "HUMAN OTC DRUG"
+      ],
+      "rxcui": [
+        "702050"
+      ],
+      "spl_id": [
+        "52f64513-f7af-9a68-e063-6294a90a8f77",
+        "52f609e5-4f3f-1bab-e063-6394a90ae042"
+      ],
+      "spl_set_id": [
+        "d503b10f-85cd-4bb8-9dec-82d651d525fa",
+        "89eac1b0-c700-45b5-8478-da53ace72e16"
+      ],
+      "package_ndc": [
+        "46122-556-05",
+        "46122-557-05"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "upc": [
+        "0087701431517",
+        "0087701431524"
+      ],
+      "route": [
+        "TOPICAL"
+      ],
+      "substance_name": [
+        "CARBAMIDE PEROXIDE"
+      ],
+      "unii": [
+        "31PZ2VAU81"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99278",
+    "recalling_firm": "Bell Pharmaceuticals, Inc",
+    "address_1": "200 W Beaver St",
+    "address_2": "",
+    "postal_code": "56011-1894",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "U.S Nationwide",
+    "recall_number": "D-0684-2026",
+    "product_description": "GOOD NEIGHBOR PHARMACY, Carbamide Peroxide 6.5%, 0.5 Fl Oz (15 mL), a) Kit - Washer Bulb Included, (NDC 46122-556-05); b) 1 bottle (NDC 46122-557-05), Distributed by: AmerisourceBergen, 1 West First Avenue, Conshohocken, PA 19428.",
+    "product_quantity": "20, 160 units",
+    "reason_for_recall": "SubPotent Drug: low pH and significantly reduced assay (~0.6% vs expected ~6 7%).",
+    "recall_initiation_date": "20260625",
+    "center_classification_date": "20260714",
+    "report_date": "20260722",
+    "code_info": "Lot: a) 1505334, expires: 2027-04; b) 1505143, 1505151, expires: 2027-04",
+    "more_code_info": ""
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.237Z",
+    "contentHash": "64a73ca6ac83b00c8084e45a88808b2befdbf7c37a2b814e3c6344c91b25e0c6",
+    "contentType": "application/json",
+    "contentBytes": 1723,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.237Z",
+  "updatedAt": "2026-08-13T08:05:35.237Z"
+}

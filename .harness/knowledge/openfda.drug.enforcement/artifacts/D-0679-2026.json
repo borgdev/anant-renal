@@ -1,0 +1,95 @@
+{
+  "id": "D-0679-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0679-2026 · Clinere, Carbamide Peroxide, a) 2 bottles of Clinere Carbamide Peroxide (2 x 0.50 mL) 6.5%, 0.5 fl. oz. (15 mL); b) 1 bo",
+  "summary": "SubPotent Drug: low pH and significantly reduced assay (~0.6% vs expected ~6 7%).",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Belle Plaine",
+    "state": "MN",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "M014"
+      ],
+      "brand_name": [
+        "CLINERE EAR WAX REMOVER"
+      ],
+      "generic_name": [
+        "CARBAMIDE PEROXIDE"
+      ],
+      "manufacturer_name": [
+        "Quest Products"
+      ],
+      "product_ndc": [
+        "68229-102"
+      ],
+      "product_type": [
+        "HUMAN OTC DRUG"
+      ],
+      "route": [
+        "AURICULAR (OTIC)"
+      ],
+      "substance_name": [
+        "CARBAMIDE PEROXIDE"
+      ],
+      "rxcui": [
+        "702050"
+      ],
+      "spl_id": [
+        "47e36138-722e-d71c-e063-6294a90a808e"
+      ],
+      "spl_set_id": [
+        "d967eac3-0aac-a7ae-e053-2995a90a0e1e"
+      ],
+      "package_ndc": [
+        "68229-102-01",
+        "68229-102-03",
+        "68229-102-02"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "unii": [
+        "31PZ2VAU81"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99278",
+    "recalling_firm": "Bell Pharmaceuticals, Inc",
+    "address_1": "200 W Beaver St",
+    "address_2": "",
+    "postal_code": "56011-1894",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "U.S Nationwide",
+    "recall_number": "D-0679-2026",
+    "product_description": "Clinere, Carbamide Peroxide, a) 2 bottles of Clinere Carbamide Peroxide (2 x 0.50 mL) 6.5%, 0.5 fl. oz. (15 mL); b) 1 bottle of Clinere Carbamide Peroxide (0,50 fl. oz. (15 mL), Dist. by: Quest Products LLC, Pleasant Prairie, WI 53158, NDC 68229-102-01.",
+    "product_quantity": "29, 474 units",
+    "reason_for_recall": "SubPotent Drug: low pH and significantly reduced assay (~0.6% vs expected ~6 7%).",
+    "recall_initiation_date": "20260625",
+    "center_classification_date": "20260714",
+    "report_date": "20260722",
+    "code_info": "Lot: a) 1504241, exp 2027-03; b) 1504291, 1504301, exp 2027-03.",
+    "more_code_info": ""
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.233Z",
+    "contentHash": "f2764081a303641b7f727831efeace7b743d7063fa74908aab8acbed1b82abbf",
+    "contentType": "application/json",
+    "contentBytes": 1567,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.233Z",
+  "updatedAt": "2026-08-13T08:05:35.233Z"
+}

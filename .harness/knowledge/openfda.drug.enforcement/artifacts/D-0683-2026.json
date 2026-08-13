@@ -1,0 +1,88 @@
+{
+  "id": "D-0683-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0683-2026 · FAMILY Wellness, Carbamide Peroxide 6.5%, 0.5 Fl Oz (15 mL), Kit - Washer Bulb Included, (NDC 55319-835-01), DISTRIBUTED",
+  "summary": "SubPotent Drug: low pH and significantly reduced assay (~0.6% vs expected ~6 7%).",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Belle Plaine",
+    "state": "MN",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "M014"
+      ],
+      "brand_name": [
+        "FAMILY WELLNESS EARWAX REMOVAL EARWAX AND BULB"
+      ],
+      "generic_name": [
+        "CARBAMIDE PEROXIDE"
+      ],
+      "manufacturer_name": [
+        "Family Dollar Services Inc"
+      ],
+      "product_ndc": [
+        "55319-835"
+      ],
+      "product_type": [
+        "HUMAN OTC DRUG"
+      ],
+      "rxcui": [
+        "702050"
+      ],
+      "spl_id": [
+        "2f39b7a8-7ec6-6d43-e063-6394a90ab983"
+      ],
+      "spl_set_id": [
+        "26ebf208-4710-4af2-aa2d-b2040b85cf85"
+      ],
+      "package_ndc": [
+        "55319-835-01",
+        "55319-836-01"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "upc": [
+        "0032251921483"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99278",
+    "recalling_firm": "Bell Pharmaceuticals, Inc",
+    "address_1": "200 W Beaver St",
+    "address_2": "",
+    "postal_code": "56011-1894",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "U.S Nationwide",
+    "recall_number": "D-0683-2026",
+    "product_description": "FAMILY Wellness, Carbamide Peroxide 6.5%, 0.5 Fl Oz (15 mL), Kit - Washer Bulb Included, (NDC 55319-835-01), DISTRIBUTED BY: MIDWOOD BRANDS LLC, 500 VOLVO PKWY, CHESAPEAKE, VA 23320.",
+    "product_quantity": "11, 977 units",
+    "reason_for_recall": "SubPotent Drug: low pH and significantly reduced assay (~0.6% vs expected ~6 7%).",
+    "recall_initiation_date": "20260625",
+    "center_classification_date": "20260714",
+    "report_date": "20260722",
+    "code_info": "Lot: 1505124, 1505311, 1505332, expires: 2027-04.",
+    "more_code_info": ""
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.235Z",
+    "contentHash": "ea2d033ca68d335eefdd9c64613b759d5c608b4c1806bbc15e3c19259f6088db",
+    "contentType": "application/json",
+    "contentBytes": 1435,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.235Z",
+  "updatedAt": "2026-08-13T08:05:35.235Z"
+}

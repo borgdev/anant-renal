@@ -1,0 +1,104 @@
+{
+  "id": "D-0677-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0677-2026 · Nystatin Cream USP, (100,000 USP Nystatin Units), NET WT 15 g, Rx only, 15 g tube, Manufactured by Padagis, Yeruham, Isr",
+  "summary": "Subpotent Drug: Low out of specification assay results performed during long-term stability testing.",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Minneapolis",
+    "state": "MN",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "ANDA062225"
+      ],
+      "brand_name": [
+        "NYSTATIN"
+      ],
+      "generic_name": [
+        "NYSTATIN"
+      ],
+      "manufacturer_name": [
+        "Padagis Israel Pharmaceuticals Ltd"
+      ],
+      "product_ndc": [
+        "45802-059"
+      ],
+      "product_type": [
+        "HUMAN PRESCRIPTION DRUG"
+      ],
+      "route": [
+        "TOPICAL"
+      ],
+      "substance_name": [
+        "NYSTATIN"
+      ],
+      "rxcui": [
+        "543546"
+      ],
+      "spl_id": [
+        "e2839c50-5b8f-4e7b-9636-d22687038a89"
+      ],
+      "spl_set_id": [
+        "e630aa3d-11a6-4300-942a-cbdf2d016f77"
+      ],
+      "package_ndc": [
+        "45802-059-35",
+        "45802-059-11"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "nui": [
+        "N0000175498",
+        "M0017172"
+      ],
+      "pharm_class_epc": [
+        "Polyene Antifungal [EPC]"
+      ],
+      "pharm_class_cs": [
+        "Polyenes [CS]"
+      ],
+      "unii": [
+        "BDF1O1C72E"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99283",
+    "recalling_firm": "Padagis US LLC",
+    "address_1": "3940 Quebec Ave N",
+    "address_2": "",
+    "postal_code": "55427-1244",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "USA Nationwide",
+    "recall_number": "D-0677-2026",
+    "product_description": "Nystatin Cream USP, (100,000 USP Nystatin Units), NET WT 15 g, Rx only, 15 g tube, Manufactured by Padagis, Yeruham, Israel, NDC 45802-059-35",
+    "product_quantity": "180,936 tubes",
+    "reason_for_recall": "Subpotent Drug: Low out of specification assay results performed during long-term stability testing.",
+    "recall_initiation_date": "20260623",
+    "center_classification_date": "20260713",
+    "report_date": "20260722",
+    "code_info": "Lot #: 205060, Exp 09/30/2027",
+    "more_code_info": ""
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.237Z",
+    "contentHash": "9b35dc241726be2bb561f8a5abfe44991a9355d4186aafbd4bbaa73b05f7a356",
+    "contentType": "application/json",
+    "contentBytes": 1521,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.237Z",
+  "updatedAt": "2026-08-13T08:05:35.237Z"
+}

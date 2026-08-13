@@ -1,0 +1,107 @@
+{
+  "id": "D-0736-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0736-2026 · Dabigatran etexilate Capsules, 150 mg, 20-count carton (2x10), Rx only, Manufactured by: Alkem Laboratories, Mumbai, IND",
+  "summary": "Failed Impurities/Degradation Specifications: OOS result was observed during the related substance test analysis with respect to Impurity II, Impurity III and Total impurity testing for 12 Month Long-Term Stability.",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Bedminster",
+    "state": "NJ",
+    "country": "United States",
+    "classification": "Class III",
+    "openfda": {
+      "application_number": [
+        "ANDA208040"
+      ],
+      "brand_name": [
+        "DABIGATRAN ETEXILATE"
+      ],
+      "generic_name": [
+        "DABIGATRAN ETEXILATE"
+      ],
+      "manufacturer_name": [
+        "Major Pharmaceuticals"
+      ],
+      "product_ndc": [
+        "0904-7253",
+        "0904-7254",
+        "0904-7255"
+      ],
+      "product_type": [
+        "HUMAN PRESCRIPTION DRUG"
+      ],
+      "route": [
+        "ORAL"
+      ],
+      "substance_name": [
+        "DABIGATRAN ETEXILATE MESYLATE"
+      ],
+      "rxcui": [
+        "1037045",
+        "1037179",
+        "1723476"
+      ],
+      "spl_id": [
+        "869fd2f3-9357-4148-8b64-0cca96dd5f75"
+      ],
+      "spl_set_id": [
+        "b76b79ce-b7dd-4390-b40e-71ae6c477d10"
+      ],
+      "package_ndc": [
+        "0904-7253-35",
+        "0904-7253-04",
+        "0904-7253-68",
+        "0904-7254-35",
+        "0904-7254-68",
+        "0904-7255-35",
+        "0904-7255-10",
+        "0904-7255-68"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "upc": [
+        "0309047253043",
+        "0309047255108"
+      ],
+      "unii": [
+        "SC7NUW5IIT"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99330",
+    "recalling_firm": "Ascend Laboratories, LLC",
+    "address_1": "135 Us Highway 202 206 Ste 15",
+    "address_2": "N/A",
+    "postal_code": "07921-2608",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "USA Nationwide",
+    "recall_number": "D-0736-2026",
+    "product_description": "Dabigatran etexilate Capsules, 150 mg, 20-count carton (2x10), Rx only, Manufactured by: Alkem Laboratories, Mumbai, INDIA, Distributed by: Major Pharmaceuticals, Indianapolis, IN 46268, NDC 0904-7255-10.",
+    "product_quantity": "2,717 cartons",
+    "reason_for_recall": "Failed Impurities/Degradation Specifications: OOS result was observed during the related substance test analysis with respect to Impurity II, Impurity III and Total impurity testing for 12 Month Long-Term Stability.",
+    "recall_initiation_date": "20260630",
+    "center_classification_date": "20260804",
+    "report_date": "20260729",
+    "code_info": "Lot: 25141584, Exp 4/30/2027."
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.235Z",
+    "contentHash": "3bdcbdf69caa931b00c95ddf7d7987aa549815bcc80d6d599239133780309c8e",
+    "contentType": "application/json",
+    "contentBytes": 1793,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.235Z",
+  "updatedAt": "2026-08-13T08:05:35.235Z"
+}

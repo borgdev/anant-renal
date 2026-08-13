@@ -1,0 +1,49 @@
+{
+  "id": "D-0673-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0673-2026 · Bortezomib for Injection 3.5mg/Vial, 10 mL per Single-Dose Vial, For Intravenous or Subcutaneous Use, Manufactured for: ",
+  "summary": "Lack of Sterility Assurance",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Navi Mumbai",
+    "state": "N/A",
+    "country": "India",
+    "classification": "Class II",
+    "openfda": {},
+    "product_type": "Drugs",
+    "event_id": "99312",
+    "recalling_firm": "Reliance Life Sciences Private Limited",
+    "address_1": "Ttc Area Of Midc",
+    "address_2": "R - 282 Dhirubhai Ambani Life Sciences Centre; Thane Belapur Road",
+    "postal_code": "N/A",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide in the USA",
+    "recall_number": "D-0673-2026",
+    "product_description": "Bortezomib for Injection 3.5mg/Vial, 10 mL per Single-Dose Vial, For Intravenous or Subcutaneous Use, Manufactured for: Somerset Therapeutics, LLC., Somerset, NJ 08873. NDC: 70069-0836-01",
+    "product_quantity": "11,400 vials",
+    "reason_for_recall": "Lack of Sterility Assurance",
+    "recall_initiation_date": "20260624",
+    "center_classification_date": "20260708",
+    "report_date": "20260715",
+    "code_info": "Lot, expiry:     RBIH0125A Jan 31, 2028; RBIH0225A Feb 29, 2028; RBIH0325A Feb 29, 2028; RBIH0525A Mar 31, 2028"
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.236Z",
+    "contentHash": "afb93263c30cd81a538a446f118b236682e2ebeab506b705e7dac4c312f079a3",
+    "contentType": "application/json",
+    "contentBytes": 1031,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.236Z",
+  "updatedAt": "2026-08-13T08:05:35.236Z"
+}

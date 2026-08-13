@@ -1,0 +1,98 @@
+{
+  "id": "D-0662-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0662-2026 · Methohexital Sodium for Injection, USP 500 mg Multiple Dose Vial, Rx Only, Manufactured by: OneSource Specialty, Pharma ",
+  "summary": "Failed Impurities/Degradation Specifications",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Bengaluru",
+    "state": "N/A",
+    "country": "India",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "ANDA215488"
+      ],
+      "brand_name": [
+        "METHOHEXITAL SODIUM"
+      ],
+      "generic_name": [
+        "METHOHEXITAL SODIUM"
+      ],
+      "manufacturer_name": [
+        "Heritage Pharmaceuticals Inc. d/b/a Avet Pharmaceuticals Inc."
+      ],
+      "product_ndc": [
+        "23155-893"
+      ],
+      "product_type": [
+        "HUMAN PRESCRIPTION DRUG"
+      ],
+      "route": [
+        "INTRAMUSCULAR",
+        "INTRAVENOUS",
+        "RECTAL"
+      ],
+      "substance_name": [
+        "METHOHEXITAL SODIUM"
+      ],
+      "rxcui": [
+        "1244233"
+      ],
+      "spl_id": [
+        "8dd0a3ad-e10f-4877-84f2-9a39960e534d"
+      ],
+      "spl_set_id": [
+        "f76d4ab9-2f6c-420b-afec-b9cdfdc083ce"
+      ],
+      "package_ndc": [
+        "23155-893-31"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "upc": [
+        "0323155893311",
+        "0011100004492"
+      ],
+      "unii": [
+        "60200PNZ7Q"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99220",
+    "recalling_firm": "ONESOURCE SPECIALTY PHARMA LIMITED",
+    "address_1": "Plot No.: 2-D1, Obadenahalli Industrial Area, Doddaballapura",
+    "address_2": "3rd Phase; Kasa, Doddaballapura Taluk",
+    "postal_code": "N/A",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide within the United States",
+    "recall_number": "D-0662-2026",
+    "product_description": "Methohexital Sodium for Injection, USP 500 mg Multiple Dose Vial, Rx Only, Manufactured by: OneSource Specialty, Pharma Limited, Bengaluru - 561 203, India, Manufactured for: Avet Pharmaceuticals Inc., East Brunswick, NJ 08816, NDC 23155-893-31",
+    "product_quantity": "4284 vials",
+    "reason_for_recall": "Failed Impurities/Degradation Specifications",
+    "recall_initiation_date": "20260607",
+    "center_classification_date": "20260707",
+    "report_date": "20260715",
+    "code_info": "Lot #: 7000612A, Exp. Date 1/2028"
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.232Z",
+    "contentHash": "c83994e0d2d87390b58ed6f30b0301f72344ea3bb771ceb3f0dd69435e4847ef",
+    "contentType": "application/json",
+    "contentBytes": 1654,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.232Z",
+  "updatedAt": "2026-08-13T08:05:35.232Z"
+}

@@ -6,6 +6,9 @@ import type { FastifyInstance } from 'fastify';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { KnowledgeLayer } from '../knowledge/index.js';
+import { buildKnowledgeToolBus } from '../knowledge/agents/tool-bus.js';
+import { runAgentTurn, type AgentStrategy } from '../knowledge/agents/runner.js';
+import { randomUUID } from 'node:crypto';
 
 export interface KnowledgeRoutesDeps {
   layer: KnowledgeLayer;
@@ -142,4 +145,33 @@ export async function registerKnowledgeRoutes(app: FastifyInstance, deps: Knowle
   // ---------- Scheduler ----------
   app.get('/admin/knowledge/schedule/due', async () => ({ due: layer.scheduler.dueSources() }));
   app.post('/admin/knowledge/schedule/run-due', async () => ({ results: await layer.scheduler.runDueOnce('admin-ui') }));
+
+  // ---------- M20l Realm Local Corpus (customer-supplied protocols) ----------
+  app.post<{ Params: { realmId: string }; Body: { filename: string; mimeType?: string; dataBase64: string } }>('/admin/realms/:realmId/local-corpus', async (req, reply) => {
+    if (!req.body?.filename || !req.body?.dataBase64) return reply.status(400).send({ ok: false, error: 'filename+dataBase64 required' });
+    const { createHash } = await import('node:crypto');
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    const buf = Buffer.from(req.body.dataBase64, 'base64');
+    const hash = createHash('sha256').update(buf).digest('hex');
+    const dir = join(storeDir, '__realm__', req.params.realmId, 'local-corpus');
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, `${hash.slice(0, 16)}__${req.body.filename.replace(/[^a-z0-9._-]/gi, '_')}`);
+    writeFileSync(path, buf);
+    // TODO M21+: run through entity-compiler; for now record as a realm-scoped artifact.
+    return { ok: true, artifactId: hash.slice(0, 16), hash, bytes: buf.length, path };
+  });
+
+  // ---------- Agent runtime (ReAct + Plan-and-Execute over knowledge tools) ----------
+  app.post<{ Body: { question: string; strategy?: AgentStrategy; actor?: string; maxSteps?: number } }>('/admin/knowledge/agent/turn', async (req, reply) => {
+    if (!req.body?.question) return reply.status(400).send({ error: 'question required' });
+    const episodeId = randomUUID();
+    const tools = buildKnowledgeToolBus({ layer, actorId: req.body.actor ?? 'admin-ui', episodeId, bus: undefined });
+    const outcome = await runAgentTurn({
+      question: req.body.question,
+      tools,
+      ...(req.body.strategy ? { overrideStrategy: req.body.strategy } : {}),
+      ...(req.body.maxSteps !== undefined ? { maxSteps: req.body.maxSteps } : {}),
+    });
+    return { episodeId, ...outcome };
+  });
 }

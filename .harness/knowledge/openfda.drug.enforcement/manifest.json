@@ -1,0 +1,322 @@
+{
+  "sourceId": "openfda.drug.enforcement",
+  "upstreamVersion": "2026-08-13",
+  "lastSyncedAt": "2026-08-13T08:05:35.238Z",
+  "artifactIndex": [
+    {
+      "id": "D-0689-2026",
+      "contentHash": "c751f8bd77214384e590ab7bd299c4c2da9ff749c88a41d69c1a5c9a0fffbe09",
+      "path": "artifacts/D-0689-2026.json"
+    },
+    {
+      "id": "D-0716-2026",
+      "contentHash": "a455288029f6dbfd8aa8cc3c51f18960b26a15e9b19cd555597d41894266b3ac",
+      "path": "artifacts/D-0716-2026.json"
+    },
+    {
+      "id": "D-0709-2026",
+      "contentHash": "6003478eae8f7ac48e7f2f60a0f2c44976b7d8fb418b80651dbb7fb660af98d0",
+      "path": "artifacts/D-0709-2026.json"
+    },
+    {
+      "id": "D-0662-2026",
+      "contentHash": "c83994e0d2d87390b58ed6f30b0301f72344ea3bb771ceb3f0dd69435e4847ef",
+      "path": "artifacts/D-0662-2026.json"
+    },
+    {
+      "id": "D-0722-2026",
+      "contentHash": "5f816b0cc609b8c6a15a10c18c5fdb723e0cf2716c4ef76af019be16a2df40ff",
+      "path": "artifacts/D-0722-2026.json"
+    },
+    {
+      "id": "D-0711-2026",
+      "contentHash": "36296bfdbb873a2b68007e2702a63d1ad91836e66b1c85b9c8f1fa3846d956ca",
+      "path": "artifacts/D-0711-2026.json"
+    },
+    {
+      "id": "D-0703-2026",
+      "contentHash": "e5a2401ae233937802250abef5a14cc6eeb9575c1ec6218bde6315a609958d2c",
+      "path": "artifacts/D-0703-2026.json"
+    },
+    {
+      "id": "D-0680-2026",
+      "contentHash": "ee7783039ba2169d9c66319f7de1945e32385e7d92f4963249a98b351519c5bd",
+      "path": "artifacts/D-0680-2026.json"
+    },
+    {
+      "id": "D-0679-2026",
+      "contentHash": "f2764081a303641b7f727831efeace7b743d7063fa74908aab8acbed1b82abbf",
+      "path": "artifacts/D-0679-2026.json"
+    },
+    {
+      "id": "D-0727-2026",
+      "contentHash": "d12692b618ac85084a8369da95f45b79a4c898bb4cacccdae9ef6f8a05d97296",
+      "path": "artifacts/D-0727-2026.json"
+    },
+    {
+      "id": "D-0702-2026",
+      "contentHash": "6a4b1bfab5944a035fe31bbf461ec7022cb2191509d5c354cfe42a26f109a69a",
+      "path": "artifacts/D-0702-2026.json"
+    },
+    {
+      "id": "D-0666-2026",
+      "contentHash": "19547d8a6393760237ec74073c8d298d4f58d8e6a1c75c39aa2b780eeaf83fb1",
+      "path": "artifacts/D-0666-2026.json"
+    },
+    {
+      "id": "D-0667-2026",
+      "contentHash": "24dbd105ef79d8d3d3eaa8f3097ceaf225c9af1457a1760f90490b7a12e085a4",
+      "path": "artifacts/D-0667-2026.json"
+    },
+    {
+      "id": "D-0685-2026",
+      "contentHash": "777e467d6822f0f3cc889884ca8f32e9123ea82e210c3a6acc44801ccd6c368f",
+      "path": "artifacts/D-0685-2026.json"
+    },
+    {
+      "id": "D-0710-2026",
+      "contentHash": "2c87569a73f456757f25fae8adc77cda0ff6bd55daa0b197a5577515bcb4e7a5",
+      "path": "artifacts/D-0710-2026.json"
+    },
+    {
+      "id": "D-0700-2026",
+      "contentHash": "c2942bd225064d4af29be7df3322bfee737ea50b67a15fe9e01d02fd6c3d0bfc",
+      "path": "artifacts/D-0700-2026.json"
+    },
+    {
+      "id": "D-0719-2026",
+      "contentHash": "e0c8f8a402995b2d193e3a0683c185ed014ed08bc319dbd479abfa3ad2ae160b",
+      "path": "artifacts/D-0719-2026.json"
+    },
+    {
+      "id": "D-0670-2026",
+      "contentHash": "64289e64e223309d551978111ae12710865119617d0ecd1a49a7270e1b597ff5",
+      "path": "artifacts/D-0670-2026.json"
+    },
+    {
+      "id": "D-0728-2026",
+      "contentHash": "7725a8eccd882b0af1568876a59654b2fd73f55c2da765232154f5836e05e71c",
+      "path": "artifacts/D-0728-2026.json"
+    },
+    {
+      "id": "D-0720-2026",
+      "contentHash": "18f0e66c44846a4aecc0ba375cb8393c8027185a6e7c82b28df07d973d6eee96",
+      "path": "artifacts/D-0720-2026.json"
+    },
+    {
+      "id": "D-0731-2026",
+      "contentHash": "ce66c8df780acbc396c207f825e0350214d7e9ff5f3d7e2c9818369c98104f3b",
+      "path": "artifacts/D-0731-2026.json"
+    },
+    {
+      "id": "D-0734-2026",
+      "contentHash": "e36ec6113febeb972831769fe33896ea81c8c19c833ed97e057f07cc15a8370e",
+      "path": "artifacts/D-0734-2026.json"
+    },
+    {
+      "id": "D-0691-2026",
+      "contentHash": "f9de0218f3a01da6415eb8a6c9bbc3185204ddf7c03ae704ad65a1418bcea16d",
+      "path": "artifacts/D-0691-2026.json"
+    },
+    {
+      "id": "D-0736-2026",
+      "contentHash": "3bdcbdf69caa931b00c95ddf7d7987aa549815bcc80d6d599239133780309c8e",
+      "path": "artifacts/D-0736-2026.json"
+    },
+    {
+      "id": "D-0701-2026",
+      "contentHash": "f3d34bb120fb7c821cb5a9c2bdf8e42734b403c581933427334df4c2709ee9c3",
+      "path": "artifacts/D-0701-2026.json"
+    },
+    {
+      "id": "D-0683-2026",
+      "contentHash": "ea2d033ca68d335eefdd9c64613b759d5c608b4c1806bbc15e3c19259f6088db",
+      "path": "artifacts/D-0683-2026.json"
+    },
+    {
+      "id": "D-0730-2026",
+      "contentHash": "b91f92439f610bdd991c545a603258fcddd4196850812fdbe93ccf76d96657b9",
+      "path": "artifacts/D-0730-2026.json"
+    },
+    {
+      "id": "D-0672-2026",
+      "contentHash": "c00987f9c4d54961208f7ae0a37a7cef664df4aacf414826b1cc9ae3e08fe863",
+      "path": "artifacts/D-0672-2026.json"
+    },
+    {
+      "id": "D-0665-2026",
+      "contentHash": "b1b7d9eca4c04082695c5ae3bdbe170077eac0df29c02a35532e5f13b2f5bb58",
+      "path": "artifacts/D-0665-2026.json"
+    },
+    {
+      "id": "D-0690-2026",
+      "contentHash": "1f1f2ca498c0aa65841c69555d4f8adce8a77fd860de112777895ff5936bda5b",
+      "path": "artifacts/D-0690-2026.json"
+    },
+    {
+      "id": "D-0668-2026",
+      "contentHash": "9dbea716547bf17fcd45f4527e3f2894c40cc8681bdcfa88c4ce94d94cb366ec",
+      "path": "artifacts/D-0668-2026.json"
+    },
+    {
+      "id": "D-0726-2026",
+      "contentHash": "a9796f6b691b0fbb18a9a3d4f4834cd9f8ded81827bb33e2555ec03dbf05868b",
+      "path": "artifacts/D-0726-2026.json"
+    },
+    {
+      "id": "D-0717-2026",
+      "contentHash": "e02af9bf9cecba17a0c2de6314688002c1afd7f45250d2924cfec7b1dc059610",
+      "path": "artifacts/D-0717-2026.json"
+    },
+    {
+      "id": "D-0688-2026",
+      "contentHash": "8a26421773672a3634eb07bb4c988e8e02aa2079ab78e8e07bd2cca5b64a4ee4",
+      "path": "artifacts/D-0688-2026.json"
+    },
+    {
+      "id": "D-0673-2026",
+      "contentHash": "afb93263c30cd81a538a446f118b236682e2ebeab506b705e7dac4c312f079a3",
+      "path": "artifacts/D-0673-2026.json"
+    },
+    {
+      "id": "D-0713-2026",
+      "contentHash": "54b9cdd7824f4fd6ded0b9a1bcaf4205f25a969f22d1332c6524fb69f855717d",
+      "path": "artifacts/D-0713-2026.json"
+    },
+    {
+      "id": "D-0712-2026",
+      "contentHash": "78fec0fa768a42aa892c772238db2d01d321ab21299beb4e8bc96ceae6474788",
+      "path": "artifacts/D-0712-2026.json"
+    },
+    {
+      "id": "D-0707-2026",
+      "contentHash": "097cb9763d5c70e58e48800474c83ecd2ecf268063707cfcf90a97f4df5bee99",
+      "path": "artifacts/D-0707-2026.json"
+    },
+    {
+      "id": "N/A",
+      "contentHash": "3a45c8d8a4c3fca9465a1f41e8cee655ce2f9f850e1be78c82b2e0de1350ba69",
+      "path": "artifacts/N/A.json"
+    },
+    {
+      "id": "D-0671-2026",
+      "contentHash": "79b481a0f38085a9f473a73eff3ac1027eed397b757996acdfaf23528fbbd15f",
+      "path": "artifacts/D-0671-2026.json"
+    },
+    {
+      "id": "D-0704-2026",
+      "contentHash": "a233f121c0de27806a139fccd25002612852c4cfa2e6acf3aa8c42ee297c6302",
+      "path": "artifacts/D-0704-2026.json"
+    },
+    {
+      "id": "D-0718-2026",
+      "contentHash": "7dff653dc49a913e55b7b1303f6480e2169a76ee05fa7138c9030d4820b411a3",
+      "path": "artifacts/D-0718-2026.json"
+    },
+    {
+      "id": "D-0674-2026",
+      "contentHash": "7dd808e9769f1f164399d3707e662dbf6481a3dd638e39b5b314ecc6bade4585",
+      "path": "artifacts/D-0674-2026.json"
+    },
+    {
+      "id": "D-0729-2026",
+      "contentHash": "0f303adb90e58d4eab8c2dc31f950672a510c32be3adade8107747fe49c11175",
+      "path": "artifacts/D-0729-2026.json"
+    },
+    {
+      "id": "D-0725-2026",
+      "contentHash": "9c2050a9bdde119892b86cd0101f09a1a7f0add2d0a7761b565ca4356e27c757",
+      "path": "artifacts/D-0725-2026.json"
+    },
+    {
+      "id": "D-0705-2026",
+      "contentHash": "b365ef44f65dd1de175950d47fde326e9be067db35ab6bfc6a245e6c160ef8c2",
+      "path": "artifacts/D-0705-2026.json"
+    },
+    {
+      "id": "D-0663-2026",
+      "contentHash": "e303223baeafed9ad77d217c2d5d17310f026a8bcab764bc7aab06c2ae7832ae",
+      "path": "artifacts/D-0663-2026.json"
+    },
+    {
+      "id": "D-0677-2026",
+      "contentHash": "9b35dc241726be2bb561f8a5abfe44991a9355d4186aafbd4bbaa73b05f7a356",
+      "path": "artifacts/D-0677-2026.json"
+    },
+    {
+      "id": "D-0687-2026",
+      "contentHash": "10a19ecbde0e43e5bb0781a03e86248c0913351c950942fb28a221c2e6b7fdd5",
+      "path": "artifacts/D-0687-2026.json"
+    },
+    {
+      "id": "D-0678-2026",
+      "contentHash": "6ab02d4012172b7bfa0310645492e4c666ca444e67a024a16aafef50c34b999c",
+      "path": "artifacts/D-0678-2026.json"
+    },
+    {
+      "id": "D-0681-2026",
+      "contentHash": "eb5e0a36b3f45ea45c0438f22411fc4db04b2e97eae3d3574e93a9fe3a08af6d",
+      "path": "artifacts/D-0681-2026.json"
+    },
+    {
+      "id": "D-0682-2026",
+      "contentHash": "ef695e804e744a29d534c5cff86bc3aebbb8b7f46109b07d80c75423b56eb77a",
+      "path": "artifacts/D-0682-2026.json"
+    },
+    {
+      "id": "D-0684-2026",
+      "contentHash": "64a73ca6ac83b00c8084e45a88808b2befdbf7c37a2b814e3c6344c91b25e0c6",
+      "path": "artifacts/D-0684-2026.json"
+    },
+    {
+      "id": "D-0708-2026",
+      "contentHash": "f75457ec68cc70816981b2458cc6d13a9343d380e464089d2bf0d065d37698ef",
+      "path": "artifacts/D-0708-2026.json"
+    },
+    {
+      "id": "D-0724-2026",
+      "contentHash": "3625a434a448d5b508d18615337307f810e1aed9763823742dba74af852d0d4d",
+      "path": "artifacts/D-0724-2026.json"
+    },
+    {
+      "id": "D-0732-2026",
+      "contentHash": "3033d5eccb3a4008c9f0996b1e6988173cde099f356808675a16ccb75f0ca435",
+      "path": "artifacts/D-0732-2026.json"
+    },
+    {
+      "id": "D-0735-2026",
+      "contentHash": "d7907b609ef1b87241cbb9c2ffbbfdd4b74a17eb90990cc5d10409af07a76408",
+      "path": "artifacts/D-0735-2026.json"
+    },
+    {
+      "id": "D-0715-2026",
+      "contentHash": "0351f08d693b1602ff2d6f32fb1c6cae20caf74b3491830ff283b7f091f0d549",
+      "path": "artifacts/D-0715-2026.json"
+    },
+    {
+      "id": "D-0669-2026",
+      "contentHash": "80202927967d9c5be5692eb946ce39fbef0564458f5f03e12888194ef54817a5",
+      "path": "artifacts/D-0669-2026.json"
+    },
+    {
+      "id": "D-0664-2026",
+      "contentHash": "18179907a4bb81f3b161096c9cd67974d209b6b428f2f81f07dc21b9ab66c105",
+      "path": "artifacts/D-0664-2026.json"
+    },
+    {
+      "id": "D-0706-2026",
+      "contentHash": "36a1a9151369258f81bcc93bff900c6e2b3d0eb51c5e3c4867b166e9075c43f9",
+      "path": "artifacts/D-0706-2026.json"
+    },
+    {
+      "id": "D-0686-2026",
+      "contentHash": "f9a3be73a49dddc0ed03cc4038602321ef413c1d29468d144410808f4576493d",
+      "path": "artifacts/D-0686-2026.json"
+    },
+    {
+      "id": "D-0721-2026",
+      "contentHash": "d4072f399565e28386ffe2cd8ff241869e71cc0ee8e3b835f3e9089514605e6d",
+      "path": "artifacts/D-0721-2026.json"
+    }
+  ]
+}

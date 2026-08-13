@@ -1,0 +1,124 @@
+{
+  "id": "D-0702-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0702-2026 · Levothyroxine Sodium Tablets, USP, 75 mcg (0.075 mg), 100 Tablets (10 x 10 unit dose blisters) per carton, Rx only, Pack",
+  "summary": "Subpotent Drug",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Dublin",
+    "state": "OH",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "ANDA209713"
+      ],
+      "brand_name": [
+        "LEVOTHYROXINE SODIUM"
+      ],
+      "generic_name": [
+        "LEVOTHYROXINE SODIUM"
+      ],
+      "manufacturer_name": [
+        "Major Pharmaceuticals"
+      ],
+      "product_ndc": [
+        "0904-6949",
+        "0904-6950",
+        "0904-6951",
+        "0904-6952",
+        "0904-6953",
+        "0904-6954",
+        "0904-6955",
+        "0904-6956",
+        "0904-6957"
+      ],
+      "product_type": [
+        "HUMAN PRESCRIPTION DRUG"
+      ],
+      "route": [
+        "ORAL"
+      ],
+      "substance_name": [
+        "LEVOTHYROXINE SODIUM"
+      ],
+      "rxcui": [
+        "892246",
+        "966220",
+        "966221",
+        "966222",
+        "966224",
+        "966225",
+        "966248",
+        "966249",
+        "966253"
+      ],
+      "spl_id": [
+        "942c00a3-b31c-48d5-a63d-6d394645ee1f"
+      ],
+      "spl_set_id": [
+        "333642fd-93ae-4dc0-9c83-6d6b163c1c74"
+      ],
+      "package_ndc": [
+        "0904-6949-61",
+        "0904-6950-61",
+        "0904-6951-61",
+        "0904-6952-61",
+        "0904-6953-61",
+        "0904-6954-61",
+        "0904-6955-61",
+        "0904-6956-61",
+        "0904-6957-61"
+      ],
+      "original_packager_product_ndc": [
+        "68180-965",
+        "68180-966",
+        "68180-967",
+        "68180-968",
+        "68180-969",
+        "68180-970",
+        "68180-971",
+        "68180-973",
+        "68180-974"
+      ],
+      "unii": [
+        "9J765S329G"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99399",
+    "recalling_firm": "Major Pharmaceuticals",
+    "address_1": "7000 Cardinal Pl",
+    "address_2": "N/A",
+    "postal_code": "43017-1091",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide in the USA.",
+    "recall_number": "D-0702-2026",
+    "product_description": "Levothyroxine Sodium Tablets, USP, 75 mcg (0.075 mg), 100 Tablets (10 x 10 unit dose blisters) per carton, Rx only, Packaged and Distributed by: MAJOR PHARMACEUTICALS, Indianapolis, IN 46268 USA.  NDC: 0904-6951-61",
+    "product_quantity": "N/A",
+    "reason_for_recall": "Subpotent Drug",
+    "recall_initiation_date": "20260713",
+    "center_classification_date": "20260717",
+    "report_date": "20260729",
+    "code_info": "Lot# N02172, exp 07/2026; N02296, N02288, Exp. Date 12/2026"
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.234Z",
+    "contentHash": "6a4b1bfab5944a035fe31bbf461ec7022cb2191509d5c354cfe42a26f109a69a",
+    "contentType": "application/json",
+    "contentBytes": 1810,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.234Z",
+  "updatedAt": "2026-08-13T08:05:35.234Z"
+}

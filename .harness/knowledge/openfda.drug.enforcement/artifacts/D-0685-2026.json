@@ -1,0 +1,89 @@
+{
+  "id": "D-0685-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0685-2026 · LEADER, Carbamide Peroxide 6.5%, 0.5 Fl Oz (15 mL), a) Kit -1 RUBBER BULB SYRINGE, 0.5 FL OZ DROPS, (NDC 70000-0689-1); ",
+  "summary": "SubPotent Drug: low pH and significantly reduced assay (~0.6% vs expected ~6 7%).",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Belle Plaine",
+    "state": "MN",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "M014"
+      ],
+      "brand_name": [
+        "LEADER EARWAX REMOVAL KIT EARWAX REMOVAL AID AND BULB"
+      ],
+      "generic_name": [
+        "CARBAMIDE PEROXIDE"
+      ],
+      "manufacturer_name": [
+        "Cardinal Health 110 DBA Leader"
+      ],
+      "product_ndc": [
+        "70000-0689"
+      ],
+      "product_type": [
+        "HUMAN OTC DRUG"
+      ],
+      "rxcui": [
+        "702050"
+      ],
+      "spl_id": [
+        "1f7f89ab-ef7d-21dc-e063-6294a90ab82a"
+      ],
+      "spl_set_id": [
+        "36c1408b-4287-4e9f-aa17-4f05add50038"
+      ],
+      "package_ndc": [
+        "70000-0689-1",
+        "70000-0688-1"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "upc": [
+        "0096295143799",
+        "0096295143782"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99278",
+    "recalling_firm": "Bell Pharmaceuticals, Inc",
+    "address_1": "200 W Beaver St",
+    "address_2": "",
+    "postal_code": "56011-1894",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "U.S Nationwide",
+    "recall_number": "D-0685-2026",
+    "product_description": "LEADER, Carbamide Peroxide 6.5%, 0.5 Fl Oz (15 mL), a) Kit -1 RUBBER BULB SYRINGE, 0.5 FL OZ DROPS, (NDC 70000-0689-1); b) 1 bottle (NDC 70000-0688-1), DIST. BY CARDINAL HEALTH, DUBLIN, OH 43017.",
+    "product_quantity": "5, 471 units",
+    "reason_for_recall": "SubPotent Drug: low pH and significantly reduced assay (~0.6% vs expected ~6 7%).",
+    "recall_initiation_date": "20260625",
+    "center_classification_date": "20260714",
+    "report_date": "20260722",
+    "code_info": "Lot: a) 1505333, expires: 2027-04; b) 1505144, 1505302, expires: 2027-04.",
+    "more_code_info": ""
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.234Z",
+    "contentHash": "777e467d6822f0f3cc889884ca8f32e9123ea82e210c3a6acc44801ccd6c368f",
+    "contentType": "application/json",
+    "contentBytes": 1499,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.234Z",
+  "updatedAt": "2026-08-13T08:05:35.234Z"
+}

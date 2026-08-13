@@ -1,0 +1,49 @@
+{
+  "id": "D-0691-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0691-2026 · Clomiphene Citrate USP Active Pharmaceutical Ingredient (CAS : 50-41-9), Net Weight a)1 KG (NDC 84849-000-01), b) 500 g ",
+  "summary": "cGMP deviations",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Sangli",
+    "state": "N/A",
+    "country": "India",
+    "classification": "Class II",
+    "openfda": {},
+    "product_type": "Drugs",
+    "event_id": "99232",
+    "recalling_firm": "Shimoga Chemicals",
+    "address_1": "W57 A Shimoga Chemicals, Kupwad Midc",
+    "address_2": "N/A",
+    "postal_code": "N/A",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "CA & FL only",
+    "recall_number": "D-0691-2026",
+    "product_description": "Clomiphene Citrate USP Active Pharmaceutical Ingredient (CAS : 50-41-9), Net Weight a)1 KG (NDC 84849-000-01), b) 500 g (NDC 84849-000-02), (c) 100 g (NDC 84849-000-03), Rx Only, Shimoga Chemicals Address -W-57A, MIDC Kupwad Samgli, Maharashtra, 416436, India.",
+    "product_quantity": "N/A",
+    "reason_for_recall": "cGMP deviations",
+    "recall_initiation_date": "20260519",
+    "center_classification_date": "20260715",
+    "report_date": "20260715",
+    "code_info": "Lot #: a) CC/004/24-25, Exp Date September 2029; CC0032526, Exp. Date August 2030 b) CC0442526, Exp. Date Aug 2030; CC/005/24-25, Exp. Date November 2029 c) CC0032526, Exp. Date August 2030; CC/009/24-25, Exp. Date January 2030;CC/005/24-25, Exp. Date November 2029."
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.235Z",
+    "contentHash": "f9de0218f3a01da6415eb8a6c9bbc3185204ddf7c03ae704ad65a1418bcea16d",
+    "contentType": "application/json",
+    "contentBytes": 1161,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.235Z",
+  "updatedAt": "2026-08-13T08:05:35.235Z"
+}

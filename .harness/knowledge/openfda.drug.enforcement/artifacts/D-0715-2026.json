@@ -1,0 +1,101 @@
+{
+  "id": "D-0715-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0715-2026 · Rohto Cooling Eye Drops ALL-IN-ONE (hypromellose 0.2%, tetrahydrozoline HCL 0.05%, zinc sulfate 0.25%), Sterile 0.4 FL O",
+  "summary": "Lack of Assurance of Sterility",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Ho Chi Minh",
+    "state": "N/A",
+    "country": "Vietnam",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "M018"
+      ],
+      "brand_name": [
+        "ROHTO"
+      ],
+      "generic_name": [
+        "HYPROMELLOSE, TETRAHYDROZOLINE HYDROCHLORIDE, ZINC SULFATE"
+      ],
+      "manufacturer_name": [
+        "The Mentholatum Company"
+      ],
+      "product_ndc": [
+        "10742-8146"
+      ],
+      "product_type": [
+        "HUMAN OTC DRUG"
+      ],
+      "route": [
+        "OPHTHALMIC"
+      ],
+      "substance_name": [
+        "HYPROMELLOSE, UNSPECIFIED",
+        "TETRAHYDROZOLINE HYDROCHLORIDE",
+        "ZINC SULFATE, UNSPECIFIED FORM"
+      ],
+      "rxcui": [
+        "1098640"
+      ],
+      "spl_id": [
+        "53610d02-cacc-6819-e063-6294a90ab06e"
+      ],
+      "spl_set_id": [
+        "43e690e4-b381-46e3-838c-33aef5bdadde"
+      ],
+      "package_ndc": [
+        "10742-8146-1",
+        "3107420108"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "upc": [
+        "0310742010862",
+        "310742010862"
+      ],
+      "unii": [
+        "3NXW29V3WO",
+        "0YZT43HS7D",
+        "89DS0H96TB"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99440",
+    "recalling_firm": "Rohto-Mentholatum (Vietnam) Co., Ltd.",
+    "address_1": "No. 16 Vsip, Street No. 5",
+    "address_2": "Vietnam Singapore Industrial Park",
+    "postal_code": "N/A",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide within the United States",
+    "recall_number": "D-0715-2026",
+    "product_description": "Rohto Cooling Eye Drops ALL-IN-ONE (hypromellose 0.2%, tetrahydrozoline HCL 0.05%, zinc sulfate 0.25%), Sterile 0.4 FL OZ (13 mL), Distributed by: The Mentholatum Company, Orchard Park, NY 14127, Made in Vietnam UPC 310742010862, NDC 10742-8146-1",
+    "product_quantity": "1.033,266 cartons",
+    "reason_for_recall": "Lack of Assurance of Sterility",
+    "recall_initiation_date": "20260714",
+    "center_classification_date": "20260723",
+    "report_date": "20260729",
+    "code_info": "Lot #: 3H1V, Exp. Date 2026/07; 3J1V, 3J2V, Exp. Date 2026/09; 3K1V, Exp. Date 2026/10;  4A1V, 4A2V, Exp. Date 2026/12; 4B1V, 4B2V, Exp. Date 2027/01; 4G1V, 4G2V, 4G3V, Exp. Date 2027/06; 4I1V, 4I2V, 4I2VA Exp. Date 2027/08; 4J1V, 4J2V, Exp. Date 2027/09; 4K2V, 4K3V, 4K4V Exp. Date2027/10; 5B1V, 5B2V, 5B3V, Exp. Date 2028/01; 5D1V, Exp. Date 2028/03; 5E1V, 5E2V, 5E3V, Exp. Date 2028/04; 5H1V, Exp. Date 2028/07; 5I1V, Exp. Date 2028/08; 5J1V, 5J2V, Exp. Date 2028/09; 5L1V, 5L1VA, 5L1VB, 5L1VC, 5L1VD, 5L2V,Exp. Date 2028/11; 6A1V,  6A2V, Exp. Date 2028/12; 6B1V, Exp. Date 2029/01 & Lot 6C1V, Exp. Date 2029/02."
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.238Z",
+    "contentHash": "0351f08d693b1602ff2d6f32fb1c6cae20caf74b3491830ff283b7f091f0d549",
+    "contentType": "application/json",
+    "contentBytes": 2256,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.238Z",
+  "updatedAt": "2026-08-13T08:05:35.238Z"
+}

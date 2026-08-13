@@ -1,0 +1,96 @@
+{
+  "id": "D-0690-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0690-2026 · BD ChloraPrep Clear, (2% w/v chlorhexidine gluconate (CHG) and 70% v/v isopropyl alcohol), 60 x 1 mL applicators/carton,",
+  "summary": "Lack of Assurance of Sterility: Affected product may exhibit an open or incomplete seal on the packaging of the applicator",
+  "structured": {
+    "status": "Ongoing",
+    "city": "El Paso",
+    "state": "TX",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "NDA020832"
+      ],
+      "brand_name": [
+        "CHLORAPREP ONE-STEP"
+      ],
+      "generic_name": [
+        "CHLORHEXIDINE GLUCONATE AND ISOPROPYL ALCOHOL"
+      ],
+      "manufacturer_name": [
+        "CareFusion 213, LLC"
+      ],
+      "product_ndc": [
+        "54365-400"
+      ],
+      "product_type": [
+        "HUMAN OTC DRUG"
+      ],
+      "route": [
+        "TOPICAL"
+      ],
+      "substance_name": [
+        "CHLORHEXIDINE GLUCONATE",
+        "ISOPROPYL ALCOHOL"
+      ],
+      "rxcui": [
+        "858726",
+        "998282"
+      ],
+      "spl_id": [
+        "42c769de-f1e0-b3a1-e063-6394a90ab2a1"
+      ],
+      "spl_set_id": [
+        "85291b2b-40b9-07fa-e053-2a91aa0a84e4"
+      ],
+      "package_ndc": [
+        "54365-400-31"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "unii": [
+        "MOR84MUD8E",
+        "ND2M416302"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99377",
+    "recalling_firm": "CareFusion 213, LLC",
+    "address_1": "1550 Northwestern Dr",
+    "address_2": "",
+    "postal_code": "79912-8000",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "U.S.A. Nationwide",
+    "recall_number": "D-0690-2026",
+    "product_description": "BD ChloraPrep Clear, (2% w/v chlorhexidine gluconate (CHG) and 70% v/v isopropyl alcohol), 60 x 1 mL applicators/carton, 0.03fl oz (1 mL) each, STERILE SOLUTION, CareFusion 123, LLC, El Paso, TX, subsidiary of Beckton, Dickson and Co. NDC 54365-400-31",
+    "product_quantity": "43,066,599 units",
+    "reason_for_recall": "Lack of Assurance of Sterility: Affected product may exhibit an open or incomplete seal on the packaging of the applicator",
+    "recall_initiation_date": "20260709",
+    "center_classification_date": "20260715",
+    "report_date": "20260722",
+    "code_info": "Lots: 4062535, 4065201, 4066446, Exp. 2/28/2027; 4141090, Exp. 5/31/2027; 4180288, 4197695, 4197697, 4180291, Exp. 6/30/2027; 4219454, 4221945, 4221966, 4222853, 4224361, Exp. 7/31/2027; 4228482, 4248656, 4249026, 4248961, 4249818, 4250729, Exp. 8/31/2027; 5124984, 5127231, 5129058, 5126398, 5129488, Exp. 4/30/2028; 5130576, 5142947, 5147432, 5154673, 5154671, 5156442, 5157968, 5158031, 5150160, 5155824, Exp. 5/31/2028; 5176326, 5181676, 5181074, 5182660, 5188102, 5188103, Exp. 6/30/2028;  5195818, 5199118, 5209474, 5210853, 5211985, 5211907, 5211212, Exp. 7/31/2028;  5226576, 5227151, 5230531, 5241733, 5242057, 5243430, 5246952, 5248375, 5248189, Exp. 8/31/2028; 5254509, 5274692, 5276968, 5279226, 5280240, Exp. 9/30/2028; 5305661, 5307185, 5309623, 5310701, Exp. 10/31/2028; 5346128, 5350797, Exp. 12/31/2028; 6031034, 6031234, 6037918, Exp. 1/31/2029; 6051588, 6054213, 6062168, 6063361, Exp. 2/28/2029; 6069891, Exp. 3/31/2029; 6111107, Exp. 4/30/2029.",
+    "more_code_info": ""
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.236Z",
+    "contentHash": "1f1f2ca498c0aa65841c69555d4f8adce8a77fd860de112777895ff5936bda5b",
+    "contentType": "application/json",
+    "contentBytes": 2549,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.236Z",
+  "updatedAt": "2026-08-13T08:05:35.236Z"
+}

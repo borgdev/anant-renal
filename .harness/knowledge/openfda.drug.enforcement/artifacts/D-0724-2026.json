@@ -1,0 +1,95 @@
+{
+  "id": "D-0724-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0724-2026 · Rising, Cyproheptadine Hydrochloride Syrup, 2mg/5 mL, 473 mL (ONE PINT), Rx only, Manufactured for: Rising Pharma Holdin",
+  "summary": "Presence of Precipitate: medication was crystallizing and particles floating in the bottle",
+  "structured": {
+    "status": "Ongoing",
+    "city": "East Brunswick",
+    "state": "NJ",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "ANDA040668"
+      ],
+      "brand_name": [
+        "CYPROHEPTADINE HYDROCHLORIDE"
+      ],
+      "generic_name": [
+        "CYPROHEPTADINE HYDROCHLORIDE"
+      ],
+      "manufacturer_name": [
+        "Rising Pharma Holdings, Inc."
+      ],
+      "product_ndc": [
+        "64980-504"
+      ],
+      "product_type": [
+        "HUMAN PRESCRIPTION DRUG"
+      ],
+      "route": [
+        "ORAL"
+      ],
+      "substance_name": [
+        "CYPROHEPTADINE HYDROCHLORIDE"
+      ],
+      "rxcui": [
+        "866021"
+      ],
+      "spl_id": [
+        "9b4845c1-9b59-4809-9247-50565fc4b6fb"
+      ],
+      "spl_set_id": [
+        "e2bf4d46-6585-41d9-868c-98603b165d5b"
+      ],
+      "package_ndc": [
+        "64980-504-48"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "upc": [
+        "0364980504485"
+      ],
+      "unii": [
+        "NJ82J0F8QC"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99401",
+    "recalling_firm": "Rising Pharma Holding, Inc.",
+    "address_1": "2 Tower Center Blvd Ste 1401",
+    "address_2": "N/A",
+    "postal_code": "08816-1149",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide U.S.A.",
+    "recall_number": "D-0724-2026",
+    "product_description": "Rising, Cyproheptadine Hydrochloride Syrup, 2mg/5 mL, 473 mL (ONE PINT), Rx only, Manufactured for: Rising Pharma Holdings, Inc., East Brunswick, NJ, Manufactured by: Lyne Laboratories, Inc., Brockton, MA. NDC 64980-504-48.",
+    "product_quantity": "74208 units",
+    "reason_for_recall": "Presence of Precipitate: medication was crystallizing and particles floating in the bottle",
+    "recall_initiation_date": "20260713",
+    "center_classification_date": "20260723",
+    "report_date": "20260729",
+    "code_info": "Lots: Batch # CR2518, Exp. 11/2027; Batch # CR2601, Exp. 12/2027; CR2602, CR2603, Exp. 01/2028; CR2604, CR2605, Exp. 02/2028."
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.237Z",
+    "contentHash": "3625a434a448d5b508d18615337307f810e1aed9763823742dba74af852d0d4d",
+    "contentType": "application/json",
+    "contentBytes": 1645,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.237Z",
+  "updatedAt": "2026-08-13T08:05:35.237Z"
+}

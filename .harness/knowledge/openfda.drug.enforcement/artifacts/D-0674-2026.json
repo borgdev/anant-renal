@@ -1,0 +1,49 @@
+{
+  "id": "D-0674-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0674-2026 · Azacitidine for Injection 100mg/Vial, 1 10 mL Single-Dose Vial per carton, For Subcutaneous  and Intravenous Use, Rx onl",
+  "summary": "Lack of Sterility Assurance",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Navi Mumbai",
+    "state": "N/A",
+    "country": "India",
+    "classification": "Class II",
+    "openfda": {},
+    "product_type": "Drugs",
+    "event_id": "99312",
+    "recalling_firm": "Reliance Life Sciences Private Limited",
+    "address_1": "Ttc Area Of Midc",
+    "address_2": "R - 282 Dhirubhai Ambani Life Sciences Centre; Thane Belapur Road",
+    "postal_code": "N/A",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide in the USA",
+    "recall_number": "D-0674-2026",
+    "product_description": "Azacitidine for Injection 100mg/Vial, 1 10 mL Single-Dose Vial per carton, For Subcutaneous  and Intravenous Use, Rx only,  Manufactured for: Somerset Therapeutics, LLC., Somerset, NJ 08873 NDC: 70069-0857-01",
+    "product_quantity": "8,001 vials",
+    "reason_for_recall": "Lack of Sterility Assurance",
+    "recall_initiation_date": "20260624",
+    "center_classification_date": "20260708",
+    "report_date": "20260715",
+    "code_info": "Lot, expiry:            RAZM0425A  Jun 30, 2027;   RAZM0525A Jun 30, 2027;   RAZM0725A Jun 30, 2027;   RAZM0825A Jun 30, 2027;   RAZM0925A Jul 31, 2027;   RAZM1125A Jul 31, 2027;   RAZM1225A Jul 31, 2027;   RAZM1425A Jul 31, 2027;   RAZM1525A Jul 31, 2027;   RAZM1625A Aug 31, 2027;   RAZM1725A Aug 31, 2027;   RAZM2025A Sep 30, 2027"
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.237Z",
+    "contentHash": "7dd808e9769f1f164399d3707e662dbf6481a3dd638e39b5b314ecc6bade4585",
+    "contentType": "application/json",
+    "contentBytes": 1273,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.237Z",
+  "updatedAt": "2026-08-13T08:05:35.237Z"
+}

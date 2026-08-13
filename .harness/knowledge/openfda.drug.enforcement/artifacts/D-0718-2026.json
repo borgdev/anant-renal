@@ -1,0 +1,101 @@
+{
+  "id": "D-0718-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0718-2026 · Rohto Cooling Eye Drops Optic Glow (naphazoline hydrochloride 0.03%, povidone 0.5%, propylene glycol 0.2%), Sterile, 0.4",
+  "summary": "Lack of Assurance of Sterility",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Ho Chi Minh",
+    "state": "N/A",
+    "country": "Vietnam",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "M018"
+      ],
+      "brand_name": [
+        "ROHTO OPTIC GLOW"
+      ],
+      "generic_name": [
+        "NAPHAZOLINE HYDROCHLORIDE, POVIDONE, PROPYLENE GLYCOL"
+      ],
+      "manufacturer_name": [
+        "The Mentholatum Company"
+      ],
+      "product_ndc": [
+        "10742-8160"
+      ],
+      "product_type": [
+        "HUMAN OTC DRUG"
+      ],
+      "route": [
+        "OPHTHALMIC"
+      ],
+      "substance_name": [
+        "NAPHAZOLINE HYDROCHLORIDE",
+        "POVIDONE, UNSPECIFIED",
+        "PROPYLENE GLYCOL"
+      ],
+      "rxcui": [
+        "2531299"
+      ],
+      "spl_id": [
+        "5363276c-3a05-d0bc-e063-6394a90ab94e"
+      ],
+      "spl_set_id": [
+        "df9c5f7c-96e6-4b2b-b8cb-21a6a3342dff"
+      ],
+      "package_ndc": [
+        "10742-8160-1",
+        "3107420109"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "upc": [
+        "0310742010916",
+        "310742010916"
+      ],
+      "unii": [
+        "MZ1131787D",
+        "FZ989GH94E",
+        "6DC9Q167V3"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99440",
+    "recalling_firm": "Rohto-Mentholatum (Vietnam) Co., Ltd.",
+    "address_1": "No. 16 Vsip, Street No. 5",
+    "address_2": "Vietnam Singapore Industrial Park",
+    "postal_code": "N/A",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide within the United States",
+    "recall_number": "D-0718-2026",
+    "product_description": "Rohto Cooling Eye Drops Optic Glow (naphazoline hydrochloride 0.03%, povidone 0.5%, propylene glycol 0.2%), Sterile, 0.4 FL OZ (13 mL), Distributed by: The Mentholatum Company, Orchard Park, NY 14127, Made in Vietnam, UPC 310742010916, NDC 10742-8160-1",
+    "product_quantity": "1,278,457 cartons",
+    "reason_for_recall": "Lack of Assurance of Sterility",
+    "recall_initiation_date": "20260714",
+    "center_classification_date": "20260723",
+    "report_date": "20260729",
+    "code_info": "Lot #: 3H1V, 3H1VA, Exp. Date 2025/07; 3J1V, 3J2V, Exp. Date 2025/09;  3K1V, Exp. Date 2025/10; 4F1V, Exp. Date 2027/05; 4F1VA, Exp. Date 2027/05; 4H1V, Exp. Date 2027/07; 4I1V, Exp. Date 2027/08; 4K1V, 4K2V,Exp. Date 2027/10; 5A1V, 5A2V, Exp. Date 2027/12; 5D1V, Exp. Date 2028/03; 5E1V, Exp. Date2028/04; 5J1V, 5J2V, Exp. Date 2028/09; 6B1V, Exp. Date 2029/01; 6C1V, 6C1VA, 6C1VB, Exp. Date 2029/02."
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.237Z",
+    "contentHash": "7dff653dc49a913e55b7b1303f6480e2169a76ee05fa7138c9030d4820b411a3",
+    "contentType": "application/json",
+    "contentBytes": 2031,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.237Z",
+  "updatedAt": "2026-08-13T08:05:35.237Z"
+}

@@ -18,7 +18,10 @@ import { buildAdapterRegistry } from './adapters/index.js';
 import { SecretRegistry } from './secrets.js';
 import { SyncEngine } from './sync-engine.js';
 import { SyncScheduler } from './scheduler.js';
-import type { KnowledgeEvent } from './types.js';
+import type { KnowledgeArtifact, KnowledgeEvent } from './types.js';
+import { openSourceStore, loadManifest, type SourceManifest } from './adapters/base.js';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 
 export interface BootstrapOpts {
   storeDir: string;
@@ -33,6 +36,9 @@ export interface KnowledgeLayer {
   secrets: SecretRegistry;
   engine: SyncEngine;
   scheduler: SyncScheduler;
+  readManifest(sourceId: string): Promise<SourceManifest | null>;
+  readArtifact(sourceId: string, artifactId: string): Promise<KnowledgeArtifact | null>;
+  listArtifacts(sourceId: string, offset?: number, limit?: number): Promise<{ total: number; artifacts: KnowledgeArtifact[] }>;
 }
 
 /**
@@ -61,5 +67,27 @@ export function bootstrapKnowledgeLayer(opts: BootstrapOpts): KnowledgeLayer {
     engine,
     ...(forward ? { onEvent: forward } : {}),
   });
-  return { sources, adapters, secrets, engine, scheduler };
+  const readManifest = async (sourceId: string): Promise<SourceManifest | null> => {
+    const store = openSourceStore(opts.storeDir, sourceId);
+    if (!existsSync(store.manifestPath)) return null;
+    return loadManifest(store, sourceId);
+  };
+  const readArtifact = async (sourceId: string, artifactId: string): Promise<KnowledgeArtifact | null> => {
+    const store = openSourceStore(opts.storeDir, sourceId);
+    const manifest = loadManifest(store, sourceId);
+    const row = manifest.artifactIndex.find(r => r.id === artifactId);
+    if (!row) return null;
+    const path = join(store.root, row.path);
+    if (!existsSync(path)) return null;
+    return JSON.parse(readFileSync(path, 'utf8')) as KnowledgeArtifact;
+  };
+  const listArtifacts = async (sourceId: string, offset = 0, limit = 20): Promise<{ total: number; artifacts: KnowledgeArtifact[] }> => {
+    const manifest = await readManifest(sourceId);
+    if (!manifest) return { total: 0, artifacts: [] };
+    const rows = manifest.artifactIndex.slice(offset, offset + limit);
+    const artifacts: KnowledgeArtifact[] = [];
+    for (const r of rows) { const a = await readArtifact(sourceId, r.id); if (a) artifacts.push(a); }
+    return { total: manifest.artifactIndex.length, artifacts };
+  };
+  return { sources, adapters, secrets, engine, scheduler, readManifest, readArtifact, listArtifacts };
 }

@@ -1,0 +1,97 @@
+{
+  "id": "D-0681-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0681-2026 · TopCare Health, CARBAMIDE PEROXIDE 6.5%, 0.5 FL OZ (15 mL) a) Kit - WASHER BULB & DROPS INCLUDED (NDC 36800-835-33); b) ",
+  "summary": "SubPotent Drug: low pH and significantly reduced assay (~0.6% vs expected ~6 7%).",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Belle Plaine",
+    "state": "MN",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "M014"
+      ],
+      "brand_name": [
+        "TOPCARE EARWAX REMOVAL KIT"
+      ],
+      "generic_name": [
+        "CARBAMIDE PEROXIDE"
+      ],
+      "manufacturer_name": [
+        "TOPCO ASSOCIATES LLC"
+      ],
+      "product_ndc": [
+        "36800-835"
+      ],
+      "product_type": [
+        "HUMAN OTC DRUG"
+      ],
+      "route": [
+        "AURICULAR (OTIC)"
+      ],
+      "substance_name": [
+        "CARBAMIDE PEROXIDE"
+      ],
+      "rxcui": [
+        "702050"
+      ],
+      "spl_id": [
+        "2f394074-9ba2-6dff-e063-6294a90a2cad"
+      ],
+      "spl_set_id": [
+        "890cc9b6-41a5-480a-bc94-45c8d4fdeef3"
+      ],
+      "package_ndc": [
+        "36800-835-33",
+        "36800-835-34"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "upc": [
+        "0036800776913"
+      ],
+      "unii": [
+        "31PZ2VAU81"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99278",
+    "recalling_firm": "Bell Pharmaceuticals, Inc",
+    "address_1": "200 W Beaver St",
+    "address_2": "",
+    "postal_code": "56011-1894",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "U.S Nationwide",
+    "recall_number": "D-0681-2026",
+    "product_description": "TopCare Health, CARBAMIDE PEROXIDE 6.5%, 0.5 FL OZ (15 mL) a) Kit - WASHER BULB & DROPS INCLUDED (NDC 36800-835-33); b) 1 bottle (NDC 36800-835-34), DISTRIBUTED BY TOPCO ASSOCIATES LLC, ELK GROVE VILLAGE, IL 60007.",
+    "product_quantity": "16,156 units",
+    "reason_for_recall": "SubPotent Drug: low pH and significantly reduced assay (~0.6% vs expected ~6 7%).",
+    "recall_initiation_date": "20260625",
+    "center_classification_date": "20260714",
+    "report_date": "20260722",
+    "code_info": "Lot: a) 1505122, 1505343, expires: 2027-04; b) 1505142, 1505341, expires: 2027-04.",
+    "more_code_info": ""
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.237Z",
+    "contentHash": "eb5e0a36b3f45ea45c0438f22411fc4db04b2e97eae3d3574e93a9fe3a08af6d",
+    "contentType": "application/json",
+    "contentBytes": 1564,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.237Z",
+  "updatedAt": "2026-08-13T08:05:35.237Z"
+}

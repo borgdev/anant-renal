@@ -1,0 +1,92 @@
+{
+  "id": "D-0732-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0732-2026 · Cetirizine Hydrochloride Tablets USP 5 mg, 100-count bottle, Manufactured by: Unique Pharmaceuticals Labs, (A Div. of J.",
+  "summary": "Cross Contamination with Other Products: Customer complaints for appearance of  discolored tablets and red dots observed on Cetirizine Hydrochloride Tablets USP 5 mg. Determined to be Ranitidine.",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Mumbai",
+    "state": "N/A",
+    "country": "India",
+    "classification": "Class I",
+    "openfda": {
+      "application_number": [
+        "ANDA077829"
+      ],
+      "brand_name": [
+        "CETIRIZINE HYDROCHLORIDE"
+      ],
+      "generic_name": [
+        "CETIRIZINE HYDROCHLORIDE"
+      ],
+      "manufacturer_name": [
+        "Rising Pharma Holdings, Inc."
+      ],
+      "product_ndc": [
+        "16571-401"
+      ],
+      "product_type": [
+        "HUMAN OTC DRUG"
+      ],
+      "route": [
+        "ORAL"
+      ],
+      "substance_name": [
+        "CETIRIZINE HYDROCHLORIDE"
+      ],
+      "rxcui": [
+        "1014676"
+      ],
+      "spl_id": [
+        "37fb3dd8-d5bf-46e4-8331-0c8c1eac540d"
+      ],
+      "spl_set_id": [
+        "6493d4f6-dead-45ec-ade1-28ce624af33d"
+      ],
+      "package_ndc": [
+        "16571-401-10"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "unii": [
+        "64O047KTOA"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99321",
+    "recalling_firm": "JB Chemicals and Pharmaceuticals Ltd",
+    "address_1": "Neelam Centre A Wing A B Wing",
+    "address_2": "4th Floor; Hind Cycle Road",
+    "postal_code": "N/A",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide in the USA",
+    "recall_number": "D-0732-2026",
+    "product_description": "Cetirizine Hydrochloride Tablets USP 5 mg, 100-count bottle, Manufactured by: Unique Pharmaceuticals Labs, (A Div. of J.B. Chemicals & Pharmaceuticals, Ltd.), Mumbai 400 030, India. Distributed by: Rising Pharma Holdings, Inc., East Brunswick, NJ 08816, NDC 16571-401-10.",
+    "product_quantity": "34,020 100-count bottles.",
+    "reason_for_recall": "Cross Contamination with Other Products: Customer complaints for appearance of  discolored tablets and red dots observed on Cetirizine Hydrochloride Tablets USP 5 mg. Determined to be Ranitidine.",
+    "recall_initiation_date": "20260624",
+    "center_classification_date": "20260803",
+    "report_date": "20260729",
+    "code_info": "Lots: GY825029, GY825030, GY825031, GY825032, expires: 2028-OCT"
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.238Z",
+    "contentHash": "3033d5eccb3a4008c9f0996b1e6988173cde099f356808675a16ccb75f0ca435",
+    "contentType": "application/json",
+    "contentBytes": 1720,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.238Z",
+  "updatedAt": "2026-08-13T08:05:35.238Z"
+}

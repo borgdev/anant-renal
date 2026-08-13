@@ -1,0 +1,213 @@
+{
+  "id": "D-0728-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0728-2026 · Xylocaine (lidocaine HCl Injection, USP), 1%, 200 mg per 20 mL (10 mg per mL), 25 Multiple-Dose Vials, 20 mL, Rx only, S",
+  "summary": "Presence of Particulate Matter: Hair was found in products",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Lake Zurich",
+    "state": "IL",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "NDA006488"
+      ],
+      "brand_name": [
+        "XYLOCAINE"
+      ],
+      "generic_name": [
+        "LIDOCAINE HYDROCHLORIDE,EPINEPHRINE BITARTRATE"
+      ],
+      "manufacturer_name": [
+        "Fresenius Kabi USA, LLC"
+      ],
+      "product_ndc": [
+        "63323-481",
+        "63323-492",
+        "63323-491",
+        "63323-495",
+        "63323-485",
+        "63323-486",
+        "63323-484",
+        "63323-489",
+        "63323-488",
+        "63323-483",
+        "63323-482",
+        "63323-487"
+      ],
+      "product_type": [
+        "HUMAN PRESCRIPTION DRUG"
+      ],
+      "route": [
+        "INFILTRATION",
+        "PERINEURAL"
+      ],
+      "substance_name": [
+        "LIDOCAINE HYDROCHLORIDE ANHYDROUS",
+        "EPINEPHRINE BITARTRATE"
+      ],
+      "rxcui": [
+        "1010033",
+        "1010035",
+        "1010671",
+        "1010673",
+        "1010688",
+        "1010692",
+        "1010745",
+        "1010749",
+        "1010751",
+        "1010755",
+        "1010759",
+        "1010763",
+        "1010900",
+        "1010902",
+        "1737343",
+        "1737345",
+        "1737562",
+        "1737563",
+        "1737566",
+        "1737567",
+        "1737568",
+        "1737569",
+        "1737570",
+        "1737571",
+        "1737757",
+        "1737758",
+        "1737761",
+        "1737762",
+        "1867938",
+        "1867940",
+        "1867943",
+        "1867944",
+        "1867992",
+        "1867993",
+        "1867996",
+        "1867997",
+        "1868028",
+        "1868029"
+      ],
+      "spl_id": [
+        "ea480a68-5927-4278-9deb-2956961da428"
+      ],
+      "spl_set_id": [
+        "ba082c2f-64f4-419d-9c88-74f203316e17"
+      ],
+      "package_ndc": [
+        "63323-492-04",
+        "63323-492-27",
+        "63323-492-09",
+        "63323-492-57",
+        "63323-492-07",
+        "63323-492-37",
+        "63323-492-03",
+        "63323-492-31",
+        "63323-491-01",
+        "63323-491-57",
+        "63323-495-09",
+        "63323-495-27",
+        "63323-495-04",
+        "63323-495-07",
+        "63323-485-01",
+        "63323-485-27",
+        "63323-485-03",
+        "63323-485-57",
+        "63323-486-01",
+        "63323-486-17",
+        "63323-486-02",
+        "63323-486-27",
+        "63323-486-05",
+        "63323-486-57",
+        "63323-484-57",
+        "63323-489-02",
+        "63323-489-27",
+        "63323-489-03",
+        "63323-489-21",
+        "63323-489-01",
+        "63323-489-17",
+        "63323-488-07",
+        "63323-488-37",
+        "63323-488-03",
+        "63323-488-31",
+        "63323-488-01",
+        "63323-488-17",
+        "63323-481-01",
+        "63323-481-57",
+        "63323-483-03",
+        "63323-483-27",
+        "63323-483-01",
+        "63323-483-57",
+        "63323-482-01",
+        "63323-482-17",
+        "63323-482-03",
+        "63323-482-27",
+        "63323-482-05",
+        "63323-482-57",
+        "63323-487-01",
+        "63323-487-17",
+        "63323-487-07",
+        "63323-487-37",
+        "63323-487-03",
+        "63323-487-31"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "upc": [
+        "0363323484576",
+        "0363323485016",
+        "0363323483036",
+        "0363323487072",
+        "0363323486013",
+        "0363323495091",
+        "0363323488079",
+        "0363323489021",
+        "0363323495046",
+        "0363323491017",
+        "0363323492045",
+        "0363323492090",
+        "0363323482015",
+        "0363323481018"
+      ],
+      "unii": [
+        "EC2CNF7XFP",
+        "30Q7KI53AK"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99449",
+    "recalling_firm": "Fresenius Kabi USA, LLC",
+    "address_1": "3 Corporate Dr",
+    "address_2": "N/A",
+    "postal_code": "60047-8930",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide within in the USA",
+    "recall_number": "D-0728-2026",
+    "product_description": "Xylocaine (lidocaine HCl Injection, USP), 1%, 200 mg per 20 mL (10 mg per mL), 25 Multiple-Dose Vials, 20 mL, Rx only, Sterile,  Fresenius Kabi, Lake Zurich, IL 60047 NDC Tray: 63323-485-27; NDC Vial:  63323-485-01",
+    "product_quantity": "93,250 vials",
+    "reason_for_recall": "Presence of Particulate Matter: Hair was found in products",
+    "recall_initiation_date": "20260716",
+    "center_classification_date": "20260723",
+    "report_date": "20260729",
+    "code_info": "Lot #: 6130235, Exp. Date 02/2027"
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.235Z",
+    "contentHash": "7725a8eccd882b0af1568876a59654b2fd73f55c2da765232154f5836e05e71c",
+    "contentType": "application/json",
+    "contentBytes": 3081,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.235Z",
+  "updatedAt": "2026-08-13T08:05:35.235Z"
+}

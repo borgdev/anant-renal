@@ -1,0 +1,151 @@
+{
+  "id": "D-0708-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0708-2026 · Levothyroxine Sodium Tablets, USP, 50 mcg (0.050 mg), 10 Tablets (10 x 1) unit dose blisters per carton, Rx only, Packag",
+  "summary": "Subpotent Drug",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Dublin",
+    "state": "OH",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "ANDA209713"
+      ],
+      "brand_name": [
+        "LEVOTHYROXINE SODIUM"
+      ],
+      "generic_name": [
+        "LEVOTHYROXINE SODIUM"
+      ],
+      "manufacturer_name": [
+        "Cardinal Health 107, LLC",
+        "Major Pharmaceuticals"
+      ],
+      "product_ndc": [
+        "55154-3558",
+        "55154-3559",
+        "55154-3560",
+        "55154-4309",
+        "55154-3561",
+        "55154-3562",
+        "55154-3563",
+        "0904-6949",
+        "0904-6950",
+        "0904-6951",
+        "0904-6952",
+        "0904-6953",
+        "0904-6954",
+        "0904-6955",
+        "0904-6956",
+        "0904-6957"
+      ],
+      "product_type": [
+        "HUMAN PRESCRIPTION DRUG"
+      ],
+      "route": [
+        "ORAL"
+      ],
+      "substance_name": [
+        "LEVOTHYROXINE SODIUM"
+      ],
+      "rxcui": [
+        "892246",
+        "966220",
+        "966221",
+        "966222",
+        "966224",
+        "966225",
+        "966253",
+        "966248",
+        "966249"
+      ],
+      "spl_id": [
+        "1708f9ee-1578-432d-8d8c-e8192dd53b52",
+        "942c00a3-b31c-48d5-a63d-6d394645ee1f"
+      ],
+      "spl_set_id": [
+        "31a31756-68aa-4e01-bbb1-9d181f8d9181",
+        "333642fd-93ae-4dc0-9c83-6d6b163c1c74"
+      ],
+      "package_ndc": [
+        "55154-3558-0",
+        "55154-3559-0",
+        "55154-3560-0",
+        "55154-4309-0",
+        "55154-3561-0",
+        "55154-3562-0",
+        "55154-3563-0",
+        "0904-6949-61",
+        "0904-6950-61",
+        "0904-6951-61",
+        "0904-6952-61",
+        "0904-6953-61",
+        "0904-6954-61",
+        "0904-6955-61",
+        "0904-6956-61",
+        "0904-6957-61"
+      ],
+      "original_packager_product_ndc": [
+        "0904-6949",
+        "0904-6950",
+        "0904-6951",
+        "0904-6952",
+        "0904-6953",
+        "0904-6955",
+        "0904-6956",
+        "68180-965",
+        "68180-966",
+        "68180-967",
+        "68180-968",
+        "68180-969",
+        "68180-970",
+        "68180-971",
+        "68180-973",
+        "68180-974"
+      ],
+      "upc": [
+        "0055154356305"
+      ],
+      "unii": [
+        "9J765S329G"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99399",
+    "recalling_firm": "Major Pharmaceuticals",
+    "address_1": "7000 Cardinal Pl",
+    "address_2": "N/A",
+    "postal_code": "43017-1091",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide in the USA.",
+    "recall_number": "D-0708-2026",
+    "product_description": "Levothyroxine Sodium Tablets, USP, 50 mcg (0.050 mg), 10 Tablets (10 x 1) unit dose blisters per carton, Rx only, Packaged and Distributed by: MAJOR PHARMACEUTICALS, Indianapolis, IN 46268 USA. Distributed by Cardinal Health, Dublin, OH 43017. NDC Bag: 55154-3559-0; NDC Blister: 0904-6950-61",
+    "product_quantity": "N/A",
+    "reason_for_recall": "Subpotent Drug",
+    "recall_initiation_date": "20260713",
+    "center_classification_date": "20260717",
+    "report_date": "20260729",
+    "code_info": "Bag lot #: N02200A, N02200B, Exp. Date 10/2026; Blister lot #: N02200, Exp. Date 10/2026"
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.237Z",
+    "contentHash": "f75457ec68cc70816981b2458cc6d13a9343d380e464089d2bf0d065d37698ef",
+    "contentType": "application/json",
+    "contentBytes": 2326,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.237Z",
+  "updatedAt": "2026-08-13T08:05:35.237Z"
+}

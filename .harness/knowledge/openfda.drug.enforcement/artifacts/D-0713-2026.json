@@ -1,0 +1,92 @@
+{
+  "id": "D-0713-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0713-2026 · Lidolog Kit, Kit Contains: Lidocaine HCl Injection, USP, 2% (2mL) vial, 1 Dose, Single use Only, Rx Only, Distributed by",
+  "summary": "Labeling: Not Elsewhere Classified: The label wrap covers the barcode, making it hard to scan",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Torrance",
+    "state": "CA",
+    "country": "United States",
+    "classification": "Class III",
+    "openfda": {
+      "brand_name": [
+        "LIDOLOG KIT"
+      ],
+      "generic_name": [
+        "LIDOCAINE, KENALOG, POVIDONE IODINE"
+      ],
+      "manufacturer_name": [
+        "Asclemed USA, Inc."
+      ],
+      "product_ndc": [
+        "76420-760"
+      ],
+      "product_type": [
+        "HUMAN PRESCRIPTION DRUG"
+      ],
+      "route": [
+        "EPIDURAL",
+        "INFILTRATION",
+        "INTRA-ARTICULAR",
+        "INTRAMUSCULAR",
+        "TOPICAL"
+      ],
+      "rxcui": [
+        "1737757",
+        "1792144",
+        "797730"
+      ],
+      "spl_id": [
+        "47db1f9e-f201-2918-e063-6394a90a82e9"
+      ],
+      "spl_set_id": [
+        "069e145d-7992-4f56-9fcb-20782ecc2d53"
+      ],
+      "package_ndc": [
+        "76420-760-01",
+        "55150-164-02",
+        "70121-1049-5",
+        "67777-419-02"
+      ],
+      "is_original_packager": [
+        true
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99408",
+    "recalling_firm": "Asclemed USA Inc.",
+    "address_1": "379 Van Ness Ave Ste 1403",
+    "address_2": "N/A",
+    "postal_code": "90501-7211",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "E-Mail",
+    "distribution_pattern": "Within U.S. - Tennessee",
+    "recall_number": "D-0713-2026",
+    "product_description": "Lidolog Kit, Kit Contains: Lidocaine HCl Injection, USP, 2% (2mL) vial, 1 Dose, Single use Only, Rx Only, Distributed by: Enovachem Pharmaceuticals, Torrance, CA 90501, NDC: 76420-760-01.",
+    "product_quantity": "18 kits",
+    "reason_for_recall": "Labeling: Not Elsewhere Classified: The label wrap covers the barcode, making it hard to scan",
+    "recall_initiation_date": "20260715",
+    "center_classification_date": "20260720",
+    "report_date": "20260729",
+    "code_info": "Lot: 070126X1, Exp. 12/31/2027."
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.236Z",
+    "contentHash": "54b9cdd7824f4fd6ded0b9a1bcaf4205f25a969f22d1332c6524fb69f855717d",
+    "contentType": "application/json",
+    "contentBytes": 1478,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.236Z",
+  "updatedAt": "2026-08-13T08:05:35.236Z"
+}

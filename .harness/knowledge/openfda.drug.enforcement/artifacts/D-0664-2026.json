@@ -1,0 +1,49 @@
+{
+  "id": "D-0664-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0664-2026 · Methohexital Sodium, 100 mg/10 mL (10 mg/mL), Total Volume: 10 mL, Rx only, Compounded drug, QuVa Pharma, 1075 W Park On",
+  "summary": "Failed Impurities/Degradation Specifications",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Sugar Land",
+    "state": "TX",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {},
+    "product_type": "Drugs",
+    "event_id": "99311",
+    "recalling_firm": "QuVa Pharma, Inc.",
+    "address_1": "1075 W Park One Dr Ste 100",
+    "address_2": "N/A",
+    "postal_code": "77478-2576",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Two or more of the following: Email, Fax, Letter, Press Release, Telephone, Visit",
+    "distribution_pattern": "Nationwide within the United States",
+    "recall_number": "D-0664-2026",
+    "product_description": "Methohexital Sodium, 100 mg/10 mL (10 mg/mL), Total Volume: 10 mL, Rx only, Compounded drug, QuVa Pharma, 1075 W Park One Dr, Suite 100, Sugar Land, TX 77478, Product code: 70092-1310-46.",
+    "product_quantity": "N/A",
+    "reason_for_recall": "Failed Impurities/Degradation Specifications",
+    "recall_initiation_date": "20260624",
+    "center_classification_date": "20260707",
+    "report_date": "20260715",
+    "code_info": "Lot #: 10162261, 10162262, 10162279, 10162280, Exp. Date 07/21/2026; 10162314, 10162315, Exp. Date 07/22/2026; 10162465, 10162466, 10162491, 10162492, Exp. Date 07/26/2026; 10162542, 10162543, Exp. Date 07/27/2026; 10162559, 10162560, Exp. Date 07/28/2026; 10162623, 10162624, Exp. Date 07/29/2026; 10162693, 10162694, Exp. Date 07/30/2026;  10162735, 10162736, 10162753, 10162754, Exp. Date 07/31/2026; 10162772, 10162773, 10162791, 10162792, 10162810, 10162811, Exp. Date 08/02/2026; 10162820, Exp. Date 08/03/2026; 10162853, 10162854, Exp. Date 08/04/2026; 10163046, Exp. Date 08/09/2026; 10163156, 10163157, Exp. Date 08/10/2026."
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.238Z",
+    "contentHash": "18179907a4bb81f3b161096c9cd67974d209b6b428f2f81f07dc21b9ab66c105",
+    "contentType": "application/json",
+    "contentBytes": 1590,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.238Z",
+  "updatedAt": "2026-08-13T08:05:35.238Z"
+}

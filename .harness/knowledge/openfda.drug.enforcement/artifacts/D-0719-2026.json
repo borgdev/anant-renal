@@ -1,0 +1,98 @@
+{
+  "id": "D-0719-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0719-2026 · Rohto Cooling Eye Drops Digi Eye (hypromellose 0.35%, tetrahydrozoline HCl 0.05%), Sterile, 0.4 FL OZ (13 mL), Distribut",
+  "summary": "Lack of Assurance of Sterility",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Ho Chi Minh",
+    "state": "N/A",
+    "country": "Vietnam",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "M018"
+      ],
+      "brand_name": [
+        "ROHTO DIGI-EYE"
+      ],
+      "generic_name": [
+        "HYPROMELLOSE, TETRAHYDROZOLINE HYDROCHLORIDE"
+      ],
+      "manufacturer_name": [
+        "The Mentholatum Company"
+      ],
+      "product_ndc": [
+        "10742-8175"
+      ],
+      "product_type": [
+        "HUMAN OTC DRUG"
+      ],
+      "route": [
+        "OPHTHALMIC"
+      ],
+      "substance_name": [
+        "HYPROMELLOSE, UNSPECIFIED",
+        "TETRAHYDROZOLINE HYDROCHLORIDE"
+      ],
+      "rxcui": [
+        "1098644"
+      ],
+      "spl_id": [
+        "5363969d-75c3-8036-e063-6394a90ae420"
+      ],
+      "spl_set_id": [
+        "5d6f37b9-b568-4cb6-92de-eb40779f3f8c"
+      ],
+      "package_ndc": [
+        "10742-8175-1",
+        "3107420106"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "unii": [
+        "3NXW29V3WO",
+        "0YZT43HS7D"
+      ],
+      "upc": [
+        "310742010602"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99440",
+    "recalling_firm": "Rohto-Mentholatum (Vietnam) Co., Ltd.",
+    "address_1": "No. 16 Vsip, Street No. 5",
+    "address_2": "Vietnam Singapore Industrial Park",
+    "postal_code": "N/A",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide within the United States",
+    "recall_number": "D-0719-2026",
+    "product_description": "Rohto Cooling Eye Drops Digi Eye (hypromellose 0.35%, tetrahydrozoline HCl 0.05%), Sterile, 0.4 FL OZ (13 mL), Distributed by: The Mentholatum Company, Orchard Park, NY 14127, Made in Vietnam, UPC 310742010602, NDC 10742-8175-1",
+    "product_quantity": "65219 cartons",
+    "reason_for_recall": "Lack of Assurance of Sterility",
+    "recall_initiation_date": "20260714",
+    "center_classification_date": "20260723",
+    "report_date": "20260729",
+    "code_info": "Lot #: 4B1V, 4B1VA, Exp. Date 2027/01; 4J1V, Exp. Date 2027/09"
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.235Z",
+    "contentHash": "e0c8f8a402995b2d193e3a0683c185ed014ed08bc319dbd479abfa3ad2ae160b",
+    "contentType": "application/json",
+    "contentBytes": 1613,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.235Z",
+  "updatedAt": "2026-08-13T08:05:35.235Z"
+}

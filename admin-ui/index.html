@@ -136,7 +136,8 @@
       <div class="nav-item" data-view="measures">CMS measures <span class="count" id="c-measures">—</span></div>
       <div class="nav-item" data-view="assessments">Assessments <span class="count" id="c-assessments">—</span></div>
       <div class="nav-item" data-view="lifecycle">Patient lifecycle</div>
-      <div class="nav-item" data-view="research">Research sources <span class="count" id="c-research">—</span></div>
+      <div class="nav-item" data-view="research">Knowledge sources <span class="count" id="c-research">—</span></div>
+      <div class="nav-item" data-view="learn">Learn</div>
     </div>
     <div class="nav-section">
       <div class="label">World</div>
@@ -339,6 +340,7 @@ async function render() {
   if (view === 'assessments') return renderAssessments();
   if (view === 'lifecycle') return renderLifecycle();
   if (view === 'research') return renderResearch();
+  if (view === 'learn') return renderLearn();
   if (view === 'audit') return renderAudit();
 }
 
@@ -732,14 +734,150 @@ async function renderLifecycle() {
     </div>
   `;
 }
+// ---------- M20 Knowledge browser (universal — folds Research+Pharma) ----------
+let knowledgeFilter = { category: '', tier: '', domain: '' };
 async function renderResearch() {
-  const d = await api('GET', '/admin/research/sources');
+  const q = new URLSearchParams();
+  if (knowledgeFilter.category) q.set('category', knowledgeFilter.category);
+  if (knowledgeFilter.tier) q.set('tier', knowledgeFilter.tier);
+  if (knowledgeFilter.domain) q.set('clinicalDomain', knowledgeFilter.domain);
+  const [d, reach] = await Promise.all([
+    api('GET', '/admin/knowledge/sources' + (q.toString() ? '?' + q : '')),
+    api('GET', '/admin/knowledge/reach'),
+  ]);
+  const cats = [...new Set(d.sources.map(s => s.category))].sort();
+  const tiers = [...new Set(d.sources.map(s => s.tier))].sort();
+  const doms = [...new Set(d.sources.flatMap(s => s.clinicalDomains))].sort();
+  const reachMap = Object.fromEntries((reach.table || []).map(r => [r.sourceId, r]));
+  const grouped = {}; for (const s of d.sources) (grouped[s.category] ??= []).push(s);
   main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Research + pharma sources</h2><p class="page-sub">${d.count} public data sources agents can query for clinical trials, drugs, evidence.</p></div></div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>ID</th><th>Name</th><th>Kind</th><th>URL</th></tr></thead>
-      <tbody>${d.sources.map(s => `<tr><td><code>${esc(s.id)}</code></td><td>${esc(s.name)}</td><td><span class="pill muted">${esc(s.kind || '')}</span></td><td><a href="${esc(s.baseUrl || s.url || '#')}" target="_blank">${esc(s.baseUrl || s.url || '')}</a></td></tr>`).join('')}</tbody>
-    </table></div>
+    <div class="page-header"><div>
+      <h2 class="page-title">Knowledge sources</h2>
+      <p class="page-sub">${d.sources.length} sources across ${cats.length} categories. Every artifact carries source, version, hash, and fetch time. Click a card to view provenance or sync now.</p>
+    </div></div>
+    <div class="filters" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <select onchange="knowledgeFilter.category=this.value;renderResearch()"><option value="">All categories</option>${cats.map(c => `<option${c===knowledgeFilter.category?' selected':''}>${esc(c)}</option>`).join('')}</select>
+      <select onchange="knowledgeFilter.tier=this.value;renderResearch()"><option value="">All tiers</option>${tiers.map(t => `<option${t===knowledgeFilter.tier?' selected':''}>${esc(t)}</option>`).join('')}</select>
+      <select onchange="knowledgeFilter.domain=this.value;renderResearch()"><option value="">All domains</option>${doms.map(x => `<option${x===knowledgeFilter.domain?' selected':''}>${esc(x)}</option>`).join('')}</select>
+      <button class="btn" onclick="runDueSources()">Run all due syncs</button>
+    </div>
+    ${Object.entries(grouped).map(([cat, srcs]) => `
+      <h3 style="margin:20px 0 10px">${esc(cat)} <span class="pill muted">${srcs.length}</span></h3>
+      <div class="knowledge-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">
+        ${srcs.map(s => sourceCard(s, reachMap[s.id])).join('')}
+      </div>
+    `).join('')}
+    <div id="provenance-drawer" class="drawer" style="position:fixed;right:-560px;top:0;bottom:0;width:540px;background:#fff;border-left:1px solid #ddd;padding:20px;overflow:auto;transition:right .2s;z-index:100;box-shadow:-4px 0 12px rgba(0,0,0,.08)"></div>
+  `;
+}
+function sourceCard(s, reach) {
+  const needs = (s.credentialsRequired || []).filter(f => f.required !== false);
+  const setKeys = new Set(s.credentialsSet || []);
+  const missing = needs.filter(f => !setKeys.has(f.name));
+  const badge = needs.length === 0 ? '<span class="pill good">Public</span>' : missing.length === 0 ? '<span class="pill good">Credentials set</span>' : `<span class="pill bad">${missing.length} credential${missing.length>1?'s':''} needed</span>`;
+  const packsPill = reach ? `<span class="pill muted" title="${(reach.packs||[]).join(', ')}">${reach.packs.length} pack${reach.packs.length!==1?'s':''}</span>` : '';
+  const last = s.lastSyncedAt ? new Date(s.lastSyncedAt).toLocaleString() : 'never';
+  return `<div class="card" style="padding:16px;border:1px solid #e5e5e5;border-radius:8px">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:8px"><strong>${esc(s.name)}</strong>${badge}</div>
+    <div class="muted" style="font-size:12px;margin-top:4px"><code>${esc(s.id)}</code> · ${esc(s.publisher)} · ${esc(s.tier)} · cadence <code>${esc(s.cadence)}</code></div>
+    <div class="muted" style="font-size:12px;margin-top:6px">${packsPill} · ${s.artifactCount} artifacts · last synced ${last}</div>
+    <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+      ${needs.length > 0 ? `<button class="btn" onclick="openCredentialSheet('${esc(s.id)}')">Credentials</button>` : ''}
+      <button class="btn primary" onclick="syncSource('${esc(s.id)}',this)">Sync now</button>
+      <button class="btn" onclick="openProvenance('${esc(s.id)}')">Provenance</button>
+    </div>
+  </div>`;
+}
+async function syncSource(id, btn) {
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Syncing…';
+  try {
+    const r = await api('POST', `/admin/knowledge/sync/${encodeURIComponent(id)}`, {});
+    btn.textContent = r.ok ? `${r.summary.totalExtracted} artifacts` : 'Failed';
+    if (r.ok) setTimeout(() => renderResearch(), 800);
+  } catch (e) { btn.textContent = 'Error'; }
+  setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 2500);
+}
+async function runDueSources() {
+  const r = await api('POST', '/admin/knowledge/schedule/run-due', {});
+  alert(`Ran ${r.results?.length ?? 0} due syncs`);
+  renderResearch();
+}
+async function openProvenance(id) {
+  const drawer = document.getElementById('provenance-drawer');
+  drawer.innerHTML = 'Loading…'; drawer.style.right = '0';
+  const [spec, arts] = await Promise.all([
+    api('GET', `/admin/knowledge/sources/${encodeURIComponent(id)}`),
+    api('GET', `/admin/knowledge/artifacts/${encodeURIComponent(id)}?limit=25`),
+  ]);
+  drawer.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center"><h3>${esc(spec.spec.name)}</h3><button class="btn" onclick="document.getElementById('provenance-drawer').style.right='-560px'">Close</button></div>
+    <div class="muted" style="font-size:12px">${esc(spec.spec.id)} · ${esc(spec.spec.publisher)}</div>
+    <p>${esc(spec.spec.description || '')}</p>
+    <p><a href="${esc(spec.spec.homepage)}" target="_blank">Publisher homepage</a></p>
+    ${spec.manifest ? `<div class="muted" style="font-size:12px">Last sync ${new Date(spec.manifest.lastSyncedAt).toLocaleString()} · upstream ${esc(spec.manifest.upstreamVersion || 'n/a')} · ${spec.manifest.artifactIndex.length} artifacts</div>` : '<div class="muted">Not yet synced.</div>'}
+    <h4 style="margin-top:16px">Latest artifacts (${arts.total})</h4>
+    <ul style="padding-left:16px">${(arts.artifacts||[]).map(a => `<li><a href="${esc(a.upstream.rawUrl)}" target="_blank">${esc(a.title)}</a><div class="muted" style="font-size:11px">sha256 ${esc(a.upstream.contentHash.slice(0,16))}… · fetched ${new Date(a.upstream.fetchedAt).toLocaleString()}</div></li>`).join('')}</ul>
+  `;
+}
+async function openCredentialSheet(id) {
+  const drawer = document.getElementById('provenance-drawer');
+  drawer.innerHTML = 'Loading…'; drawer.style.right = '0';
+  const [creds, spec] = await Promise.all([
+    api('GET', `/admin/knowledge/credentials/${encodeURIComponent(id)}`),
+    api('GET', `/admin/knowledge/sources/${encodeURIComponent(id)}`),
+  ]);
+  const setup = creds.spec;
+  drawer.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center"><h3>Set credentials — ${esc(spec.spec.name)}</h3><button class="btn" onclick="document.getElementById('provenance-drawer').style.right='-560px'">Close</button></div>
+    ${setup ? `
+      <p>${esc(setup.description || '')}</p>
+      <p><strong>${esc(setup.registerLabel)}</strong>: <a href="${esc(setup.registerUrl)}" target="_blank">${esc(setup.registerUrl)}</a></p>
+      <p class="muted" style="font-size:12px">Estimated ${esc(setup.estimatedTime)} · ${esc(setup.cost)}</p>
+      <h4>Steps</h4>
+      <ol>${(setup.steps||[]).map(s => `<li>${esc(s.text)}${s.link ? ` <a href="${esc(s.link.url)}" target="_blank">${esc(s.link.label)}</a>` : ''}${s.subSteps ? `<ul>${s.subSteps.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</li>`).join('')}</ol>
+      <h4>Fields</h4>
+      <form id="cred-form">${(setup.fields||[]).map(f => `
+        <div class="form-row" style="margin:8px 0"><label>${esc(f.label)}</label><input type="${f.kind==='password'?'password':'text'}" name="${esc(f.name)}" placeholder="${esc(f.placeholder||'')}" ${f.required===false?'':'required'}></div>
+      `).join('')}</form>
+      <div style="display:flex;gap:6px;margin-top:12px">
+        <button class="btn primary" onclick="saveCreds('${esc(id)}')">Save</button>
+        <button class="btn" onclick="testCreds('${esc(id)}',this)">Test</button>
+      </div>
+      <div id="cred-status" class="muted" style="margin-top:10px"></div>
+    ` : '<p class="muted">No credentials required for this source.</p>'}
+  `;
+}
+async function saveCreds(id) {
+  const fd = new FormData(document.getElementById('cred-form'));
+  for (const [k, v] of fd.entries()) {
+    await api('POST', `/admin/knowledge/credentials/${encodeURIComponent(id)}`, { key: k, value: String(v) });
+  }
+  const s = document.getElementById('cred-status'); s.textContent = 'Saved.';
+}
+async function testCreds(id, btn) {
+  btn.disabled = true; const s = document.getElementById('cred-status'); s.textContent = 'Testing…';
+  try { const r = await api('POST', `/admin/knowledge/test-credential/${encodeURIComponent(id)}`, {}); s.textContent = (r.ok ? '✓ ' : '✗ ') + (r.message || ''); }
+  catch (e) { s.textContent = 'Test failed: ' + e.message; }
+  btn.disabled = false;
+}
+// ---------- M20m Learn hub ----------
+async function renderLearn() {
+  const recipes = [
+    { id: 'sync-vsac', title: 'Set up VSAC value-set expansion', body: 'Register a UMLS account, paste the API key into the VSAC source card, click Test, then Sync now. Value sets for CMS165 (Controlling High Blood Pressure) and CMS122 (Diabetes A1c) will appear as artifacts.', action: { label: 'Open VSAC card', view: 'research' } },
+    { id: 'sync-kdigo', title: 'Refresh KDIGO guideline snapshots', body: 'The KDIGO CKD guideline is fetched via the PubMed adapter (search terms include "chronic kidney disease"). Trigger a sync and open the provenance drawer to see the latest PMIDs.', action: { label: 'Sync PubMed', view: 'research' } },
+    { id: 'trace-measure', title: 'Trace a CMS eCQM to its source paragraph', body: 'Open the Knowledge browser, filter by publisher CMS, click the CMS eCQMs card, open Provenance, and follow any Measure→Library link to the exact FHIR resource on GitHub with SHA-256 verification.', action: { label: 'Browse eCQMs', view: 'measures' } },
+    { id: 'ingest-local', title: 'Upload a facility policy PDF (Local Corpus)', body: 'Facility-specific policies live in Realm → Local Corpus. Uploaded documents run through the M19 entity compiler and produce provenance-tracked artifacts scoped to your realm only.', action: { label: 'Open Realm', view: 'realm' } },
+    { id: 'run-agent', title: 'Ask a knowledge-aware agent', body: 'Every published agent has access to the full Knowledge tool bus (list_sources, sync_source, get_artifact, trace_provenance). Try: "Cite the CMS165 numerator criteria and show me the value set expansion."', action: { label: 'Open agents', view: 'agents' } },
+  ];
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Learn</h2><p class="page-sub">Short recipes for the most common Knowledge, Realm, and Agent workflows. Each one has a scoped Run-it-now.</p></div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px">
+      ${recipes.map(r => `<div class="card" style="padding:16px;border:1px solid #e5e5e5;border-radius:8px">
+        <h3 style="margin:0 0 6px">${esc(r.title)}</h3>
+        <p style="color:#555">${esc(r.body)}</p>
+        <button class="btn primary" onclick="nav.querySelector('[data-view=${r.action.view}]').click()">${esc(r.action.label)}</button>
+      </div>`).join('')}
+    </div>
   `;
 }
 
@@ -783,7 +921,28 @@ async function renderRealm() {
     </div>
     <h3 style="margin: 24px 0 12px;">Facility-scoped agents (no unit assignment)</h3>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">${r.presences.filter(p => !p.location.unitId).map(p => `<span class="pill">${esc(p.role)}: ${esc(p.agentSpecId)}</span>`).join('') || '<span class="muted">none</span>'}</div>
+    <h3 style="margin: 32px 0 12px;">Local Corpus — facility policies + protocols</h3>
+    <p class="page-sub" style="margin-bottom:12px">Upload facility-owned PDFs (dialysis reuse policy, sepsis bundle, custom order sets). They flow through the entity compiler and become realm-scoped knowledge artifacts, sitting alongside the public sources in the Knowledge browser but visible only to agents inside this realm.</p>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <input type="file" id="local-corpus-upload" accept=".pdf,.md,.txt,.json" />
+      <button class="btn primary" onclick="uploadLocalCorpus()">Ingest to realm</button>
+      <span class="muted" style="font-size:12px">Entity compiler will extract measures, protocols, and cross-link to public sources when possible.</span>
+    </div>
+    <div id="local-corpus-list" class="muted" style="margin-top:12px;font-size:12px">No documents ingested yet.</div>
   `;
+}
+async function uploadLocalCorpus() {
+  const input = document.getElementById('local-corpus-upload');
+  if (!input.files || !input.files[0]) { alert('Pick a file first.'); return; }
+  const file = input.files[0];
+  const status = document.getElementById('local-corpus-list');
+  status.textContent = `Ingesting ${file.name} …`;
+  try {
+    const buf = await file.arrayBuffer();
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    const r = await api('POST', '/admin/realms/demo/local-corpus', { filename: file.name, mimeType: file.type || 'application/octet-stream', dataBase64: b64 });
+    status.textContent = r.ok ? `✓ Ingested — ${r.artifactId} (sha256 ${r.hash?.slice(0, 16)}…)` : `Failed: ${r.error}`;
+  } catch (e) { status.textContent = 'Upload failed: ' + e.message; }
 }
 
 async function renderPresences() {

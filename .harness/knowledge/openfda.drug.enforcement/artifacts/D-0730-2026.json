@@ -1,0 +1,97 @@
+{
+  "id": "D-0730-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0730-2026 · Dorzolamide HCl and Timolol Maleate Ophthalmic Solution, USP, 2%/0.5%, 10mL - bottle, Rx only, Manufactured by: Micro La",
+  "summary": "Defective Container: Firm received multiple complaints of broken cap spikes and undeliverable drops.",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Somerset",
+    "state": "NJ",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "ANDA204777"
+      ],
+      "brand_name": [
+        "DORZOLAMIDE HYDROCHLORIDE AND TIMOLOL MALEATE OPHTHALMIC SOLUTION"
+      ],
+      "generic_name": [
+        "DORZOLAMIDE HYDROCHLORIDE AND TIMOLOL MALEATE"
+      ],
+      "manufacturer_name": [
+        "Micro Labs Limited"
+      ],
+      "product_ndc": [
+        "42571-147"
+      ],
+      "product_type": [
+        "HUMAN PRESCRIPTION DRUG"
+      ],
+      "route": [
+        "OPHTHALMIC"
+      ],
+      "substance_name": [
+        "DORZOLAMIDE HYDROCHLORIDE",
+        "TIMOLOL MALEATE"
+      ],
+      "rxcui": [
+        "1923432"
+      ],
+      "spl_id": [
+        "22ff7483-50ec-42c6-e063-6394a90ae1fa"
+      ],
+      "spl_set_id": [
+        "f45cce05-fb47-4607-b68e-5a3d47e7235a"
+      ],
+      "package_ndc": [
+        "42571-147-26"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "upc": [
+        "0342571147266"
+      ],
+      "unii": [
+        "QZO5366EW7",
+        "P8Y54F701R"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99481",
+    "recalling_firm": "MICRO LABS USA INC",
+    "address_1": "220 Davidson Ave",
+    "address_2": "N/A",
+    "postal_code": "08873-4149",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide in the USA.",
+    "recall_number": "D-0730-2026",
+    "product_description": "Dorzolamide HCl and Timolol Maleate Ophthalmic Solution, USP, 2%/0.5%, 10mL - bottle, Rx only, Manufactured by: Micro Labs Limited, India, Manufactured for: Micro Labs USA Inc., Somerset, NJ 08873. NDC 42571-147-26.",
+    "product_quantity": "N/A",
+    "reason_for_recall": "Defective Container: Firm received multiple complaints of broken cap spikes and undeliverable drops.",
+    "recall_initiation_date": "20260722",
+    "center_classification_date": "20260724",
+    "report_date": "20260805",
+    "code_info": "Lot # DLHU0031, Exp Date: 06/30/2027."
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.236Z",
+    "contentHash": "b91f92439f610bdd991c545a603258fcddd4196850812fdbe93ccf76d96657b9",
+    "contentType": "application/json",
+    "contentBytes": 1608,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.236Z",
+  "updatedAt": "2026-08-13T08:05:35.236Z"
+}

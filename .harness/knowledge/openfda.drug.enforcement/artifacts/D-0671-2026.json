@@ -1,0 +1,49 @@
+{
+  "id": "D-0671-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0671-2026 · Pemetrexed for Injection 100mg/Vial, 1 10 mL Single-Dose Vial per carton, For intravenous use only, Rx only,  Manufactur",
+  "summary": "Lack of Sterility Assurance",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Navi Mumbai",
+    "state": "N/A",
+    "country": "India",
+    "classification": "Class II",
+    "openfda": {},
+    "product_type": "Drugs",
+    "event_id": "99312",
+    "recalling_firm": "Reliance Life Sciences Private Limited",
+    "address_1": "Ttc Area Of Midc",
+    "address_2": "R - 282 Dhirubhai Ambani Life Sciences Centre; Thane Belapur Road",
+    "postal_code": "N/A",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide in the USA",
+    "recall_number": "D-0671-2026",
+    "product_description": "Pemetrexed for Injection 100mg/Vial, 1 10 mL Single-Dose Vial per carton, For intravenous use only, Rx only,  Manufactured for: Somerset Therapeutics, LLC., Somerset, NJ 08873 NDC: 70069-0834-01",
+    "product_quantity": "12,000 vials",
+    "reason_for_recall": "Lack of Sterility Assurance",
+    "recall_initiation_date": "20260624",
+    "center_classification_date": "20260708",
+    "report_date": "20260715",
+    "code_info": "Lot, expiry:     RPTL0325A Dec 31, 2027;   RPTL0425A Dec 31, 2027;   RPTL0624B Nov 30,2027;   RPTL0625A Mar 31, 2028"
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.236Z",
+    "contentHash": "79b481a0f38085a9f473a73eff3ac1027eed397b757996acdfaf23528fbbd15f",
+    "contentType": "application/json",
+    "contentBytes": 1043,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.236Z",
+  "updatedAt": "2026-08-13T08:05:35.236Z"
+}

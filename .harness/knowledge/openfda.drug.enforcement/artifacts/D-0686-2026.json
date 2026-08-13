@@ -1,0 +1,50 @@
+{
+  "id": "D-0686-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0686-2026 · Foster & Thrive, Carbamide Peroxide 6.5%, 0.5 FL OZ (15 mL), NDC 70677-1154-01, Distributed by: McKesson Corp., via SSSL",
+  "summary": "SubPotent Drug: low pH and significantly reduced assay (~0.6% vs expected ~6 7%).",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Belle Plaine",
+    "state": "MN",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {},
+    "product_type": "Drugs",
+    "event_id": "99278",
+    "recalling_firm": "Bell Pharmaceuticals, Inc",
+    "address_1": "200 W Beaver St",
+    "address_2": "",
+    "postal_code": "56011-1894",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "U.S Nationwide",
+    "recall_number": "D-0686-2026",
+    "product_description": "Foster & Thrive, Carbamide Peroxide 6.5%, 0.5 FL OZ (15 mL), NDC 70677-1154-01, Distributed by: McKesson Corp., via SSSL, Memphis, TN 38141.",
+    "product_quantity": "31,094 units",
+    "reason_for_recall": "SubPotent Drug: low pH and significantly reduced assay (~0.6% vs expected ~6 7%).",
+    "recall_initiation_date": "20260625",
+    "center_classification_date": "20260714",
+    "report_date": "20260722",
+    "code_info": "Lot:1505161, 1505181, 1505301, 1505382, exp 2027-04.",
+    "more_code_info": ""
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.238Z",
+    "contentHash": "f9a3be73a49dddc0ed03cc4038602321ef413c1d29468d144410808f4576493d",
+    "contentType": "application/json",
+    "contentBytes": 928,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.238Z",
+  "updatedAt": "2026-08-13T08:05:35.238Z"
+}

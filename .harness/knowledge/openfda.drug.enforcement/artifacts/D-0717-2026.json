@@ -1,0 +1,100 @@
+{
+  "id": "D-0717-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0717-2026 · Rohto Cooling Eye Drops Max Strength (naphazoline hydrochloride 0.03%, polysorbate 80 0.2%), Sterile, TWIN PACK, 0.4 FL ",
+  "summary": "Lack of Assurance of Sterility",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Ho Chi Minh",
+    "state": "N/A",
+    "country": "Vietnam",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "M018"
+      ],
+      "brand_name": [
+        "ROHTO"
+      ],
+      "generic_name": [
+        "NAPHAZOLINE HYDROCHLORIDE, POLYSORBATE 80"
+      ],
+      "manufacturer_name": [
+        "The Mentholatum Company"
+      ],
+      "product_ndc": [
+        "10742-8158"
+      ],
+      "product_type": [
+        "HUMAN OTC DRUG"
+      ],
+      "route": [
+        "OPHTHALMIC"
+      ],
+      "substance_name": [
+        "NAPHAZOLINE HYDROCHLORIDE",
+        "POLYSORBATE 80"
+      ],
+      "rxcui": [
+        "1535485"
+      ],
+      "spl_id": [
+        "53616875-c5b9-f20c-e063-6394a90a12d5"
+      ],
+      "spl_set_id": [
+        "e4b49550-1ca3-4bd7-854d-409b53fa5e26"
+      ],
+      "package_ndc": [
+        "10742-8158-1",
+        "10742-8158-2",
+        "3107420112"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "upc": [
+        "0310742011012",
+        "310742011210"
+      ],
+      "unii": [
+        "MZ1131787D",
+        "6OZP39ZG8H"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99440",
+    "recalling_firm": "Rohto-Mentholatum (Vietnam) Co., Ltd.",
+    "address_1": "No. 16 Vsip, Street No. 5",
+    "address_2": "Vietnam Singapore Industrial Park",
+    "postal_code": "N/A",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide within the United States",
+    "recall_number": "D-0717-2026",
+    "product_description": "Rohto Cooling Eye Drops Max Strength (naphazoline hydrochloride 0.03%, polysorbate 80 0.2%), Sterile, TWIN PACK, 0.4 FL OZ (13 mL), Distributed by: The Mentholatum Company, Orchard Park, NY 14127, Made in Vietnam, UPC 310742011210, NDC 10742-8158-2",
+    "product_quantity": "499,673 cartons",
+    "reason_for_recall": "Lack of Assurance of Sterility",
+    "recall_initiation_date": "20260714",
+    "center_classification_date": "20260723",
+    "report_date": "20260729",
+    "code_info": "Lot #: 3H1V, Exp. Date2026/07; 3J2V, Exp. Date 2026/09;  4A1V, 4A1VA, Exp. Date 2026/12; 4G1V, Exp. Date 2027/06; 4I3V, Exp. Date 2027/08; 5A1V, Exp. Date 2027/12; 5B3V, Exp. Date2028/01; 5G3V, Exp. Date 2028/06; 5J1V, Exp. Date 2028/09; 5L1V, Exp. Date 2028/11; 6A1V, Exp. Date 2028/12; 6B4V, Exp. Date 2029/01; 6C2V, Exp. Date 2029/02."
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.236Z",
+    "contentHash": "e02af9bf9cecba17a0c2de6314688002c1afd7f45250d2924cfec7b1dc059610",
+    "contentType": "application/json",
+    "contentBytes": 1914,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.236Z",
+  "updatedAt": "2026-08-13T08:05:35.236Z"
+}

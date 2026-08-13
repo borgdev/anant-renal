@@ -1,0 +1,171 @@
+{
+  "id": "D-0727-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0727-2026 · Naropin (ropivacaine hydrochloride Injection, USP), 0.5%, 100 mg per 20 mL (5 mg per mL), Twenty-five, 20 mL Single-Dose",
+  "summary": "Presence of Particulate Matter: Hair was found in products",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Lake Zurich",
+    "state": "IL",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "NDA020533"
+      ],
+      "brand_name": [
+        "NAROPIN"
+      ],
+      "generic_name": [
+        "ROPIVACAINE HYDROCHLORIDE"
+      ],
+      "manufacturer_name": [
+        "Fresenius Kabi USA, LLC"
+      ],
+      "product_ndc": [
+        "63323-285",
+        "63323-286",
+        "63323-287",
+        "63323-288"
+      ],
+      "product_type": [
+        "HUMAN PRESCRIPTION DRUG"
+      ],
+      "route": [
+        "EPIDURAL",
+        "INFILTRATION"
+      ],
+      "substance_name": [
+        "ROPIVACAINE HYDROCHLORIDE"
+      ],
+      "rxcui": [
+        "905189",
+        "905191",
+        "1734084",
+        "1734086",
+        "1734090",
+        "1734091",
+        "1734203",
+        "1734204",
+        "1734207",
+        "1734208",
+        "1734347",
+        "1734348",
+        "1734355",
+        "1734356",
+        "1734475",
+        "1734476",
+        "1734479",
+        "1734480",
+        "1734481",
+        "1734482",
+        "1734483",
+        "1734484"
+      ],
+      "spl_id": [
+        "cdcd6c58-85cf-4d7e-9d97-b7c282a4f6b9"
+      ],
+      "spl_set_id": [
+        "23d2d448-a744-4877-9f2d-7e57c198da89"
+      ],
+      "package_ndc": [
+        "63323-286-01",
+        "63323-286-20",
+        "63323-286-05",
+        "63323-286-23",
+        "63323-286-09",
+        "63323-286-31",
+        "63323-286-11",
+        "63323-286-35",
+        "63323-286-03",
+        "63323-286-00",
+        "63323-286-33",
+        "63323-286-63",
+        "63323-286-30",
+        "63323-287-01",
+        "63323-287-20",
+        "63323-287-03",
+        "63323-287-21",
+        "63323-288-01",
+        "63323-288-10",
+        "63323-288-06",
+        "63323-288-20",
+        "63323-288-03",
+        "63323-288-11",
+        "63323-288-07",
+        "63323-288-21",
+        "63323-285-01",
+        "63323-285-10",
+        "63323-285-06",
+        "63323-285-20",
+        "63323-285-03",
+        "63323-285-13",
+        "63323-285-07",
+        "63323-285-23",
+        "63323-285-57",
+        "63323-285-64",
+        "63323-285-51",
+        "63323-285-65",
+        "63323-285-02",
+        "63323-285-61",
+        "63323-285-04",
+        "63323-285-63"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "upc": [
+        "0363323286033",
+        "0363323285074",
+        "0363323285036",
+        "0363323285579",
+        "0363323287030",
+        "0363323286095",
+        "0363323288075",
+        "0363323286330",
+        "0363323286057",
+        "0363323288037",
+        "0363323286118",
+        "0363323285517"
+      ],
+      "unii": [
+        "V910P86109"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99449",
+    "recalling_firm": "Fresenius Kabi USA, LLC",
+    "address_1": "3 Corporate Dr",
+    "address_2": "N/A",
+    "postal_code": "60047-8930",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide within in the USA",
+    "recall_number": "D-0727-2026",
+    "product_description": "Naropin (ropivacaine hydrochloride Injection, USP), 0.5%, 100 mg per 20 mL (5 mg per mL), Twenty-five, 20 mL Single-Dose Vials, Rx only, Fresenius Kabi, Lake Zurich, IL 60047 NDC Tray: 63323-286-23; NDC Vial:  63323-286-05",
+    "product_quantity": "92,600 vials",
+    "reason_for_recall": "Presence of Particulate Matter: Hair was found in products",
+    "recall_initiation_date": "20260716",
+    "center_classification_date": "20260723",
+    "report_date": "20260729",
+    "code_info": "Lot #: 6133436, Exp. Date 10/2028"
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.234Z",
+    "contentHash": "d12692b618ac85084a8369da95f45b79a4c898bb4cacccdae9ef6f8a05d97296",
+    "contentType": "application/json",
+    "contentBytes": 2518,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.234Z",
+  "updatedAt": "2026-08-13T08:05:35.234Z"
+}

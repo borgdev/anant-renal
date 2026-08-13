@@ -1,0 +1,107 @@
+{
+  "id": "D-0712-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0712-2026 · Amlodipine and Olmesartan Medoxomil Tablets, 10 mg/20 mg, 30 Tablets per bottle, Rx Only, Manufactured by: Alkem Laborat",
+  "summary": "Failed Dissolution Specifications; Olmesartan Medoxomil content below specifications",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Bedminster",
+    "state": "NJ",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {
+      "application_number": [
+        "ANDA209042"
+      ],
+      "brand_name": [
+        "AMLODIPINE AND OLMESARTAN MEDOXOMIL"
+      ],
+      "generic_name": [
+        "AMLODIPINE AND OLMESARTAN MEDOXOMIL"
+      ],
+      "manufacturer_name": [
+        "Ascend Laboratories, LLC"
+      ],
+      "product_ndc": [
+        "67877-499",
+        "67877-500",
+        "67877-501",
+        "67877-502"
+      ],
+      "product_type": [
+        "HUMAN PRESCRIPTION DRUG"
+      ],
+      "route": [
+        "ORAL"
+      ],
+      "substance_name": [
+        "AMLODIPINE BESYLATE",
+        "OLMESARTAN MEDOXOMIL"
+      ],
+      "rxcui": [
+        "730861",
+        "730866",
+        "730869",
+        "730872"
+      ],
+      "spl_id": [
+        "32238052-6c4c-4b29-a59e-524c819c69f1"
+      ],
+      "spl_set_id": [
+        "c1204fbe-d086-43cf-bbaa-efec9cd0487c"
+      ],
+      "package_ndc": [
+        "67877-499-30",
+        "67877-499-90",
+        "67877-500-30",
+        "67877-500-90",
+        "67877-501-30",
+        "67877-501-90",
+        "67877-502-30",
+        "67877-502-90"
+      ],
+      "is_original_packager": [
+        true
+      ],
+      "unii": [
+        "864V2Q084H",
+        "6M97XTV3HD"
+      ]
+    },
+    "product_type": "Drugs",
+    "event_id": "99385",
+    "recalling_firm": "Ascend Laboratories, LLC",
+    "address_1": "135 Us Highway 202 206 Ste 15",
+    "address_2": "N/A",
+    "postal_code": "07921-2608",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "Letter",
+    "distribution_pattern": "Nationwide in the USA",
+    "recall_number": "D-0712-2026",
+    "product_description": "Amlodipine and Olmesartan Medoxomil Tablets, 10 mg/20 mg, 30 Tablets per bottle, Rx Only, Manufactured by: Alkem Laboratories Ltd., INDIA; Distributed by: Ascend Laboratories, LLC., Parsnippany, NJ 07054.  NDC: 67877-500-30",
+    "product_quantity": "6,192 bottles",
+    "reason_for_recall": "Failed Dissolution Specifications; Olmesartan Medoxomil content below specifications",
+    "recall_initiation_date": "20260708",
+    "center_classification_date": "20260720",
+    "report_date": "20260729",
+    "code_info": "Lot 25121311, expiry 3/31/2028"
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.236Z",
+    "contentHash": "78fec0fa768a42aa892c772238db2d01d321ab21299beb4e8bc96ceae6474788",
+    "contentType": "application/json",
+    "contentBytes": 1725,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.236Z",
+  "updatedAt": "2026-08-13T08:05:35.236Z"
+}

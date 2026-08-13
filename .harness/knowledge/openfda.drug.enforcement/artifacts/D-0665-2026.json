@@ -1,0 +1,49 @@
+{
+  "id": "D-0665-2026",
+  "sourceId": "openfda.drug.enforcement",
+  "category": "drug-safety",
+  "title": "Recall D-0665-2026 · Gasco Isopropyl Alcohol 70%, Net Contents: 16 Oz. (474 mL). Manufactured by: Gasco Industrial Corp., PO Box 1360 Gurabo ",
+  "summary": "Subpotent drug",
+  "structured": {
+    "status": "Ongoing",
+    "city": "Gurabo",
+    "state": "PR",
+    "country": "United States",
+    "classification": "Class II",
+    "openfda": {},
+    "product_type": "Drugs",
+    "event_id": "99138",
+    "recalling_firm": "Gasco Industrial Corp.",
+    "address_1": "Calle A Lote 3 Rincon Indus Park",
+    "address_2": "N/A",
+    "postal_code": "00778-2037",
+    "voluntary_mandated": "Voluntary: Firm initiated",
+    "initial_firm_notification": "N/A",
+    "distribution_pattern": "Nationwide within the US",
+    "recall_number": "D-0665-2026",
+    "product_description": "Gasco Isopropyl Alcohol 70%, Net Contents: 16 Oz. (474 mL). Manufactured by: Gasco Industrial Corp., PO Box 1360 Gurabo PR 00778 Made in USA UPC 7 87302 13044 3",
+    "product_quantity": "N/A",
+    "reason_for_recall": "Subpotent drug",
+    "recall_initiation_date": "20260529",
+    "center_classification_date": "20260708",
+    "report_date": "20260715",
+    "code_info": "Lot 250306B3, within expiry"
+  },
+  "clinicalDomains": [
+    "all"
+  ],
+  "upstream": {
+    "sourceId": "openfda.drug.enforcement",
+    "sourceVersion": "2026-08-13",
+    "canonicalUrl": "https://open.fda.gov/apis/drug/enforcement/",
+    "rawUrl": "https://api.fda.gov/drug/enforcement.json?search=report_date:[20260714+TO+20260813]&limit=100&skip=0",
+    "fetchedAt": "2026-08-13T08:05:35.236Z",
+    "contentHash": "b1b7d9eca4c04082695c5ae3bdbe170077eac0df29c02a35532e5f13b2f5bb58",
+    "contentType": "application/json",
+    "contentBytes": 845,
+    "extractorId": "openfda-enforcement",
+    "extractorVersion": "0.20.0"
+  },
+  "createdAt": "2026-08-13T08:05:35.236Z",
+  "updatedAt": "2026-08-13T08:05:35.236Z"
+}
