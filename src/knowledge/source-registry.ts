@@ -94,6 +94,12 @@ export class SourceRegistry {
     return [...(this.subs.get(sourceId) ?? [])];
   }
 
+  allSubscriptions(): PackSourceSubscription[] {
+    const out: PackSourceSubscription[] = [];
+    for (const list of this.subs.values()) for (const s of list) out.push(s);
+    return out;
+  }
+
   subscriptionsForPack(packId: string): PackSourceSubscription[] {
     const out: PackSourceSubscription[] = [];
     for (const list of this.subs.values()) for (const s of list) if (s.packId === packId) out.push(s);

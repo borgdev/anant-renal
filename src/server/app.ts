@@ -18,6 +18,9 @@
 // stdout sink from `bootstrap.ts`.
 
 import { registerAdminRoutes } from './admin-routes.js';
+import { registerKnowledgeRoutes } from './knowledge-routes.js';
+import { bootstrapKnowledgeLayer } from '../knowledge/index.js';
+import { resolve } from 'node:path';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
@@ -137,5 +140,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   await registerAdminRoutes(app);
+
+  // M20 Knowledge layer
+  const knowledgeStoreDir = process.env.KNOWLEDGE_STORE_DIR ?? resolve(process.cwd(), '.harness', 'knowledge');
+  const knowledgeLayer = bootstrapKnowledgeLayer({ storeDir: knowledgeStoreDir });
+  await registerKnowledgeRoutes(app, { layer: knowledgeLayer, storeDir: knowledgeStoreDir });
   return app;
 }
