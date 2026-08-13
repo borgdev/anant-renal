@@ -16,7 +16,7 @@ import { RESEARCH_SOURCES } from '../research/index.js';
 import { PHQ9, GAD7, AUDIT_C, BRADEN, MORSE, KDQOL_36_SUMMARY, MNA_SF, CAM_DELIRIUM, FRAIL_SCALE, SDOH_5_DOMAIN, ADL_KATZ, IADL_LAWTON, MOCA_SUMMARY } from '../assessments/index.js';
 import { LIFECYCLE_STAGES } from '../lifecycle/index.js';
 import { AgentAuthoringService } from './agent-authoring.js';
-import { RealmRegistry, populateFacility, type RealmMode, type WorldEffect } from '../realm/index.js';
+import { RealmRegistry, populateFacility, Federation, invoicePreview, usageCsv, DEFAULT_BILLING_PLAN, runCounterfactual, type RealmMode, type WorldEffect, type TimelineEntry, type Intervention } from '../realm/index.js';
 
 const authoring = new AgentAuthoringService();
 
@@ -375,6 +375,90 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // GET /admin/summary — count-only rollup for admin dashboard
+  // ---------- M13.A PlanRunner ----------
+  app.post<{ Params: { id: string; planId: string } }>('/admin/realms/:id/plans/:planId/step', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) { reply.code(404); return { error: 'realm-not-found' }; }
+    const outcome = r.stepPlan(req.params.planId);
+    return { outcome, plan: r.getPlan(req.params.planId) };
+  });
+  app.post<{ Params: { id: string; planId: string } }>('/admin/realms/:id/plans/:planId/run', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) { reply.code(404); return { error: 'realm-not-found' }; }
+    const outcomes = r.runPlan(req.params.planId);
+    return { outcomes, plan: r.getPlan(req.params.planId) };
+  });
+
+  // ---------- M13.C Multi-facility federation ----------
+  app.get('/admin/orgs', async () => ({ orgs: Federation.listOrgs() }));
+  app.post<{ Body: { orgId: string; displayName: string; realmIds: string[] } }>('/admin/orgs', async (req, reply) => {
+    try {
+      const org = Federation.registerOrg({ orgId: req.body.orgId, displayName: req.body.displayName, realmIds: req.body.realmIds });
+      return { org };
+    } catch (e) { reply.code(400); return { error: (e as Error).message }; }
+  });
+  app.get<{ Params: { orgId: string } }>('/admin/orgs/:orgId/summary', async (req, reply) => {
+    const summary = Federation.orgSummary(req.params.orgId);
+    if (!summary) { reply.code(404); return { error: 'org-not-found' }; }
+    return summary;
+  });
+  app.get<{ Params: { orgId: string } }>('/admin/orgs/:orgId/cost', async (req) => ({ rollup: Federation.costRollup(req.params.orgId) }));
+  app.get<{ Params: { orgId: string } }>('/admin/orgs/:orgId/hitl', async (req) => ({ load: Federation.hitlLoad(req.params.orgId) }));
+  app.get<{ Params: { orgId: string } }>('/admin/orgs/:orgId/plans', async (req) => ({ throughput: Federation.planThroughput(req.params.orgId) }));
+  app.get<{ Params: { orgId: string } }>('/admin/orgs/:orgId/safety', async (req) => ({ load: Federation.safetyLoad(req.params.orgId) }));
+
+  // ---------- M13.G Policy trace ----------
+  app.get<{ Params: { id: string; presenceId: string }; Querystring: { kinds?: string } }>('/admin/realms/:id/policy/:presenceId', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) { reply.code(404); return { error: 'realm-not-found' }; }
+    const defaultKinds = ['order-lab', 'order-med', 'hold-med', 'record-vitals', 'flag-safety-event', 'submit-claim', 'discharge-patient', 'schedule-followup'];
+    const kinds = req.query.kinds ? req.query.kinds.split(',') : defaultKinds;
+    return { trace: r.policy.trace(req.params.presenceId, kinds as WorldEffect['kind'][]) };
+  });
+
+  // ---------- M13.F Counterfactual (caller supplies fresh-realm spec) ----------
+  app.post<{ Body: {
+    realmMode: RealmMode;
+    facility: { facilityId: string; kind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital'; name: string; units: string[]; patientCount: number };
+    interventions: Intervention[];
+    timeline?: TimelineEntry[];
+    advanceTicks?: number;
+  } }>('/admin/counterfactual', async (req, reply) => {
+    const { realmMode, facility, interventions, timeline, advanceTicks } = req.body;
+    if (!facility) { reply.code(400); return { error: 'facility-required' }; }
+    const build = () => {
+      const fresh = RealmRegistry.create({ id: `cf#${facility.facilityId}#${Date.now()}#${Math.random().toString(36).slice(2, 6)}`, mode: realmMode });
+      populateFacility(fresh, facility);
+      return fresh;
+    };
+    const input = {
+      build,
+      timeline: timeline ?? [],
+      interventions: interventions ?? [],
+      ...(advanceTicks !== undefined ? { advanceTicks } : {}),
+    };
+    try {
+      const report = runCounterfactual(input);
+      return report;
+    } catch (e) { reply.code(500); return { error: (e as Error).message }; }
+  });
+
+  // ---------- M13.B Metered billing ----------
+  app.get<{ Params: { id: string }; Querystring: { from?: string; to?: string; format?: 'json' | 'csv' } }>('/admin/realms/:id/billing', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) { reply.code(404); return { error: 'realm-not-found' }; }
+    const period = {
+      ...(req.query.from ? { from: new Date(req.query.from) } : {}),
+      ...(req.query.to ? { to: new Date(req.query.to) } : {}),
+    };
+    const report = invoicePreview(r, DEFAULT_BILLING_PLAN, period);
+    if (req.query.format === 'csv') {
+      reply.header('content-type', 'text/csv');
+      return usageCsv(report);
+    }
+    return { plan: DEFAULT_BILLING_PLAN, report };
+  });
+
   app.get('/admin/summary', async () => {
     const agents = loadAllAgents();
     const byPack = new Map<string, number>();

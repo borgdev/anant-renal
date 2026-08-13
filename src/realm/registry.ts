@@ -12,6 +12,12 @@ class RealmRegistryImpl {
     this.realms.set(opts.id, r);
     return r;
   }
+  /** Register an already-constructed Realm (e.g. from a snapshot script). */
+  register(realm: Realm): Realm {
+    if (this.realms.has(realm.id)) return this.realms.get(realm.id)!;
+    this.realms.set(realm.id, realm);
+    return realm;
+  }
   get(id: string): Realm | undefined { return this.realms.get(id); }
   list(): Realm[] { return [...this.realms.values()]; }
   remove(id: string): void {

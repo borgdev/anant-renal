@@ -17,7 +17,9 @@ import { createDefaultEngine, RulesEngine } from './rules.js';
 import { ConsequenceAttributor } from './attribution.js';
 import { HITLRegistry, DEFAULT_GATES, type HITLGate } from './hitl.js';
 import { CostLedger } from './cost-ledger.js';
-import { Planner, type Intent, type PlanGraph } from './planner.js';
+import { Planner, type Intent, type PlanGraph, type PlanStep } from './planner.js';
+import { PlanRunner, type PlanRunOutcome } from './plan-runner.js';
+import { PolicyRuntime } from './policy.js';
 import { OperatorSeat } from './operator-seat.js';
 import { loadOrgPack, OrgGraphQuery, DIALYSIS_CLINIC_ORG_PACK, type OrgPack } from './org-graph.js';
 import type { AgentPresence, EmittedEffect, EntityUrn, RealmId, RealmMode, WorldEffect } from './types.js';
@@ -51,6 +53,8 @@ export class Realm {
   readonly hitl: HITLRegistry;
   readonly cost: CostLedger;
   readonly planner: Planner;
+  readonly planRunner: PlanRunner;
+  readonly policy: PolicyRuntime;
   readonly operatorSeat: OperatorSeat;
   readonly orgQuery: OrgGraphQuery;
   private clockSub: (() => void) | undefined;
@@ -78,6 +82,17 @@ export class Realm {
     for (const g of opts.hitlGates ?? DEFAULT_GATES) this.hitl.registerGate(g);
     this.cost = new CostLedger(this.episodes, this.ledger);
     this.planner = new Planner();
+    this.policy = new PolicyRuntime(this.selfModel);
+    this.planRunner = new PlanRunner({
+      resolveExecutor: (step: PlanStep) => this.presences.list().find((p) => p.role === step.ownerRole),
+      emit: (presenceId, effect) => this.emit(presenceId, effect),
+      audit: (planId, stepId, outcome, note) => {
+        // Use the first admin presence as the audit emitter; fall back to any presence.
+        const admin = this.presences.list().find((p) => p.role === 'admin') ?? this.presences.list()[0];
+        if (!admin) return;
+        this.reducer.emit(admin, { kind: 'advance-plan', planId, stepId, outcome, ...(note ? { note } : {}) });
+      },
+    });
     // Load org pack.
     loadOrgPack(this.graph, opts.orgPack ?? DIALYSIS_CLINIC_ORG_PACK);
     this.orgQuery = new OrgGraphQuery(this.graph);
@@ -218,4 +233,19 @@ export class Realm {
   listIntents(): Intent[] { return [...this.intents.values()]; }
   listPlans(): PlanGraph[] { return [...this.plans.values()]; }
   getPlan(planId: string): PlanGraph | undefined { return this.plans.get(planId); }
+
+  /** Execute a plan (M13.A). Advances all steps whose deps are satisfied until the plan
+   * is complete, aborted, blocked, or all remaining steps are suspended in HITL. */
+  runPlan(planId: string): PlanRunOutcome[] {
+    const plan = this.plans.get(planId);
+    if (!plan) throw new Error(`plan-not-found:${planId}`);
+    return this.planRunner.runAll(plan);
+  }
+
+  /** Step a plan by one ready action — useful for turn-by-turn execution in tests/UIs. */
+  stepPlan(planId: string): PlanRunOutcome {
+    const plan = this.plans.get(planId);
+    if (!plan) throw new Error(`plan-not-found:${planId}`);
+    return this.planRunner.step(plan);
+  }
 }

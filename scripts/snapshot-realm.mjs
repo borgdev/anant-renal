@@ -4,7 +4,7 @@
 // self-models, experiences, and effects for the static UI to render.
 
 import { writeFileSync } from 'node:fs';
-import { Realm, populateFacility, AgentRealmRuntime } from '../dist/src/realm/index.js';
+import { Realm, populateFacility, AgentRealmRuntime, Federation, invoicePreview, DEFAULT_BILLING_PLAN, RealmRegistry } from '../dist/src/realm/index.js';
 import { loadSpecsFromDisk } from '../dist/src/agents/spec-sync.js';
 
 const realm = new Realm({ id: 'realm:demo-dvc-nashville', mode: 'sim' });
@@ -238,6 +238,43 @@ const payload = {
   cost: { rollup: costRollup, records: costRecords },
   operatorDirectives,
 };
+
+// ---------- M13 snapshots ----------
+// Register the demo realm in the RealmRegistry so Federation can find it.
+try { RealmRegistry.register(realm); } catch (_) { /* already? */ }
+
+// Build a second sim realm for federation demo
+const realm2 = new Realm({ id: 'realm:demo-dvc-brentwood', mode: 'sim' });
+populateFacility(realm2, { facilityId: 'dvc-brent', kind: 'dialysis', name: 'DVC Brentwood', units: ['ICH-A', 'ICH-B'], patientCount: 8 });
+try { RealmRegistry.register(realm2); } catch (_) { /* ok */ }
+Federation.registerOrg({ orgId: 'org-davita-mid-tn', displayName: 'DaVita Middle Tennessee', realmIds: [realm.id, realm2.id] });
+const orgSummary = Federation.orgSummary('org-davita-mid-tn');
+
+const billingReport = invoicePreview(realm, DEFAULT_BILLING_PLAN, {});
+
+// Policy trace for a few key presences
+const policyKinds = ['order-lab', 'order-med', 'hold-med', 'record-vitals', 'flag-safety-event', 'submit-claim', 'discharge-patient', 'schedule-followup'];
+const policyTraces = realm.presences.list().slice(0, 6).map((p) => ({
+  presenceId: p.presenceId,
+  role: p.role,
+  trace: policyKinds.map((k) => {
+    const w = realm.selfModel.preferenceFor(p.presenceId, k);
+    return { effectKind: k, weight: w, lean: w > 1.05 ? 'toward' : w < 0.95 ? 'away' : 'neutral' };
+  }),
+}));
+
+payload.federation = {
+  orgs: Federation.listOrgs(),
+  summary: orgSummary,
+};
+payload.billing = { plan: DEFAULT_BILLING_PLAN, report: billingReport };
+payload.policyTraces = policyTraces;
+
+writeFileSync('/home/user/workspace/hh-admin-ui/realms-list.json', JSON.stringify({ realms: [{ id: realm.id, mode: realm.mode }, { id: realm2.id, mode: realm2.mode }] }, null, 2));
+writeFileSync('/home/user/workspace/hh-admin-ui/orgs.json', JSON.stringify({ orgs: Federation.listOrgs() }, null, 2));
+writeFileSync('/home/user/workspace/hh-admin-ui/org-summary.json', JSON.stringify(orgSummary, null, 2));
+writeFileSync('/home/user/workspace/hh-admin-ui/billing.json', JSON.stringify({ plan: DEFAULT_BILLING_PLAN, report: billingReport }, null, 2));
+writeFileSync('/home/user/workspace/hh-admin-ui/policy.json', JSON.stringify(policyTraces, null, 2));
 
 writeFileSync('/home/user/workspace/hh-admin-ui/realm.json', JSON.stringify(payload, null, 2));
 console.log('wrote realm.json —', {
