@@ -1,0 +1,8 @@
+name,type,pk,phi,description
+lab_result_id,string,true,false,Result identifier
+patient_id,string,false,true,Patient identifier (PHI)
+loinc_code,string,false,false,LOINC code for the observation
+value,number,false,false,Numeric value
+unit,string,false,false,Unit of measure
+collected_at,date,false,false,Specimen collection timestamp
+abnormal_flag,string,false,false,H/L/A flag if abnormal

@@ -1,0 +1,24 @@
+id: mixed-sample-clinic
+version: 1.0.0
+displayName: mixed-sample-clinic
+extends:
+  - id: healthcare-core
+    version_range: ^0.2.0
+applies_to:
+  organization_kinds:
+    - provider
+    - health-system
+    - practice
+  facility_kinds:
+    - primary-care
+    - outpatient
+capabilities:
+  - entity-derived
+required_controls:
+  - access-policy
+  - audit-provenance
+  - phi-handling
+provenance:
+  generatedBy: entity-compiler
+  generatedAt: 2026-08-13T05:34:40.210Z
+  agentCount: 13

@@ -1,0 +1,83 @@
+id: admission-workflow-orchestrator
+version: 1.0.0
+packId: mixed-sample-clinic
+displayName: Admission Workflow Orchestrator
+description: The end-to-end procedure for admitting a patient to the facility.
+scope: facility
+trigger:
+  kind: manual
+inputs:
+  id:
+    type: string
+    required: true
+    description: Admission Workflow identifier
+outputs:
+  resultRef:
+    type: string
+    description: Result artifact ref
+plan:
+  type: sequence
+  children:
+    - type: step
+      step:
+        id: step-1
+        skill: http.call
+        inputs: {}
+        retry:
+          maxAttempts: 3
+          backoffMs: 500
+    - type: step
+      step:
+        id: step-2
+        skill: http.call
+        inputs: {}
+        retry:
+          maxAttempts: 3
+          backoffMs: 500
+    - type: step
+      step:
+        id: step-3
+        skill: http.call
+        inputs: {}
+        retry:
+          maxAttempts: 3
+          backoffMs: 500
+    - type: step
+      step:
+        id: step-4
+        skill: http.call
+        inputs: {}
+        retry:
+          maxAttempts: 3
+          backoffMs: 500
+    - type: step
+      step:
+        id: step-5
+        skill: http.call
+        inputs: {}
+        retry:
+          maxAttempts: 3
+          backoffMs: 500
+governance:
+  phiHandling: read-write
+  purposeOfUse:
+    - treatment
+  clearanceRequired: phi
+  hitlGates: []
+  breakGlassAllowed: false
+  evidenceRequired: []
+billing:
+  baseFeeUsd: 0.05
+  meteredUnits:
+    - unit: llm.tokens.input
+      priceUsdPerUnit: 0.000003
+    - unit: llm.tokens.output
+      priceUsdPerUnit: 0.000015
+    - unit: tool.call
+      priceUsdPerUnit: 0.002
+  budgetCapMonthlyUsd: 200
+slas:
+  p95LatencyMs: 60000
+labels:
+  archetype: procedure-runner
+  source-entity: admission-workflow

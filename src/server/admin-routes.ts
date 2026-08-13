@@ -59,6 +59,9 @@ import {
   type ScimGroup,
 } from '../identity/index.js';
 import { SelfServeAdmin } from '../self-serve/admin.js';
+import { compileEntityPack, type CompileOptions, type CompileReport } from '../entity-compiler/index.js';
+
+const _compileReports = new Map<string, CompileReport>();
 
 const authoring = new AgentAuthoringService();
 
@@ -853,4 +856,16 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       return { branding: SelfServeAdmin.setBranding({ realmId: req.params.realmId, ...rest }, actorSubjectId) };
     } catch (err) { return reply.code(403).send({ error: err instanceof Error ? err.message : String(err) }); }
   });
+
+  // ---------- M19 entity compiler ----------
+  app.post<{ Body: CompileOptions }>('/admin/entity-compiler/compile', async (req, reply) => {
+    try {
+      const result = await compileEntityPack(req.body);
+      _compileReports.set(`${req.body.packId}:${result.report.compiledAt}`, result.report);
+      return { report: result.report, agentCount: result.agents.length };
+    } catch (err) { return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) }); }
+  });
+  app.get('/admin/entity-compiler/reports', async () => ({
+    reports: Array.from(_compileReports.entries()).map(([key, report]) => ({ key, report })),
+  }));
 }

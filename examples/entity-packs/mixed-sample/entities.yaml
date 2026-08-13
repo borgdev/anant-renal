@@ -1,0 +1,27 @@
+# Structured entity file — highest-fidelity input.
+entities:
+  - id: patient
+    name: Patient
+    kind: data
+    description: A person receiving care in the facility.
+    fields:
+      - { name: patient_id, type: string, primaryKey: true, required: true }
+      - { name: mrn,        type: string, required: true, phi: true }
+      - { name: first_name, type: string, phi: true }
+      - { name: last_name,  type: string, phi: true }
+      - { name: dob,        type: date,   phi: true }
+      - { name: sex,        type: string }
+    hints:
+      phi: true
+      purposeOfUse: [treatment, operations]
+
+  - id: medication-formulary
+    name: MedicationFormulary
+    kind: data
+    description: Reference list of approved medications.
+    fields:
+      - { name: rxnorm_code,  type: string, primaryKey: true }
+      - { name: display_name, type: string }
+      - { name: schedule,     type: string }
+    hints:
+      phi: false

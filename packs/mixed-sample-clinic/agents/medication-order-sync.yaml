@@ -1,0 +1,56 @@
+id: medication-order-sync
+version: 1.0.0
+packId: mixed-sample-clinic
+displayName: medication_order Catalog Sync
+description: Sync medication_order catalog with upstream source.
+scope: org
+trigger:
+  kind: cron
+  expression: 0 3 * * *
+  timezone: UTC
+inputs: {}
+outputs:
+  resultRef:
+    type: string
+    description: Result artifact ref
+plan:
+  type: sequence
+  children:
+    - type: step
+      step:
+        id: step-1
+        skill: http.call
+        inputs: {}
+        retry:
+          maxAttempts: 3
+          backoffMs: 500
+    - type: step
+      step:
+        id: step-2
+        skill: http.call
+        inputs: {}
+        retry:
+          maxAttempts: 3
+          backoffMs: 500
+governance:
+  phiHandling: read
+  purposeOfUse:
+    - operations
+  clearanceRequired: internal
+  hitlGates: []
+  breakGlassAllowed: false
+  evidenceRequired: []
+billing:
+  baseFeeUsd: 0.05
+  meteredUnits:
+    - unit: llm.tokens.input
+      priceUsdPerUnit: 0.000003
+    - unit: llm.tokens.output
+      priceUsdPerUnit: 0.000015
+    - unit: tool.call
+      priceUsdPerUnit: 0.002
+  budgetCapMonthlyUsd: 200
+slas: {}
+labels:
+  archetype: catalog-manager
+  source-entity: medication-order

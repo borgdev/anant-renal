@@ -1,0 +1,3 @@
+lab_result_id,patient_id,loinc_code,value,unit,collected_at,abnormal_flag
+lr-0001,p-0001,2160-0,1.2,mg/dL,2026-08-10T09:15:00Z,
+lr-0002,p-0002,2160-0,3.4,mg/dL,2026-08-10T10:00:00Z,H

@@ -16,3 +16,4 @@ export * as research from './research/index.js';
 export * as onboarding from './onboarding/bootstrap.js';
 export * as identity from './identity/index.js';
 export * as selfServe from './self-serve/admin.js';
+export * as entityCompiler from './entity-compiler/index.js';
