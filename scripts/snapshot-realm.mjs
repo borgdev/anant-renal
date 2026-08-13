@@ -4,7 +4,7 @@
 // self-models, experiences, and effects for the static UI to render.
 
 import { writeFileSync } from 'node:fs';
-import { Realm, populateFacility, AgentRealmRuntime, Federation, invoicePreview, DEFAULT_BILLING_PLAN, RealmRegistry } from '../dist/src/realm/index.js';
+import { Realm, populateFacility, AgentRealmRuntime, Federation, invoicePreview, DEFAULT_BILLING_PLAN, RealmRegistry, listDirectives, listPlanAdvances, directivesByTarget, NotificationBus, NotificationHub, attachBus, LLMRegistry, CounterfactualStore, captureSnapshot, SnapshotRegistry, runCounterfactual } from '../dist/src/realm/index.js';
 import { loadSpecsFromDisk } from '../dist/src/agents/spec-sync.js';
 
 const realm = new Realm({ id: 'realm:demo-dvc-nashville', mode: 'sim' });
@@ -275,6 +275,70 @@ writeFileSync('/home/user/workspace/hh-admin-ui/orgs.json', JSON.stringify({ org
 writeFileSync('/home/user/workspace/hh-admin-ui/org-summary.json', JSON.stringify(orgSummary, null, 2));
 writeFileSync('/home/user/workspace/hh-admin-ui/billing.json', JSON.stringify({ plan: DEFAULT_BILLING_PLAN, report: billingReport }, null, 2));
 writeFileSync('/home/user/workspace/hh-admin-ui/policy.json', JSON.stringify(policyTraces, null, 2));
+
+// ---------- M14 snapshots ----------
+// M14.D: attach a notification bus and register a demo subscription.
+const bus = NotificationHub;
+bus.subscribe({ eventKinds: ['flag-safety-event', 'submit-claim', 'advance-plan'], sink: () => {} });
+attachBus(realm, bus);
+attachBus(realm2, bus);
+// Replay a couple of effects to hydrate history (bus only saw future emits above).
+realm.emit(rnA.presence.presenceId, { kind: 'flag-safety-event', patientId: 'dvc-nash-pt-0001', safetyKind: 'fall-risk', severity: 'moderate' });
+
+// M14.F: register a dummy Ollama-shaped adapter
+LLMRegistry.register({
+  id: 'ollama-llama3-operator',
+  role: 'operator',
+  displayName: 'Ollama · llama3 (operator parse)',
+  enabled: false,
+  handle: { id: 'ollama-llama3-operator', async parse(text) { return { verb: 'explain', payload: { presenceId: 'unknown' }, originalText: text, reasoning: 'stub — connect Ollama', confidence: 0.3 }; } },
+});
+LLMRegistry.register({
+  id: 'ollama-llama3-planner',
+  role: 'planner',
+  displayName: 'Ollama · llama3 (planner)',
+  enabled: false,
+  handle: { id: 'ollama-llama3-planner', async plan() { return [{ id: 's1', label: 'noop-plan', ownerRole: 'admin', status: 'pending' }]; } },
+});
+for (const a of LLMRegistry.list()) { await LLMRegistry.healthCheck(a.id).catch(() => {}); }
+
+// M14.B: run a small counterfactual for the deployed UI to display
+const cfBuild = () => {
+  const fresh = new Realm({ id: `cf#dvc-nash#${Date.now()}`, mode: 'sim' });
+  populateFacility(fresh, { facilityId: 'dvc-nash', kind: 'dialysis', name: 'DVC Nashville CF', units: ['ICH-A'], patientCount: 4 });
+  return fresh;
+};
+try {
+  const cfReport = runCounterfactual({ build: cfBuild, timeline: [], interventions: [{ kind: 'nudge-preference', presenceRole: 'md', effectKind: 'order-lab', delta: 0.5 }], advanceTicks: 4 });
+  CounterfactualStore.save({ build: cfBuild, timeline: [], interventions: [{ kind: 'nudge-preference', presenceRole: 'md', effectKind: 'order-lab', delta: 0.5 }], advanceTicks: 4 }, cfReport, 'demo · bias md toward labs', realm.id);
+} catch (err) { console.warn('counterfactual failed:', err.message); }
+
+// M14.G: capture a snapshot of the demo realm
+const realmSnap = captureSnapshot(realm);
+SnapshotRegistry.save(realmSnap);
+
+// M14.E: org billing rollup
+const orgBilling = Federation.invoicePreviewForOrg('org-davita-mid-tn', DEFAULT_BILLING_PLAN, {});
+
+// M14.A / M14.C: pick any plan and dump its runLog + governance summaries
+const allPlans = realm.listPlans();
+for (const pl of allPlans) { try { realm.runPlan(pl.planId); } catch (_) { /* ignore */ } }
+const planTimelines = realm.listPlans().map((p) => ({
+  realmId: realm.id, planId: p.planId, steps: p.steps,
+  runLog: p.runLog ?? [],
+}));
+
+const govDirectives = listDirectives(realm);
+const govAdvances = listPlanAdvances(realm);
+const govByTarget = directivesByTarget(realm);
+
+writeFileSync('/home/user/workspace/hh-admin-ui/orgs-billing.json', JSON.stringify(orgBilling, null, 2));
+writeFileSync('/home/user/workspace/hh-admin-ui/notifications.json', JSON.stringify({ notifications: bus.recent(50), subscriptions: bus.listSubscriptions().map((s) => ({ id: s.id, eventKinds: s.eventKinds, role: s.role ?? null })) }, null, 2));
+writeFileSync('/home/user/workspace/hh-admin-ui/llm-adapters.json', JSON.stringify({ adapters: LLMRegistry.list() }, null, 2));
+writeFileSync('/home/user/workspace/hh-admin-ui/governance.json', JSON.stringify({ realmId: realm.id, directives: govDirectives, advances: govAdvances, byTarget: govByTarget }, null, 2));
+writeFileSync('/home/user/workspace/hh-admin-ui/counterfactuals.json', JSON.stringify({ counterfactuals: CounterfactualStore.list() }, null, 2));
+writeFileSync('/home/user/workspace/hh-admin-ui/snapshots.json', JSON.stringify({ snapshots: SnapshotRegistry.list() }, null, 2));
+writeFileSync('/home/user/workspace/hh-admin-ui/plan-timelines.json', JSON.stringify({ timelines: planTimelines }, null, 2));
 
 writeFileSync('/home/user/workspace/hh-admin-ui/realm.json', JSON.stringify(payload, null, 2));
 console.log('wrote realm.json —', {

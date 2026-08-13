@@ -25,7 +25,23 @@ export interface PlanRunnerHooks {
   emit(presenceId: string, effect: WorldEffect): EmittedEffect;
   /** Emit an audit-only advance-plan record. */
   audit(planId: string, stepId: string, transition: Exclude<PlanStep['status'], 'pending'>, note?: string): void;
+  /** Current realm wall-time as ISO string, used for run-log timestamps. */
+  nowIso(): string;
 }
+
+/** Immutable per-outcome log entry. Captured on every step transition. */
+export interface PlanRunLogEntry {
+  at: string;
+  stepId: string;
+  outcomeKind: PlanRunOutcome['kind'];
+  transition?: Exclude<PlanStep['status'], 'pending'>;
+  approvalId?: string;
+  reason?: string;
+  effectKind?: WorldEffect['kind'];
+  presenceId?: string;
+}
+
+type PlanWithLog = PlanGraph & { runLog?: PlanRunLogEntry[] };
 
 export class PlanRunner {
   constructor(private readonly hooks: PlanRunnerHooks) {}
@@ -62,6 +78,7 @@ export class PlanRunner {
     if (!step.effectHint) {
       step.status = 'completed';
       this.hooks.audit(plan.planId, step.id, 'completed', 'no-effect step');
+      this.logEntry(plan, { at: this.hooks.nowIso(), stepId: step.id, outcomeKind: 'advanced', transition: 'completed', reason: 'no-effect step' });
       return this.step(plan); // tail-recurse to advance any newly-ready step
     }
 
@@ -69,11 +86,13 @@ export class PlanRunner {
     if (!executor) {
       step.status = 'blocked';
       this.hooks.audit(plan.planId, step.id, 'blocked', `no presence for role ${step.ownerRole}`);
+      this.logEntry(plan, { at: this.hooks.nowIso(), stepId: step.id, outcomeKind: 'blocked', transition: 'blocked', reason: `no-presence-for-role:${step.ownerRole}` });
       return { kind: 'blocked', stepId: step.id, reason: `no-presence-for-role:${step.ownerRole}` };
     }
 
     step.status = 'started';
     this.hooks.audit(plan.planId, step.id, 'started');
+    this.logEntry(plan, { at: this.hooks.nowIso(), stepId: step.id, outcomeKind: 'advanced', transition: 'started', presenceId: executor.presenceId, effectKind: step.effectHint.kind });
 
     const effect: WorldEffect = { kind: step.effectHint.kind, ...(step.effectHint.params ?? {}) } as WorldEffect;
     const emitted = this.hooks.emit(executor.presenceId, effect);
@@ -85,16 +104,25 @@ export class PlanRunner {
         // until the approval flows back through the ledger and the operator re-runs.
         const approvalId = emitted.rejection!.split(':awaiting-approval:')[1] ?? 'unknown';
         this.hooks.audit(plan.planId, step.id, 'started', `hitl-suspended:${approvalId}`);
+        this.logEntry(plan, { at: this.hooks.nowIso(), stepId: step.id, outcomeKind: 'suspended', approvalId, presenceId: executor.presenceId, effectKind: step.effectHint.kind });
         return { kind: 'suspended', stepId: step.id, approvalId };
       }
       step.status = 'aborted';
       this.hooks.audit(plan.planId, step.id, 'aborted', emitted.rejection ?? 'unknown-rejection');
+      this.logEntry(plan, { at: this.hooks.nowIso(), stepId: step.id, outcomeKind: 'blocked', transition: 'aborted', reason: emitted.rejection ?? 'rejected', presenceId: executor.presenceId, effectKind: step.effectHint.kind });
       return { kind: 'blocked', stepId: step.id, reason: emitted.rejection ?? 'rejected' };
     }
 
     step.status = 'completed';
     this.hooks.audit(plan.planId, step.id, 'completed');
+    this.logEntry(plan, { at: this.hooks.nowIso(), stepId: step.id, outcomeKind: 'advanced', transition: 'completed', presenceId: executor.presenceId, effectKind: step.effectHint.kind });
     return { kind: 'advanced', stepId: step.id, effect: emitted };
+  }
+
+  private logEntry(plan: PlanGraph, entry: PlanRunLogEntry): void {
+    const p = plan as PlanWithLog;
+    if (!p.runLog) p.runLog = [];
+    p.runLog.push(entry);
   }
 
   /** Run steps until we reach a stable point: complete, aborted, blocked, or all remaining suspended. */

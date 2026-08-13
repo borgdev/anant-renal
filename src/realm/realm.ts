@@ -86,6 +86,7 @@ export class Realm {
     this.planRunner = new PlanRunner({
       resolveExecutor: (step: PlanStep) => this.presences.list().find((p) => p.role === step.ownerRole),
       emit: (presenceId, effect) => this.emit(presenceId, effect),
+      nowIso: () => this.clock.realmAt.toISOString(),
       audit: (planId, stepId, outcome, note) => {
         // Use the first admin presence as the audit emitter; fall back to any presence.
         const admin = this.presences.list().find((p) => p.role === 'admin') ?? this.presences.list()[0];

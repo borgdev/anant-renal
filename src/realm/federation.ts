@@ -7,6 +7,7 @@
 
 import { RealmRegistry } from './registry.js';
 import type { Realm } from './realm.js';
+import { invoicePreview, DEFAULT_BILLING_PLAN, type BillingPlan, type UsagePeriod, type UsageReport } from './billing.js';
 
 export interface ProviderOrg {
   orgId: string;
@@ -96,6 +97,26 @@ export const Federation = {
       }
       return { realmId: r.id, total: evs.length, bySeverity };
     });
+  },
+
+  /** M14.E — Aggregate billing preview across every realm in the org. */
+  invoicePreviewForOrg(orgId: string, plan: BillingPlan = DEFAULT_BILLING_PLAN, period: UsagePeriod = {}): {
+    plan: BillingPlan;
+    perRealm: Array<{ realmId: string; report: UsageReport }>;
+    totals: { metersSubtotalUsd: number; episodesSubtotalUsd: number; minimumTopUpUsd: number; totalDueUsd: number };
+  } {
+    const rs = this.realmsFor(orgId);
+    const perRealm: Array<{ realmId: string; report: UsageReport }> = [];
+    const totals = { metersSubtotalUsd: 0, episodesSubtotalUsd: 0, minimumTopUpUsd: 0, totalDueUsd: 0 };
+    for (const r of rs) {
+      const report = invoicePreview(r, plan, period);
+      perRealm.push({ realmId: r.id, report });
+      totals.metersSubtotalUsd += report.metersSubtotalUsd;
+      totals.episodesSubtotalUsd += report.episodesSubtotalUsd;
+      totals.minimumTopUpUsd += report.minimumTopUpUsd;
+      totals.totalDueUsd += report.totalDueUsd;
+    }
+    return { plan, perRealm, totals };
   },
 
   /** One-shot summary: everything the operator UI needs to render an org page. */

@@ -17,6 +17,11 @@ import { PHQ9, GAD7, AUDIT_C, BRADEN, MORSE, KDQOL_36_SUMMARY, MNA_SF, CAM_DELIR
 import { LIFECYCLE_STAGES } from '../lifecycle/index.js';
 import { AgentAuthoringService } from './agent-authoring.js';
 import { RealmRegistry, populateFacility, Federation, invoicePreview, usageCsv, DEFAULT_BILLING_PLAN, runCounterfactual, type RealmMode, type WorldEffect, type TimelineEntry, type Intervention } from '../realm/index.js';
+import { listDirectives, listPlanAdvances, directivesByTarget } from '../realm/governance.js';
+import { NotificationHub, attachBus } from '../realm/notifications.js';
+import { LLMRegistry } from '../realm/llm-registry.js';
+import { CounterfactualStore } from '../realm/counterfactual-store.js';
+import { captureSnapshot, restoreSnapshot, SnapshotRegistry } from '../realm/realm-snapshot.js';
 
 const authoring = new AgentAuthoringService();
 
@@ -457,6 +462,148 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       return usageCsv(report);
     }
     return { plan: DEFAULT_BILLING_PLAN, report };
+  });
+
+  // ---- M14 routes ----
+
+  // M14.A — Plan execution timeline
+  app.get<{ Params: { id: string; planId: string } }>('/admin/realms/:id/plans/:planId/timeline', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id); if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    const plan = r.getPlan(req.params.planId); if (!plan) return reply.code(404).send({ error: 'plan-not-found' });
+    const runLog = (plan as unknown as { runLog?: unknown[] }).runLog ?? [];
+    return { planId: plan.planId, steps: plan.steps, runLog };
+  });
+
+  // M14.B — Counterfactual studio (persists results for later reference)
+  app.post<{ Body: {
+    realmId: string;
+    facility: { facilityId: string; kind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital'; name: string; units: string[]; patientCount: number };
+    interventions: Intervention[];
+    timeline?: TimelineEntry[];
+    advanceTicks?: number;
+    label?: string;
+  } }>('/admin/counterfactual/run', async (req, reply) => {
+    const source = RealmRegistry.get(req.body.realmId); if (!source) return reply.code(404).send({ error: 'realm-not-found' });
+    const { facility } = req.body;
+    if (!facility) return reply.code(400).send({ error: 'facility-required' });
+    const build = () => {
+      const fresh = RealmRegistry.create({ id: `cf#${facility.facilityId}#${Date.now()}#${Math.random().toString(36).slice(2, 6)}`, mode: 'sim' });
+      populateFacility(fresh, facility);
+      return fresh;
+    };
+    const input = { build, interventions: req.body.interventions, timeline: req.body.timeline ?? [], ...(req.body.advanceTicks !== undefined ? { advanceTicks: req.body.advanceTicks } : {}) };
+    try {
+      const report = runCounterfactual(input);
+      const rec = CounterfactualStore.save(input, report, req.body.label ?? 'ad-hoc', req.body.realmId);
+      return rec;
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+  app.get('/admin/counterfactual', async () => ({ records: CounterfactualStore.list() }));
+  app.get<{ Params: { id: string } }>('/admin/counterfactual/:id', async (req, reply) => {
+    const rec = CounterfactualStore.get(req.params.id); if (!rec) return reply.code(404).send({ error: 'cf-not-found' });
+    return rec;
+  });
+
+  // M14.C — Governance / directive ledger
+  app.get<{ Params: { id: string }; Querystring: { verb?: string; presenceId?: string; since?: string; until?: string } }>('/admin/realms/:id/governance/directives', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id); if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    const filter: Parameters<typeof listDirectives>[1] = {};
+    if (req.query.verb) filter.verb = req.query.verb;
+    if (req.query.presenceId) filter.presenceId = req.query.presenceId;
+    if (req.query.since) filter.since = req.query.since;
+    if (req.query.until) filter.until = req.query.until;
+    return { directives: listDirectives(r, filter) };
+  });
+  app.get<{ Params: { id: string }; Querystring: { planId?: string } }>('/admin/realms/:id/governance/advances', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id); if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    const filter: Parameters<typeof listPlanAdvances>[1] = {};
+    if (req.query.planId) filter.planId = req.query.planId;
+    return { advances: listPlanAdvances(r, filter) };
+  });
+  app.get<{ Params: { id: string } }>('/admin/realms/:id/governance/by-target', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id); if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    return { byTarget: directivesByTarget(r) };
+  });
+
+  // M14.D — Notification bus
+  app.get('/admin/notifications', async () => ({ notifications: NotificationHub.recent(100) }));
+  app.get('/admin/notifications/subscriptions', async () => ({ subscriptions: NotificationHub.listSubscriptions().map((s) => ({ id: s.id, role: s.role, eventKinds: s.eventKinds })) }));
+  app.post<{ Body: { role?: string; eventKinds: WorldEffect['kind'][] } }>('/admin/notifications/subscriptions', async (req) => {
+    const id = NotificationHub.subscribe({ ...(req.body.role !== undefined ? { role: req.body.role } : {}), eventKinds: req.body.eventKinds, sink: () => { /* in-process only — UI polls */ } });
+    return { id };
+  });
+  app.delete<{ Params: { id: string } }>('/admin/notifications/subscriptions/:id', async (req) => ({ removed: NotificationHub.unsubscribe(req.params.id) }));
+  app.post<{ Params: { id: string } }>('/admin/realms/:id/notifications/attach', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id); if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    attachBus(r);
+    return { attached: true, realmId: req.params.id };
+  });
+
+  // M14.E — Org-scoped billing rollup
+  app.get<{ Params: { orgId: string }; Querystring: { from?: string; to?: string } }>('/admin/orgs/:orgId/billing', async (req, reply) => {
+    try {
+      const period: { from?: Date; to?: Date } = {};
+      if (req.query.from) period.from = new Date(req.query.from);
+      if (req.query.to) period.to = new Date(req.query.to);
+      return Federation.invoicePreviewForOrg(req.params.orgId, DEFAULT_BILLING_PLAN, period);
+    } catch (err) {
+      return reply.code(404).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // M14.F — LLM adapter registry
+  app.get('/admin/llm-adapters', async () => ({ adapters: LLMRegistry.view() }));
+  app.post<{ Params: { id: string }; Body: { enabled: boolean } }>('/admin/llm-adapters/:id/enabled', async (req, reply) => {
+    try {
+      const a = LLMRegistry.setEnabled(req.params.id, req.body.enabled);
+      const { handle: _handle, ...rest } = a;
+      return rest;
+    } catch (err) {
+      return reply.code(404).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+  app.post<{ Params: { id: string } }>('/admin/llm-adapters/:id/health', async (req, reply) => {
+    try {
+      const health = await LLMRegistry.healthCheck(req.params.id);
+      return health;
+    } catch (err) {
+      return reply.code(404).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // M14.G — Realm snapshot + restore
+  app.post<{ Params: { id: string } }>('/admin/realms/:id/snapshot', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id); if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    const snap = captureSnapshot(r);
+    const snapId = SnapshotRegistry.save(snap);
+    return { snapshotId: snapId, capturedAt: snap.capturedAt, seq: snap.realm.seq, ledgerLength: snap.effects.length };
+  });
+  app.get('/admin/snapshots', async () => ({ snapshots: SnapshotRegistry.list() }));
+  app.get<{ Params: { id: string } }>('/admin/snapshots/:id', async (req, reply) => {
+    const s = SnapshotRegistry.get(req.params.id); if (!s) return reply.code(404).send({ error: 'snapshot-not-found' });
+    return s;
+  });
+  app.post<{ Params: { id: string }; Body: {
+    newRealmId?: string;
+    facility: { facilityId: string; kind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital'; name: string; units: string[]; patientCount: number };
+    replayEffects?: boolean;
+  } }>('/admin/snapshots/:id/restore', async (req, reply) => {
+    const s = SnapshotRegistry.get(req.params.id); if (!s) return reply.code(404).send({ error: 'snapshot-not-found' });
+    const facility = req.body.facility;
+    if (!facility) return reply.code(400).send({ error: 'facility-required' });
+    const newId = req.body.newRealmId ?? `${s.realm.id}-restored-${Date.now().toString(36)}`;
+    try {
+      const restored = restoreSnapshot(s, () => {
+        const fresh = RealmRegistry.create({ id: newId, mode: s.realm.mode as RealmMode });
+        populateFacility(fresh, facility);
+        return fresh;
+      }, { ...(req.body.replayEffects !== undefined ? { replayEffects: req.body.replayEffects } : {}) });
+      return { restored: restored.id, seq: restored.clock.seq, ledgerLength: restored.ledger.listAll().length };
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   app.get('/admin/summary', async () => {

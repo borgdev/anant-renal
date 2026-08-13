@@ -28,3 +28,11 @@ export { PolicyRuntime, type Candidate, type RankedOption } from './policy.js';
 export { OllamaPlannerAdapter, OllamaOperatorAdapter, type OllamaConfig } from './llm-ollama.js';
 export { runCounterfactual, type CounterfactualInput, type CounterfactualReport, type TimelineEntry, type Intervention } from './counterfactual.js';
 export { invoicePreview, usageCsv, DEFAULT_BILLING_PLAN, type BillingPlan, type UsageReport, type MeterLineItem, type EpisodeLineItem, type UsagePeriod } from './billing.js';
+
+// ---- M14 module exports ----
+export { type PlanRunLogEntry } from './plan-runner.js';
+export { listDirectives, listPlanAdvances, directivesByTarget, attachEvidence, type DirectiveEntry, type PlanAdvanceEntry, type GovernanceQueryFilter } from './governance.js';
+export { NotificationBus, NotificationHub, attachBus, type Notification, type Subscription, type NotificationSink } from './notifications.js';
+export { LLMRegistry, type RegisteredAdapter, type AdapterRole, type AdapterHealth } from './llm-registry.js';
+export { CounterfactualStore, type CounterfactualRecord } from './counterfactual-store.js';
+export { captureSnapshot, restoreSnapshot, SnapshotRegistry, SNAPSHOT_VERSION, type RealmSnapshotV1, type RestoreOptions } from './realm-snapshot.js';
