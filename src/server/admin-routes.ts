@@ -60,10 +60,32 @@ import {
 } from '../identity/index.js';
 import { SelfServeAdmin } from '../self-serve/admin.js';
 import { compileEntityPack, type CompileOptions, type CompileReport } from '../entity-compiler/index.js';
+import { MeasureEvaluator } from '../measures/evaluator.js';
+import { ValueSetRegistry } from '../measures/value-set-registry.js';
+import { loadFromDisk } from '../measures/store-loader.js';
+import { existsSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join as pathJoin } from 'node:path';
 
 const _compileReports = new Map<string, CompileReport>();
 
 const authoring = new AgentAuthoringService();
+
+let _measureEvaluator: { evaluator: MeasureEvaluator; repoSlugs: string[]; measureCount: number; libraryCount: number; loadedAt: string; root: string } | null = null;
+
+function getMeasureEvaluator(): typeof _measureEvaluator {
+  if (_measureEvaluator) return _measureEvaluator;
+  const root = process.env['HH_MEASURES_ROOT'] ?? pathJoin(process.cwd(), '.harness', 'measures');
+  if (!existsSync(root)) return null;
+  const store = loadFromDisk({ root });
+  if (store.measures.length === 0) return null;
+  const cacheDir = pathJoin(tmpdir(), 'hh-vsr-cache');
+  mkdirSync(cacheDir, { recursive: true });
+  const vsr = new ValueSetRegistry(cacheDir);
+  const evaluator = new MeasureEvaluator({ measures: store.measures, libraries: store.libraries, valueSetRegistry: vsr });
+  _measureEvaluator = { evaluator, repoSlugs: store.repoSlugs, measureCount: store.measures.length, libraryCount: store.libraries.length, loadedAt: new Date().toISOString(), root };
+  return _measureEvaluator;
+}
 
 const PACK_ROOTS: readonly { id: string; dir: string }[] = [
   { id: 'flagship-agents', dir: 'packs/flagship-agents/agents' },
@@ -140,6 +162,51 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     if (req.query.program) m = m.filter((x) => (x as { programId?: string }).programId === req.query.program);
     return { count: m.length, total: ALL_CMS_MEASURES.length, measures: m };
   });
+
+  // GET /admin/measures/store — live-loaded FHIR Measure/Library store (M20 sync output)
+  app.get('/admin/measures/store', async () => {
+    const me = getMeasureEvaluator();
+    if (!me) return { loaded: false, measures: [], libraries: 0 };
+    return {
+      loaded: true,
+      root: me.root,
+      loadedAt: me.loadedAt,
+      repoSlugs: me.repoSlugs,
+      libraries: me.libraryCount,
+      measures: me.evaluator.listMeasures().map((m) => ({
+        id: m.id, cmsId: m.cmsId, name: m.name, title: m.title,
+        version: m.version, status: m.status,
+        libraryRefs: m.libraryRefs, upstream: m.upstream,
+      })),
+    };
+  });
+
+  // POST /admin/measures/:id/evaluate — run the CQL evaluator on a FHIR bundle.
+  // :id accepts both the canonical id ('ecqm:...') and the plain CMS id.
+  app.post<{ Params: { id: string }; Body: { bundle: unknown; measurementPeriod?: { start: string; end: string } } }>(
+    '/admin/measures/:id/evaluate',
+    async (req, reply) => {
+      const me = getMeasureEvaluator();
+      if (!me) { reply.code(503); return { error: 'measure-store-not-loaded', hint: 'Run cqframework sync first' }; }
+      const decodedId = decodeURIComponent(req.params.id);
+      const measure = me.evaluator.getMeasure(decodedId);
+      if (!measure) { reply.code(404); return { error: 'measure-not-found', measureId: decodedId }; }
+      if (!req.body || typeof req.body !== 'object' || !('bundle' in req.body)) {
+        reply.code(400); return { error: 'body-must-include-bundle' };
+      }
+      try {
+        const result = await me.evaluator.evaluate({
+          measureId: measure.id,
+          bundle: req.body.bundle,
+          ...(req.body.measurementPeriod ? { measurementPeriod: req.body.measurementPeriod } : {}),
+        });
+        return result;
+      } catch (err) {
+        reply.code(500);
+        return { error: 'evaluation-failed', message: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
 
   // GET /admin/assessments — validated assessment library
   app.get('/admin/assessments', async () => {

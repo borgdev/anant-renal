@@ -1,0 +1,28 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pt-num",
+        "gender": "female",
+        "birthDate": "1985-06-15"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Condition",
+        "id": "htn-1",
+        "subject": { "reference": "Patient/pt-num" },
+        "clinicalStatus": {
+          "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "resolved" }]
+        },
+        "code": {
+          "coding": [{ "system": "http://snomed.info/sct", "code": "59621000", "display": "Essential hypertension (disorder)" }]
+        },
+        "onsetDateTime": "2025-02-01"
+      }
+    }
+  ]
+}

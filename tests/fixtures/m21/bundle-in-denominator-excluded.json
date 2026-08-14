@@ -1,0 +1,42 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pt-excl",
+        "gender": "female",
+        "birthDate": "1990-03-22"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Condition",
+        "id": "htn-2",
+        "subject": { "reference": "Patient/pt-excl" },
+        "clinicalStatus": {
+          "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "active" }]
+        },
+        "code": {
+          "coding": [{ "system": "http://snomed.info/sct", "code": "59621000" }]
+        },
+        "onsetDateTime": "2025-01-15"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Condition",
+        "id": "preg-1",
+        "subject": { "reference": "Patient/pt-excl" },
+        "clinicalStatus": {
+          "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "active" }]
+        },
+        "code": {
+          "coding": [{ "system": "http://snomed.info/sct", "code": "77386006", "display": "Pregnancy" }]
+        },
+        "onsetDateTime": "2025-04-10"
+      }
+    }
+  ]
+}

@@ -2,6 +2,26 @@
 // so both ReAct and Plan-and-Execute runners share the same provenance path.
 
 import type { KnowledgeLayer } from '../index.js';
+import { MeasureEvaluator } from '../../measures/evaluator.js';
+import { ValueSetRegistry } from '../../measures/value-set-registry.js';
+import { loadFromDisk } from '../../measures/store-loader.js';
+import { existsSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join as pathJoin } from 'node:path';
+
+let _sharedEvaluator: MeasureEvaluator | null = null;
+function sharedEvaluator(): MeasureEvaluator | null {
+  if (_sharedEvaluator) return _sharedEvaluator;
+  const root = process.env['HH_MEASURES_ROOT'] ?? pathJoin(process.cwd(), '.harness', 'measures');
+  if (!existsSync(root)) return null;
+  const store = loadFromDisk({ root });
+  if (store.measures.length === 0) return null;
+  const cacheDir = pathJoin(tmpdir(), 'hh-vsr-cache');
+  mkdirSync(cacheDir, { recursive: true });
+  const vsr = new ValueSetRegistry(cacheDir);
+  _sharedEvaluator = new MeasureEvaluator({ measures: store.measures, libraries: store.libraries, valueSetRegistry: vsr });
+  return _sharedEvaluator;
+}
 
 export interface EventPublisher { publish(e: unknown): Promise<void> | void; }
 
@@ -115,6 +135,43 @@ export function buildKnowledgeToolBus(opts: ToolBusOptions): ToolDefinition[] {
         const id = String(a['sourceId']);
         const fanout = layer.sources.fanout(id);
         return { ok: true, data: fanout };
+      }),
+    wrap('evaluate_measure', 'Evaluate a CMS FHIR measure against a supplied FHIR bundle. Returns per-population membership and score.',
+      {
+        type: 'object',
+        required: ['measureId', 'bundle'],
+        properties: {
+          measureId: { type: 'string', description: 'Canonical id (ecqm:X/version) or plain CMS id' },
+          bundle: { type: 'object', description: 'FHIR R4 Bundle or array of resources' },
+          measurementPeriod: {
+            type: 'object',
+            properties: { start: { type: 'string' }, end: { type: 'string' } },
+          },
+        },
+      },
+      async (a) => {
+        const evaluator = sharedEvaluator();
+        if (!evaluator) return { ok: false, error: 'measure-store-not-loaded' };
+        const measureId = String(a['measureId']);
+        const measure = evaluator.getMeasure(measureId);
+        if (!measure) return { ok: false, error: 'measure-not-found' };
+        try {
+          const period = a['measurementPeriod'] as { start?: string; end?: string } | undefined;
+          const result = await evaluator.evaluate({
+            measureId: measure.id,
+            bundle: a['bundle'],
+            ...(period && period.start && period.end ? { measurementPeriod: { start: period.start, end: period.end } } : {}),
+          });
+          return {
+            ok: true,
+            data: result,
+            citations: [
+              { sourceId: 'cqframework', upstream: { rawUrl: measure.upstream.rawUrl, contentHash: measure.upstream.contentHash } },
+            ],
+          };
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        }
       }),
   ];
 }

@@ -1,0 +1,158 @@
+{
+  "library": {
+    "identifier": { "id": "M21Basic", "version": "1.0.0" },
+    "schemaIdentifier": { "id": "urn:hl7-org:elm", "version": "r1" },
+    "usings": {
+      "def": [
+        { "localIdentifier": "System", "uri": "urn:hl7-org:elm-types:r1" },
+        { "localIdentifier": "FHIR", "uri": "http://hl7.org/fhir", "version": "4.0.1" }
+      ]
+    },
+    "codeSystems": {
+      "def": [
+        { "name": "SNOMED", "id": "http://snomed.info/sct", "accessLevel": "Public" }
+      ]
+    },
+    "codes": {
+      "def": [
+        {
+          "name": "Essential hypertension",
+          "id": "59621000",
+          "display": "Essential hypertension (disorder)",
+          "accessLevel": "Public",
+          "codeSystem": { "name": "SNOMED" }
+        },
+        {
+          "name": "Pregnancy",
+          "id": "77386006",
+          "display": "Pregnancy",
+          "accessLevel": "Public",
+          "codeSystem": { "name": "SNOMED" }
+        }
+      ]
+    },
+    "statements": {
+      "def": [
+        {
+          "name": "Patient",
+          "context": "Patient",
+          "expression": {
+            "type": "SingletonFrom",
+            "operand": {
+              "dataType": "{http://hl7.org/fhir}Patient",
+              "templateId": "http://hl7.org/fhir/StructureDefinition/Patient",
+              "type": "Retrieve"
+            }
+          }
+        },
+        {
+          "name": "Initial Population",
+          "context": "Patient",
+          "accessLevel": "Public",
+          "expression": {
+            "type": "Exists",
+            "operand": {
+              "dataType": "{http://hl7.org/fhir}Patient",
+              "templateId": "http://hl7.org/fhir/StructureDefinition/Patient",
+              "type": "Retrieve"
+            }
+          }
+        },
+        {
+          "name": "Denominator",
+          "context": "Patient",
+          "accessLevel": "Public",
+          "expression": {
+            "type": "And",
+            "operand": [
+              { "type": "ExpressionRef", "name": "Initial Population" },
+              {
+                "type": "Exists",
+                "operand": {
+                  "dataType": "{http://hl7.org/fhir}Condition",
+                  "templateId": "http://hl7.org/fhir/StructureDefinition/Condition",
+                  "codeProperty": "code",
+                  "codeComparator": "in",
+                  "type": "Retrieve",
+                  "codes": {
+                    "type": "ToList",
+                    "operand": { "type": "CodeRef", "name": "Essential hypertension" }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "Denominator Exclusions",
+          "context": "Patient",
+          "accessLevel": "Public",
+          "expression": {
+            "type": "Exists",
+            "operand": {
+              "dataType": "{http://hl7.org/fhir}Condition",
+              "templateId": "http://hl7.org/fhir/StructureDefinition/Condition",
+              "codeProperty": "code",
+              "codeComparator": "in",
+              "type": "Retrieve",
+              "codes": {
+                "type": "ToList",
+                "operand": { "type": "CodeRef", "name": "Pregnancy" }
+              }
+            }
+          }
+        },
+        {
+          "name": "HasHypertension",
+          "context": "Patient",
+          "accessLevel": "Public",
+          "expression": {
+            "type": "Exists",
+            "operand": {
+              "dataType": "{http://hl7.org/fhir}Condition",
+              "templateId": "http://hl7.org/fhir/StructureDefinition/Condition",
+              "codeProperty": "code",
+              "codeComparator": "in",
+              "type": "Retrieve",
+              "codes": {
+                "type": "ToList",
+                "operand": { "type": "CodeRef", "name": "Essential hypertension" }
+              }
+            }
+          }
+        },
+        {
+          "name": "HasPregnancy",
+          "context": "Patient",
+          "accessLevel": "Public",
+          "expression": {
+            "type": "Exists",
+            "operand": {
+              "dataType": "{http://hl7.org/fhir}Condition",
+              "templateId": "http://hl7.org/fhir/StructureDefinition/Condition",
+              "codeProperty": "code",
+              "codeComparator": "in",
+              "type": "Retrieve",
+              "codes": {
+                "type": "ToList",
+                "operand": { "type": "CodeRef", "name": "Pregnancy" }
+              }
+            }
+          }
+        },
+        {
+          "name": "Numerator",
+          "context": "Patient",
+          "accessLevel": "Public",
+          "expression": {
+            "type": "And",
+            "operand": [
+              { "type": "ExpressionRef", "name": "HasHypertension" },
+              { "type": "Not", "operand": { "type": "ExpressionRef", "name": "HasPregnancy" } }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
