@@ -1,0 +1,182 @@
+[
+  {
+    "id": "cms:esrd-qip:kt-v",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Kt/V Dialysis Adequacy Comprehensive",
+    "description": "ESRD-QIP: Kt/V Dialysis Adequacy Comprehensive"
+  },
+  {
+    "id": "cms:esrd-qip:vat",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Vascular Access Type Clinical",
+    "description": "ESRD-QIP: Vascular Access Type Clinical"
+  },
+  {
+    "id": "cms:esrd-qip:hypercalcemia",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Hypercalcemia Clinical",
+    "description": "ESRD-QIP: Hypercalcemia Clinical"
+  },
+  {
+    "id": "cms:esrd-qip:sti",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Standardized Transfusion Ratio (STrR)",
+    "description": "ESRD-QIP: Standardized Transfusion Ratio (STrR)"
+  },
+  {
+    "id": "cms:esrd-qip:srr",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Standardized Readmission Ratio (SRR)",
+    "description": "ESRD-QIP: Standardized Readmission Ratio (SRR)"
+  },
+  {
+    "id": "cms:esrd-qip:shr",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Standardized Hospitalization Ratio (SHR)",
+    "description": "ESRD-QIP: Standardized Hospitalization Ratio (SHR)"
+  },
+  {
+    "id": "cms:esrd-qip:smr",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Standardized Mortality Ratio (SMR)",
+    "description": "ESRD-QIP: Standardized Mortality Ratio (SMR)"
+  },
+  {
+    "id": "cms:esrd-qip:pain-assessment",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Pain Assessment and Follow-Up (Reporting)",
+    "description": "ESRD-QIP: Pain Assessment and Follow-Up (Reporting)"
+  },
+  {
+    "id": "cms:esrd-qip:depression-screening",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Clinical Depression Screening and Follow-Up (Reporting)",
+    "description": "ESRD-QIP: Clinical Depression Screening and Follow-Up (Reporting)"
+  },
+  {
+    "id": "cms:esrd-qip:nhsn-bsi",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: NHSN Bloodstream Infection in Hemodialysis Outpatients",
+    "description": "ESRD-QIP: NHSN Bloodstream Infection in Hemodialysis Outpatients"
+  },
+  {
+    "id": "cms:esrd-qip:iccbba",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Ultrafiltration Rate Reporting (Reporting)",
+    "description": "ESRD-QIP: Ultrafiltration Rate Reporting (Reporting)"
+  },
+  {
+    "id": "cms:esrd-qip:phosphorus-reporting",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Serum Phosphorus Reporting (Reporting)",
+    "description": "ESRD-QIP: Serum Phosphorus Reporting (Reporting)"
+  },
+  {
+    "id": "cms:esrd-qip:facility-commitment",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Facility Commitment to Health Equity (Reporting)",
+    "description": "ESRD-QIP: Facility Commitment to Health Equity (Reporting)"
+  },
+  {
+    "id": "cms:esrd-qip:screening-sdoh",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Screening for Social Drivers of Health (Reporting)",
+    "description": "ESRD-QIP: Screening for Social Drivers of Health (Reporting)"
+  },
+  {
+    "id": "cms:esrd-qip:screen-positive-sdoh",
+    "programId": "cms:esrd:qip",
+    "name": "ESRD-QIP: Screen Positive Rate for SDOH (Reporting)",
+    "description": "ESRD-QIP: Screen Positive Rate for SDOH (Reporting)"
+  },
+  {
+    "id": "cms:iqr:ami-30d-mortality",
+    "programId": "cms:iqr",
+    "name": "IQR: 30-day Mortality after AMI",
+    "description": "IQR: 30-day Mortality after AMI"
+  },
+  {
+    "id": "cms:iqr:hf-30d-readmit",
+    "programId": "cms:iqr",
+    "name": "IQR: 30-day Readmission after HF",
+    "description": "IQR: 30-day Readmission after HF"
+  },
+  {
+    "id": "cms:iqr:sep-1",
+    "programId": "cms:iqr",
+    "name": "IQR: SEP-1 Severe Sepsis and Septic Shock: Management Bundle",
+    "description": "IQR: SEP-1 Severe Sepsis and Septic Shock: Management Bundle"
+  },
+  {
+    "id": "cms:iqr:ce-imaging",
+    "programId": "cms:iqr",
+    "name": "IQR: Cataract: Complications Within 30 Days Requiring Additional Surgery",
+    "description": "IQR: Cataract: Complications Within 30 Days Requiring Additional Surgery"
+  },
+  {
+    "id": "cms:vbp:hcahps-communication-nurses",
+    "programId": "cms:hvbp",
+    "name": "HVBP: HCAHPS - Nurse Communication",
+    "description": "HVBP: HCAHPS - Nurse Communication"
+  },
+  {
+    "id": "cms:vbp:mspb",
+    "programId": "cms:hvbp",
+    "name": "HVBP: Medicare Spending Per Beneficiary (MSPB)",
+    "description": "HVBP: Medicare Spending Per Beneficiary (MSPB)"
+  },
+  {
+    "id": "cms:mips:q001-dm-hba1c",
+    "programId": "cms:mips",
+    "name": "MIPS Quality #001 - Diabetes: Hemoglobin A1c (HbA1c) Poor Control (>9%)",
+    "description": "MIPS Quality #001 - Diabetes: Hemoglobin A1c (HbA1c) Poor Control (>9%)"
+  },
+  {
+    "id": "cms:mips:q236-htn-control",
+    "programId": "cms:mips",
+    "name": "MIPS Quality #236 - Controlling High Blood Pressure",
+    "description": "MIPS Quality #236 - Controlling High Blood Pressure"
+  },
+  {
+    "id": "cms:mips:pi-eprescribing",
+    "programId": "cms:mips",
+    "name": "MIPS Promoting Interoperability - e-Prescribing",
+    "description": "MIPS Promoting Interoperability - e-Prescribing"
+  },
+  {
+    "id": "cms:mips:cost-tpcc",
+    "programId": "cms:mips",
+    "name": "MIPS Cost - Total Per Capita Cost (TPCC)",
+    "description": "MIPS Cost - Total Per Capita Cost (TPCC)"
+  },
+  {
+    "id": "cms:mips:ia-pspa19",
+    "programId": "cms:mips",
+    "name": "MIPS Improvement Activity IA_PSPA_19 - Implementation of formal quality improvement methods",
+    "description": "MIPS Improvement Activity IA_PSPA_19 - Implementation of formal quality improvement methods"
+  },
+  {
+    "id": "cms:pi-hospital:hie",
+    "programId": "cms:promoting-interoperability",
+    "name": "PI (Hospital) - Health Information Exchange (Send + Receive + Reconcile)",
+    "description": "PI (Hospital) - Health Information Exchange (Send + Receive + Reconcile)"
+  },
+  {
+    "id": "nhsn:dialysis-event",
+    "programId": "nhsn:dialysis",
+    "name": "NHSN - Dialysis Event Reporting",
+    "description": "NHSN - Dialysis Event Reporting"
+  },
+  {
+    "id": "cms:0057-f:pa-decision-time",
+    "programId": "cms:0057-f",
+    "name": "CMS-0057-F: Prior Authorization Decision Timeliness",
+    "description": "CMS-0057-F: Prior Authorization Decision Timeliness"
+  },
+  {
+    "id": "cms:0057-f:api-uptime",
+    "programId": "cms:0057-f",
+    "name": "CMS-0057-F: Patient Access + Provider Access + Payer-to-Payer API Uptime",
+    "description": "CMS-0057-F: Patient Access + Provider Access + Payer-to-Payer API Uptime"
+  }
+]

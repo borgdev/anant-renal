@@ -1,0 +1,25 @@
+{
+  "name": "anant-exec",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Renal Swarm Intelligence — executive console (port of the renal-swarm-intelligence prototype wired to the healthcare-harness backend).",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lucide-react": "^1.33.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  }
+}

@@ -1,0 +1,107 @@
+[
+  {
+    "id": "clinicaltrials-gov",
+    "name": "ClinicalTrials.gov",
+    "category": "trial-registry"
+  },
+  {
+    "id": "dailymed",
+    "name": "DailyMed",
+    "category": "drug-label"
+  },
+  {
+    "id": "orange-book",
+    "name": "FDA Orange Book (Approved Drug Products with Therapeutic Equivalence Evaluations)",
+    "category": "drug-approval"
+  },
+  {
+    "id": "purple-book",
+    "name": "FDA Purple Book (Licensed Biological Products)",
+    "category": "drug-approval"
+  },
+  {
+    "id": "drugs-at-fda",
+    "name": "Drugs@FDA",
+    "category": "drug-approval"
+  },
+  {
+    "id": "pubmed",
+    "name": "PubMed E-Utilities",
+    "category": "literature"
+  },
+  {
+    "id": "pmc",
+    "name": "PubMed Central",
+    "category": "literature"
+  },
+  {
+    "id": "faers",
+    "name": "FAERS (FDA Adverse Event Reporting System)",
+    "category": "pharmacovigilance"
+  },
+  {
+    "id": "vaers",
+    "name": "VAERS (Vaccine Adverse Event Reporting System)",
+    "category": "pharmacovigilance"
+  },
+  {
+    "id": "openfda",
+    "name": "openFDA",
+    "category": "drug-approval"
+  },
+  {
+    "id": "nih-reporter",
+    "name": "NIH RePORTER",
+    "category": "grants"
+  },
+  {
+    "id": "medlineplus",
+    "name": "MedlinePlus Connect",
+    "category": "patient-education"
+  },
+  {
+    "id": "rxnav",
+    "name": "RxNav (RxNorm / Interaction APIs)",
+    "category": "drug-label"
+  },
+  {
+    "id": "aers-med-effects",
+    "name": "Pharmacovigilance signal-detection (composite)",
+    "category": "pharmacovigilance"
+  },
+  {
+    "id": "usp-national-formulary",
+    "name": "USP National Formulary",
+    "category": "drug-label"
+  },
+  {
+    "id": "sentinel-cdrh",
+    "name": "FDA Sentinel (CDRH)",
+    "category": "pharmacovigilance"
+  },
+  {
+    "id": "euro-clinicaltrials",
+    "name": "EU Clinical Trials Information System (CTIS)",
+    "category": "trial-registry"
+  },
+  {
+    "id": "who-ictrp",
+    "name": "WHO International Clinical Trials Registry Platform",
+    "category": "trial-registry"
+  },
+  {
+    "id": "cochrane",
+    "name": "Cochrane Library",
+    "category": "guidelines"
+  },
+  {
+    "id": "uspstf",
+    "name": "U.S. Preventive Services Task Force",
+    "category": "guidelines"
+  },
+  {
+    "id": "nice-guidelines",
+    "name": "NICE Guidelines",
+    "category": "guidelines"
+  }
+]

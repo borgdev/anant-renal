@@ -1,3 +1,36 @@
+/******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
 // Realm — a running, tickable world.
 //
 // Composes clock, entity graph, ledger, presence registry, perception router,
@@ -10,6 +43,7 @@ import { EffectLedger } from './effect-ledger.js';
 import { PresenceRegistry, type PresenceInit } from './presence.js';
 import { PerceptionRouter } from './perception.js';
 import { EffectReducer, DEFAULT_AUTHORITY, type EffectAuthorityMap } from './effect-reducer.js';
+import type { RealmHypergraph } from './hypergraph-bridge.js';
 import { AmbientProcessRegistry, type AmbientContext, type AmbientProcess, LabMaturationProcess, PatientTrajectoryProcess, InsuranceClockProcess } from './ambient.js';
 import { EpisodeStore } from './episode.js';
 import { SelfModelRegistry } from './self-model.js';
@@ -23,6 +57,9 @@ import { PolicyRuntime } from './policy.js';
 import { OperatorSeat } from './operator-seat.js';
 import { loadOrgPack, OrgGraphQuery, DIALYSIS_CLINIC_ORG_PACK, type OrgPack } from './org-graph.js';
 import type { AgentPresence, EmittedEffect, EntityUrn, RealmId, RealmMode, WorldEffect } from './types.js';
+import { TrajectoryAmbientProcess } from '../liquid/trajectory.js';
+import { makeRegimeRule } from '../liquid/regime.js';
+import type { TrajectoryEngine } from '../liquid/types.js';
 
 export interface RealmOpts {
   id: RealmId;
@@ -34,11 +71,16 @@ export interface RealmOpts {
   rules?: RulesEngine;
   hitlGates?: HITLGate[];
   orgPack?: OrgPack;
+  /** Patient-trajectory engine: `legacy` (hand-authored physiology, default) or `liquid` (learned CfC/LTC via WASM). */
+  trajectoryEngine?: TrajectoryEngine;
+  /** Optional live hypergraph bridge (Phase 1b) — populated by every emitted effect. */
+  hypergraph?: RealmHypergraph;
 }
 
 export class Realm {
   readonly id: RealmId;
   readonly mode: RealmMode;
+  readonly trajectoryEngine: TrajectoryEngine | undefined;
   readonly clock: Clock;
   readonly graph: EntityGraph;
   readonly ledger: EffectLedger;
@@ -57,6 +99,7 @@ export class Realm {
   readonly policy: PolicyRuntime;
   readonly operatorSeat: OperatorSeat;
   readonly orgQuery: OrgGraphQuery;
+  readonly hypergraph: RealmHypergraph | undefined;
   private clockSub: (() => void) | undefined;
   private effectSub: (() => void) | undefined;
   // Intent → plan bookkeeping (planId -> PlanGraph)
@@ -66,6 +109,7 @@ export class Realm {
   constructor(opts: RealmOpts) {
     this.id = opts.id;
     this.mode = opts.mode;
+    this.trajectoryEngine = opts.trajectoryEngine;
     this.clock = opts.clock ?? (opts.mode === 'sim'
       ? new AcceleratedClock({ msPerTick: 50, realmMsPerTick: 60 * 60 * 1000 }) // 1 hour of realm per 50ms
       : new WallClock({ intervalMs: 1000 }));
@@ -77,6 +121,9 @@ export class Realm {
     this.episodes = new EpisodeStore();
     this.selfModel = new SelfModelRegistry();
     this.rules = opts.rules ?? createDefaultEngine();
+    // Liquid hypergraph mechanic (Phase 8): when the realm runs the liquid engine, watch each
+    // patient's dynamical regime and surface transitions as Experiences agents can perceive.
+    if (opts.trajectoryEngine === 'liquid') this.rules.registerTs(makeRegimeRule());
     this.attribution = new ConsequenceAttributor(this.ledger, this.episodes, this.selfModel);
     this.hitl = new HITLRegistry(this.graph, this.ledger);
     for (const g of opts.hitlGates ?? DEFAULT_GATES) this.hitl.registerGate(g);
@@ -99,10 +146,12 @@ export class Realm {
     this.orgQuery = new OrgGraphQuery(this.graph);
     // Operator seat is constructed at the end after everything is wired.
     const bound = new Set(opts.boundEffects ?? []);
+    this.hypergraph = opts.hypergraph;
     this.reducer = new EffectReducer(this.graph, this.ledger, this.perception, this.clock, {
       mode: this.mode,
       boundEffects: bound,
       ...(opts.authority ? { authority: opts.authority } : {}),
+      ...(opts.hypergraph ? { hypergraph: opts.hypergraph } : {}),
       onEffectScheduled: (emitted) => this.ambient.onEffect(emitted, this.ambientContext()),
       hitl: {
         match: (p, e) => {
@@ -131,7 +180,7 @@ export class Realm {
       finally { (this.reducer['opts'] as { hitl?: unknown }).hitl = original; }
     });
 
-    for (const p of opts.ambientProcesses ?? this.defaultAmbient()) this.ambient.register(p);
+    for (const p of opts.ambientProcesses ?? this.defaultAmbient(opts.trajectoryEngine)) this.ambient.register(p);
 
     this.clockSub = this.clock.subscribe((tick) => {
       this.ambient.tick(this.ambientContext(), tick);
@@ -150,8 +199,9 @@ export class Realm {
     (this.graph as unknown as { realmId: string }).realmId = this.id;
   }
 
-  private defaultAmbient(): AmbientProcess[] {
-    return [new LabMaturationProcess(), new PatientTrajectoryProcess(), new InsuranceClockProcess()];
+  private defaultAmbient(engine: TrajectoryEngine = 'legacy'): AmbientProcess[] {
+    const trajectory = engine === 'liquid' ? new TrajectoryAmbientProcess() : new PatientTrajectoryProcess();
+    return [new LabMaturationProcess(), trajectory, new InsuranceClockProcess()];
   }
 
   private ambientContext(): AmbientContext {
@@ -185,6 +235,7 @@ export class Realm {
     return {
       id: this.id,
       mode: this.mode,
+      trajectoryEngine: this.trajectoryEngine,
       seq: this.clock.seq,
       realmAt: this.clock.realmAt.toISOString(),
       counts: this.graph.snapshot().countsByKind,

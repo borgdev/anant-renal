@@ -1,0 +1,90 @@
+[
+  {
+    "id": "cms-cy2026-final",
+    "authority": "CMS",
+    "title": "CY 2026 ESRD PPS Final Rule",
+    "status": "final",
+    "published": "2025-11-20",
+    "effectiveFrom": "2026-01-01",
+    "url": "https://www.cms.gov/newsroom/fact-sheets/calendar-year-cy-2026-end-stage-renal-disease-esrd-prospective-payment-system-final-rule",
+    "refresh": "annual",
+    "synthetic": false
+  },
+  {
+    "id": "cms-qip-2026-spec",
+    "authority": "CMS",
+    "title": "CY 2026 ESRD QIP Technical Measure Specifications",
+    "status": "final-revised",
+    "published": "2026-04-29",
+    "effectiveFrom": "2026-01-01",
+    "url": "https://www.cms.gov/files/document/cy2026-final-rule-tech-specs-revised-04292026.pdf",
+    "refresh": "on-publication",
+    "synthetic": false
+  },
+  {
+    "id": "cms-cy2027-proposed",
+    "authority": "CMS",
+    "title": "CY 2027 ESRD PPS Proposed Rule",
+    "status": "proposed",
+    "published": "2026-06-24",
+    "effectiveFrom": "2027-01-01",
+    "url": "https://www.cms.gov/newsroom/fact-sheets/calendar-year-cy-2027-end-stage-renal-disease-esrd-prospective-payment-system-proposed-rule",
+    "refresh": "until-final",
+    "synthetic": false
+  },
+  {
+    "id": "cms-provider-data",
+    "authority": "CMS",
+    "title": "CMS Provider Data dialysis national file API",
+    "status": "live-public-api",
+    "published": "2026-08-21",
+    "effectiveFrom": "2026-08-21",
+    "url": "https://data.cms.gov/data-api/v1/dataset/f8610e87-ba25-43a3-a49e-927dbc8701ae/data",
+    "refresh": "monthly",
+    "synthetic": false
+  },
+  {
+    "id": "eqrs-2026",
+    "authority": "CMS EQRS",
+    "title": "EQRS reporting resources and submission notices",
+    "status": "active",
+    "published": "2026-08-13",
+    "effectiveFrom": "2026-01-01",
+    "url": "https://eqrs.cms.gov/resources",
+    "refresh": "weekly",
+    "synthetic": false
+  },
+  {
+    "id": "nhsn-dialysis-2026",
+    "authority": "CDC NHSN",
+    "title": "2026 Dialysis Event Protocol and reporting resources",
+    "status": "active",
+    "published": "2026-01-22",
+    "effectiveFrom": "2026-01-01",
+    "url": "https://www.cdc.gov/nhsn/dialysis/event/index.html",
+    "refresh": "monthly",
+    "synthetic": false
+  },
+  {
+    "id": "usrds-adr-2025",
+    "authority": "NIH NIDDK / USRDS",
+    "title": "2025 USRDS Annual Data Report",
+    "status": "published",
+    "published": "2025-12-01",
+    "effectiveFrom": "2025-12-01",
+    "url": "https://usrds-adr.niddk.nih.gov/2025/",
+    "refresh": "annual",
+    "synthetic": false
+  },
+  {
+    "id": "ecqi-dqm-2026",
+    "authority": "CMS / ASTP",
+    "title": "Digital Quality Measures and FHIR/CQL resources",
+    "status": "active",
+    "published": "2026-08-05",
+    "effectiveFrom": "2026-01-01",
+    "url": "https://ecqi.healthit.gov/dqm/about-dqms",
+    "refresh": "quarterly",
+    "synthetic": false
+  }
+]

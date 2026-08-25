@@ -1,3 +1,36 @@
+/******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
 // M14.G — Realm snapshot + restore
 //
 // Captures a *portable* snapshot of a running realm's essential state:
@@ -14,10 +47,18 @@
 // versioned so incompatible ones fail loudly rather than silently drifting.
 
 import type { Realm } from './realm.js';
-import type { AgentPresence, EmittedEffect } from './types.js';
+import type { AgentPresence, EmittedEffect, EntityKind, EntityUrn } from './types.js';
 import type { Intent, PlanGraph } from './planner.js';
 
 export const SNAPSHOT_VERSION = 'hh-realm-snapshot@1';
+
+/** Portable entity-graph record (kind/id/state/relations — enough to re-create). */
+export interface SnapshotEntity {
+  kind: EntityKind;
+  id: string;
+  state: Record<string, unknown>;
+  relations: Record<string, string[]>;
+}
 
 export interface RealmSnapshotV1 {
   version: typeof SNAPSHOT_VERSION;
@@ -28,6 +69,8 @@ export interface RealmSnapshotV1 {
     seq: number;
     realmAt: string;
   };
+  /** Entity graph (patients, units, facilities, vitals/labs state) — restored so trajectories survive. */
+  entities?: SnapshotEntity[];
   presences: AgentPresence[];
   selfModels: Array<{
     presenceId: string;
@@ -67,6 +110,12 @@ export function captureSnapshot(realm: Realm): RealmSnapshotV1 {
     effect: rec.effect,
     gateId: rec.gateId,
   }));
+  const entities: SnapshotEntity[] = realm.graph.snapshot().entities.map((e) => ({
+    kind: e.kind,
+    id: e.id,
+    state: e.state,
+    relations: Object.fromEntries(Object.entries(e.relations).map(([rel, urns]) => [rel, urns.map((u) => String(u))])),
+  }));
   return {
     version: SNAPSHOT_VERSION,
     capturedAt: new Date().toISOString(),
@@ -76,6 +125,7 @@ export function captureSnapshot(realm: Realm): RealmSnapshotV1 {
       seq: realm.clock.seq,
       realmAt: realm.clock.realmAt.toISOString(),
     },
+    entities,
     presences,
     selfModels,
     effects,
@@ -89,6 +139,15 @@ export function captureSnapshot(realm: Realm): RealmSnapshotV1 {
 export function restoreSnapshot(snapshot: RealmSnapshotV1, build: () => Realm, opts: RestoreOptions = {}): Realm {
   if (snapshot.version !== SNAPSHOT_VERSION) throw new Error(`snapshot-version-mismatch: expected ${SNAPSHOT_VERSION}, got ${snapshot.version}`);
   const realm = build();
+
+  // Rehydrate the entity graph (facilities, units, patients with trajectories/labs/vitals).
+  for (const e of snapshot.entities ?? []) {
+    try {
+      realm.graph.create(e.kind, e.id, e.state, e.relations as unknown as Record<string, EntityUrn[]>);
+    } catch {
+      /* duplicate or unknown kind — skip, best-effort */
+    }
+  }
 
   // Rehydrate presences by spawning them via the registry (fresh presenceIds would break the ledger,
   // so we re-inject the original records directly).
@@ -142,6 +201,13 @@ export function restoreSnapshot(snapshot: RealmSnapshotV1, build: () => Realm, o
     const gate = realm.hitl.listGates().find((g) => g.id === rec.gateId);
     if (!gate) continue;
     try { realm.hitl.suspend(presence, rec.effect, gate); } catch { /* already restored via ledger copy */ }
+  }
+
+  // Restore the clock (seq + realmAt) without re-triggering ambient ticks.
+  const clockAny = realm.clock as unknown as { _seq?: number; _realmAt?: Date };
+  if (clockAny) {
+    if (typeof clockAny._seq === 'number') clockAny._seq = snapshot.realm.seq;
+    if (clockAny._realmAt instanceof Date) clockAny._realmAt = new Date(snapshot.realm.realmAt);
   }
 
   return realm;

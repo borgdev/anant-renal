@@ -1,3 +1,36 @@
+/******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
 // Agent-authoring service — draft → review → publish workflow.
 //
 // Drafts live in `packs/<packId>/drafts/*.yaml` with a `status: draft|in-review`
@@ -10,7 +43,8 @@
 // Everything is versioned on disk so the operator flow is inspectable in git
 // and reversible.
 
-import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync, renameSync, statSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync, renameSync, statSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
 import { validateAgentSpec, type AgentSpec } from '../agents/index.js';
@@ -30,7 +64,7 @@ export interface DraftRecord {
 
 export interface PublishAuditEntry {
   actorRef: string;
-  action: 'create-draft' | 'update-draft' | 'submit-review' | 'publish' | 'reject';
+  action: 'create-draft' | 'update-draft' | 'submit-review' | 'publish' | 'reject' | 'delete';
   packId: string;
   agentId: string;
   contentSha256: string;
@@ -38,14 +72,17 @@ export interface PublishAuditEntry {
   note?: string;
 }
 
-const PACKS_DIR = 'packs';
-const AUDIT_LOG = 'packs/.authoring-audit.jsonl';
-
 export class AgentAuthoringService {
+  /** Base directory that holds `<packId>/drafts` + `<packId>/agents` + the audit log.
+   *  Defaults to the workspace `packs/`; tests inject a temp dir. */
+  constructor(private readonly baseDir = 'packs') {}
+
+  private auditLogPath(): string { return join(this.baseDir, '.authoring-audit.jsonl'); }
+
   listDrafts(): DraftRecord[] {
     const out: DraftRecord[] = [];
-    for (const pack of readdirSync(PACKS_DIR)) {
-      const draftsDir = `${PACKS_DIR}/${pack}/drafts`;
+    for (const pack of readdirSync(this.baseDir)) {
+      const draftsDir = `${this.baseDir}/${pack}/drafts`;
       if (!existsSync(draftsDir)) continue;
       for (const f of readdirSync(draftsDir).filter((x) => x.endsWith('.yaml'))) {
         const path = `${draftsDir}/${f}`;
@@ -70,7 +107,7 @@ export class AgentAuthoringService {
   }
 
   getDraft(packId: string, id: string): DraftRecord | null {
-    const path = `${PACKS_DIR}/${packId}/drafts/${id}.yaml`;
+    const path = `${this.baseDir}/${packId}/drafts/${id}.yaml`;
     if (!existsSync(path)) return null;
     const yaml = readFileSync(path, 'utf8');
     const status: DraftStatus = /^#\s*status:\s*in-review/m.test(yaml) ? 'in-review' : 'draft';
@@ -100,11 +137,11 @@ export class AgentAuthoringService {
   saveDraft(input: { packId: string; id: string; yaml: string; status?: DraftStatus; actorRef: string; note?: string }): DraftRecord {
     if (!/^[a-z0-9][a-z0-9-]{1,63}$/.test(input.packId)) throw new Error('invalid-pack-id');
     if (!/^[a-z0-9][a-z0-9-]{1,63}$/.test(input.id)) throw new Error('invalid-agent-id');
-    const draftsDir = `${PACKS_DIR}/${input.packId}/drafts`;
-    if (!existsSync(`${PACKS_DIR}/${input.packId}`)) throw new Error('unknown-pack');
+    const draftsDir = `${this.baseDir}/${input.packId}/drafts`;
+    if (!existsSync(`${this.baseDir}/${input.packId}`)) throw new Error('unknown-pack');
     mkdirSync(draftsDir, { recursive: true });
     // Reject id collisions against published agents
-    const publishedPath = `${PACKS_DIR}/${input.packId}/agents/${input.id}.yaml`;
+    const publishedPath = `${this.baseDir}/${input.packId}/agents/${input.id}.yaml`;
     if (existsSync(publishedPath)) throw new Error(`agent-already-published: ${input.id}`);
     const isNew = !existsSync(`${draftsDir}/${input.id}.yaml`);
     const header = [
@@ -133,11 +170,11 @@ export class AgentAuthoringService {
     if (!draft) throw new Error('draft-not-found');
     if (!draft.validation.ok) throw new Error(`draft-invalid: ${draft.validation.errors.join('; ')}`);
     // Duplicate id check across all packs
-    for (const pack of readdirSync(PACKS_DIR)) {
-      const p = `${PACKS_DIR}/${pack}/agents/${input.id}.yaml`;
+    for (const pack of readdirSync(this.baseDir)) {
+      const p = `${this.baseDir}/${pack}/agents/${input.id}.yaml`;
       if (existsSync(p)) throw new Error(`agent-id-collision: ${input.id} already exists in ${pack}`);
     }
-    const agentsDir = `${PACKS_DIR}/${input.packId}/agents`;
+    const agentsDir = `${this.baseDir}/${input.packId}/agents`;
     mkdirSync(agentsDir, { recursive: true });
     // Strip authoring headers before publishing to keep published YAML clean
     const publishedYaml = draft.yaml.replace(/^(#\s*(status|author|updatedAt):.*\n)+/m, '');
@@ -176,13 +213,28 @@ export class AgentAuthoringService {
   }
 
   auditLog(): PublishAuditEntry[] {
-    if (!existsSync(AUDIT_LOG)) return [];
-    return readFileSync(AUDIT_LOG, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as PublishAuditEntry);
+    if (!existsSync(this.auditLogPath())) return [];
+    return readFileSync(this.auditLogPath(), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as PublishAuditEntry);
+  }
+
+  removeDraft(packId: string, id: string): boolean {
+    const draft = this.getDraft(packId, id);
+    if (!draft) return false;
+    unlinkSync(draft.path);
+    this.appendAudit({
+      actorRef: 'admin-ui',
+      action: 'delete',
+      packId,
+      agentId: id,
+      contentSha256: createHash('sha256').update(draft.yaml).digest('hex'),
+      timestamp: new Date().toISOString(),
+    });
+    return true;
   }
 
   private appendAudit(entry: PublishAuditEntry): void {
-    mkdirSync(PACKS_DIR, { recursive: true });
-    writeFileSync(AUDIT_LOG, JSON.stringify(entry) + '\n', { flag: 'a' });
+    mkdirSync(this.baseDir, { recursive: true });
+    writeFileSync(this.auditLogPath(), JSON.stringify(entry) + '\n', { flag: 'a' });
   }
 
   // Convenience: scaffold a minimal AgentSpec YAML from a form payload

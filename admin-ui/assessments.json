@@ -1,0 +1,90 @@
+[
+  {
+    "id": "assessment:phq-9",
+    "title": "PHQ-9 Depression",
+    "loinc": "44249-1",
+    "domain": "mental-health",
+    "itemCount": 9
+  },
+  {
+    "id": "assessment:gad-7",
+    "title": "GAD-7 Anxiety",
+    "loinc": "69737-5",
+    "domain": "mental-health",
+    "itemCount": 7
+  },
+  {
+    "id": "assessment:audit-c",
+    "title": "AUDIT-C Alcohol Use",
+    "loinc": "72172-0",
+    "domain": "substance-use",
+    "itemCount": 3
+  },
+  {
+    "id": "assessment:braden",
+    "title": "Braden Scale for Pressure Injury Risk",
+    "loinc": "38208-5",
+    "domain": "skin-integrity",
+    "itemCount": 6
+  },
+  {
+    "id": "assessment:morse",
+    "title": "Morse Fall Scale",
+    "loinc": "54556-4",
+    "domain": "fall-risk",
+    "itemCount": 6
+  },
+  {
+    "id": "assessment:kdqol-36",
+    "title": "KDQOL-36 (Kidney Disease Quality of Life)",
+    "loinc": "96566-2",
+    "domain": "kidney-quality-of-life",
+    "itemCount": 5
+  },
+  {
+    "id": "assessment:mna-sf",
+    "title": "Mini Nutritional Assessment - Short Form",
+    "loinc": "80392-9",
+    "domain": "nutrition",
+    "itemCount": 1
+  },
+  {
+    "id": "assessment:cam",
+    "title": "Confusion Assessment Method (CAM)",
+    "domain": "delirium",
+    "itemCount": 4
+  },
+  {
+    "id": "assessment:frail",
+    "title": "FRAIL Scale",
+    "domain": "frailty",
+    "itemCount": 5
+  },
+  {
+    "id": "assessment:sdoh-5-domain",
+    "title": "CMS SDOH 5-Domain Screen",
+    "domain": "social-drivers",
+    "itemCount": 5
+  },
+  {
+    "id": "assessment:katz-adl",
+    "title": "Katz Index of Independence in ADLs",
+    "loinc": "77584-8",
+    "domain": "function",
+    "itemCount": 6
+  },
+  {
+    "id": "assessment:lawton-iadl",
+    "title": "Lawton Instrumental ADL",
+    "loinc": "57249-9",
+    "domain": "function",
+    "itemCount": 8
+  },
+  {
+    "id": "assessment:moca",
+    "title": "MoCA (Montreal Cognitive Assessment) summary",
+    "loinc": "72109-2",
+    "domain": "cognition",
+    "itemCount": 1
+  }
+]

@@ -1,0 +1,86 @@
+[
+  {
+    "id": "ktv-comprehensive",
+    "name": "Kt/V Dialysis Adequacy Comprehensive",
+    "program": "ESRD QIP",
+    "paymentYear": 2026,
+    "version": "2026.2",
+    "status": "active-final",
+    "sourceIds": ["cms-qip-2026-spec"],
+    "inputEvents": ["treatment.completed", "adequacy.observation"],
+    "submission": "EQRS",
+    "owner": "Clinical quality"
+  },
+  {
+    "id": "nhsn-bsi",
+    "name": "NHSN Bloodstream Infection",
+    "program": "ESRD QIP",
+    "paymentYear": 2026,
+    "version": "2026.1",
+    "status": "active-final",
+    "sourceIds": ["cms-qip-2026-spec", "nhsn-dialysis-2026"],
+    "inputEvents": ["dialysis.denominator", "dialysis.event"],
+    "submission": "NHSN",
+    "owner": "Infection prevention"
+  },
+  {
+    "id": "srr",
+    "name": "Standardized Readmission Ratio",
+    "program": "ESRD QIP",
+    "paymentYear": 2026,
+    "version": "2026.1",
+    "status": "active-final",
+    "sourceIds": ["cms-qip-2026-spec", "cms-provider-data"],
+    "inputEvents": ["claim.finalized", "adt.discharge", "adt.admission"],
+    "submission": "Claims-derived",
+    "owner": "Quality analytics"
+  },
+  {
+    "id": "shr",
+    "name": "Standardized Hospitalization Ratio",
+    "program": "ESRD QIP",
+    "paymentYear": 2026,
+    "version": "2026.1",
+    "status": "active-final",
+    "sourceIds": ["cms-qip-2026-spec", "cms-provider-data"],
+    "inputEvents": ["claim.finalized", "adt.admission"],
+    "submission": "Claims-derived",
+    "owner": "Quality analytics"
+  },
+  {
+    "id": "pppw",
+    "name": "Percentage of Prevalent Patients Waitlisted",
+    "program": "ESRD QIP",
+    "paymentYear": 2026,
+    "version": "2026.1",
+    "status": "active-final",
+    "sourceIds": ["cms-qip-2026-spec", "cms-provider-data"],
+    "inputEvents": ["transplant.waitlist-status", "patient-month.closed"],
+    "submission": "CMS administrative",
+    "owner": "Transplant services"
+  },
+  {
+    "id": "ich-cahps",
+    "name": "ICH CAHPS Patient Experience",
+    "program": "ESRD QIP",
+    "paymentYear": 2028,
+    "version": "2028-draft-1",
+    "status": "future-finalized-change",
+    "sourceIds": ["cms-cy2026-final"],
+    "inputEvents": ["assessment.response"],
+    "submission": "Approved survey vendor",
+    "owner": "Patient experience"
+  },
+  {
+    "id": "hyperphosphatemia",
+    "name": "Chronic Hyperphosphatemia",
+    "program": "ESRD QIP",
+    "paymentYear": 2029,
+    "version": "2029-proposed-1",
+    "status": "proposed-not-active",
+    "sourceIds": ["cms-cy2027-proposed"],
+    "inputEvents": ["lab.phosphorus", "patient-month.closed"],
+    "submission": "To be finalized",
+    "owner": "Clinical quality"
+  }
+]

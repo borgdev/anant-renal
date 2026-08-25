@@ -1,0 +1,33 @@
+{
+  "version": "2026.1.0",
+  "synthetic": true,
+  "organization": "Riverbend Kidney Care",
+  "model": "Large dialysis enterprise operating model",
+  "scopePath": [
+    { "id": "enterprise-rbkc", "level": "enterprise", "label": "Riverbend Kidney Care", "facilities": 312, "patients": 48620 },
+    { "id": "division-southeast", "level": "division", "label": "Southeast Division", "facilities": 74, "patients": 11820 },
+    { "id": "region-middle-tennessee", "level": "region", "label": "Middle Tennessee Region", "facilities": 18, "patients": 2940 },
+    { "id": "market-nashville-south", "level": "market", "label": "Nashville South Market", "facilities": 6, "patients": 972 },
+    { "id": "facility-franklin", "level": "facility", "label": "Riverbend Franklin", "facilities": 1, "patients": 116 }
+  ],
+  "roles": [
+    { "id": "evp", "shortLabel": "EVP / COO", "label": "Enterprise Operations Executive", "scopeLevel": "enterprise", "purpose": "Balance outcomes, growth, risk and capital across the enterprise.", "decisionRights": ["portfolio prioritization", "cross-division escalation", "enterprise policy sponsorship"] },
+    { "id": "dvp", "shortLabel": "DVP", "label": "Division Vice President", "scopeLevel": "division", "purpose": "Coordinate performance and resource decisions across regions.", "decisionRights": ["cross-region capacity", "division performance plan", "capital recommendation"] },
+    { "id": "rod", "shortLabel": "ROD", "label": "Regional Operations Director", "scopeLevel": "region", "purpose": "Resolve regional operating constraints while protecting care continuity.", "decisionRights": ["regional staffing escalation", "inter-facility coordination", "FA accountability"] },
+    { "id": "fa", "shortLabel": "FA", "label": "Facility Administrator", "scopeLevel": "facility", "purpose": "Run a safe, reliable facility day and close local outcome loops.", "decisionRights": ["local operating review", "staff assignment request", "service coordination approval"] },
+    { "id": "medical", "shortLabel": "Medical Director", "label": "Medical Director", "scopeLevel": "facility", "purpose": "Review clinical evidence and govern clinical decisions.", "decisionRights": ["clinical review", "care-plan authorization", "quality escalation"] },
+    { "id": "quality", "shortLabel": "Quality Director", "label": "Regional Quality Director", "scopeLevel": "region", "purpose": "Detect quality variation and coordinate governed improvement work.", "decisionRights": ["quality investigation", "improvement-plan review", "measure attestation"] },
+    { "id": "finance", "shortLabel": "VP Finance", "label": "Division Finance Vice President", "scopeLevel": "division", "purpose": "Connect operational decisions to sustainable economics and revenue integrity.", "decisionRights": ["financial review", "revenue-cycle escalation", "investment analysis"] },
+    { "id": "biomed", "shortLabel": "Biomed Director", "label": "Division Biomedical Director", "scopeLevel": "division", "purpose": "Protect treatment capacity through reliable equipment and supply readiness.", "decisionRights": ["maintenance prioritization", "asset redeployment", "vendor escalation"] }
+  ],
+  "domains": [
+    { "id": "care", "label": "Patient & care", "ownerRoles": ["medical", "fa"], "agentIds": ["continuity-cell", "transition-cell", "assessment-cell", "access-cell"] },
+    { "id": "quality", "label": "Clinical quality", "ownerRoles": ["quality", "medical"], "agentIds": ["quality-cell", "access-cell"] },
+    { "id": "operations", "label": "Operations & capacity", "ownerRoles": ["dvp", "rod", "fa"], "agentIds": ["capacity-cell", "demand-cell"] },
+    { "id": "workforce", "label": "Workforce", "ownerRoles": ["dvp", "rod", "fa"], "agentIds": ["workforce-cell"] },
+    { "id": "experience", "label": "Experience & equity", "ownerRoles": ["rod", "fa", "quality"], "agentIds": ["experience-cell", "assessment-cell"] },
+    { "id": "finance", "label": "Finance & growth", "ownerRoles": ["evp", "dvp", "finance"], "agentIds": ["revenue-cell", "demand-cell"] },
+    { "id": "regulatory", "label": "CMS & compliance", "ownerRoles": ["evp", "quality", "fa"], "agentIds": ["cms-cell", "quality-cell"] },
+    { "id": "assets", "label": "Assets & supply", "ownerRoles": ["dvp", "rod", "fa", "biomed"], "agentIds": ["asset-cell", "capacity-cell"] }
+  ]
+}

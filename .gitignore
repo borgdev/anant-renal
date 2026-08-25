@@ -12,3 +12,10 @@ coverage/
 out/
 *.tsbuildinfo
 next-env.d.ts.bak
+
+# Rust liquid engine (native/)
+native/**/target/
+native/liquid-wasm/pkg/
+.harness/liquid/
+# Derived measure store (regenerate with: npm run measures:seed)
+.harness/measures/

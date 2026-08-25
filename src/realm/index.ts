@@ -1,3 +1,36 @@
+/******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
 export * from './types.js';
 export * from './clock.js';
 export * from './entity-graph.js';
@@ -36,3 +69,6 @@ export { NotificationBus, NotificationHub, attachBus, type Notification, type Su
 export { LLMRegistry, type RegisteredAdapter, type AdapterRole, type AdapterHealth } from './llm-registry.js';
 export { CounterfactualStore, type CounterfactualRecord } from './counterfactual-store.js';
 export { captureSnapshot, restoreSnapshot, SnapshotRegistry, SNAPSHOT_VERSION, type RealmSnapshotV1, type RestoreOptions } from './realm-snapshot.js';
+
+// ---- M25 module exports ----
+export { NudgeLedger, InAppNudgeChannel, StubNudgeChannel, sqliteNudgePersistence, type NudgeSpec, type NudgeRecord, type NudgeChannel, type NudgeChannelAdapter, type NudgeStatus } from './nudges.js';

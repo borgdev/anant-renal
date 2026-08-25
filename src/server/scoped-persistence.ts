@@ -1,3 +1,36 @@
+/******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
 // Scoped persistence wrapper.
 //
 // Every DB read/write goes through this layer, which enforces two invariants:
@@ -26,7 +59,12 @@ export class ScopedEventStore {
   constructor(private readonly inner: PostgresEventStore) {}
 
   private ensureScope(actor: ActorContext, scopeId: string): void {
-    if (!actor.scopeIds.includes(scopeId)) throw new ScopeError(`actor ${actor.actorRef} has no access to scope ${scopeId}`);
+    // Super-admin wildcard `scope:*` grants write access to any realm scope,
+    // matching how the public FHIR/DSAR routes treat it. Exact scope matches
+    // continue to work as before.
+    if (!actor.scopeIds.includes(scopeId) && !actor.scopeIds.includes('scope:*')) {
+      throw new ScopeError(`actor ${actor.actorRef} has no access to scope ${scopeId}`);
+    }
   }
   private ensureClearance(actor: ActorContext, event: { classification: string }): void {
     const rank: Record<string, number> = { public: 0, internal: 1, confidential: 2, phi: 3, 'restricted-phi': 4 };

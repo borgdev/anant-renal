@@ -1,3 +1,36 @@
+/******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
 // CMS source registry — the executable "living CMS universe" contract.
 //
 // The chat is very clear: the platform must not ship a hand-written CMS rules
@@ -47,6 +80,16 @@ export interface CMSSource {
   readonly publicReporting?: 'care-compare' | 'hospital-compare' | 'dialysis-compare' | 'none';
 }
 
+/** A single CQL-free scoring criterion for a catalog measure (LOINC observation → compare). */
+export interface MeasureCriterion {
+  readonly loinc: string;
+  /** 'threshold' (default) compares a numeric observation; 'reported' passes when any observation with the LOINC exists. */
+  readonly kind?: 'threshold' | 'reported';
+  readonly comparator?: 'ge' | 'gt' | 'le' | 'lt' | 'eq';
+  readonly target?: number;
+  readonly unit?: string;
+}
+
 export interface CMSMeasureSpec {
   readonly id: string; // e.g. "cms:esrd-qip:vat"
   readonly title: string;
@@ -75,6 +118,12 @@ export interface CMSMeasureSpec {
   readonly source: {
     readonly url: string;
     readonly sha256?: string;
+  };
+  /** Optional structured thresholds → CQL-free "embedded" evaluation against a FHIR bundle. */
+  readonly thresholds?: {
+    /** 'any' (default) scores the numerator when any criterion matches; 'all' requires every one. */
+    readonly mode?: 'any' | 'all';
+    readonly criteria: readonly MeasureCriterion[];
   };
 }
 

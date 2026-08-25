@@ -1,3 +1,36 @@
+/******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
 // CMS measure catalog seeds.
 //
 // Every entry cites the source CMS specification and includes the fields the
@@ -32,6 +65,14 @@ export const ESRD_QIP_MEASURES: readonly CMSMeasureSpec[] = Object.freeze([
     stratifications: ['modality:HD', 'modality:PD', 'age:adult', 'age:pediatric'],
     evidenceRequirements: ['clinical:kt-v-value', 'clinical:modality', 'admin:facility-months'],
     source: { url: SRC('medicare/quality/esrd') },
+    // Embedded (CQL-free): HD spKt/V >= 1.2 OR PD weekly Kt/V >= 1.7.
+    thresholds: {
+      mode: 'any',
+      criteria: [
+        { loinc: '18262-6', comparator: 'ge', target: 1.2, unit: 'Kt/V' },
+        { loinc: '18263-4', comparator: 'ge', target: 1.7, unit: 'Kt/V' },
+      ],
+    },
   },
   {
     id: 'cms:esrd-qip:vat',
@@ -62,6 +103,8 @@ export const ESRD_QIP_MEASURES: readonly CMSMeasureSpec[] = Object.freeze([
     stratifications: ['modality'],
     evidenceRequirements: ['lab:serum-calcium', 'admin:modality'],
     source: { url: SRC('medicare/quality/esrd') },
+    // Embedded (CQL-free): 3-month rolling mean serum calcium > 10.2 mg/dL (single-value approximation).
+    thresholds: { criteria: [{ loinc: '17861-6', comparator: 'gt', target: 10.2, unit: 'mg/dL' }] },
   },
   {
     id: 'cms:esrd-qip:sti',
@@ -197,6 +240,8 @@ export const ESRD_QIP_MEASURES: readonly CMSMeasureSpec[] = Object.freeze([
     stratifications: [],
     evidenceRequirements: ['lab:serum-phosphorus'],
     source: { url: SRC('medicare/quality/esrd') },
+    // Embedded (CQL-free): numerator met when a serum phosphorus value is reported.
+    thresholds: { criteria: [{ loinc: '14879-1', kind: 'reported' }] },
   },
   {
     id: 'cms:esrd-qip:facility-commitment',

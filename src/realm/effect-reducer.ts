@@ -1,3 +1,36 @@
+/******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
 // EffectReducer — the only path by which the world may change.
 //
 // A presence emits a WorldEffect. The reducer:
@@ -7,7 +40,8 @@
 //   4. Broadcasts events to the perception router
 //   5. Schedules ambient consequences (order-lab → mature-lab job, etc.)
 
-import type { AgentPresence, EmittedEffect, EntityUrn, WorldEffect } from './types.js';
+import type { AgentPresence, EmittedEffect, EntityRecord, EntityUrn, WorldEffect } from './types.js';
+import type { RealmHypergraph } from './hypergraph-bridge.js';
 import type { EntityGraph } from './entity-graph.js';
 import type { EffectLedger } from './effect-ledger.js';
 import type { PerceptionRouter } from './perception.js';
@@ -61,6 +95,8 @@ export interface ReducerOpts {
   authority?: EffectAuthorityMap;
   /** Optional HITL bridge — checked before authority; matching gates suspend the effect. */
   hitl?: HITLBridge;
+  /** Optional live hypergraph bridge (Phase 1b) — projects mutations + effects into typed nodes/edges. */
+  hypergraph?: RealmHypergraph;
 }
 
 export class EffectReducer {
@@ -121,6 +157,15 @@ export class EffectReducer {
     // Apply mutations
     const mutations = this.apply(presence, effect);
     this.ledger.attachMutations(emitted.effectId, mutations.map((m) => ({ urn: m.urn, patch: m.patch })));
+
+    // Phase 1b — project mutations + effect into the typed hypergraph (idempotent).
+    if (this.opts.hypergraph) {
+      this.opts.hypergraph.upsertEffect(emitted, presence);
+      for (const m of mutations) {
+        const rec = this.graph.get(m.urn);
+        if (rec) this.opts.hypergraph.upsertEntity(rec as EntityRecord);
+      }
+    }
 
     // Broadcast an effect.applied event
     const delivered = this.router.broadcast({

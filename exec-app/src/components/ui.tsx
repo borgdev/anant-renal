@@ -1,0 +1,89 @@
+import type { ReactNode } from "react";
+import { useRef, useState } from "react";
+import { Check, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
+
+export function Eyebrow({ children }: { children: ReactNode }) {
+  return <p className="eyebrow">{children}</p>;
+}
+
+/** Maximize / restore a big card — toggles `.is-expanded` on the closest `.panel`. */
+export function PanelExpand({ label = "Expand panel" }: { label?: string }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  function toggle() {
+    const panel = ref.current?.closest(".panel");
+    if (!panel) return;
+    panel.classList.toggle("is-expanded");
+    setExpanded((prev) => !prev);
+  }
+  return (
+    <button ref={ref} className="icon-button panel-expand" type="button" onClick={(event) => { event.stopPropagation(); toggle(); }} aria-label={expanded ? "Collapse panel" : label} title={expanded ? "Collapse" : "Expand"}>
+      {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+    </button>
+  );
+}
+
+export function Tag({
+  children,
+  tone = "neutral",
+}: {
+  children: ReactNode;
+  tone?: "neutral" | "mint" | "amber" | "red" | "blue" | "violet";
+}) {
+  return <span className={`tag tag-${tone}`}>{children}</span>;
+}
+
+export function Metric({
+  label,
+  value,
+  detail,
+  tone = "default",
+  onClick,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "default" | "mint" | "amber" | "red";
+  onClick?: () => void;
+}) {
+  const content = (
+    <>
+      <div className="metric-topline">
+        <span>{label}</span>
+        <span className="metric-pulse" aria-hidden="true" />
+      </div>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </>
+  );
+  return onClick ? <button className={`metric metric-${tone} drillable-surface`} type="button" onClick={onClick} aria-label={`Inspect ${label}`}>{content}</button> : <article className={`metric metric-${tone}`}>{content}</article>;
+}
+
+export function SourceLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a className="source-link" href={href} target="_blank" rel="noreferrer">
+      <Check size={12} aria-hidden="true" />
+      {children}
+      <ExternalLink size={11} aria-hidden="true" />
+    </a>
+  );
+}
+
+export function ProgressBar({ value, tone = "mint" }: { value: number; tone?: "mint" | "amber" | "red" | "blue" }) {
+  return (
+    <div className="progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={value}>
+      <span className={`progress-fill progress-${tone}`} style={{ width: `${Math.max(0, Math.min(value, 100))}%` }} />
+    </div>
+  );
+}
+
+export function EmptyView({ title, description }: { title: string; description: string }) {
+  return (
+    <section className="empty-view">
+      <span className="empty-orbit" aria-hidden="true" />
+      <Eyebrow>Platform module</Eyebrow>
+      <h1>{title}</h1>
+      <p>{description}</p>
+    </section>
+  );
+}

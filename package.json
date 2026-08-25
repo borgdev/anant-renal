@@ -6,9 +6,26 @@
   "description": "Model-agnostic, hypergraph-native healthcare agent harness with production-grade access, policy, audit, temporal, and pack contracts.",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "start:prod": "node dist/src/server/prod.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "demo:replay": "tsx examples/dialysis-replay.ts"
+    "dev": "tsx watch src/server/dev.ts",
+    "ui:snapshots": "tsx scripts/build-admin-snapshots.ts",
+    "measures:seed": "node scripts/seed-measure-store.mjs",
+    "demo:replay": "tsx examples/dialysis-replay.ts",
+    "demo:cleanup": "node scripts/cleanup-demo.mjs",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f anant-health-app",
+    "liquid:build": "cd native && cargo build --workspace",
+    "liquid:test": "cd native && cargo test --workspace",
+    "liquid:train": "cd native && cargo run -q -p liquid-train --",
+    "liquid:wasm": "cd native/liquid-wasm && wasm-pack build --target web --out-dir pkg && cp pkg/liquid_wasm_bg.wasm pkg/liquid_wasm.js pkg/liquid_wasm.d.ts pkg/liquid_wasm_bg.wasm.d.ts ../../src/liquid/wasm/",
+    "exec:install": "npm install --prefix exec-app",
+    "exec:build": "npm run build --prefix exec-app",
+    "exec:dev": "npm run dev --prefix exec-app"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -22,7 +39,10 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",
+    "@fastify/rate-limit": "^10.3.0",
     "@fastify/static": "^10.1.3",
+    "@fastify/swagger": "^9.8.1",
+    "@fastify/swagger-ui": "^5.2.6",
     "@testcontainers/postgresql": "^12.1.0",
     "@testcontainers/redis": "^12.1.0",
     "bullmq": "^6.0.11",

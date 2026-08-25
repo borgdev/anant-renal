@@ -1,3 +1,36 @@
+/******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
 // Realm — shared type vocabulary.
 //
 // Everything the Realm exposes is expressed through these types. Entities
@@ -30,7 +63,48 @@ export type EntityKind =
   | 'plan'              // decomposed plan-graph for an intent
   | 'approval'          // HITL suspension record
   | 'cost-record'       // per-episode scored outcome vector
-  | 'operator-directive'; // NL directive from the operator seat
+  | 'operator-directive' // NL directive from the operator seat
+  // M24 additions — clinical record + care coordination + payer (FHIR families)
+  | 'condition'            // Condition
+  | 'allergy'              // AllergyIntolerance
+  | 'procedure'            // Procedure
+  | 'immunization'         // Immunization
+  | 'diagnostic-report'    // DiagnosticReport
+  | 'medication-admin'     // MedicationAdministration
+  | 'questionnaire-response' // QuestionnaireResponse
+  | 'document-reference'   // DocumentReference
+  | 'communication'        // Communication
+  | 'appointment'          // Appointment
+  | 'schedule'             // Schedule
+  | 'slot'                 // Slot
+  | 'explanation-of-benefit' // ExplanationOfBenefit
+  | 'invoice'              // Invoice
+  | 'account'              // Account
+  // C batch additions — payer/clinical-record + subscription infra
+  | 'claim-response'       // ClaimResponse
+  | 'care-team'            // CareTeam
+  | 'goal'                 // Goal
+  | 'subscription'         // Subscription
+  | 'questionnaire'        // Questionnaire
+  | 'consent'              // Consent
+  // D batch additions — clinical-record, diagnostics, financial, documents
+  | 'adverse-event'        // AdverseEvent
+  | 'medication-statement' // MedicationStatement
+  | 'medication-dispense'  // MedicationDispense
+  | 'imaging-study'        // ImagingStudy
+  | 'specimen'             // Specimen
+  | 'detected-issue'       // DetectedIssue
+  | 'payment-reconciliation' // PaymentReconciliation
+  | 'composition'          // Composition
+  // D4 batch additions — vision, devices, nutrition, supply, services, endpoints, affiliations, substances
+  | 'vision-prescription'  // VisionPrescription
+  | 'device-use'           // DeviceUseStatement
+  | 'nutrition-order'      // NutritionOrder
+  | 'supply-delivery'      // SupplyDelivery
+  | 'healthcare-service'   // HealthcareService
+  | 'endpoint'             // Endpoint
+  | 'org-affiliation'      // OrganizationAffiliation
+  | 'substance';           // Substance
 
 export type EntityUrn = `urn:realm:${string}:${EntityKind}:${string}`;
 
@@ -114,7 +188,7 @@ export type WorldEffect =
   // Approval / HITL
   | { kind: 'approve-effect'; approvalId: string; decision: 'approve' | 'reject'; note?: string }
   // Operator seat directives (recorded as effects so they're auditable)
-  | { kind: 'operator-directive'; verb: 'spawn' | 'nudge-preference' | 'add-rule' | 'submit-intent' | 'explain'; targetRef?: string; payload: Record<string, unknown>; originalText: string };
+  | { kind: 'operator-directive'; verb: 'spawn' | 'nudge-preference' | 'add-rule' | 'submit-intent' | 'explain'; targetRef?: string; payload: Record<string, unknown>; originalText: string; evidenceId?: string };
 
 export interface EmittedEffect {
   effectId: string;

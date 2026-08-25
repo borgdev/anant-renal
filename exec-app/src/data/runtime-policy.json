@@ -1,0 +1,11 @@
+{
+  "version": "action-boundary@5.0.0",
+  "defaultDecision": "block",
+  "escalationThresholdBasisPoints": 8200,
+  "clinicalChange": { "actionClass": "D", "requiredRoles": ["medical"], "minimumApprovals": 2, "externalWriteEnabled": false },
+  "serviceCoordination": { "actionClass": "B", "requiredRoles": ["dvp", "rod", "fa"], "minimumApprovals": 1, "externalWriteEnabled": false },
+  "clinicalReview": { "actionClass": "C", "requiredRoles": ["medical", "quality", "fa"], "minimumApprovals": 1, "externalWriteEnabled": false },
+  "regulatorySubmission": { "actionClass": "D", "requiredRoles": ["quality", "finance"], "minimumApprovals": 2, "externalWriteEnabled": false },
+  "objectiveWeights": { "clinical": 35, "continuity": 25, "regulatory": 15, "experience": 10, "economic": 10, "operational": 5 },
+  "simulation": { "minThresholdBasisPoints": 7000, "maxThresholdBasisPoints": 9500, "historicalWindowDays": 30 }
+}

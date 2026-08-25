@@ -1,0 +1,25 @@
+# status: draft
+# author: user:admin-ui
+# updatedAt: 2026-08-16T23:04:06.602Z
+id: demo-measure-agent
+version: 1.0.0
+packId: flagship-agents
+displayName: Demo Measure Agent
+description: Evaluates the M21 hypertension measure against a lab bundle.
+scope: facility
+trigger:
+  kind: manual
+inputs: {}
+outputs: {}
+plan:
+  type: step
+  step:
+    id: s1
+    skill: llm.call
+governance:
+  phiHandling: read
+  purposeOfUse: [treatment]
+  clearanceRequired: internal
+billing:
+  baseFeeUsd: 0
+labels: {}

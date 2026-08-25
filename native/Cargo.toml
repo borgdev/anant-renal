@@ -1,0 +1,79 @@
+#*****************************************************************************
+#
+#  Copyright (c) 2026 AnantHQ Inc.
+#  All Rights Reserved.
+#
+#  This software is licensed, not sold.
+#
+#  The contents of this file constitute confidential and proprietary
+#  information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+#
+#  This source code incorporates proprietary algorithms, software architecture,
+#  business logic, computational methods, optimization techniques,
+#  workflows, data structures, APIs, and implementation details that are
+#  protected by copyright law, patent law, trade secret law, and
+#  international intellectual property treaties.
+#
+#  Except as expressly permitted by a written license agreement,
+#  no person or organization may:
+#
+#    • Copy or reproduce this software.
+#    • Modify or create derivative works.
+#    • Reverse engineer, decompile, or disassemble.
+#    • Benchmark or publicly disclose performance.
+#    • Redistribute, sublicense, lease, rent, or sell.
+#    • Use this software for competitive analysis.
+#    • Disclose any implementation details.
+#
+#  Any unauthorized use is strictly prohibited and may result in
+#  civil damages, injunctive relief, criminal prosecution,
+#  and all other remedies available under applicable law.
+#
+# *****************************************************************************/
+
+# Cargo workspace for the liquid (CfC/LTC) engine embedded from anant-cfc.
+#
+# Workspace members:
+#   liquid-core        — native Rust CfC + LTC inference engine (Candle), wasm-buildable
+#   liquid-train       — training (AdamW, gradient clipping, synthetic datasets), native-only
+#   domain-kit         — generic schema/rule/intervention traits (trimmed from anant-cfc)
+#   domain-healthcare  — the anant-cfc healthcare domain (post-op deterioration), the seed
+#                        pack for the harness's upcoming dialysis domain
+#   liquid-wasm        — wasm-bindgen bindings around liquid-core (browser what-if forecasts)
+#
+# See docs/liquid-engine-integration.md for the full plan.
+
+[workspace]
+resolver = "2"
+members = [
+    "liquid-core",
+    "liquid-train",
+    "domain-kit",
+    "domain-healthcare",
+    "domain-dialysis",
+    "liquid-wasm",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+liquid-core = { path = "liquid-core" }
+liquid-train = { path = "liquid-train" }
+domain-kit = { path = "domain-kit" }
+domain-healthcare = { path = "domain-healthcare" }
+domain-dialysis = { path = "domain-dialysis" }
+
+candle-core = "0.9"
+candle-nn = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+rand = "0.8"
+anyhow = "1"
+
+[profile.dev.package."*"]
+opt-level = 1

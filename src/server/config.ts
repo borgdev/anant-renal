@@ -1,9 +1,44 @@
+/******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
 // Server configuration.
 //
 // All configuration comes from environment variables. Missing required keys
 // abort startup with a clear error rather than silently defaulting. This keeps
 // deployments explicit and makes it hard to run the API against the wrong
 // database or with insecure defaults.
+
+import type { EventBrokerDriver } from './event-broker.js';
 
 export interface ServerConfig {
   readonly nodeEnv: 'development' | 'test' | 'production';
@@ -20,6 +55,20 @@ export interface ServerConfig {
   readonly jobBusDriver: 'bullmq' | 'kafka' | 'inprocess';
   readonly kafkaBrokers: readonly string[];
   readonly kafkaClientId: string;
+  readonly kafkaGroupId: string;
+  readonly eventBrokerDriver: EventBrokerDriver;
+  readonly eventBrokerTopic: string;
+  /** Per-origin CORS allowlist (HH_CORS_ORIGINS comma list) — empty = allow all. */
+  readonly corsOrigins?: readonly string[];
+  // Phase 3 — optional broker driver config (only the selected driver is used).
+  readonly rabbitmqUrl?: string;
+  readonly natsUrl?: string;
+  readonly snsTopicArn?: string;
+  readonly sqsQueueUrl?: string;
+  readonly sqsDlqUrl?: string;
+  readonly pubsubProject?: string;
+  readonly eventHubConnectionString?: string;
+  readonly eventHubName?: string;
 }
 
 export class ConfigError extends Error {
@@ -67,5 +116,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     })(),
     kafkaBrokers: opt(env, 'HH_KAFKA_BROKERS', 'localhost:9092').split(',').map((s) => s.trim()).filter(Boolean),
     kafkaClientId: opt(env, 'HH_KAFKA_CLIENT_ID', 'healthcare-harness'),
+    kafkaGroupId: opt(env, 'HH_KAFKA_GROUP_ID', 'anant-events'),
+    eventBrokerDriver: ((): EventBrokerDriver => {
+      const raw = opt(env, 'HH_EVENTBROKER_DRIVER', 'inprocess');
+      const allowed: readonly string[] = ['inprocess', 'kafka', 'redis-streams', 'bullmq', 'rabbitmq', 'nats', 'sqs-sns', 'pubsub', 'event-hubs'];
+      if (allowed.includes(raw)) return raw as EventBrokerDriver;
+      throw new ConfigError(`HH_EVENTBROKER_DRIVER must be one of ${allowed.join('|')}, got ${raw}`);
+    })(),
+    eventBrokerTopic: opt(env, 'HH_EVENTBROKER_TOPIC', 'anant.canonical.events'),
+    ...(env['HH_CORS_ORIGINS'] ? { corsOrigins: env['HH_CORS_ORIGINS'].split(',').map((s) => s.trim()).filter(Boolean) } : {}),
+    ...(env['HH_RABBITMQ_URL'] ? { rabbitmqUrl: env['HH_RABBITMQ_URL'] } : {}),
+    ...(env['HH_NATS_URL'] ? { natsUrl: env['HH_NATS_URL'] } : {}),
+    ...(env['HH_SNS_TOPIC'] ? { snsTopicArn: env['HH_SNS_TOPIC'] } : {}),
+    ...(env['HH_SQS_QUEUE_URL'] ? { sqsQueueUrl: env['HH_SQS_QUEUE_URL'] } : {}),
+    ...(env['HH_SQS_DLQ_URL'] ? { sqsDlqUrl: env['HH_SQS_DLQ_URL'] } : {}),
+    ...(env['HH_PUBSUB_PROJECT'] ? { pubsubProject: env['HH_PUBSUB_PROJECT'] } : {}),
+    ...(env['HH_EVENTHUB_CONNECTION'] ? { eventHubConnectionString: env['HH_EVENTHUB_CONNECTION'] } : {}),
+    ...(env['HH_EVENTHUB_NAME'] ? { eventHubName: env['HH_EVENTHUB_NAME'] } : {}),
   };
 }

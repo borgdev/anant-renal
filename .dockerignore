@@ -1,0 +1,40 @@
+# VCS / CI
+.git
+.gitignore
+.gitattributes
+
+# Node
+node_modules
+npm-debug.log*
+
+# Build output
+dist
+coverage
+
+# Runtime / local state (recreated in the container + persisted via volumes)
+.harness
+
+# Rust workspace — not needed at runtime (liquid engine ships as prebuilt WASM)
+native
+
+# Tests, examples, tooling
+tests
+examples
+scripts
+*.test.ts
+*.spec.ts
+
+# Docs / misc
+docs
+*.md
+.editorconfig
+.eslintrc*
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Docker
+Dockerfile*
+docker-compose*.yml

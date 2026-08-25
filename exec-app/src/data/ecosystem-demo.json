@@ -1,0 +1,84 @@
+{
+  "synthetic": true,
+  "generatedAt": "2026-08-21T13:41:12Z",
+  "metricsByLevel": {
+    "enterprise": [
+      { "label": "Patients", "value": "48,620", "detail": "312 facilities", "tone": "neutral" },
+      { "label": "Treatments kept", "value": "97.8%", "detail": "+0.4 pts · 30d", "tone": "mint" },
+      { "label": "Clinical reviews", "value": "142", "detail": "18 need attention", "tone": "amber" },
+      { "label": "Capacity opportunity", "value": "684 h", "detail": "next 14 days", "tone": "blue" },
+      { "label": "CMS readiness", "value": "94.2%", "detail": "7 active packs", "tone": "mint" },
+      { "label": "Value at risk", "value": "$2.8M", "detail": "quality + revenue", "tone": "red" }
+    ],
+    "division": [
+      { "label": "Patients", "value": "11,820", "detail": "74 facilities", "tone": "neutral" },
+      { "label": "Treatments kept", "value": "97.4%", "detail": "+0.6 pts · 30d", "tone": "mint" },
+      { "label": "Clinical reviews", "value": "38", "detail": "7 need attention", "tone": "amber" },
+      { "label": "Capacity opportunity", "value": "184 h", "detail": "next 14 days", "tone": "blue" },
+      { "label": "CMS readiness", "value": "93.8%", "detail": "11 gaps open", "tone": "amber" },
+      { "label": "Value at risk", "value": "$720K", "detail": "quality + revenue", "tone": "red" }
+    ],
+    "region": [
+      { "label": "Patients", "value": "2,940", "detail": "18 facilities", "tone": "neutral" },
+      { "label": "Treatments kept", "value": "96.9%", "detail": "43 at risk", "tone": "amber" },
+      { "label": "Clinical reviews", "value": "12", "detail": "3 priority", "tone": "amber" },
+      { "label": "Capacity opportunity", "value": "62.5 h", "detail": "next 7 days", "tone": "blue" },
+      { "label": "CMS readiness", "value": "94.6%", "detail": "4 gaps open", "tone": "mint" },
+      { "label": "Value at risk", "value": "$184K", "detail": "quality + revenue", "tone": "red" }
+    ],
+    "market": [
+      { "label": "Patients", "value": "972", "detail": "6 facilities", "tone": "neutral" },
+      { "label": "Treatments kept", "value": "96.5%", "detail": "17 at risk", "tone": "amber" },
+      { "label": "Clinical reviews", "value": "6", "detail": "2 priority", "tone": "amber" },
+      { "label": "Capacity opportunity", "value": "24.5 h", "detail": "next 7 days", "tone": "blue" },
+      { "label": "CMS readiness", "value": "95.1%", "detail": "2 gaps open", "tone": "mint" },
+      { "label": "Value at risk", "value": "$61K", "detail": "quality + revenue", "tone": "red" }
+    ],
+    "facility": [
+      { "label": "Patients", "value": "116", "detail": "Riverbend Franklin", "tone": "neutral" },
+      { "label": "Treatments kept", "value": "95.8%", "detail": "4 at risk", "tone": "amber" },
+      { "label": "Clinical reviews", "value": "3", "detail": "1 priority", "tone": "red" },
+      { "label": "Chair opportunity", "value": "6.5 h", "detail": "next 7 days", "tone": "blue" },
+      { "label": "CMS readiness", "value": "96.3%", "detail": "1 gap open", "tone": "mint" },
+      { "label": "Value at risk", "value": "$14K", "detail": "quality + revenue", "tone": "amber" }
+    ]
+  },
+  "domainPulse": [
+    { "id": "care", "label": "Patient & care", "value": "4", "detail": "critical loops", "status": "attention" },
+    { "id": "quality", "label": "Clinical quality", "value": "96.8", "detail": "composite", "status": "healthy" },
+    { "id": "operations", "label": "Operations", "value": "24.5h", "detail": "capacity", "status": "opportunity" },
+    { "id": "workforce", "label": "Workforce", "value": "11", "detail": "shift gaps", "status": "attention" },
+    { "id": "experience", "label": "Experience", "value": "6", "detail": "barrier clusters", "status": "opportunity" },
+    { "id": "finance", "label": "Finance & growth", "value": "$184K", "detail": "value at risk", "status": "attention" },
+    { "id": "regulatory", "label": "CMS & compliance", "value": "94.2%", "detail": "ready", "status": "healthy" },
+    { "id": "assets", "label": "Assets & supply", "value": "3", "detail": "maintenance due", "status": "opportunity" }
+  ],
+  "swarmInsights": [
+    { "id": "SI-401", "title": "Weekend coverage can protect 43 treatments", "summary": "Workforce, capacity and continuity cells agree on a three-facility coverage plan; credential and overtime limits remain inside policy.", "confidence": 0.96, "agentIds": ["workforce-cell", "capacity-cell", "continuity-cell"], "scope": "Middle Tennessee Region", "state": "human review" },
+    { "id": "SI-398", "title": "Catheter risk and patient-reported tenderness converge", "summary": "Quality, access and assessment evidence support a nurse-led review at two facilities; no diagnosis is inferred.", "confidence": 0.94, "agentIds": ["quality-cell", "access-cell", "assessment-cell"], "scope": "Nashville South Market", "state": "clinical review" },
+    { "id": "SI-394", "title": "One mapping defect explains revenue and CMS gaps", "summary": "Revenue and CMS cells traced both variances to the same synthetic eligibility-to-treatment mapping version.", "confidence": 0.99, "agentIds": ["revenue-cell", "cms-cell"], "scope": "Southeast Division", "state": "data owner review" }
+  ],
+  "nextBestActions": [
+    { "id": "NBA-2201", "rank": 1, "title": "Protect 43 weekend treatments", "outcome": "Continuity + workforce", "scope": "Middle Tennessee Region", "ownerRole": "ROD", "due": "2 hours", "value": "43 treatments", "confidence": 0.96, "actionClass": "B", "evidenceCount": 18, "agentIds": ["workforce-cell", "capacity-cell", "continuity-cell"], "audience": ["evp", "dvp", "rod"] },
+    { "id": "NBA-2198", "rank": 2, "title": "Rebalance 24.5 chair-hours", "outcome": "Access + growth", "scope": "Nashville South Market", "ownerRole": "ROD", "due": "Today", "value": "+9 starts", "confidence": 0.93, "actionClass": "B", "evidenceCount": 14, "agentIds": ["capacity-cell", "demand-cell"], "audience": ["evp", "dvp", "rod"] },
+    { "id": "NBA-2194", "rank": 3, "title": "Confirm chair and transportation", "outcome": "Post-discharge continuity", "scope": "Riverbend Franklin", "ownerRole": "FA", "due": "38 minutes", "value": "1 treatment", "confidence": 0.96, "actionClass": "B", "evidenceCount": 9, "agentIds": ["transition-cell", "continuity-cell", "assessment-cell"], "audience": ["rod", "fa", "medical"] },
+    { "id": "NBA-2189", "rank": 4, "title": "Open catheter reduction review", "outcome": "Clinical quality", "scope": "Middle Tennessee Region", "ownerRole": "Quality Director", "due": "This week", "value": "31 patients", "confidence": 0.94, "actionClass": "C", "evidenceCount": 22, "agentIds": ["quality-cell", "access-cell"], "audience": ["evp", "dvp", "rod", "medical", "quality"] },
+    { "id": "NBA-2182", "rank": 5, "title": "Resolve clean-claim mapping variance", "outcome": "Revenue integrity", "scope": "Southeast Division", "ownerRole": "VP Finance", "due": "48 hours", "value": "$184K", "confidence": 0.99, "actionClass": "B", "evidenceCount": 28, "agentIds": ["revenue-cell", "cms-cell"], "audience": ["evp", "dvp", "finance", "fa"] },
+    { "id": "NBA-2177", "rank": 6, "title": "Sequence three maintenance windows", "outcome": "Asset reliability", "scope": "Nashville South Market", "ownerRole": "Biomed Director", "due": "72 hours", "value": "18 chair-hours", "confidence": 0.97, "actionClass": "B", "evidenceCount": 16, "agentIds": ["asset-cell", "capacity-cell"], "audience": ["dvp", "rod", "fa", "biomed"] },
+    { "id": "NBA-2171", "rank": 7, "title": "Review transportation barrier cluster", "outcome": "Experience + equity", "scope": "Riverbend Franklin", "ownerRole": "FA", "due": "This week", "value": "6 patients", "confidence": 0.92, "actionClass": "C", "evidenceCount": 19, "agentIds": ["experience-cell", "assessment-cell"], "audience": ["rod", "fa", "quality", "medical"] }
+  ],
+  "messages": [
+    { "time": "08:41:02.114", "topic": "assessment.response.v1", "key": "SYN-10042", "partition": 3, "offset": 184220, "type": "fact", "scope": "Riverbend Franklin", "summary": "Transportation barrier answer accepted with exact text retained." },
+    { "time": "08:41:02.302", "topic": "staffing.coverage.changed.v1", "key": "REG-MTN", "partition": 1, "offset": 77104, "type": "signal", "scope": "Middle Tennessee Region", "summary": "Eleven weekend coverage gaps projected across three facilities." },
+    { "time": "08:41:02.581", "topic": "facility.capacity.changed.v2", "key": "MKT-NSH-S", "partition": 5, "offset": 250991, "type": "fact", "scope": "Nashville South Market", "summary": "24.5 chair-hours available inside staffing and machine constraints." },
+    { "time": "08:41:03.019", "topic": "outcome.episode.opened.v1", "key": "OUT-1042", "partition": 2, "offset": 91811, "type": "episode", "scope": "Riverbend Franklin", "summary": "Post-discharge continuity loop opened for human coordination." },
+    { "time": "08:41:03.474", "topic": "agent.proposal.v1", "key": "OUT-1042", "partition": 0, "offset": 440201, "type": "proposal", "scope": "Riverbend Franklin", "summary": "Three bounded cells submitted compatible service-coordination options." },
+    { "time": "08:41:03.910", "topic": "policy.review.required.v1", "key": "NBA-2194", "partition": 0, "offset": 22198, "type": "control", "scope": "Riverbend Franklin", "summary": "Class B service change routed to the Facility Administrator." },
+    { "time": "08:41:04.328", "topic": "quality.measure.changed.v1", "key": "REG-MTN", "partition": 4, "offset": 66194, "type": "measure", "scope": "Middle Tennessee Region", "summary": "Catheter surveillance variance crossed the configured review threshold." },
+    { "time": "08:41:04.772", "topic": "claim.status.changed.v2", "key": "DIV-SE", "partition": 6, "offset": 118202, "type": "signal", "scope": "Southeast Division", "summary": "Clean-claim variance correlated to mapping release fhir-r4.18." },
+    { "time": "08:41:05.186", "topic": "cms.submission.gap.v1", "key": "DIV-SE", "partition": 6, "offset": 118203, "type": "measure", "scope": "Southeast Division", "summary": "The same mapping release produced an incomplete CMS denominator input." },
+    { "time": "08:41:05.631", "topic": "machine.maintenance.signal.v1", "key": "MKT-NSH-S", "partition": 2, "offset": 93084, "type": "signal", "scope": "Nashville South Market", "summary": "Three machines entered the seven-day preventive-maintenance window." },
+    { "time": "08:41:06.047", "topic": "swarm.insight.published.v1", "key": "SI-401", "partition": 0, "offset": 38172, "type": "insight", "scope": "Middle Tennessee Region", "summary": "Workforce, capacity and continuity evidence converged at 96%." },
+    { "time": "08:41:06.508", "topic": "nba.review.requested.v1", "key": "NBA-2201", "partition": 0, "offset": 11042, "type": "action", "scope": "Middle Tennessee Region", "summary": "Top next-best action prepared for Regional Operations Director review." }
+  ]
+}

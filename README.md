@@ -1,4 +1,4 @@
-# Healthcare Harness
+# AnantHealth
 
 > **Every agent is a digital twin of a persona. Every persona lives inside a realm. Behavior is rehearsed across a population of twins before it lands on a real human.**
 

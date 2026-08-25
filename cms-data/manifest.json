@@ -1,0 +1,362 @@
+[
+    {
+        "name": "Dialysis Facility - Listing by Facility",
+        "dataset_id": "23ew-n7w9",
+        "type": "current",
+        "modified_date": "2026-06-16",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "DFC_FACILITY.csv",
+                "filesize": 7263788,
+                "mime_type": "text\/csv"
+            }
+        ]
+    },
+    {
+        "name": "Dialysis Facility - State Averages",
+        "dataset_id": "2fpu-cgbb",
+        "type": "current",
+        "modified_date": "2026-06-16",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "DFC_STATE.csv",
+                "filesize": 11378,
+                "mime_type": "text\/csv"
+            }
+        ]
+    },
+    {
+        "name": "Dialysis Facility - National Averages",
+        "dataset_id": "2rkq-ygai",
+        "type": "current",
+        "modified_date": "2026-06-16",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "DFC_NATIONAL.csv",
+                "filesize": 2984,
+                "mime_type": "text\/csv"
+            }
+        ]
+    },
+    {
+        "name": "Patient survey (ICH CAHPS) - Facility",
+        "dataset_id": "59mq-zhts",
+        "type": "current",
+        "modified_date": "2026-06-16",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "ICH_CAHPS_FACILITY.csv",
+                "filesize": 1716061,
+                "mime_type": "text\/csv"
+            }
+        ]
+    },
+    {
+        "name": "Patient survey (ICH CAHPS) - National",
+        "dataset_id": "utgq-v46w",
+        "type": "current",
+        "modified_date": "2026-06-16",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "ICH_CAHPS_NATIONAL.csv",
+                "filesize": 1691,
+                "mime_type": "text\/csv"
+            }
+        ]
+    },
+    {
+        "name": "Patient survey (ICH CAHPS) - State",
+        "dataset_id": "hanv-ru8h",
+        "type": "current",
+        "modified_date": "2026-06-16",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "ICH_CAHPS_STATE.csv",
+                "filesize": 8559,
+                "mime_type": "text\/csv"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Clinical Depression Screening and Follow-up - Payment Year 2026",
+        "dataset_id": "clinical_depression",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "CLINICAL_DEPRESSION.csv",
+                "filesize": 1334732,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Complete QIP Data - Payment Year 2026",
+        "dataset_id": "complete_qip_data",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "COMPLETE_QIP_DATA.csv",
+                "filesize": 8047366,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Dialysis Adequacy - Payment Year 2026",
+        "dataset_id": "ktv_comprehensive",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "KTV_COMPREHENSIVE.csv",
+                "filesize": 1145240,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Footnotes - Payment Year 2026",
+        "dataset_id": "footnotes",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "FOOTNOTES.csv",
+                "filesize": 1055,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Hypercalcemia - Payment Year 2026",
+        "dataset_id": "hypercalcemia",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "HYPERCALCEMIA.csv",
+                "filesize": 1060542,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - NHSN Dialysis Event Measure - Payment Year 2026",
+        "dataset_id": "nhsn_de",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "NHSN_DIALYSIS_EVENT.csv",
+                "filesize": 1107306,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - NHSN Bloodstream Infection - Payment Year 2026",
+        "dataset_id": "nhsn_bsi",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "NHSN_BSI.csv",
+                "filesize": 1206579,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Standardized Readmission Ratio - Payment Year 2026",
+        "dataset_id": "srr",
+        "type": "current",
+        "modified_date": "2026-03-03",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "SRR.csv",
+                "filesize": 1229935,
+                "mime_type": "text\/csv"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Standardized Transfusion Ratio - Payment Year 2026",
+        "dataset_id": "strr",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "STRR.csv",
+                "filesize": 1250663,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Total Performance Scores - Payment Year 2026",
+        "dataset_id": "tps",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "TPS.csv",
+                "filesize": 961893,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Long Term Catheter - Payment Year 2026",
+        "dataset_id": "vat_topic",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "VAT_LTC.csv",
+                "filesize": 1147052,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Standardized Hospitalization Ratio - Payment Year 2026",
+        "dataset_id": "shr",
+        "type": "current",
+        "modified_date": "2025-12-16",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "SHR.csv",
+                "filesize": 1265201,
+                "mime_type": "text\/csv"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Medication Reconciliation - Payment Year 2026",
+        "dataset_id": "medrec",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "MEDREC.csv",
+                "filesize": 1202244,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Percentage of Prevalent Patients Waitlisted - Payment Year 2026",
+        "dataset_id": "pppw",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "PPPW.csv",
+                "filesize": 1334107,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - In-Center Hemodialysis Consumer Assessment Of Healthcare Providers And Services Systems (ICH CAHPS) Survey - Payment Year 2026",
+        "dataset_id": "qip_ich_cahps",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "QIP_ICH_CAHPS.csv",
+                "filesize": 2176740,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Covid-19 healthcare personnel Data - Payment Year 2026",
+        "dataset_id": "covid-19_hcp",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "COVID-19_HCP.csv",
+                "filesize": 1304442,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    },
+    {
+        "name": "ESRD QIP - Facility Commitment to Health Equity - Payment Year 2026",
+        "dataset_id": "fche",
+        "type": "current",
+        "modified_date": "2025-12-15",
+        "access_level": "public",
+        "private": false,
+        "resources": [
+            {
+                "filename": "FCHE.csv",
+                "filesize": 1231617,
+                "mime_type": "text\/csv",
+                "describedBy": "DF_Data_Dictionary.pdf"
+            }
+        ]
+    }
+]

@@ -1,0 +1,21 @@
+{
+  "agents": {
+    "total": 172,
+    "byPack": {
+      "flagship-agents": 20,
+      "dialysis-deep": 60,
+      "primary-care-deep": 50,
+      "urgent-care-deep": 40,
+      "research-pharma": 1,
+      "dialysis-provider": 1
+    }
+  },
+  "measures": {
+    "total": 30
+  },
+  "assessments": {
+    "total": 13
+  },
+  "lifecycleStages": 11,
+  "researchSources": 21
+}

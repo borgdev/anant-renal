@@ -1,3 +1,36 @@
+/******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
 // M20: Real CQL evaluator. Wraps cql-execution + cql-exec-fhir to run the
 // actual measure logic that CMS publishes \u2014 no hand-transcribed rules.
 //
@@ -82,7 +115,26 @@ export class MeasureEvaluator {
   }
 
   listMeasures(): StoredMeasure[] { return [...new Set(this.measuresById.values())]; }
-  getMeasure(id: string): StoredMeasure | undefined { return this.measuresById.get(id); }
+
+  /** Resolve a measure id — accepts the canonical id (`ecqm:...`), a plain CMS id
+   * (`CMS165...`), or a `cms:`-prefixed id. Matching ignores case and punctuation
+   * so `M21Basic`, `M21-BASIC`, and `cms:M21Basic` all resolve. */
+  getMeasure(id: string): StoredMeasure | undefined {
+    const direct = this.measuresById.get(id);
+    if (direct) return direct;
+    // catalog-style prefix: 'cms:CMS165FHIRControllingHighBloodPressure' → 'CMS165FHIRControllingHighBloodPressure'
+    if (id.startsWith('cms:')) {
+      const viaStrip = this.measuresById.get(id.slice(4));
+      if (viaStrip) return viaStrip;
+    }
+    const stripped = id.startsWith('cms:') ? id.slice(4) : id;
+    const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const target = norm(stripped);
+    for (const m of this.measuresById.values()) {
+      if (norm(m.cmsId) === target) return m;
+    }
+    return undefined;
+  }
 
   /** Resolve the primary + transitive libraries the measure needs. */
   private resolveLibraries(measure: StoredMeasure): StoredLibrary[] {

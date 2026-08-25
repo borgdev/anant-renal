@@ -1,0 +1,136 @@
+# AnantHealth — production deployment stack.
+#
+#   docker compose up -d --build
+#
+# Services (all container names prefixed anant-health):
+#   anant-health-postgres  — durable event store (events, ledger, audit, FHIR mirror)
+#   anant-health-redis     — BullMQ job bus + broker/outbox durability
+#   anant-health-app       — the AnantHealth server (API + admin console + knowledge)
+#
+# Optional profiles (opt-in):
+#   --profile kafka  → anant-health-kafka (alternate HH_EVENTBROKER_DRIVER=kafka / HH_JOBBUS_DRIVER=kafka)
+#
+# Configuration is driven by a local .env (see .env.example). Copy it first:
+#   cp .env.example .env
+name: anant-health
+
+services:
+  anant-health-postgres:
+    image: postgres:16-alpine
+    container_name: anant-health-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${ANANT_DB_USER:-anant}
+      POSTGRES_PASSWORD: ${ANANT_DB_PASSWORD:-anant-secret-change-me}
+      POSTGRES_DB: ${ANANT_DB_NAME:-anant_health}
+    volumes:
+      - anant-health-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ANANT_DB_USER:-anant} -d ${ANANT_DB_NAME:-anant_health}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - anant-health-net
+
+  anant-health-redis:
+    image: redis:7-alpine
+    container_name: anant-health-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - anant-health-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - anant-health-net
+
+  anant-health-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: anant-health/app:${ANANT_VERSION:-latest}
+    container_name: anant-health-app
+    restart: unless-stopped
+    ports:
+      - "${ANANT_HTTP_PORT:-8080}:8080"
+    environment:
+      NODE_ENV: production
+      HH_HTTP_PORT: 8080
+      HH_HTTP_HOST: 0.0.0.0
+      # Event store (events/ledger/audit/FHIR mirror).
+      HH_DATABASE_URL: postgres://${ANANT_DB_USER:-anant}:${ANANT_DB_PASSWORD:-anant-secret-change-me}@anant-health-postgres:5432/${ANANT_DB_NAME:-anant_health}
+      HH_DATABASE_SCHEMA: ${ANANT_DB_SCHEMA:-harness}
+      # Job bus (BullMQ) + broker.
+      HH_REDIS_URL: redis://anant-health-redis:6379
+      HH_JOBBUS_DRIVER: ${ANANT_JOBBUS_DRIVER:-bullmq}
+      HH_EVENTBROKER_DRIVER: ${ANANT_EVENTBROKER_DRIVER:-inprocess}
+      HH_EVENTBROKER_TOPIC: ${ANANT_EVENTBROKER_TOPIC:-anant.canonical.events}
+      # Local SqlStore (snapshots/master-data/idempotency) → SQLite on the volume.
+      # SqlStore (snapshots/master-data/idempotency/outbox/FHIR mirror) → Postgres by default.
+      HH_STORAGE: ${ANANT_STORAGE:-postgres}
+      HH_DB_PATH: /app/.harness/data/harness.db
+      # Simulator — the hosted product boots the demo fleet (realms → swarm →
+      # exec console) on live synthetic data. The fleet + realm state persist in
+      # Postgres (simulator_fleet / realm_specs / realm_snapshots), so restarts
+      # resume the running fleet. Set ANANT_DEMO_SIM=0 to boot clean.
+      HH_DEMO_SIM: ${ANANT_DEMO_SIM:-1}
+      HH_DEMO_SIM_SCENARIO: ${ANANT_DEMO_SIM_SCENARIO:-dialysis-demo}
+      HH_SIGNING_SECRET: ${ANANT_SIGNING_SECRET:-change-me-in-production}
+      HH_SERVICE_NAME: anant-health
+      HH_LOG_LEVEL: ${ANANT_LOG_LEVEL:-info}
+      # Knowledge + measures live under the persisted .harness volume.
+      KNOWLEDGE_STORE_DIR: /app/.harness/knowledge
+      HH_MEASURES_ROOT: /app/.harness/measures
+      # Optional per-origin CORS allowlist (comma list). Empty = disabled.
+      HH_CORS_ORIGINS: ${ANANT_CORS_ORIGINS:-}
+    volumes:
+      - anant-health-harness:/app/.harness
+    depends_on:
+      anant-health-postgres:
+        condition: service_healthy
+      anant-health-redis:
+        condition: service_healthy
+    networks:
+      - anant-health-net
+
+  # Optional Kafka event-broker / job-bus driver (off by default).
+  # Enable with: docker compose --profile kafka up -d --build
+  anant-health-kafka:
+    image: bitnami/kafka:3.7
+    container_name: anant-health-kafka
+    profiles: ["kafka"]
+    restart: unless-stopped
+    environment:
+      KAFKA_CFG_NODE_ID: 0
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@anant-health-kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://anant-health-kafka:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - anant-health-kafkadata:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - anant-health-net
+
+volumes:
+  anant-health-pgdata:
+  anant-health-redisdata:
+  anant-health-harness:
+  anant-health-kafkadata:
+
+networks:
+  anant-health-net:
+    driver: bridge

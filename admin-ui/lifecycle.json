@@ -1,0 +1,35 @@
+[
+  {
+    "id": "pre-registration"
+  },
+  {
+    "id": "onboarding"
+  },
+  {
+    "id": "active-care"
+  },
+  {
+    "id": "transition-of-care"
+  },
+  {
+    "id": "transplant-workup"
+  },
+  {
+    "id": "post-transplant"
+  },
+  {
+    "id": "palliative"
+  },
+  {
+    "id": "hospice"
+  },
+  {
+    "id": "bereavement"
+  },
+  {
+    "id": "inactive"
+  },
+  {
+    "id": "discharged"
+  }
+]

@@ -1,0 +1,67 @@
+#*****************************************************************************
+#
+#  Copyright (c) 2026 AnantHQ Inc.
+#  All Rights Reserved.
+#
+#  This software is licensed, not sold.
+#
+#  The contents of this file constitute confidential and proprietary
+#  information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+#
+#  This source code incorporates proprietary algorithms, software architecture,
+#  business logic, computational methods, optimization techniques,
+#  workflows, data structures, APIs, and implementation details that are
+#  protected by copyright law, patent law, trade secret law, and
+#  international intellectual property treaties.
+#
+#  Except as expressly permitted by a written license agreement,
+#  no person or organization may:
+#
+#    • Copy or reproduce this software.
+#    • Modify or create derivative works.
+#    • Reverse engineer, decompile, or disassemble.
+#    • Benchmark or publicly disclose performance.
+#    • Redistribute, sublicense, lease, rent, or sell.
+#    • Use this software for competitive analysis.
+#    • Disclose any implementation details.
+#
+#  Any unauthorized use is strictly prohibited and may result in
+#  civil damages, injunctive relief, criminal prosecution,
+#  and all other remedies available under applicable law.
+#
+# *****************************************************************************/
+
+[package]
+name = "liquid-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+liquid-core.workspace = true
+domain-kit.workspace = true
+domain-dialysis.workspace = true
+
+candle-core.workspace = true
+candle-nn.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+
+# candle (via `rand`/`rand_distr` 0.9 -> getrandom 0.3) and domain-kit's wiring masks (via
+# `rand_chacha` 0.3 -> rand_core 0.6 -> getrandom 0.2) pull in *two* getrandom major versions
+# transitively; wasm32 needs each pointed at the browser's crypto API explicitly (the Cargo
+# feature alone isn't enough for 0.3 — see the `.cargo/config.toml` `--cfg` flag alongside this
+# crate), or randomness (e.g. an untrained model's initial weight init) fails at wasm *runtime*.
+getrandom = { version = "0.2", features = ["js"] }
+getrandom3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+
+[dependencies.web-sys]
+version = "0.3"
+features = ["console"]

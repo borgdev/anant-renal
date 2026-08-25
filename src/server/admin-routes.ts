@@ -1,3 +1,36 @@
+/******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
 // Admin API routes. These back the admin UI screens the operator uses to
 // browse packs, agents, assessments, policy graph nodes, ingested manuals,
 // research pipelines, and CMS measures. Read-only by design — writes go
@@ -22,6 +55,11 @@ import { NotificationHub, attachBus } from '../realm/notifications.js';
 import { LLMRegistry } from '../realm/llm-registry.js';
 import { CounterfactualStore } from '../realm/counterfactual-store.js';
 import { captureSnapshot, restoreSnapshot, SnapshotRegistry } from '../realm/realm-snapshot.js';
+import { buildHealthcareHypergraphSchema, HEALTHCARE_NODE_SCHEMAS, HEALTHCARE_EDGE_SCHEMAS } from '../../packs/healthcare-core/hypergraph.js';
+import { materializeEntityGraph } from '../realm/entity-record.js';
+import { RealmHypergraph } from '../realm/hypergraph-bridge.js';
+import { countsByType } from '../hypergraph/queries/healthcare.js';
+import { getSqlStore } from './sql/index.js';
 import {
   createOrgWithFacilities,
   parseFacilitiesCsv,
@@ -60,12 +98,33 @@ import {
 } from '../identity/index.js';
 import { SelfServeAdmin } from '../self-serve/admin.js';
 import { compileEntityPack, type CompileOptions, type CompileReport } from '../entity-compiler/index.js';
+import { LiquidModelStore, LiquidTrainer, type TrainRequest } from '../liquid/index.js';
 import { MeasureEvaluator } from '../measures/evaluator.js';
 import { ValueSetRegistry } from '../measures/value-set-registry.js';
 import { loadFromDisk } from '../measures/store-loader.js';
+import { syncMeasures } from '../measures/source-registry.js';
+import { evaluateCatalogMeasure } from '../measures/catalog-evaluator.js';
+import type { StoredMeasure } from '../measures/types.js';
 import { existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as pathJoin } from 'node:path';
+
+/** Title-token overlap matcher — suggests a synced eCQM measure for a catalog measure. */
+function titleTokens(s: string): Set<string> {
+  return new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2));
+}
+function bestMeasureMatch(catTitle: string, synced: readonly StoredMeasure[]): { id: string; score: number } | null {
+  const ct = titleTokens(catTitle);
+  if (ct.size === 0) return null;
+  let best: { id: string; score: number } | null = null;
+  for (const m of synced) {
+    const st = titleTokens(`${m.title} ${m.name} ${m.cmsId}`);
+    let score = 0;
+    for (const t of ct) if (st.has(t)) score++;
+    if (score > 0 && (!best || score > best.score)) best = { id: m.id, score };
+  }
+  return best;
+}
 
 const _compileReports = new Map<string, CompileReport>();
 
@@ -73,7 +132,7 @@ const authoring = new AgentAuthoringService();
 
 let _measureEvaluator: { evaluator: MeasureEvaluator; repoSlugs: string[]; measureCount: number; libraryCount: number; loadedAt: string; root: string } | null = null;
 
-function getMeasureEvaluator(): typeof _measureEvaluator {
+export function getMeasureEvaluator(): typeof _measureEvaluator {
   if (_measureEvaluator) return _measureEvaluator;
   const root = process.env['HH_MEASURES_ROOT'] ?? pathJoin(process.cwd(), '.harness', 'measures');
   if (!existsSync(root)) return null;
@@ -86,6 +145,9 @@ function getMeasureEvaluator(): typeof _measureEvaluator {
   _measureEvaluator = { evaluator, repoSlugs: store.repoSlugs, measureCount: store.measures.length, libraryCount: store.libraries.length, loadedAt: new Date().toISOString(), root };
   return _measureEvaluator;
 }
+
+/** Drop the cached evaluator so the next read reloads the synced store. */
+export function invalidateMeasureEvaluator(): void { _measureEvaluator = null; }
 
 const PACK_ROOTS: readonly { id: string; dir: string }[] = [
   { id: 'flagship-agents', dir: 'packs/flagship-agents/agents' },
@@ -112,12 +174,28 @@ function loadAllAgents(): { packId: string; spec: AgentSpec }[] {
   return out;
 }
 
-export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
+export interface AdminRoutesOptions {
+  /** Phase 3 — live EventBroker (health/DLQ) for the admin panel. */
+  readonly eventBroker?: import('./event-broker.js').EventBroker;
+  /** Phase 3 — transactional outbox (replay-from-cursor). */
+  readonly eventOutbox?: import('./event-outbox.js').EventOutbox;
+  /** Phase 3 — realm → broker bridge (attach/detach per realm). */
+  readonly realmEventBridge?: import('./realm-event-bridge.js').RealmEventBridge;
+}
+
+export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoutesOptions = {}): Promise<void> {
   // Static admin UI shell — served at /admin/ui/*
   const uiRoot = resolve(process.cwd(), 'admin-ui');
   try {
     await app.register(fastifyStatic, { root: uiRoot, prefix: '/admin/ui/', decorateReply: false });
   } catch { /* UI folder missing — API still usable */ }
+
+  // Renal Swarm executive console — served at /exec/* (Vite build of exec-app/).
+  // Wired to the same backend via same-origin /admin/swarm/* endpoints.
+  const execRoot = resolve(process.cwd(), 'exec-app', 'dist');
+  try {
+    await app.register(fastifyStatic, { root: execRoot, prefix: '/exec/', decorateReply: false });
+  } catch { /* exec-app not built — console unavailable */ }
 
   // GET /admin/agents — list all agents across all packs with filters
   app.get<{ Querystring: { pack?: string; setting?: string; lifecycleStage?: string; q?: string } }>('/admin/agents', async (req) => {
@@ -181,19 +259,70 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  // GET /admin/measures/coverage — which catalog measures are evaluable in the
+  // synced eCQM store, plus a title-overlap suggestion per catalog measure.
+  app.get('/admin/measures/coverage', async () => {
+    const me = getMeasureEvaluator();
+    const synced = me ? me.evaluator.listMeasures() : [];
+    const byProgram: Record<string, number> = {};
+    const catalog = ALL_CMS_MEASURES.map((c) => {
+      byProgram[c.programId] = (byProgram[c.programId] ?? 0) + 1;
+      const match = bestMeasureMatch(c.title, synced);
+      // evaluable via synced CQL or embedded (CQL-free) thresholds
+      const source = match ? 'synced' : c.thresholds ? 'embedded' : null;
+      return { id: c.id, title: c.title, programId: c.programId, evaluable: !!source, source, syncedId: match?.id ?? null };
+    });
+    return {
+      catalogTotal: ALL_CMS_MEASURES.length,
+      syncedTotal: synced.length,
+      embeddedTotal: catalog.filter((c) => c.source === 'embedded').length,
+      evaluableTotal: catalog.filter((c) => c.evaluable).length,
+      byProgram,
+      catalog,
+      synced: synced.map((m) => ({ id: m.id, cmsId: m.cmsId, title: m.title })),
+    };
+  });
+
+  // POST /admin/measures/sync — pull real FHIR Measure/Library resources from the
+  // authoritative cqframework eCQM GitHub repo (requires network). Graceful offline.
+  app.post<{ Body: { token?: string; filter?: string } }>('/admin/measures/sync', async (req, reply) => {
+    const root = process.env['HH_MEASURES_ROOT'] ?? pathJoin(process.cwd(), '.harness', 'measures');
+    mkdirSync(root, { recursive: true });
+    try {
+      const results = await syncMeasures({
+        layout: { root },
+        ...(req.body?.token ? { token: req.body.token } : process.env['GITHUB_TOKEN'] ? { token: process.env['GITHUB_TOKEN'] } : {}),
+        ...(req.body?.filter ? { filter: req.body.filter } : {}),
+      });
+      invalidateMeasureEvaluator();
+      return { ok: true, root, results };
+    } catch (err) {
+      reply.code(502);
+      return {
+        ok: false,
+        error: 'sync-failed',
+        message: err instanceof Error ? err.message : String(err),
+        hint: 'This needs network access to github.com/cqframework. The local M21Basic fixture keeps the store non-empty offline (run scripts/seed-measure-store.mjs to reseed).',
+      };
+    }
+  });
+
   // POST /admin/measures/:id/evaluate — run the CQL evaluator on a FHIR bundle.
   // :id accepts both the canonical id ('ecqm:...') and the plain CMS id.
   app.post<{ Params: { id: string }; Body: { bundle: unknown; measurementPeriod?: { start: string; end: string } } }>(
     '/admin/measures/:id/evaluate',
     async (req, reply) => {
-      const me = getMeasureEvaluator();
-      if (!me) { reply.code(503); return { error: 'measure-store-not-loaded', hint: 'Run cqframework sync first' }; }
       const decodedId = decodeURIComponent(req.params.id);
-      const measure = me.evaluator.getMeasure(decodedId);
-      if (!measure) { reply.code(404); return { error: 'measure-not-found', measureId: decodedId }; }
       if (!req.body || typeof req.body !== 'object' || !('bundle' in req.body)) {
         reply.code(400); return { error: 'body-must-include-bundle' };
       }
+      // Embedded catalog measures (CQL-free thresholds) — no synced store required.
+      const spec = ALL_CMS_MEASURES.find((m) => m.id === decodedId);
+      if (spec?.thresholds) return evaluateCatalogMeasure(spec, req.body.bundle);
+      const me = getMeasureEvaluator();
+      if (!me) { reply.code(503); return { error: 'measure-store-not-loaded', hint: 'Run cqframework sync first' }; }
+      const measure = me.evaluator.getMeasure(decodedId);
+      if (!measure) { reply.code(404); return { error: 'measure-not-found', measureId: decodedId }; }
       try {
         const result = await me.evaluator.evaluate({
           measureId: measure.id,
@@ -271,6 +400,12 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
 
+  app.delete<{ Params: { packId: string; id: string } }>('/admin/drafts/:packId/:id', async (req, reply) => {
+    const ok = authoring.removeDraft(req.params.packId, req.params.id);
+    if (!ok) return reply.code(404).send({ error: 'draft-not-found' });
+    return { ok: true, removed: req.params.id };
+  });
+
   app.post<{ Body: Parameters<AgentAuthoringService['scaffoldYaml']>[0] }>('/admin/drafts/scaffold', async (req, reply) => {
     try {
       const yaml = authoring.scaffoldYaml(req.body);
@@ -292,13 +427,105 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     return { ...r.snapshot(), presences: r.presences.list(), entitiesByKind: r.graph.snapshot().countsByKind };
   });
 
-  app.post<{ Body: { id: string; mode: RealmMode; seed?: { facilityId: string; kind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital'; name: string; units: string[]; patientCount: number } } }>('/admin/realms', async (req, reply) => {
+  // --- Hypergraph (Phase 1 — the realm's entity graph, typed) ---
+
+  app.get('/admin/hypergraph/schema', async () => ({
+    nodeTypeCount: HEALTHCARE_NODE_SCHEMAS.length,
+    edgeTypeCount: HEALTHCARE_EDGE_SCHEMAS.length,
+    nodeTypes: HEALTHCARE_NODE_SCHEMAS.map((n) => n.type),
+    edgeTypes: HEALTHCARE_EDGE_SCHEMAS.map((e) => e.type),
+  }));
+
+  app.get<{ Params: { id: string } }>('/admin/hypergraph/realm/:id', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    // Prefer the realm's live bridge (auto-populated by every effect); else materialize cold.
+    const schema = buildHealthcareHypergraphSchema();
+    const snap = r.hypergraph ? r.hypergraph.store.now() : materializeEntityGraph(r.graph, schema, { actorRef: 'user:admin', scopeId: req.params.id }).store.now();
+    return {
+      realmId: req.params.id,
+      live: Boolean(r.hypergraph),
+      nodeCount: snap.nodes.size,
+      edgeCount: snap.edges.size,
+      countsByType: countsByType(snap),
+      edgeTypesByType: [...snap.edges.values()].reduce<Record<string, number>>((a, e) => { a[e.type] = (a[e.type] ?? 0) + 1; return a; }, {}),
+      patients: [...snap.nodes.values()].filter((n) => n.type === 'patient').map((n) => n.attributes['patientId']),
+      effects: [...snap.nodes.values()].filter((n) => n.type === 'effect').length,
+    };
+  });
+
+  // Full graph (nodes + edges arrays) for the Hypergraph browser SVG.
+  app.get<{ Params: { id: string } }>('/admin/hypergraph/realm/:id/graph', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    const schema = buildHealthcareHypergraphSchema();
+    const snap = r.hypergraph ? r.hypergraph.store.now() : materializeEntityGraph(r.graph, schema, { actorRef: 'user:admin', scopeId: req.params.id }).store.now();
+    const nodes = [...snap.nodes.values()].map((n) => ({ id: n.id, type: n.type, attributes: n.attributes }));
+    const edges = [...snap.edges.values()].map((e) => ({
+      id: e.id, type: e.type, from: e.roles['from']?.[0] ?? e.roles['effect']?.[0] ?? '', to: e.roles['to']?.[0] ?? e.roles['member']?.[0] ?? '',
+      roles: e.roles, attributes: e.attributes,
+    }));
+    return { realmId: req.params.id, live: Boolean(r.hypergraph), nodes, edges };
+  });
+
+  // Patient entities (with their learned liquid state) — backs the What-If forecast panel.
+  app.get<{ Params: { id: string } }>('/admin/realms/:id/patients', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    return { patients: r.graph.listKind('patient').map((p) => ({ id: p.id, urn: p.urn, state: p.state })) };
+  });
+
+  app.post<{ Body: { id: string; mode: RealmMode; trajectoryEngine?: 'legacy' | 'liquid'; seed?: { facilityId: string; kind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital'; name: string; units: string[]; patientCount: number } } }>('/admin/realms', async (req, reply) => {
     try {
-      const { id, mode, seed } = req.body ?? {} as { id: string; mode: RealmMode; seed?: Parameters<typeof populateFacility>[1] };
+      const { id, mode, seed, trajectoryEngine } = req.body ?? {} as { id: string; mode: RealmMode; trajectoryEngine?: 'legacy' | 'liquid'; seed?: Parameters<typeof populateFacility>[1] };
       if (!id || !mode) return reply.code(400).send({ error: 'id-and-mode-required' });
-      const realm = RealmRegistry.create({ id, mode });
+      const realm = RealmRegistry.create({
+        id, mode,
+        ...(trajectoryEngine ? { trajectoryEngine } : {}),
+        // Phase 1b — live typed hypergraph, auto-populated by every emitted effect.
+        hypergraph: new RealmHypergraph(buildHealthcareHypergraphSchema(), id),
+      });
       if (seed) populateFacility(realm, seed);
       realm.start();
+      // Phase 3 — stream this realm's effects to the event broker.
+      if (opts.realmEventBridge) opts.realmEventBridge.attach(realm);
+      // Durable local realm: persist the portable snapshot (full state) + creation spec so it survives restarts.
+      try {
+        const sql = await getSqlStore();
+        await sql.saveRealmSnapshot({ realmId: id, mode, createdAt: new Date().toISOString(), snapshotJson: JSON.stringify(captureSnapshot(realm)) });
+        // Creation spec → restored on boot (see realm-restore.ts).
+        await sql.saveRealmSpec({
+          realmId: id, mode, createdAt: new Date().toISOString(),
+          ...(trajectoryEngine ? { trajectoryEngine } : {}),
+          specJson: JSON.stringify({
+            ...(seed ? { seed } : {}),
+            ...(trajectoryEngine ? { trajectoryEngine } : {}),
+          }),
+        });
+        // Seed master data (Settings admin): facility → units → patients from the graph.
+        if (seed) {
+          for (const f of realm.graph.listKind('facility')) {
+            const st = f.state ?? {};
+            await sql.saveFacility({ id: f.id, realmId: id, name: typeof st.name === 'string' ? st.name : seed.name, kind: typeof st.kind === 'string' ? st.kind : seed.kind });
+          }
+          for (const u of realm.graph.listKind('unit')) {
+            const st = u.state ?? {};
+            await sql.saveUnit({ id: u.id, facilityId: typeof st.facilityId === 'string' ? st.facilityId : seed.facilityId, realmId: id, code: typeof st.code === 'string' ? st.code : u.id });
+          }
+          for (const p of realm.graph.listKind('patient')) {
+            const st = p.state ?? {};
+            await sql.savePatient({
+              id: p.id, facilityId: typeof st.facilityId === 'string' ? st.facilityId : seed.facilityId,
+              unitId: typeof st.unitId === 'string' ? st.unitId : '', realmId: id,
+              age: typeof st.age === 'number' ? st.age : null,
+              sex: typeof st.sex === 'string' ? st.sex : null,
+              trajectory: typeof st.trajectory === 'string' ? st.trajectory : null,
+              labsJson: st.labs ? JSON.stringify(st.labs) : null,
+              vitalsJson: st.lastVitals ? JSON.stringify(st.lastVitals) : null,
+            });
+          }
+        }
+      } catch { /* storage is best-effort; the realm still runs */ }
       return realm.snapshot();
     } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
@@ -307,7 +534,56 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     const r = RealmRegistry.get(req.params.id);
     if (!r) return reply.code(404).send({ error: 'realm-not-found' });
     const tick = r.clock.advanceBy(req.body?.deltaMs ?? 60_000);
+    try {
+      const sql = await getSqlStore();
+      await sql.saveRealmSnapshot({ realmId: r.id, mode: r.mode, createdAt: new Date().toISOString(), snapshotJson: JSON.stringify(captureSnapshot(r)) });
+    } catch { /* best-effort */ }
     return { tick, snapshot: r.snapshot() };
+  });
+
+  app.delete<{ Params: { id: string } }>('/admin/realms/:id', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    if (opts.realmEventBridge) opts.realmEventBridge.detach(req.params.id);
+    RealmRegistry.remove(req.params.id); // stops the clock + drops from the live registry
+    try { const sql = await getSqlStore(); await sql.deleteRealmSpec(req.params.id); } catch { /* best-effort */ }
+    return { ok: true, removed: req.params.id };
+  });
+
+  // Phase 3 — event broker fabric admin: live driver health, outbox state,
+  // realm→broker bridge stats, replay-from-cursor.
+  app.get('/admin/broker', async () => {
+    const [health, deadLetter, outbox, bridge] = await Promise.all([
+      opts.eventBroker ? opts.eventBroker.health() : Promise.resolve({ ok: false, driver: 'none' }),
+      opts.eventBroker ? opts.eventBroker.deadLetterSize() : Promise.resolve(0),
+      opts.eventOutbox ? opts.eventOutbox.counts() : Promise.resolve({ pending: 0, delivered: 0, dead: 0 }),
+      opts.realmEventBridge ? opts.realmEventBridge.snapshot() : Promise.resolve({ attached: 0, projected: 0, published: 0, failed: 0 }),
+    ]);
+    return { health, deadLetter, outbox, bridge, configured: Boolean(opts.eventBroker) };
+  });
+
+  app.post<{ Body: { since?: string } }>('/admin/broker/replay', async (req, reply) => {
+    if (!opts.eventOutbox || !opts.eventBroker) return reply.code(503).send({ error: 'event-fabric-not-wired' });
+    try {
+      const republished = await opts.eventOutbox.replay(opts.eventBroker, { ...(req.body?.since ? { since: req.body.since } : {}) });
+      return { republished, since: req.body?.since ?? new Date(0).toISOString() };
+    } catch (err) {
+      return reply.code(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/admin/broker/drivers', async () => ({
+    drivers: ['inprocess', 'kafka', 'redis-streams', 'bullmq', 'rabbitmq', 'nats', 'sqs-sns', 'pubsub', 'event-hubs'],
+    current: opts.eventBroker?.driver ?? 'none',
+  }));
+
+  app.post<{ Params: { id: string }; Body: { on: boolean } }>('/admin/realms/:id/bridge', async (req, reply) => {
+    if (!opts.realmEventBridge) return reply.code(503).send({ error: 'bridge-not-wired' });
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    if (req.body?.on === false) opts.realmEventBridge.detach(req.params.id);
+    else opts.realmEventBridge.attach(r);
+    return { realmId: req.params.id, on: req.body?.on !== false };
   });
 
   app.post<{ Params: { id: string }; Body: { agentSpecId: string; role: string; clearance: string; facilityId: string; unitId?: string } }>('/admin/realms/:id/presences', async (req, reply) => {
@@ -319,6 +595,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         role: req.body.role as 'nurse', clearance: req.body.clearance as 'phi', purposeOfUse: ['treatment'],
         location: { facilityId: req.body.facilityId, ...(req.body.unitId ? { unitId: req.body.unitId } : {}) },
       });
+      try { const sql = await getSqlStore(); await sql.saveRealmSnapshot({ realmId: r.id, mode: r.mode, createdAt: new Date().toISOString(), snapshotJson: JSON.stringify(captureSnapshot(r)) }); } catch { /* best-effort */ }
       return p;
     } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
@@ -326,7 +603,11 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { id: string }; Body: { presenceId: string; effect: WorldEffect } }>('/admin/realms/:id/emit', async (req, reply) => {
     const r = RealmRegistry.get(req.params.id);
     if (!r) return reply.code(404).send({ error: 'realm-not-found' });
-    try { return r.emit(req.body.presenceId, req.body.effect); }
+    try {
+      const emitted = r.emit(req.body.presenceId, req.body.effect);
+      try { const sql = await getSqlStore(); await sql.saveRealmSnapshot({ realmId: r.id, mode: r.mode, createdAt: new Date().toISOString(), snapshotJson: JSON.stringify(captureSnapshot(r)) }); } catch { /* best-effort */ }
+      return emitted;
+    }
     catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
 
@@ -340,6 +621,29 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     const r = RealmRegistry.get(req.params.id);
     if (!r) return reply.code(404).send({ error: 'realm-not-found' });
     return { events: r.perception.recentLog(200) };
+  });
+
+  // Live inner-lives lists (P0 — power the Episodes / Sentience / Attributions pages).
+  app.get<{ Params: { id: string }; Querystring: { status?: string; presenceId?: string } }>('/admin/realms/:id/episodes', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    let eps = r.episodes.all();
+    if (req.query.status) eps = eps.filter((e) => e.status === req.query.status);
+    if (req.query.presenceId) eps = eps.filter((e) => e.presenceId === req.query.presenceId);
+    return { episodes: eps };
+  });
+
+  app.get<{ Params: { id: string } }>('/admin/realms/:id/self-models', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    const list = r.selfModel.list();
+    return { selfModels: list.map((s) => ({ presenceId: s.presenceId, agentSpecId: s.agentSpecId, role: s.role, competence: s.competence, episodes: s.episodes, choices: s.choices, effects: s.effects, preferences: s.preferences, milestones: s.milestonesReached })) };
+  });
+
+  app.get<{ Params: { id: string } }>('/admin/realms/:id/attributions', async (req, reply) => {
+    const r = RealmRegistry.get(req.params.id);
+    if (!r) return reply.code(404).send({ error: 'realm-not-found' });
+    return { attributions: r.attribution.all(), stats: r.attribution.stats() };
   });
 
   // Live SSE stream: perception events, effects, experiences, attributions.
@@ -390,6 +694,61 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       clearInterval(hb);
       offEffect();
       offExp();
+    });
+  });
+
+  // Multi-realm command center (Phase 5) — one SSE wall across every realm:
+  // effects + experiences per realm, plus durable webhook delivery activity.
+  // `?once=1` writes a snapshot then closes (for previews + tests).
+  app.get<{ Querystring: { once?: string } }>('/admin/stream', async (req, reply) => {
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache, no-transform',
+      'connection': 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    const write = (type: string, payload: unknown) => {
+      try { reply.raw.write(`data: ${JSON.stringify({ type, at: new Date().toISOString(), payload })}\n\n`); } catch { /* client gone */ }
+    };
+    const realms = RealmRegistry.list();
+    write('hello', { realms: realms.map((r) => r.id) });
+
+    if (req.query.once === '1') {
+      const snapshot = realms.map((r) => ({ realmId: r.id, effects: r.ledger.listAll().slice(-5).map((e) => ({ effectId: e.effectId, kind: e.effect.kind, status: e.status })), seq: r.clock.seq, realmAt: r.clock.realmAt.toISOString() }));
+      write('snapshot', { realms: snapshot });
+      reply.raw.end();
+      return;
+    }
+
+    const detachers: Array<() => void> = [];
+    for (const r of realms) {
+      const offEffect = r.ledger.onAppend((e) => write('effect', { realmId: r.id, ...e }));
+      detachers.push(offEffect);
+      try {
+        const offExp = r.rules.subscribe((exp) => write('experience', { realmId: r.id, ...exp }));
+        detachers.push(offExp);
+      } catch { /* rules not wired */ }
+    }
+
+    // Webhook delivery activity (durable) — poll the SqlStore for new deliveries.
+    let lastWebhookLen = 0;
+    const whTimer = setInterval(async () => {
+      try {
+        const sql = await getSqlStore();
+        const rows = await sql.pendingWebhookDeliveries(20);
+        if (rows.length !== lastWebhookLen) {
+          for (const row of rows.slice(0, Math.max(0, rows.length - lastWebhookLen))) write('webhook', { id: row.id, webhookId: row.webhookId, eventId: row.eventId, status: row.status, attempts: row.attempts, at: row.createdAt });
+          lastWebhookLen = rows.length;
+        }
+      } catch { /* transient */ }
+    }, 1000);
+
+    const hb = setInterval(() => write('heartbeat', { realms: RealmRegistry.list().length }), 15_000);
+
+    req.raw.on('close', () => {
+      clearInterval(whTimer);
+      clearInterval(hb);
+      for (const detach of detachers) { try { detach(); } catch { /* ignore */ } }
     });
   });
 
@@ -564,6 +923,15 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       ...(req.query.to ? { to: new Date(req.query.to) } : {}),
     };
     const report = invoicePreview(r, DEFAULT_BILLING_PLAN, period);
+    // Durable local billing: persist this meter reading for later rollup.
+    try {
+      const sql = await getSqlStore();
+      const periodStart = period.from?.toISOString().slice(0, 10) ?? new Date().toISOString().slice(0, 10);
+      await sql.saveBilling({
+        id: `bill-${r.id}-${periodStart}`, realmId: r.id, period: periodStart,
+        plan: DEFAULT_BILLING_PLAN.planId, reportJson: JSON.stringify(report),
+      });
+    } catch { /* best-effort */ }
     if (req.query.format === 'csv') {
       reply.header('content-type', 'text/csv');
       return usageCsv(report);
@@ -602,6 +970,15 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     try {
       const report = runCounterfactual(input);
       const rec = CounterfactualStore.save(input, report, req.body.label ?? 'ad-hoc', req.body.realmId);
+      // Durable local counterfactual: mirror the run into the swappable SQL store so the
+      // studio survives restarts (GET /admin/sql/counterfactuals reads from here).
+      try {
+        const sql = await getSqlStore();
+        await sql.saveCounterfactual({
+          id: rec.id, realmId: rec.realmId ?? null, label: rec.label,
+          inputJson: JSON.stringify(rec.input), reportJson: JSON.stringify(rec.report), createdAt: rec.createdAt,
+        });
+      } catch { /* best-effort — the in-memory studio record is still returned */ }
       return rec;
     } catch (err) {
       return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
@@ -612,6 +989,98 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     const rec = CounterfactualStore.get(req.params.id); if (!rec) return reply.code(404).send({ error: 'cf-not-found' });
     return rec;
   });
+
+  // M24 — apply a promotable counterfactual to its source realm "with evidence".
+  // Applies the rehearsed interventions to the LIVE realm, emits an
+  // operator-directive carrying the evidenceId (link back into the studio),
+  // and returns the evidence diff. The directive shows up in Governance →
+  // Directives with the evidence link.
+  app.post<{ Params: { id: string } }>('/admin/counterfactual/:id/apply', async (req, reply) => {
+    const rec = CounterfactualStore.get(req.params.id);
+    if (!rec) return reply.code(404).send({ error: 'cf-not-found' });
+    if (!rec.report.promotable) {
+      return reply.code(400).send({ error: 'not-promotable', gateReasons: rec.report.gateReasons ?? ['promotion-gates-failed'] });
+    }
+    const source = rec.realmId ? RealmRegistry.get(rec.realmId) : undefined;
+    if (!source) return reply.code(400).send({ error: 'source-realm-required', hint: 'run the studio from a live realm' });
+    const applied: Array<{ kind: string; detail: string }> = [];
+
+    // 1) Apply the rehearsed interventions to the live realm (mirrors the harness).
+    for (const iv of rec.input.interventions) {
+      if (iv.kind === 'nudge-preference') {
+        const targets = source.presences.list().filter((p) => p.role === iv.presenceRole);
+        if (targets.length === 0) { applied.push({ kind: 'nudge-preference', detail: `${iv.presenceRole}: no presence to nudge` }); continue; }
+        for (const t of targets) {
+          source.selfModel.nudgePreference(t.presenceId, iv.effectKind, iv.delta, 'counterfactual-apply');
+        }
+        applied.push({ kind: 'nudge-preference', detail: `${iv.presenceRole}×${targets.length} ${iv.effectKind} ${iv.delta > 0 ? '+' : ''}${iv.delta}` });
+      } else if (iv.kind === 'event-effect') {
+        const proc = source.ambient.list().find((p) => p.id === 'trajectory.liquid') as { biasPatient?: (pid: string, effect: Record<string, number>) => void } | undefined;
+        if (!proc?.biasPatient) { applied.push({ kind: 'event-effect', detail: 'no trajectory.liquid process' }); continue; }
+        const targets = iv.targetPatient ? [iv.targetPatient] : source.graph.listKind('patient').map((p) => p.id);
+        for (const pid of targets) proc.biasPatient(pid, iv.effect);
+        applied.push({ kind: 'event-effect', detail: `${targets.length} patient(s) bias ${JSON.stringify(iv.effect)}` });
+      }
+    }
+
+    // 2) Emit an operator-directive carrying the evidence link.
+    const presence = source.presences.list()[0] ?? source.spawnPresence({
+      realmId: source.id, agentSpecId: 'counterfactual-apply', runId: `cf-apply-${Date.now()}`,
+      role: 'md', clearance: 'phi', purposeOfUse: ['treatment'],
+      location: { facilityId: 'f1', unitId: 'U1' },
+    });
+    const directive = source.emit(presence.presenceId, {
+      kind: 'operator-directive',
+      verb: 'nudge-preference',
+      ...(rec.realmId ? { targetRef: rec.realmId } : {}),
+      payload: {
+        counterfactualId: rec.id,
+        label: rec.label,
+        interventions: rec.input.interventions,
+        deltas: rec.report.delta,
+      },
+      originalText: `Applied counterfactual "${rec.label}" (${rec.id}) with evidence: ${rec.report.interpretation}`,
+      evidenceId: rec.id,
+    });
+
+    return {
+      applied: true,
+      counterfactualId: rec.id,
+      directiveEffectId: directive.effectId,
+      evidenceId: rec.id,
+      interventions: applied,
+      delta: rec.report.delta,
+      interpretation: rec.report.interpretation,
+      gateReasons: rec.report.gateReasons,
+    };
+  });
+
+  // ---- Liquid engine (Phase 6): training, promotion, comparison ----
+  const liquidStore = new LiquidModelStore();
+  const liquidTrainer = new LiquidTrainer(liquidStore);
+
+  app.get('/admin/liquid/models', async () => ({
+    active: liquidStore.listModels(),
+    history: liquidStore.history(),
+  }));
+
+  app.post<{ Body: TrainRequest }>('/admin/liquid/train', async (req, reply) => {
+    try {
+      const run = await liquidTrainer.train(req.body ?? {});
+      return { run, active: liquidStore.activeModel(run.record.domain) };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post<{ Body: { domain?: string; modelId: string } }>('/admin/liquid/promote', async (req, reply) => {
+    const domain = req.body?.domain ?? 'dialysis';
+    const rec = liquidStore.promoteExisting(domain, req.body?.modelId);
+    if (!rec) return reply.code(404).send({ error: 'model-not-found' });
+    return { promoted: rec, active: liquidStore.activeModel(domain) };
+  });
+
+  app.get('/admin/liquid/compare', async () => liquidStore.compare('dialysis'));
 
   // M14.C — Governance / directive ledger
   app.get<{ Params: { id: string }; Querystring: { verb?: string; presenceId?: string; since?: string; until?: string } }>('/admin/realms/:id/governance/directives', async (req, reply) => {

@@ -1,0 +1,53 @@
+{
+  "snapshotId": "cms-provider-data-442540-2024-20260821",
+  "sourceId": "cms-provider-data",
+  "authority": "CMS",
+  "datasetUuid": "f8610e87-ba25-43a3-a49e-927dbc8701ae",
+  "datasetUrl": "https://data.cms.gov/data-api/v1/dataset/f8610e87-ba25-43a3-a49e-927dbc8701ae/data?filter%5BCCN%5D=442540&size=5000",
+  "retrievedAt": "2026-08-21T07:24:12Z",
+  "verificationStatus": "verified-live",
+  "rowSetSha256": "a5de8c1d8f20f64b7c27d666b365ba704c53462014771e5410606a8c814527bc",
+  "facility": "WHITEBRIDGE DIALYSIS",
+  "city": "NASHVILLE",
+  "state": "TN",
+  "ccn": "442540",
+  "period": "2024",
+  "benchmarks": [
+    {
+      "label": "Average adult HD Kt/V",
+      "value": "1.645",
+      "rawValue": 1.6445081967,
+      "measureId": "CWhdavgktvy4_f"
+    },
+    {
+      "label": "Long-term catheter rate",
+      "value": "31.00%",
+      "rawValue": 31.004366812,
+      "measureId": "ltcy4_f"
+    },
+    {
+      "label": "Standardized fistula rate",
+      "value": "37.08%",
+      "rawValue": 37.080295497,
+      "measureId": "sfry4_f"
+    },
+    {
+      "label": "Age-adjusted waitlisted patient-months",
+      "value": "8.94%",
+      "rawValue": 8.9416155675,
+      "measureId": "pppwy4_f"
+    },
+    {
+      "label": "Standardized hospitalization ratio",
+      "value": "0.906",
+      "rawValue": 0.9061971112,
+      "measureId": "shrty4_f"
+    },
+    {
+      "label": "Standardized readmission ratio",
+      "value": "0.717",
+      "rawValue": 0.7168626837,
+      "measureId": "srry4_f"
+    }
+  ]
+}
