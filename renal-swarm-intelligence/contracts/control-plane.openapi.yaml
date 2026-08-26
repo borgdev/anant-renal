@@ -1,0 +1,121 @@
+openapi: 3.1.0
+info:
+  title: Renal Swarm Control Plane API
+  version: 1.0.0
+  description: Role-aware backend contract used by the untrusted operator interface.
+servers:
+  - url: /api/v1
+paths:
+  /work-items:
+    get:
+      summary: Resolve authorized work-item context
+      parameters:
+        - in: query
+          name: entityId
+          required: true
+          schema: { type: string, maxLength: 160 }
+        - in: query
+          name: entityType
+          required: true
+          schema: { type: string, maxLength: 100 }
+        - in: query
+          name: target
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Server-assembled and scope-filtered work item
+        "401":
+          description: Authentication required
+        "403":
+          description: Role or scope denied
+  /agents:
+    get:
+      summary: List governed agent manifests, runtime posture and message envelopes
+      responses:
+        "200":
+          description: Authorized agent-operations snapshot
+    post:
+      summary: Advance the labeled synthetic replay
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [replay, step]
+                roleId:
+                  type: string
+                  description: Synthetic demonstration delegation only
+      responses:
+        "201":
+          description: Replay advanced and current server snapshot returned
+        "403":
+          description: Mutation rejected by authentication, origin or authorization controls
+  /admin:
+    get:
+      summary: Resolve tenant onboarding, integration and active configuration state
+      responses:
+        "200":
+          description: Server-resolved admin snapshot with no secret values
+        "403":
+          description: DVP or EVP platform administration role required
+    post:
+      summary: Execute one governed onboarding or configuration-release transition
+      description: >-
+        Configuration activation changes the server-resolved active release and does
+        not deploy application code. Production activation requires a live Kafka
+        bridge verification; reference environments may use an explicitly labeled
+        contract-only verification.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - save-organization
+                    - save-kafka
+                    - test-kafka
+                    - save-agent
+                    - save-policy
+                    - validate-release
+                    - activate-release
+                roleId:
+                  type: string
+                  description: Synthetic demonstration delegation only
+                agent:
+                  type: object
+                  description: Complete versioned agent manifest; secret-like fields are rejected
+                policy:
+                  type: object
+                  description: Default-deny action boundary with bounded escalation threshold
+                secretRef:
+                  type: string
+                  pattern: ^binding:[A-Z][A-Z0-9_]+$
+                  description: Runtime binding name only; never a credential value
+      responses:
+        "201":
+          description: Mutation persisted and the current admin snapshot returned
+        "400":
+          description: Contract validation failed or a raw secret field was rejected
+        "403":
+          description: Authentication, same-origin or platform-admin authorization failed
+        "409":
+          description: A prerequisite gate is incomplete
+x-security-boundary:
+  browser-authority: none
+  agent-authority: proposal-only
+  policy-default: block
+  transport: same-origin BFF; independently deployable control plane in production
+  secret-storage: binding references only
+  configuration-activation: content-addressed hot release; no code redeployment

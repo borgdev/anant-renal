@@ -1,0 +1,17 @@
+{
+  "version": "2026.08.1",
+  "defaultState": "disabled",
+  "packs": [
+    { "id": "in-center", "label": "In-center dialysis", "state": "reference-active", "outcomes": ["treatment continuity", "access safety", "chair utilization"], "events": ["adt.discharge.v2", "facility.capacity.changed.v2", "machine.maintenance.signal.v1"] },
+    { "id": "ckd-ikc", "label": "CKD & integrated kidney care", "state": "framework-ready", "outcomes": ["planned starts", "slowed progression", "education completion"], "events": ["ckd.risk.changed.v1", "education.completed.v1", "modality.preference.changed.v1"] },
+    { "id": "home", "label": "Home modalities", "state": "framework-ready", "outcomes": ["home retention", "training completion", "supply continuity"], "events": ["home.training.changed.v1", "home.treatment.completed.v1", "home.supply.changed.v1"] },
+    { "id": "transplant", "label": "Transplant", "state": "framework-ready", "outcomes": ["referral completion", "waitlist progression", "post-transplant transition"], "events": ["transplant.referral.changed.v1", "transplant.waitlist.changed.v1"] },
+    { "id": "vascular-access", "label": "Vascular access", "state": "framework-ready", "outcomes": ["catheter reduction", "access maturation", "access event avoidance"], "events": ["access.plan.changed.v1", "access.surveillance.changed.v1"] },
+    { "id": "acute-post-acute", "label": "Hospital, SNF & post-acute", "state": "framework-ready", "outcomes": ["safe transition", "readmission avoidance", "treatment confirmation"], "events": ["adt.discharge.v2", "postacute.placement.changed.v1"] },
+    { "id": "payer-vbc", "label": "Payer & value-based care", "state": "framework-ready", "outcomes": ["total-cost trend", "avoidable utilization", "risk reconciliation"], "events": ["claim.status.changed.v2", "payer.risk.changed.v1"] },
+    { "id": "pharmacy", "label": "Pharmacy", "state": "framework-ready", "outcomes": ["medication continuity", "adherence", "therapy reconciliation"], "events": ["medication.reconciled.v1", "pharmacy.fulfillment.changed.v1"] },
+    { "id": "transport", "label": "Transportation", "state": "framework-ready", "outcomes": ["on-time arrival", "missed-treatment prevention"], "events": ["transport.booking.changed.v1", "assessment.response.v1"] },
+    { "id": "lab-vendor", "label": "Laboratory & diagnostics", "state": "framework-ready", "outcomes": ["result timeliness", "specimen integrity", "exception closure"], "events": ["lab.result.changed.v2", "lab.exception.changed.v1"] },
+    { "id": "supply-chain", "label": "Supply chain", "state": "framework-ready", "outcomes": ["treatment supply availability", "expiry avoidance", "vendor resilience"], "events": ["inventory.position.changed.v1", "vendor.disruption.changed.v1"] }
+  ]
+}

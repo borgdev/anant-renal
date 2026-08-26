@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renal-swarm.local/contracts/next-best-action/1.0.0",
+  "title": "Governed next-best action proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "rank", "title", "outcome", "scope", "ownerRole", "due", "value", "confidence", "actionClass", "evidenceCount", "agentIds", "audience"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^NBA-[0-9]+$" },
+    "rank": { "type": "integer", "minimum": 1 },
+    "title": { "type": "string" },
+    "outcome": { "type": "string" },
+    "scope": { "type": "string" },
+    "ownerRole": { "type": "string" },
+    "due": { "type": "string" },
+    "value": { "type": "string" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "actionClass": { "enum": ["A", "B", "C", "D"] },
+    "evidenceCount": { "type": "integer", "minimum": 1 },
+    "agentIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+    "audience": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } }
+  }
+}

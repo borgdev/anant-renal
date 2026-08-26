@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renal-swarm.local/contracts/enterprise-operating-model/1.0.0",
+  "title": "Configurable renal-care enterprise operating model",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "synthetic", "organization", "model", "scopePath", "roles", "domains"],
+  "properties": {
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "synthetic": { "const": true },
+    "organization": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "scopePath": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "level", "label", "facilities", "patients"],
+        "properties": {
+          "id": { "type": "string" },
+          "level": { "enum": ["enterprise", "division", "region", "market", "facility"] },
+          "label": { "type": "string" },
+          "facilities": { "type": "integer", "minimum": 1 },
+          "patients": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "shortLabel", "label", "scopeLevel", "purpose", "decisionRights"],
+        "properties": {
+          "id": { "type": "string" },
+          "shortLabel": { "type": "string" },
+          "label": { "type": "string" },
+          "scopeLevel": { "enum": ["enterprise", "division", "region", "market", "facility"] },
+          "purpose": { "type": "string" },
+          "decisionRights": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } }
+        }
+      }
+    },
+    "domains": {
+      "type": "array",
+      "minItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "ownerRoles", "agentIds"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "ownerRoles": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+          "agentIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

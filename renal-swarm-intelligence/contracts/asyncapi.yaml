@@ -1,0 +1,138 @@
+asyncapi: 3.0.0
+info:
+  title: Renal Swarm Intelligence event contracts
+  version: 1.1.0
+  description: Event-first integration boundary for the governed dialysis outcome harness.
+defaultContentType: application/json
+servers:
+  organizationKafka:
+    host: kafka.organization.internal:9093
+    protocol: kafka-secure
+    description: Placeholder logical server; deployment supplies private connectivity and credentials.
+channels:
+  assessmentResponse:
+    address: assessment.response.v1
+    messages:
+      assessmentResponse:
+        $ref: '#/components/messages/CanonicalEvent'
+  hospitalDischarge:
+    address: adt.discharge.v2
+    messages:
+      hospitalDischarge:
+        $ref: '#/components/messages/CanonicalEvent'
+  outcomeOpened:
+    address: outcome.opened.v1
+    messages:
+      outcomeOpened:
+        $ref: '#/components/messages/CanonicalEvent'
+  continuityProposal:
+    address: continuity.proposal.v1
+    messages:
+      continuityProposal:
+        $ref: '#/components/messages/CanonicalEvent'
+  coordinatorTaskRequested:
+    address: coordinator.task.requested.v1
+    messages:
+      coordinatorTaskRequested:
+        $ref: '#/components/messages/CanonicalEvent'
+  serviceCoordinationReviewRequested:
+    address: service-coordination.review-requested.v1
+    messages:
+      serviceCoordinationReviewRequested:
+        $ref: '#/components/messages/CanonicalEvent'
+  policyBlocked:
+    address: policy.blocked.v1
+    messages:
+      policyBlocked:
+        $ref: '#/components/messages/CanonicalEvent'
+  staffingCoverageChanged:
+    address: staffing.coverage.changed.v1
+    messages:
+      staffingCoverageChanged:
+        $ref: '#/components/messages/CanonicalEvent'
+  facilityCapacityChanged:
+    address: facility.capacity.changed.v2
+    messages:
+      facilityCapacityChanged:
+        $ref: '#/components/messages/CanonicalEvent'
+  agentProposal:
+    address: agent.proposal.v1
+    messages:
+      agentProposal:
+        $ref: '#/components/messages/CanonicalEvent'
+  swarmInsightPublished:
+    address: swarm.insight.published.v1
+    messages:
+      swarmInsightPublished:
+        $ref: '#/components/messages/CanonicalEvent'
+  nextBestActionReviewRequested:
+    address: nba.review.requested.v1
+    messages:
+      nextBestActionReviewRequested:
+        $ref: '#/components/messages/CanonicalEvent'
+  cmsSubmissionGap:
+    address: cms.submission.gap.v1
+    messages:
+      cmsSubmissionGap:
+        $ref: '#/components/messages/CanonicalEvent'
+operations:
+  consumeAssessment:
+    action: receive
+    channel:
+      $ref: '#/channels/assessmentResponse'
+  consumeDischarge:
+    action: receive
+    channel:
+      $ref: '#/channels/hospitalDischarge'
+  publishOutcome:
+    action: send
+    channel:
+      $ref: '#/channels/outcomeOpened'
+  publishProposal:
+    action: send
+    channel:
+      $ref: '#/channels/continuityProposal'
+  publishGovernedCommand:
+    action: send
+    channel:
+      $ref: '#/channels/coordinatorTaskRequested'
+  publishServiceCoordinationReview:
+    action: send
+    channel:
+      $ref: '#/channels/serviceCoordinationReviewRequested'
+  publishPolicyBlock:
+    action: send
+    channel:
+      $ref: '#/channels/policyBlocked'
+  consumeWorkforceChange:
+    action: receive
+    channel:
+      $ref: '#/channels/staffingCoverageChanged'
+  consumeCapacityChange:
+    action: receive
+    channel:
+      $ref: '#/channels/facilityCapacityChanged'
+  publishAgentProposal:
+    action: send
+    channel:
+      $ref: '#/channels/agentProposal'
+  publishSwarmInsight:
+    action: send
+    channel:
+      $ref: '#/channels/swarmInsightPublished'
+  publishNextBestActionReview:
+    action: send
+    channel:
+      $ref: '#/channels/nextBestActionReviewRequested'
+  publishCmsSubmissionGap:
+    action: send
+    channel:
+      $ref: '#/channels/cmsSubmissionGap'
+components:
+  messages:
+    CanonicalEvent:
+      name: CanonicalEvent
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        $ref: './canonical-event.schema.json'

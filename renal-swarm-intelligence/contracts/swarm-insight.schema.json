@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renal-swarm.local/contracts/swarm-insight/1.0.0",
+  "title": "Cross-domain swarm insight",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "summary", "confidence", "agentIds", "scope", "state"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^SI-[0-9]+$" },
+    "title": { "type": "string" },
+    "summary": { "type": "string" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "agentIds": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "type": "string" } },
+    "scope": { "type": "string" },
+    "state": { "type": "string" }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renal-swarm.local/contracts/agent-manifest/1.0.0",
+  "title": "Bounded intelligence cell manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "version", "mode", "inputs", "outputs", "allowedActions", "approvalClass", "evalGate", "killSwitch"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]+$" },
+    "name": { "type": "string" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "mode": { "type": "string" },
+    "inputs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+    "outputs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+    "allowedActions": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+    "approvalClass": { "enum": ["A", "B", "C", "D"] },
+    "evalGate": { "type": "number", "minimum": 0, "maximum": 1 },
+    "killSwitch": { "const": true }
+  }
+}

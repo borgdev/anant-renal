@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renal-swarm.local/contracts/assessment-evidence/1.0.0",
+  "title": "Assessment evidence object",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["assessmentId", "patientToken", "instrument", "question", "answer", "validTime", "recordedTime", "contentHash"],
+  "properties": {
+    "assessmentId": { "type": "string" },
+    "patientToken": { "type": "string" },
+    "instrument": {
+      "type": "object",
+      "required": ["id", "version"],
+      "properties": { "id": { "type": "string" }, "version": { "type": "string" } }
+    },
+    "question": { "type": "object", "required": ["id", "text"], "properties": { "id": { "type": "string" }, "text": { "type": "string" } } },
+    "answer": {
+      "oneOf": [
+        { "type": "object", "required": ["kind", "text"], "properties": { "kind": { "const": "free-text" }, "text": { "type": "string" }, "language": { "type": "string" } } },
+        { "type": "object", "required": ["kind", "value"], "properties": { "kind": { "enum": ["integer", "decimal", "boolean", "choice", "date"] }, "value": {} } }
+      ]
+    },
+    "validTime": { "type": "string", "format": "date-time" },
+    "recordedTime": { "type": "string", "format": "date-time" },
+    "purpose": { "type": "string" },
+    "contentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "factCandidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["concept", "confidence", "supportingSpan", "reviewStatus"],
+        "properties": {
+          "concept": { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "supportingSpan": { "type": "string" },
+          "reviewStatus": { "enum": ["pending", "confirmed", "rejected", "deterministic"] },
+          "extractorVersion": { "type": "string" }
+        }
+      }
+    }
+  }
+}

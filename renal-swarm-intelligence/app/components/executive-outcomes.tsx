@@ -1,0 +1,108 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import {
+  Activity,
+  ArrowRight,
+  BadgeDollarSign,
+  Building2,
+  CheckCircle2,
+  ClipboardCheck,
+  HeartPulse,
+  Network,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  TrendingUp,
+  Users,
+} from "lucide-react";
+import ecosystemDemo from "../../config/ecosystem-demo.json";
+import operatingModel from "../../config/enterprise-operating-model.json";
+import { ensureRuntime, type RuntimeSnapshot } from "../../lib/runtime/client";
+import type { NavigationId } from "../../lib/types";
+import type { OpenWorkflowDetail } from "../../lib/workflow-detail";
+import { Eyebrow, ProgressBar, Tag } from "./ui";
+
+type Period = "30d" | "quarter" | "year";
+
+const outcomes = [
+  { id: "clinical", label: "Clinical", value: "96.8", unit: "quality composite", change: "+1.4 pts", detail: "31 priority access reviews coordinated", tone: "mint", icon: HeartPulse },
+  { id: "operational", label: "Operational", value: "97.8%", unit: "treatments kept", change: "+0.4 pts", detail: "684 chair-hours identified enterprise-wide", tone: "blue", icon: Activity },
+  { id: "regulatory", label: "Regulatory", value: "94.2%", unit: "submission ready", change: "+2.1 pts", detail: "7 governed measure packs active", tone: "violet", icon: ClipboardCheck },
+  { id: "economic", label: "Economic", value: "$2.8M", unit: "value protected", change: "+$410K", detail: "Quality, continuity and revenue evidence", tone: "amber", icon: BadgeDollarSign },
+] as const;
+
+const hierarchyRows = [
+  { scope: "Enterprise", owner: "EVP / COO", kept: "97.8%", quality: "96.8", cms: "94.2%", capacity: "684 h", value: "$2.8M", state: "on plan" },
+  { scope: "Southeast Division", owner: "DVP", kept: "97.4%", quality: "96.2", cms: "93.8%", capacity: "184 h", value: "$720K", state: "watch" },
+  { scope: "Middle Tennessee", owner: "ROD", kept: "96.9%", quality: "95.7", cms: "94.6%", capacity: "62.5 h", value: "$184K", state: "action" },
+  { scope: "Nashville South", owner: "ROD", kept: "96.5%", quality: "95.1", cms: "95.1%", capacity: "24.5 h", value: "$61K", state: "action" },
+  { scope: "Riverbend Franklin", owner: "FA", kept: "95.8%", quality: "94.8", cms: "96.3%", capacity: "6.5 h", value: "$14K", state: "review" },
+];
+
+export default function ExecutiveOutcomes({ onNavigate, onOpenDetail }: { onNavigate: (id: NavigationId) => void; onOpenDetail: OpenWorkflowDetail }) {
+  const [period, setPeriod] = useState<Period>("30d");
+  const [runtime, setRuntime] = useState<RuntimeSnapshot | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void ensureRuntime("evp").then((snapshot) => { if (active) setRuntime(snapshot); }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  function openExecutiveDetail(title: string, summary: string, status: string, target: NavigationId, evidence: Array<{ label: string; value: string; source?: string }> = []) {
+    onOpenDetail({ id: `EXEC-${title.toUpperCase().replaceAll(" ", "-")}`, kind: "Executive outcome", title, summary, status, tone: status.toLowerCase().includes("action") || status.toLowerCase().includes("review") ? "red" : status.toLowerCase().includes("watch") ? "amber" : "mint", owner: "Enterprise outcome owner", scope: `Riverbend Kidney Care · ${period}`, metrics: [{ label: "Signals", value: String(runtime?.counts.events ?? 0) }, { label: "Insights", value: String(runtime?.counts.insights ?? 0) }, { label: "NBAs", value: String(runtime?.counts.actions ?? 0) }, { label: "Verified", value: String(runtime?.counts.acknowledgements ?? 0) }], evidence, steps: [{ label: "Signals", detail: `${runtime?.counts.events ?? 0} persisted events`, state: "done" }, { label: "Insights", detail: `${runtime?.counts.insights ?? 0} cross-domain syntheses`, state: "done" }, { label: "NBAs", detail: `${runtime?.counts.actions ?? 0} human-reviewed actions`, state: "done" }, { label: "Commands", detail: `${runtime?.counts.commands ?? 0} authorized commands`, state: runtime?.counts.commands ? "done" : "current" }, { label: "Outcomes", detail: `${runtime?.counts.acknowledgements ?? 0} acknowledgements`, state: runtime?.counts.acknowledgements ? "done" : "pending" }], control: "Executive rollups preserve numerator, denominator, scope, valid time, configuration version and source lineage while withholding unauthorized patient detail.", primary: { label: target === "ecosystem" ? "Open Swarm Control" : target === "cms" ? "Open CMS Operations" : target === "facility" ? "Open Facility Operations" : target === "command" ? "Open Outcome Command" : target === "configuration" ? "Open Configuration Studio" : target === "intelligence" ? "Open Shared Intelligence" : "Open AI Assurance", target } });
+  }
+
+  return (
+    <div className="view-stack executive-view">
+      <header className="view-heading">
+        <div>
+          <Eyebrow>Executive Outcomes · enterprise value realization</Eyebrow>
+          <h1>Outcomes—not activity—run the portfolio.</h1>
+          <p>Clinical, operational, regulatory and economic results roll up through the same governed evidence fabric.</p>
+        </div>
+        <div className="heading-actions"><div className="segmented-control executive-period">{(["30d", "quarter", "year"] as Period[]).map((item) => <button className={period === item ? "is-active" : ""} onClick={() => setPeriod(item)} type="button" key={item}>{item === "30d" ? "30 days" : item}</button>)}</div><Tag tone={runtime ? "mint" : "violet"}><Sparkles size={11} /> {runtime ? "Runtime pipeline + synthetic portfolio" : "Synthetic operating results"}</Tag></div>
+      </header>
+
+      <section className="executive-outcome-grid">
+        {outcomes.map((outcome) => {
+          const Icon = outcome.icon;
+          const target: NavigationId = outcome.id === "regulatory" ? "cms" : outcome.id === "operational" ? "facility" : outcome.id === "clinical" ? "command" : "ecosystem";
+          return <button className={`panel executive-outcome executive-outcome-${outcome.tone} drillable-surface`} type="button" onClick={() => openExecutiveDetail(`${outcome.label} outcome`, outcome.detail, `${outcome.value} · ${outcome.change}`, target, [{ label: outcome.unit, value: outcome.value, source: `Active enterprise strategy pack · ${period}` }, { label: "Change", value: outcome.change, source: "Synthetic portfolio comparison" }])} key={outcome.id}><div><span className="outcome-icon"><Icon size={18} /></span><Tag tone={outcome.tone}>{outcome.change}</Tag></div><Eyebrow>{outcome.label} outcome</Eyebrow><strong>{outcome.value}</strong><small>{outcome.unit}</small><p>{outcome.detail}</p></button>;
+        })}
+      </section>
+
+      <section className="executive-main-grid">
+        <article className="panel hierarchy-scorecard">
+          <div className="panel-title-row"><div><Eyebrow>Enterprise → facility accountability</Eyebrow><h2>One outcome model, role-specific ownership</h2></div><Tag tone="mint"><CheckCircle2 size={11} /> lineage complete</Tag></div>
+          <div className="hierarchy-table">
+            <div className="hierarchy-head"><span>Scope / owner</span><span>Treatments kept</span><span>Quality</span><span>CMS ready</span><span>Capacity</span><span>Value</span><span>Status</span></div>
+            {hierarchyRows.map((row) => <button className="hierarchy-row drillable-surface" type="button" onClick={() => openExecutiveDetail(row.scope, `${row.owner} accountability across continuity, quality, CMS readiness, capacity and protected value.`, row.state, row.scope.includes("Franklin") ? "facility" : "ecosystem", [{ label: "Treatments kept", value: row.kept, source: "Continuity outcome rollup" }, { label: "Quality", value: row.quality, source: "Clinical composite" }, { label: "CMS ready", value: row.cms, source: "Measure readiness" }, { label: "Capacity", value: row.capacity, source: "Facility twin aggregation" }, { label: "Value", value: row.value, source: "Outcome economics model" }])} key={row.scope}><span><strong>{row.scope}</strong><small>{row.owner}</small></span><span>{row.kept}</span><span>{row.quality}</span><span>{row.cms}</span><span>{row.capacity}</span><span>{row.value}</span><Tag tone={row.state === "on plan" ? "mint" : row.state === "watch" ? "amber" : "red"}>{row.state}</Tag></button>)}
+          </div>
+          <div className="hierarchy-note"><ShieldCheck size={15} /><span>Rollups preserve numerator, denominator, scope, valid time, configuration release and source lineage. No metric is inferred from another role’s unauthorized patient detail.</span></div>
+        </article>
+
+        <aside className="executive-side-stack">
+          <button className="panel enterprise-score drillable-surface" type="button" onClick={() => openExecutiveDetail("Balanced outcome index", "Weighted composite from the active enterprise strategy pack.", "92.4 · +1.8", "configuration", [{ label: "Composite", value: "92.4", source: "Active enterprise strategy pack" }, { label: "Change", value: "+1.8", source: period }])}><span className="score-orbit"><Target size={23} /></span><div><Eyebrow>Balanced outcome index</Eyebrow><strong>92.4</strong><p>Weighted by the active enterprise strategy pack.</p></div><Tag tone="mint">+1.8</Tag></button>
+          <article className="panel outcome-dependencies"><div className="panel-title-row"><div><Eyebrow>Outcome dependencies</Eyebrow><h2>What moved the result</h2></div><Network size={17} /></div>{[{label:"Care continuity",value:97,detail:"Transitions + transport + capacity",target:"command" as NavigationId},{label:"Clinical quality",value:93,detail:"Access + assessment + quality",target:"command" as NavigationId},{label:"Revenue integrity",value:89,detail:"Treatment + eligibility + claims",target:"ecosystem" as NavigationId},{label:"Regulatory readiness",value:94,detail:"Measures + sources + reconciliation",target:"cms" as NavigationId}].map((item) => <button className="dependency-row drillable-surface" type="button" onClick={() => openExecutiveDetail(item.label, item.detail, `${item.value}%`, item.target, [{ label: "Dependency score", value: `${item.value}%`, source: item.detail }])} key={item.label}><div><strong>{item.label}</strong><small>{item.detail}</small><span>{item.value}%</span></div><ProgressBar value={item.value} tone={item.value < 90 ? "amber" : "mint"} /></button>)}</article>
+        </aside>
+      </section>
+
+      <section className="executive-lower-grid">
+        <article className="panel value-portfolio">
+          <div className="panel-title-row"><div><Eyebrow>Active value portfolio</Eyebrow><h2>From swarm signal to verified enterprise outcome</h2></div><button className="button button-ghost" onClick={() => onNavigate("ecosystem")} type="button">Open Swarm Control <ArrowRight size={14} /></button></div>
+          <div className="value-flow">{[{stage:"Signals",value:String(runtime?.counts.events ?? "—"),detail:"persisted events",target:"ecosystem" as NavigationId},{stage:"Insights",value:String(runtime?.counts.insights ?? "—"),detail:"cross-domain",target:"intelligence" as NavigationId},{stage:"NBAs",value:String(runtime?.counts.actions ?? "—"),detail:"human review",target:"ecosystem" as NavigationId},{stage:"Commands",value:String(runtime?.counts.commands ?? "—"),detail:"authorized",target:"command" as NavigationId},{stage:"Outcomes",value:String(runtime?.counts.acknowledgements ?? "—"),detail:"event verified",target:"command" as NavigationId}].map((item, index) => <button type="button" className="drillable-surface" onClick={() => openExecutiveDetail(item.stage, `${item.value} ${item.detail} in the active value pipeline.`, item.detail, item.target)} key={item.stage}><span>{index + 1}</span><strong>{item.value}</strong><small>{item.stage} · {item.detail}</small>{index < 4 ? <ArrowRight size={14} /> : null}</button>)}</div>
+          <div className="value-cases">{(runtime?.actions.length ? runtime.actions : ecosystemDemo.nextBestActions.map((action) => ({ actionId: action.id, valueLabel: action.value, confidenceBasisPoints: Math.round(action.confidence * 10000), title: action.title, outcome: action.outcome, scopeId: action.scope, ownerRole: action.ownerRole, actionClass: action.actionClass }))).slice(0, 4).map((action) => <button className="drillable-surface" type="button" onClick={() => openExecutiveDetail(action.title, action.outcome, `${Math.round(action.confidenceBasisPoints / 100)}% consensus`, "command", [{ label: "Estimated value", value: action.valueLabel, source: action.scopeId }, { label: "Owner", value: action.ownerRole, source: `Class ${action.actionClass}` }])} key={action.actionId}><span><strong>{action.valueLabel}</strong><Tag tone="mint">{Math.round(action.confidenceBasisPoints / 100)}%</Tag></span><h3>{action.title}</h3><p>{action.outcome} · {action.scopeId}</p><small>{action.ownerRole} · Class {action.actionClass}</small></button>)}</div>
+        </article>
+
+        <article className="panel operating-model-card">
+          <div className="panel-title-row"><div><Eyebrow>Configured operating model</Eyebrow><h2>{operatingModel.organization}</h2></div><Building2 size={18} /></div>
+          <div className="model-counts"><span><Users size={16} /><strong>{operatingModel.roles.length}</strong><small>role cockpits</small></span><span><Network size={16} /><strong>{operatingModel.domains.length}</strong><small>outcome domains</small></span><span><TrendingUp size={16} /><strong>{operatingModel.scopePath.length}</strong><small>hierarchy levels</small></span></div>
+          <p>Hierarchy, decision rights, outcome weights and escalation paths are versioned configuration—not hard-coded organization logic.</p>
+          <button className="button button-secondary" onClick={() => onNavigate("configuration")} type="button">Inspect operating model <ArrowRight size={14} /></button>
+        </article>
+      </section>
+    </div>
+  );
+}

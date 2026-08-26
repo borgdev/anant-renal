@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renal-swarm.local/contracts/canonical-event/1.0.0",
+  "title": "Renal Swarm canonical event envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "eventType", "schemaVersion", "tenantId", "subject", "purpose", "validTime", "recordedTime", "source", "integrity", "payload"],
+  "properties": {
+    "eventId": { "type": "string", "minLength": 8, "maxLength": 160 },
+    "eventType": { "type": "string", "pattern": "^[a-z][a-z0-9.-]+\\.v[1-9][0-9]*$" },
+    "schemaVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "tenantId": { "type": "string", "minLength": 1 },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": { "enum": ["patient", "facility", "cohort", "submission"] },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "purpose": { "type": "string", "minLength": 1 },
+    "validTime": { "type": "string", "format": "date-time" },
+    "recordedTime": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string" },
+    "causationId": { "type": "string" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system", "resource"],
+      "properties": {
+        "system": { "type": "string" },
+        "resource": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "contentHash"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "contentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "classification": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "payload": { "type": "object" }
+  }
+}

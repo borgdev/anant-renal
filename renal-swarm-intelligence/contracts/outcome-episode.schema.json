@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renal-swarm.local/contracts/outcome-episode/1.0.0",
+  "title": "Governed outcome episode",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["episodeId", "tenantId", "scope", "outcomeType", "state", "openedAt", "configurationVersion", "evidenceIds", "actionClass"],
+  "properties": {
+    "episodeId": { "type": "string" },
+    "tenantId": { "type": "string" },
+    "scope": { "type": "object", "required": ["type", "id"], "properties": { "type": { "enum": ["patient", "facility", "cohort", "submission"] }, "id": { "type": "string" } } },
+    "outcomeType": { "type": "string" },
+    "state": { "enum": ["observed", "watching", "understood", "proposed", "blocked", "awaiting-approval", "coordinating", "verifying", "resolved", "escalated", "rejected", "reopened"] },
+    "openedAt": { "type": "string", "format": "date-time" },
+    "dueAt": { "type": "string", "format": "date-time" },
+    "configurationVersion": { "type": "string" },
+    "evidenceIds": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "proposalIds": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "actionClass": { "enum": ["A", "B", "C", "D"] },
+    "approvalIds": { "type": "array", "items": { "type": "string" } },
+    "commandIds": { "type": "array", "items": { "type": "string" } },
+    "outcomeEvidenceIds": { "type": "array", "items": { "type": "string" } },
+    "traceId": { "type": "string" }
+  }
+}

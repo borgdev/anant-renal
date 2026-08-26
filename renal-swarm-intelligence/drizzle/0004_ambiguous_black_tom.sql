@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `authority_snapshot_source_effective_idx` ON `authority_snapshots` (`source_id`,`effective_from`);
