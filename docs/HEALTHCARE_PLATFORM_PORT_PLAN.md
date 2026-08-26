@@ -1,3 +1,5 @@
+> **Superseded for implementation:** Use [ANANT_HARNESS_HEALTHCARE_PRODUCT_SPEC.md](./ANANT_HARNESS_HEALTHCARE_PRODUCT_SPEC.md) as the authoritative build and acceptance specification. This file remains the concise planning summary.
+
 # Anant Healthcare Intelligence Platform — Port and Productization Plan
 
 **Target branch:** `with-ode`  
