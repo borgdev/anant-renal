@@ -1,4 +1,5 @@
 export type NavigationId =
+  | "my-work"
   | "ecosystem"
   | "agents"
   | "command"

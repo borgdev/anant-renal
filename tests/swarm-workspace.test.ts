@@ -27,11 +27,11 @@ function ws(persistence?: WorkspacePersistence): SwarmWorkspaceStore {
 }
 
 describe('swarm workspace store', () => {
-  it('seeds the 8 exec-console red-team scenarios and persists runs', async () => {
+  it('seeds the exec-console red-team scenarios (8 core + provider/payer) and persists runs', async () => {
     const store = ws();
     const scenarios = await store.seedRedTeamScenarios();
-    expect(scenarios).toHaveLength(8);
-    expect(scenarios.map((s) => s.id)).toEqual(['rt-001', 'rt-002', 'rt-003', 'rt-004', 'rt-005', 'rt-006', 'rt-007', 'rt-008']);
+    expect(scenarios).toHaveLength(12);
+    expect(scenarios.map((s) => s.id)).toEqual(['rt-001', 'rt-002', 'rt-003', 'rt-004', 'rt-005', 'rt-006', 'rt-007', 'rt-008', 'rt-009', 'rt-010', 'rt-011', 'rt-012']);
     const run = await store.replayRedTeamScenario('rt-001', { ranBy: 'operator', policy: { defaultDecision: 'block', externalWritesEnabled: false } });
     expect(run.passed).toBe(true);
     expect(run.evidenceHash).toMatch(/^[0-9a-f]{64}$/);
@@ -68,6 +68,9 @@ describe('swarm workspace store', () => {
     expect(pkg.resultsIncluded).toBe(4);
     expect(pkg.liveTransmission).toBe(false);
     expect(pkg.manifestHash).toMatch(/^[0-9a-f]{64}$/);
+    // Journey K — freeze the evidence window before re-validating.
+    const frozen = await store.freezeSubmissionWindow(pkg.id, { start: '2026-01-01', end: '2026-12-31', by: 'regulatory-admin' });
+    expect(frozen?.evidenceWindow?.start).toBe('2026-01-01');
     const again = await store.validateSubmissionPackage(pkg.id);
     expect(again?.status).toBe('validated');
     await store.deleteSubmissionPackage(pkg.id);
@@ -165,7 +168,7 @@ describe('swarm workspace store', () => {
     // Fresh store hydrated from the same persistence sees the data.
     const b = ws(persistence);
     const scenarios = await b.seedRedTeamScenarios();
-    expect(scenarios).toHaveLength(8);
+    expect(scenarios).toHaveLength(12);
     expect((await b.list('submission-package'))).toHaveLength(1);
   });
 

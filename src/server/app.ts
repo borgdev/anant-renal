@@ -72,6 +72,12 @@ import { registerFhirRoutes } from '../fhir/routes.js';
 import { registerApiRoutes } from './api-routes.js';
 import { registerEnterpriseRoutes } from './enterprise-routes.js';
 import { registerSwarmRoutes, getSwarmWorkspace, resetSwarmRuntime } from './swarm-routes.js';
+import { registerPlatformRoutes } from './platform-routes.js';
+import { registerPayerRoutes } from './payer-routes.js';
+import { registerAgentStudioRoutes } from './agent-studio-routes.js';
+import { registerAssuranceRoutes } from './assurance-routes.js';
+import { registerSubmissionRoutes } from './submission-routes.js';
+import { registerExecutiveRoutes } from './executive-routes.js';
 import { registerSimulatorRoutes, getSimulatorController } from './simulator-routes.js';
 import { registerDemoCleanupRoutes } from './demo-cleanup.js';
 import { registerCmsRoutes } from './cms-routes.js';
@@ -337,6 +343,51 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       })),
     ),
   });
+
+  // Generic platform contract layer (port plan Phase A/B) — organization graph,
+  // topic plan, releases, DLQ inspection, plus the public /api/context and
+  // /api/work (My Work) experience APIs. Composes the same durable workspace,
+  // coordinator and store the swarm routes already use — no second store.
+  await registerPlatformRoutes(app, {
+    users,
+    sessions,
+    ...(deps.eventBroker ? { broker: deps.eventBroker } : {}),
+    ...(deps.eventOutbox ? { eventOutbox: deps.eventOutbox } : {}),
+    realms: () => RealmRegistry.list().map((r) => {
+      const s = r.snapshot();
+      return {
+        realmId: s.id,
+        mode: s.mode,
+        counts: s.counts,
+        presences: s.presences,
+        effects: s.effects,
+        episodes: { total: s.episodes?.total ?? 0, openNow: s.episodes?.openNow ?? 0 },
+        realmAt: s.realmAt,
+        ...(s.hitl ? { hitl: s.hitl } : {}),
+        ...(s.cost !== undefined ? { cost: s.cost } : {}),
+      };
+    }),
+  });
+
+  // Payer proof pack (Phase 5 / Epic 7) — a second domain closing a payer loop
+  // through the SAME durable coordinator + workspace contracts. No runtime fork.
+  await registerPayerRoutes(app);
+
+  // Agent Studio (Phase D) — one unified surface for authoring, triggers, topics,
+  // outputs, test, kill switch and rollback over the existing agent services.
+  await registerAgentStudioRoutes(app);
+
+  // AI Assurance (Phase E) — green/red team suites, findings lifecycle and
+  // release gates over the same durable workspace (spec §20).
+  await registerAssuranceRoutes(app);
+
+  // CMS/EQRS submission lifecycle (Journey K / Epic 8) — dual Class-D approval,
+  // reference-mode transmission gate, receipt + reconciliation.
+  await registerSubmissionRoutes(app);
+
+  // Executive outcomes + delegation (Journey N) — sponsor/delegate with owner +
+  // SLA, and verified-value rollups (not activity counts).
+  await registerExecutiveRoutes(app);
 
   // Simulator — start/stop/step-able synthetic data driver for the whole stack
   // (realms → swarm reasoners → exec console). Realms it creates get the

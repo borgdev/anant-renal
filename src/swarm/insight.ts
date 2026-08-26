@@ -30,6 +30,8 @@ export interface CellProposal {
   evidence: EvidenceRef[];
   producedAt: string;
   payload: Record<string, unknown>;
+  /** Required action class for the proposal's implied action (spec §14.3). */
+  approvalClass?: ApprovalClass;
 }
 
 export interface SwarmInsight {

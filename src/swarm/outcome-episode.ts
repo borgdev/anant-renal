@@ -188,6 +188,14 @@ export class OutcomeEpisodeCoordinator {
   /** Clear all in-memory episodes (demo cleanup / hard reset). */
   protected clear(): void { this.episodes.clear(); }
 
+  /** Remove one episode from the in-memory map (payer reset / targeted cleanup).
+   *  The durable row is dropped via the commitRemove hook. */
+  remove(id: string): boolean {
+    const existed = this.episodes.delete(id);
+    if (existed) this.commitRemove(id);
+    return existed;
+  }
+
   /** Return the existing open episode for (kind, subject, scopeType) or open one —
    * gives episodes a STABLE identity across polls instead of churning on each read. */
   getOrOpen(input: { kind: string; subject: string; scopeType: ScopeType }): OutcomeEpisode {
@@ -206,6 +214,9 @@ export class OutcomeEpisodeCoordinator {
 
   /** Durability hook — subclasses persist each mutation (default: no-op). */
   protected commit(_e: OutcomeEpisode): void { /* subclass hook */ }
+
+  /** Durability hook — subclasses drop the persisted row (default: no-op). */
+  protected commitRemove(_id: string): void { /* subclass hook */ }
 
   private move(id: string, to: OutcomeState, by: string, note?: string): OutcomeEpisode {
     const e = this.episodes.get(id);

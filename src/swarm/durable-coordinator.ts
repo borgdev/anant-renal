@@ -43,6 +43,11 @@ export class PersistentOutcomeCoordinator extends OutcomeEpisodeCoordinator {
       .catch(() => undefined);
   }
 
+  protected override commitRemove(id: string): void {
+    if (!this.store) return;
+    void this.store.remove('outcome-episode', id).catch(() => undefined);
+  }
+
   /** Drop all in-memory episodes (durable rows are removed separately by the
    *  demo cleanup path) and force a fresh hydrate on the next read. */
   reset(): void {

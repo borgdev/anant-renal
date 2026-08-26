@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
+  ArrowRight,
   Bell,
   Blocks,
   BookOpenText,
@@ -10,6 +11,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ClipboardCheck,
+  ClipboardList,
   CloudCog,
   DatabaseZap,
   FlaskConical,
@@ -17,6 +19,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  MonitorUp,
   Network,
   Settings2,
   ShieldCheck,
@@ -26,6 +29,7 @@ import {
   X,
 } from "lucide-react";
 import SwarmControl from "./components/swarm-control";
+import MyWork from "./components/my-work";
 import ExecutiveOutcomes from "./components/executive-outcomes";
 import AgentOperations from "./components/agent-operations";
 import CommandCockpit from "./components/command-cockpit";
@@ -41,6 +45,7 @@ import WorkflowDetailDrawer from "./components/workflow-detail-drawer";
 import { Tag } from "./components/ui";
 import { demoContext, outcomeEpisodes } from "./lib/catalogs";
 import { fetchWorkItemContext, fetchRuntimeSnapshot } from "./lib/harness";
+import { fetchContext } from "./lib/work";
 import type { MeUser } from "./lib/auth";
 import type { NavigationId } from "./lib/types";
 import type { WorkflowDetail } from "./lib/workflow-detail";
@@ -56,6 +61,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "Operate",
     items: [
+      { id: "my-work", label: "My Work", icon: ClipboardList },
       { id: "ecosystem", label: "Swarm control", icon: LayoutDashboard, badge: "LIVE" },
       { id: "agents", label: "Agent operations", icon: Blocks, badge: "12" },
       { id: "command", label: "Outcome command", icon: Gauge, badge: "4" },
@@ -96,12 +102,22 @@ const ROLE_LABELS: Record<string, string> = {
   coder: "Medical Coder", auditor: "Compliance Auditor", "facilities-tech": "Facilities Technician", safety: "Safety Officer",
 };
 
+/** Lens-aware terminology — the active solution-pack lens from /api/context.
+ *  Payer users never see renal concepts (spec §6.4 acceptance). */
+const LENS_TEXT = {
+  brand: { provider: "Renal Swarm", payer: "Anant Payer" } as Record<string, string>,
+  brandSub: { provider: "Observer Mechanics", payer: "Outcome orchestration" } as Record<string, string>,
+  syntheticTag: { provider: "Synthetic patient data", payer: "Synthetic member data" } as Record<string, string>,
+  statusLine: { provider: "12 cells · 14 policies · 8 verified sources", payer: "6 payer cells · 4 policies · 8 verified sources" } as Record<string, string>,
+  patientNav: { provider: "Patient intelligence", payer: "Member intelligence" } as Record<string, string>,
+};
+
 function userInitials(user?: MeUser | null): string {
   const name = user?.displayName || user?.username || "Operator";
   return name.split(/\s+/).map((w) => w[0] ?? "").join("").slice(0, 2).toUpperCase();
 }
 
-export default function AppShell({ initialNav = "ecosystem", user, onLogout }: { initialNav?: NavigationId; user?: MeUser | null; onLogout?: () => void }) {
+export default function AppShell({ initialNav = "my-work", user, onLogout }: { initialNav?: NavigationId; user?: MeUser | null; onLogout?: () => void }) {
   const [activeNav, setActiveNav] = useState<NavigationId>(initialNav);
   const [selectedId, setSelectedId] = useState(outcomeEpisodes[0].id);
   const [demoOpen, setDemoOpen] = useState(false);
@@ -109,7 +125,23 @@ export default function AppShell({ initialNav = "ecosystem", user, onLogout }: {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem("hh-exec-sidebar") === "collapsed"; } catch { return false; } });
   const [workflowDetail, setWorkflowDetail] = useState<WorkflowDetail | null>(null);
+  const [canSwitchToOps, setCanSwitchToOps] = useState(false);
+  const [lens, setLens] = useState<"provider" | "payer" | "hybrid">("provider");
   const contextRequest = useRef(0);
+
+  // Server-authorized console switcher (P0-6) + active lens. The pack/lens comes
+  // from /api/context (the generic platform org's operating model) — the shell
+  // adapts terminology so payer users never see renal concepts. The UI never
+  // decides authorization or the lens.
+  useEffect(() => {
+    let active = true;
+    void fetchContext().then((ctx) => {
+      if (!active) return;
+      setCanSwitchToOps((ctx.consoles ?? []).includes("ops"));
+      if (ctx.pack?.lens === "payer" || ctx.pack?.lens === "hybrid") setLens(ctx.pack.lens);
+    }).catch(() => { /* console/lens unavailable */ });
+    return () => { active = false; };
+  }, []);
 
   function toggleCollapse() {
     setCollapsed((prev) => {
@@ -220,6 +252,7 @@ export default function AppShell({ initialNav = "ecosystem", user, onLogout }: {
 
   const module = (() => {
     switch (activeNav) {
+      case "my-work": return <MyWork onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "ecosystem": return <SwarmControl onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "agents": return <AgentOperations onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "command": return <CommandCockpit selectedId={selectedId} onSelect={setSelectedId} onOpenDemo={launchDemo} onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
@@ -240,7 +273,7 @@ export default function AppShell({ initialNav = "ecosystem", user, onLogout }: {
       <aside className={`sidebar ${collapsed ? "is-collapsed" : ""} ${sidebarOpen ? "is-open" : ""}`} aria-label="Primary navigation">
         <div className="brand-lockup">
           <span className="brand-mark"><Activity size={21} aria-hidden="true" /></span>
-          <div><strong>Renal Swarm</strong><small>Observer Mechanics</small></div>
+          <div><strong>{LENS_TEXT.brand[lens] ?? "Renal Swarm"}</strong><small>{LENS_TEXT.brandSub[lens] ?? "Observer Mechanics"}</small></div>
           <button className="icon-button sidebar-collapse" onClick={toggleCollapse} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} type="button">{collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}</button>
           <button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" type="button"><X size={18} /></button>
         </div>
@@ -254,7 +287,7 @@ export default function AppShell({ initialNav = "ecosystem", user, onLogout }: {
                 return (
                   <button className={`nav-item ${activeNav === item.id ? "is-active" : ""}`} key={item.id} onClick={() => selectNav(item.id)} type="button">
                     <Icon size={17} aria-hidden="true" />
-                    <span>{item.label}</span>
+                    <span>{item.id === "patient" ? (LENS_TEXT.patientNav[lens] ?? item.label) : item.label}</span>
                     {item.badge ? <small>{item.badge}</small> : null}
                   </button>
                 );
@@ -265,7 +298,7 @@ export default function AppShell({ initialNav = "ecosystem", user, onLogout }: {
 
         <div className="sidebar-status">
           <div className="status-title"><span className="healthy-dot" /><strong>Harness healthy</strong><span>99.97%</span></div>
-          <p>12 cells · 14 policies · 8 verified sources</p>
+          <p>{LENS_TEXT.statusLine[lens] ?? "12 cells · 14 policies · 8 verified sources"}</p>
           <div className="status-footer"><span>Postgres outbox</span><span>v0.1.0</span></div>
         </div>
       </aside>
@@ -274,11 +307,14 @@ export default function AppShell({ initialNav = "ecosystem", user, onLogout }: {
         <header className="topbar">
           <div className="topbar-left">
             <button className="icon-button menu-button" onClick={() => setSidebarOpen(true)} aria-label="Open navigation" type="button"><Menu size={19} /></button>
-            <div className="workspace-context"><span>{activeNav === "ecosystem" || activeNav === "executive" ? demoContext.organization : demoContext.region}</span><strong>{activeLabel}</strong></div>
+            <div className="workspace-context"><span>{activeNav === "my-work" || activeNav === "ecosystem" || activeNav === "executive" ? demoContext.organization : demoContext.region}</span><strong>{activeLabel}</strong></div>
           </div>
           <div className="topbar-right">
-            <Tag tone="violet"><FlaskConical size={12} /> Synthetic patient data</Tag>
+            <Tag tone="violet"><FlaskConical size={12} /> {LENS_TEXT.syntheticTag[lens] ?? "Synthetic patient data"}</Tag>
             <Tag tone="mint"><DatabaseZap size={12} /> Public sources verified</Tag>
+            {canSwitchToOps ? (
+              <a className="button button-ghost console-switch" href="/admin/ui/" title="Open the AnantHealth operator console (server-authorized)"><MonitorUp size={13} /> Operator console</a>
+            ) : null}
             <button className="icon-button notification-button" aria-label="Open workflow inbox" type="button" onClick={() => void openInbox()}><Bell size={18} /><span /></button>
             <button className="profile-button" aria-label="Open operator profile and decision rights" type="button" onClick={() => openWorkflowDetail({ id: `PROFILE-${user?.username ?? "operator"}`, kind: "Operator profile", title: user?.displayName || user?.username || "Operator", summary: "Session identity, role, clearance and purpose-of-use scoping for this console. Authority is enforced server-side on every request.", status: "Session active", tone: "mint", owner: user?.displayName || user?.username || "Operator", scope: ROLE_LABELS[user?.role ?? ""] ?? (user?.role ?? "Operator"), metrics: [{ label: "Username", value: user?.username ?? "—" }, { label: "Role", value: user?.role ?? "—" }, { label: "Clearance", value: user?.clearance ?? "—" }, { label: "Purpose of use", value: (user?.purposeOfUse ?? []).join(", ") || "—" }], evidence: [{ label: "Session", value: user?.username ?? "operator", source: "Server-issued hh_session cookie" }], steps: [{ label: "Authenticate", detail: "Session resolved from hh_session", state: "done" }, { label: "Authorize", detail: "Role and scope evaluated server-side", state: "done" }, { label: "Use", detail: "Purpose-of-use scoped evidence only", state: "current" }], control: "The browser never grants authority. Each /admin/* request re-verifies the session, role and console scope.", primary: { label: "Inspect configuration", target: "configuration" } })}><span>{userInitials(user)}</span><div><strong>{user?.displayName || user?.username || "Operator"}</strong><small>{ROLE_LABELS[user?.role ?? ""] ?? (user?.role ?? "Operator")}</small></div></button>
             <button className="icon-button signout-button" aria-label="Sign out" title="Sign out" type="button" onClick={() => onLogout?.()}><LogOut size={17} /></button>

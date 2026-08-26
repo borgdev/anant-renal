@@ -48,11 +48,11 @@ describe('swarm workspace routes', () => {
     }
   });
 
-  it('seeds the 8 red-team scenarios and replays against live policy', async () => {
+  it('seeds the red-team scenarios (8 core + provider/payer) and replays against live policy', async () => {
     const app = await build();
     const list = await app.inject({ method: 'GET', url: '/admin/swarm/red-team/scenarios' });
     expect(list.statusCode).toBe(200);
-    expect(list.json().scenarios).toHaveLength(8);
+    expect(list.json().scenarios).toHaveLength(12);
     const replay = await app.inject({ method: 'POST', url: '/admin/swarm/red-team/replay', payload: { scenarioId: 'rt-001' } });
     expect(replay.statusCode).toBe(200);
     expect(replay.json().run.passed).toBe(true);

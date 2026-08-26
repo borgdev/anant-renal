@@ -667,6 +667,14 @@ export class SqlStore {
        WHERE status = 'delivered' AND (delivered_at IS NOT NULL AND delivered_at > ?)
        ORDER BY delivered_at ASC LIMIT ?`, [cursor, limit]);
   }
+  /** Fetch one outbox row by id — used for precise per-item DLQ replay. */
+  async getOutboxRow(id: string): Promise<OutboxRow | undefined> {
+    const rows = await this.db.all<OutboxRow>(
+      `SELECT id, topic, scope_id AS scopeId, event_json AS eventJson, status, attempts,
+              next_attempt_at AS nextAttemptAt, last_error AS lastError, created_at AS createdAt, delivered_at AS deliveredAt
+       FROM event_outbox WHERE id = ?`, [id]);
+    return rows[0];
+  }
   async outboxCounts(): Promise<{ pending: number; delivered: number; dead: number }> {
     const rows = await this.db.all<{ status: string; n: number }>(`SELECT status, COUNT(*) AS n FROM event_outbox GROUP BY status`);
     const c = { pending: 0, delivered: 0, dead: 0 };

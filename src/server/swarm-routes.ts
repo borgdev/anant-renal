@@ -62,11 +62,26 @@ let demoState: SwarmDemoState | null = null;
 let bridge: KafkaBridge | null = null;
 let coordinator: PersistentOutcomeCoordinator | null = null;
 let workspace: SwarmWorkspaceStore | null = null;
+let whatIfRunner: ((threshold: number) => Promise<Record<string, unknown>>) | null = null;
 
 /** The durable swarm workspace (built by registerSwarmRoutes) — shared with
  *  demo-cleanup and other modules. Null until swarm routes register. */
 export function getSwarmWorkspace(): SwarmWorkspaceStore | null {
   return workspace;
+}
+
+/** The persistent outcome coordinator singleton (episodes survive via the
+ *  workspace store). Shared with the platform work API so My Work sees the
+ *  same in-memory authoritative episode map the swarm routes mutate. */
+export function getSwarmCoordinator(): PersistentOutcomeCoordinator | null {
+  return coordinator;
+}
+
+/** Isolated policy what-if against the live swarm boundary — shared with the
+ *  platform canvas simulate (Journey O). Wired by registerSwarmRoutes. */
+export function swarmWhatIf(threshold: number): Promise<Record<string, unknown>> {
+  if (!whatIfRunner) throw new Error('swarm-runtime-not-ready');
+  return whatIfRunner(threshold);
 }
 
 /** Reset the in-memory swarm runtime (outcome-coordinator cache + reference demo
@@ -108,12 +123,12 @@ async function state(opts: SwarmRouteOptions): Promise<SwarmDemoState> {
  * source catalogs), NOT the hardcoded reference seed. The seed is only a
  * last-resort fallback when the system has nothing real to render. ---------- */
 
-type ProjectedNode = { id: string; label: string; type: string; x: number; y: number; z: number; attributes: Record<string, unknown> };
-type ProjectedEdge = { id: string; source: string; target: string; relation: string; confidence: number; attributes: Record<string, unknown> };
+export type ProjectedNode = { id: string; label: string; type: string; x: number; y: number; z: number; attributes: Record<string, unknown> };
+export type ProjectedEdge = { id: string; source: string; target: string; relation: string; confidence: number; attributes: Record<string, unknown> };
 
 const GRAPH_LEVELS = ['enterprise', 'division', 'region', 'facility'] as const;
 
-async function projectTopology(wsStore: SwarmWorkspaceStore): Promise<{ nodes: ProjectedNode[]; edges: ProjectedEdge[] }> {
+export async function projectTopology(wsStore: SwarmWorkspaceStore): Promise<{ nodes: ProjectedNode[]; edges: ProjectedEdge[] }> {
   const cat = await wsStore.catalogs();
   const ontology = (cat['operating-model'] as Record<string, unknown> | null) ?? null;
   const scopePath = (ontology?.scopePath as Array<{ id?: string; level?: string; label?: string; facilities?: number; patients?: number }> | undefined) ?? [];
@@ -369,6 +384,9 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
     }
     return policyWhatIf(threshold, await state(opts));
   });
+
+  // Wire the shared what-if runner used by platform canvas simulate (Journey O).
+  whatIfRunner = async (threshold: number) => policyWhatIf(threshold, await state(opts));
 
   app.post('/admin/swarm/demo', async () => {
     demoState = buildSwarmDemo();

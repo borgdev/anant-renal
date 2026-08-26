@@ -19,3 +19,11 @@ native/liquid-wasm/pkg/
 .harness/liquid/
 # Derived measure store (regenerate with: npm run measures:seed)
 .harness/measures/
+# Local runtime state (SQLite store, generated realm knowledge, pack audit)
+.harness/data/
+.harness/knowledge/__realm__/
+packs/.authoring-audit.jsonl
+# Tool scratch
+.codekura/
+# Reference archives
+renal-swarm-intelligence-source-*.zip

@@ -158,7 +158,7 @@ const PACK_ROOTS: readonly { id: string; dir: string }[] = [
   { id: 'dialysis-provider', dir: 'packs/dialysis-provider/agents' },
 ];
 
-function loadAllAgents(): { packId: string; spec: AgentSpec }[] {
+export function loadAllAgents(): { packId: string; spec: AgentSpec }[] {
   const out: { packId: string; spec: AgentSpec }[] = [];
   for (const p of PACK_ROOTS) {
     let files: string[];
