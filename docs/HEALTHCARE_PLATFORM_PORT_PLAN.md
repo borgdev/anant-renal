@@ -1,4 +1,4 @@
-> **Superseded for implementation:** Use [ANANT_HARNESS_HEALTHCARE_PRODUCT_SPEC.md](./ANANT_HARNESS_HEALTHCARE_PRODUCT_SPEC.md) as the authoritative build and acceptance specification. This file remains the concise planning summary.
+> **Product authority:** Use [ANANT_HARNESS_PRODUCT_SPEC.md](./ANANT_HARNESS_PRODUCT_SPEC.md). The detailed [healthcare implementation appendix](./ANANT_HARNESS_HEALTHCARE_PRODUCT_SPEC.md) and this file support delivery but do not define the product.
 
 # Anant Healthcare Intelligence Platform — Port and Productization Plan
 
