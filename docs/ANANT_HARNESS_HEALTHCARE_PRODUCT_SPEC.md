@@ -1,5 +1,7 @@
 # Anant Harness Healthcare Intelligence Platform
 
+> **Implementation appendix:** The authoritative product definition is [ANANT_HARNESS_PRODUCT_SPEC.md](./ANANT_HARNESS_PRODUCT_SPEC.md). This appendix supplies detailed engineering, migration and acceptance guidance.
+
 ## Authoritative product specification and Renal Swarm merge instructions
 
 | Field | Value |
@@ -11,7 +13,7 @@
 | Target planning baseline | `cc0d801eaed4ce615447bf70f1c3b4dbcfa211ae` |
 | Product horizon | 2026–2039 |
 | Intended audience | Anant product, design, architecture, backend, frontend, data, ML, security, quality and implementation teams |
-| Status | Build authority |
+| Status | Implementation appendix |
 
 ---
 
