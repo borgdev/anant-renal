@@ -2,7 +2,7 @@
 
 > **Implementation appendix:** The authoritative product definition is [ANANT_HARNESS_PRODUCT_SPEC.md](./ANANT_HARNESS_PRODUCT_SPEC.md). This appendix supplies detailed engineering, migration and acceptance guidance.
 
-## Authoritative product specification and Renal Swarm merge instructions
+## Healthcare implementation, migration and acceptance appendix
 
 | Field | Value |
 |---|---|
@@ -19,7 +19,7 @@
 
 ## 1. How to use this document
 
-This is not a concept note. It is the implementation contract for making Anant Harness deliver the complete product behavior of Renal Swarm Intelligence while becoming a generic healthcare platform for providers, payers and hybrid organizations.
+This appendix is the implementation contract for making Anant Harness deliver the complete product behavior of Renal Swarm Intelligence while becoming a generic healthcare platform for providers, payers and hybrid organizations.
 
 When this document conflicts with a prototype shortcut, this document wins. When an implementation decision is not specified, choose the option that preserves:
 
