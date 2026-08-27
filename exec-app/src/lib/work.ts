@@ -99,3 +99,71 @@ export async function performWorkAction(
 export async function fetchContext(): Promise<PlatformContext> {
   return fetchJson<PlatformContext>("/api/context");
 }
+
+/* ---------- Journey N — executive outcomes + delegation (Outcome Workspace) ---------- */
+
+export interface ExecutiveOutcomes {
+  outcomes: { verifiedEpisodes: number; byKind: Record<string, number>; realizedValue: number; met: number };
+  episodes: Array<{ kind: string; state: string }>;
+}
+export interface Delegation {
+  id: string; title: string; reason: string; sourceId: string; owner: string; sla: string;
+  status: "open" | "in-progress" | "done"; delegatedBy: string;
+  outcome?: { verified: boolean; value?: number; note?: string }; doneAt?: string;
+}
+export interface SubmissionPackageView {
+  id: string; measureId: string; period: { start: string; end: string };
+  status: "draft" | "validated" | "approved" | "submitted" | "reconciled" | "rejected";
+  resultsIncluded: number; manifestHash: string; approvals?: Array<{ approver: string; class: string }>;
+  evidenceWindow?: { start: string; end: string }; receipt?: { status: string; referenceId: string };
+  transmissionBlocked?: { reason: string };
+}
+
+/** Verified-value rollup (Journey N) — value, not activity counts. */
+export async function fetchExecutiveOutcomes(): Promise<ExecutiveOutcomes> {
+  return fetchJson<ExecutiveOutcomes>("/admin/executive/outcomes");
+}
+/** Durable executive delegations. */
+export async function fetchDelegations(): Promise<Delegation[]> {
+  const res = await fetchJson<{ delegations: Delegation[] }>("/admin/executive/delegations");
+  return res.delegations ?? [];
+}
+/** Sponsor/delegate analysis to an owner with an SLA. */
+export async function delegateWork(input: { title: string; owner: string; sla?: string; reason?: string; sourceId?: string }): Promise<Delegation> {
+  const res = await fetchJson<{ delegation: Delegation }>("/admin/executive/delegate", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...input, delegatedBy: "executive" }),
+  });
+  return res.delegation;
+}
+/** Advance/complete a delegation with a verified outcome. */
+export async function completeDelegation(id: string, outcome: { verified: boolean; value?: number; note?: string }): Promise<Delegation> {
+  const res = await fetchJson<{ delegation: Delegation }>(`/admin/executive/delegations/${encodeURIComponent(id)}/status`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ status: "done", ...outcome }),
+  });
+  return res.delegation;
+}
+
+/* ---------- Journey K — CMS/EQRS submission lifecycle (Quality/CMS surface) ---------- */
+
+/** Live submission packages (dual Class-D approval → reference-mode gate → receipt). */
+export async function fetchSubmissions(): Promise<SubmissionPackageView[]> {
+  const res = await fetchJson<{ packages: SubmissionPackageView[] }>("/admin/platform/submissions");
+  return res.packages ?? [];
+}
+/** Open a new EQRS submission package for the payment year. */
+export async function createSubmission(input: { measureId: string; period: { start: string; end: string }; resultsIncluded?: number }): Promise<SubmissionPackageView> {
+  const res = await fetchJson<{ package: SubmissionPackageView }>("/admin/platform/submissions", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...input, createdBy: "executive" }),
+  });
+  return res.package;
+}
+/** Record a Class-D approval (call twice with distinct approvers). */
+export async function approveSubmission(id: string, approver: string): Promise<{ package: SubmissionPackageView; approvals: number }> {
+  return fetchJson<{ package: SubmissionPackageView; approvals: number }>(`/admin/platform/submissions/${encodeURIComponent(id)}/approve`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ approver }),
+  });
+}

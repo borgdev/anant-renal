@@ -100,8 +100,11 @@ services:
 
   # Optional Kafka event-broker / job-bus driver (off by default).
   # Enable with: docker compose --profile kafka up -d --build
+  # NOTE: `bitnami/kafka:3.7` was removed upstream; bitnamilegacy/kafka:3.7 is
+  # the same bitnami image lineage (KAFKA_CFG_* env, /opt/bitnami scripts, and
+  # the kafka-topics.sh healthcheck all remain valid).
   anant-health-kafka:
-    image: bitnami/kafka:3.7
+    image: bitnamilegacy/kafka:3.7
     container_name: anant-health-kafka
     profiles: ["kafka"]
     restart: unless-stopped

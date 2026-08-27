@@ -1,0 +1,57 @@
+{
+  "generatedAt": "2026-08-26T21:51:00.647Z",
+  "base": "http://127.0.0.1:3000",
+  "release": {
+    "version": "journey-55094.draft",
+    "status": "active",
+    "contentHash": "837b54603442de8c837b54603442de8c837b54603442de8c837b54603442de8c"
+  },
+  "gates": [
+    {
+      "name": "Schema/contract",
+      "passed": true
+    },
+    {
+      "name": "Green team",
+      "passed": true
+    },
+    {
+      "name": "Red team",
+      "passed": true
+    },
+    {
+      "name": "Integration",
+      "passed": true
+    },
+    {
+      "name": "Canary",
+      "passed": true
+    }
+  ],
+  "findingsBlocking": 0,
+  "configuration": {
+    "activeVersion": "journey-55094.draft"
+  },
+  "workProcessed": [
+    {
+      "id": "episode:out-8de4bb7d",
+      "from": "Coordinating",
+      "to": "Coordinating"
+    }
+  ],
+  "episodes": [
+    {
+      "title": "authorization review · prior-auth:PA-8821",
+      "state": "AwaitingApproval"
+    },
+    {
+      "title": "coverage proposal · realm:b3",
+      "state": "AwaitingApproval"
+    },
+    {
+      "title": "care gap closure · member:m-1042",
+      "state": "Coordinating"
+    }
+  ],
+  "packageHash": "ab5b6d2af339ccd241b57281321e6bdc41338a9ef2aff4febbd5f49af77ca446"
+}

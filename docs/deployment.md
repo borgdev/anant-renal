@@ -19,7 +19,7 @@ docs/deployment.md
 | `anant-health-postgres`  | `postgres:16-alpine`| Event store — events, ledger, audit, FHIR mirror, idempotency  |
 | `anant-health-redis`     | `redis:7-alpine`    | BullMQ job bus + outbox/broker durability                      |
 | `anant-health-app`       | `anant-health/app`  | The server — public `/api/v1`, `/admin/*`, console at `/admin/ui/`, `/docs` |
-| `anant-health-kafka`     | `bitnami/kafka`     | **Optional** — alternate `kafka` broker/job-bus driver (profile) |
+| `anant-health-kafka`     | `bitnamilegacy/kafka:3.7` | **Optional** — alternate `kafka` broker/job-bus driver (profile). `bitnami/kafka:3.7` was removed upstream; `bitnamilegacy` is the same bitnami lineage so the `KAFKA_CFG_*` env and healthcheck are unchanged |
 
 ## Quick start
 

@@ -1,0 +1,41 @@
+/* =====================================================================
+ * Anant Design System — shared Tailwind v4 theme.
+ *
+ * This is the SINGLE source of truth for the visual tokens used by BOTH
+ * consoles (exec-app and admin-ui). Keep `--color-*` in sync with the
+ * admin-ui `:root`/`.dark` overrides so the two apps render identically.
+ *
+ * Tailwind v4 turns every `--color-*` here into utilities:
+ *   bg-bg, bg-surface, text-muted, text-mint, border-line, text-cyan, …
+ * ===================================================================== */
+@import "tailwindcss";
+
+@theme {
+  /* Surfaces */
+  --color-bg: #0c1117;
+  --color-bg-deep: #080c11;
+  --color-surface: #11161d;
+  --color-surface-2: #161c24;
+  --color-surface-3: #1c232d;
+
+  /* Lines */
+  --color-line: rgba(152, 174, 192, 0.14);
+  --color-line-strong: rgba(152, 174, 192, 0.24);
+
+  /* Text */
+  --color-text: #eef2f6;
+  --color-muted: #a4b3c2;
+  --color-faint: #7b8c9d;
+
+  /* Accents */
+  --color-mint: #98aec0;
+  --color-mint-strong: #b6c8d8;
+  --color-cyan: #63c2e6;
+  --color-amber: #efbd68;
+  --color-rose: #f27987;
+  --color-blue: #75a8ff;
+  --color-violet: #b49cff;
+
+  /* Shadows */
+  --shadow-card: 0 22px 60px rgba(0, 0, 0, 0.28);
+}

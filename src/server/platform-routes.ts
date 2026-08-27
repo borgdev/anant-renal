@@ -46,6 +46,7 @@ import { getSqlStore } from './sql/index.js';
 import { seedCMSSources } from '../healthcare-core/cms-source-registry.js';
 import type { CanonicalEvent } from '../healthcare-core/events.js';
 import type { IdentityRole } from '../identity/types.js';
+import type { DomainPack } from '../control-plane/pack-registry.js';
 
 export interface PlatformRouteOptions {
   /** Live realm snapshots (for scope/aggregate badges on context + work). */
@@ -58,6 +59,9 @@ export interface PlatformRouteOptions {
    *  experience APIs. Absent → experience APIs are unauthenticated. */
   users?: LocalUserStore;
   sessions?: SessionManager;
+  /** Installed solution packs (from the PackRegistry) — the real Pack Studio
+   *  catalog. Activating one durably drives `/api/context` pack.id + lens. */
+  packs?: readonly DomainPack[];
 }
 
 /** Capabilities granted per console (server-authoritative). A work item carries
@@ -252,9 +256,7 @@ async function buildWorkQueue(ws: SwarmWorkspaceStore, coord: PersistentOutcomeC
   // 4. DLQ incidents needing an owner (operations).
   if (can('ops', 'dlq.remediate')) {
     try {
-      const store = await getSqlStore();
-      const receipts = await store.listBridgeReceipts(50);
-      for (const rcpt of receipts.filter((r) => r.state === 'incident')) {
+      for (const rcpt of await openBridgeIncidents(ws, 50)) {
         items.push({
           id: `dlq:${rcpt.outboxId}`, kind: 'dlq', title: `Bridge incident · ${rcpt.topic ?? 'unknown topic'}`,
           summary: rcpt.incident ?? 'Delivery failed after retries', state: 'incident', urgency: 'high',
@@ -524,8 +526,7 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
     try { outbox = opts.eventOutbox ? await opts.eventOutbox.counts() : null; } catch { /* outbox unavailable */ }
     let incidents: Array<Record<string, unknown>> = [];
     try {
-      const store = await getSqlStore();
-      incidents = (await store.listBridgeReceipts(100)).filter((r) => r.state === 'incident').map((r) => ({
+      incidents = (await openBridgeIncidents(w, 100)).map((r) => ({
         outboxId: r.outboxId, topic: r.topic, partitionKey: r.partitionKey, idempotencyKey: r.idempotencyKey, publishedAt: r.publishedAt, state: r.state, incident: r.incident ?? null,
       }));
     } catch { /* store unavailable */ }
@@ -616,6 +617,46 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
     },
   );
 
+  /* ---------- Chaos drill fixture (gated) ----------
+   * Seeds ONE synthetic bridge incident (outbox row + incident receipt) so the
+   * chaos drill can exercise the real DLQ journey — acknowledge → idempotent
+   * replay → verify the incident is cleared. Disabled outside dev/demo/test
+   * (or without HH_ENABLE_DRILLS=1) so a governed deployment can never be
+   * polluted with fabricated incidents. */
+  const chaosDrillsEnabled = (): boolean => {
+    if (process.env.HH_ENABLE_DRILLS === '1') return true;
+    const env = (process.env.ANANT_ENV ?? '').toLowerCase();
+    if (env === 'production' || env.startsWith('prod')) return false;
+    if (process.env.NODE_ENV === 'production') return false;
+    // dev/demo/test/local, or unset (local dev servers don't set ANANT_ENV).
+    return env.startsWith('dev') || env === 'demo' || env === 'test' || env === 'local' || env === '';
+  };
+
+  app.post<{ Body?: { topic?: string; reason?: string; partitionKey?: string } }>(
+    '/admin/platform/dlq/_drill/seed',
+    async (req, reply) => {
+      if (!chaosDrillsEnabled()) return reply.code(403).send({ error: 'chaos-drills-disabled' });
+      const store = await getSqlStore();
+      if (!opts.eventOutbox) return reply.code(503).send({ error: 'outbox-unavailable' });
+      const topic = req.body?.topic?.trim() || 'anant.agent.output.v1';
+      const reason = req.body?.reason?.trim() || 'poison message after retries (chaos drill)';
+      const id = `drill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const now = new Date().toISOString();
+      const event: CanonicalEvent = {
+        id, type: 'treatment.missed', occurredAt: now, scopeId: 'scope:drill', subjectId: 'patient:drill', facilityId: 'facility:drill',
+        payload: { reason, drill: true },
+        provenance: { sourceId: 'chaos-drill', observedAt: now, ingestedAt: now },
+        classification: 'internal',
+      };
+      await opts.eventOutbox.enqueue(event, { topic, scopeId: 'scope:drill' });
+      await store.recordBridgeReceipt({
+        outboxId: id, topic, partitionKey: req.body?.partitionKey?.trim() || 'scope:drill',
+        idempotencyKey: `row:${id}`, publishedAt: now, state: 'incident', incident: `chaos-drill: ${reason}`,
+      });
+      return { ok: true, outboxId: id, topic };
+    },
+  );
+
   /* ================= public experience APIs (session-aware) ================= */
 
   const sessionUser = (req: FastifyRequest): LocalUser | undefined => {
@@ -639,8 +680,16 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
     let pack: { id: string; lens: string } = { id: 'healthcare.renal-enterprise', lens: 'provider' };
     let aggregates: Record<string, number> = {};
     try {
-      const org = await w.getPlatformOrganization();
-      if (org) pack = { id: `healthcare.${org.operatingModel === 'payer' ? 'payer' : org.operatingModel === 'hybrid' ? 'hybrid' : 'provider'}`, lens: org.operatingModel };
+      // Pack Studio activation wins over the operating-model default: activating
+      // a domain pack durably flips pack.id + lens (`POST /admin/platform/packs/:id/activate`).
+      const active = await w.activePack();
+      if (active && opts.packs?.some((p) => p.id === active.packId)) {
+        const resolved = opts.packs.find((p) => p.id === active.packId)!;
+        pack = { id: resolved.id, lens: lensForPack(resolved) };
+      } else {
+        const org = await w.getPlatformOrganization();
+        if (org) pack = { id: `healthcare.${org.operatingModel === 'payer' ? 'payer' : org.operatingModel === 'hybrid' ? 'hybrid' : 'provider'}`, lens: org.operatingModel };
+      }
       aggregates = await contextAggregates(w, coord(), opts);
     } catch { /* context must degrade gracefully */ }
     return {
@@ -845,9 +894,77 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
       }
     },
   );
+
+  /* ---------- Pack Studio — real installed packs + durable lens switch ---------- */
+
+  // GET /admin/platform/packs — the REAL PackRegistry catalog (the packs passed
+  // into buildApp), each with its durable active flag. This is what the Config
+  // Studio "Pack registry" renders — no more cosmetic/empty catalog.
+  app.get('/admin/platform/packs', async () => {
+    const w = ws();
+    const active = await w.activePack();
+    return {
+      activePack: active?.packId ?? null,
+      packs: (opts.packs ?? []).map((p) => ({
+        id: p.id,
+        version: p.version,
+        extends: p.extends?.map((e) => e.id) ?? [],
+        appliesTo: p.appliesTo,
+        capabilities: p.capabilities,
+        cmsUniverse: p.cmsUniverse,
+        requiredControls: p.requiredControls,
+        lens: lensForPack(p),
+        active: active?.packId === p.id,
+      })),
+    };
+  });
+
+  // POST /admin/platform/packs/:id/activate — durable activation: the exec lens
+  // (`/api/context` pack.id/lens) switches to this pack until deactivated.
+  app.post<{ Params: { id: string }; Body: { by?: string } }>(
+    '/admin/platform/packs/:id/activate',
+    async (req, reply) => {
+      const w = ws();
+      const id = req.params.id;
+      const pack = (opts.packs ?? []).find((p) => p.id === id);
+      if (!pack) return reply.code(404).send({ error: 'pack-not-installed', known: (opts.packs ?? []).map((p) => p.id) });
+      const activation = await w.activatePack({ packId: id, by: req.body?.by?.trim() || 'platform-admin' });
+      return { ok: true, pack: { id: pack.id, version: pack.version, lens: lensForPack(pack) }, activation };
+    },
+  );
+
+  // POST /admin/platform/packs/deactivate — restore the operating-model default.
+  app.post<{ Body: { by?: string } }>('/admin/platform/packs/deactivate', async () => {
+    await ws().deactivatePack();
+    return { ok: true };
+  });
 }
 
 /* ---------- helpers ---------- */
+
+/** Open bridge incidents — incidents already remediated through the DLQ journey
+ *  (acknowledged or replayed, recorded as a durable `dlq-remediation` doc) are
+ *  no longer open. Receipt history stays immutable; the view reflects recovery. */
+async function openBridgeIncidents(ws: SwarmWorkspaceStore, limit = 100) {
+  const store = await getSqlStore();
+  const [receipts, remediations] = await Promise.all([
+    store.listBridgeReceipts(limit),
+    ws.list<DlqRemediation>('dlq-remediation'),
+  ]);
+  const handled = new Set(remediations.map((r) => r.outboxId));
+  return receipts.filter((r) => r.state === 'incident' && !handled.has(r.outboxId));
+}
+
+/** Map a DomainPack's organization kinds to the exec lens enum
+ *  (provider | payer | hybrid) — the same tri-state the operating model uses. */
+function lensForPack(pack: DomainPack): 'provider' | 'payer' | 'hybrid' {
+  const kinds = pack.appliesTo?.organizationKinds ?? [];
+  const isPayer = kinds.includes('payer');
+  const isProvider = kinds.includes('provider') || kinds.includes('health-system') || kinds.includes('provider-org');
+  if (isPayer && isProvider) return 'hybrid';
+  if (isPayer) return 'payer';
+  return 'provider';
+}
 
 function splitWorkId(id: string): [string, string] {
   const i = id.indexOf(':');

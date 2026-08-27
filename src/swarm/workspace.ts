@@ -77,7 +77,8 @@ export type WorkspaceKind =
   | 'dlq-remediation'
   | 'assurance-finding'
   | 'green-team-run'
-  | 'delegated-work';
+  | 'delegated-work'
+  | 'pack-activation';
 
 export interface WorkspaceDoc {
   id: string;
@@ -440,6 +441,14 @@ export interface DelegatedWork extends WorkspaceDoc {
   delegatedBy: string;
   outcome?: { verified: boolean; value?: number; note?: string };
   doneAt?: string;
+}
+
+/** Durable Pack Studio activation — which installed domain pack drives the
+ *  exec lens (`/api/context`). Single-doc kind (`pack-activation`). */
+export interface PackActivation extends WorkspaceDoc {
+  packId: string;
+  at: string;
+  by: string;
 }
 
 /** A durable human decision over a ranked next-best action (NBA). */
@@ -1492,6 +1501,27 @@ export class SwarmWorkspaceStore {
     }
     if (patch.outcome) update.outcome = patch.outcome;
     return this.update<DelegatedWork>('delegated-work', id, update);
+  }
+
+  /* ---------- Pack Studio — durable pack activation (lens switch) ---------- */
+
+  async activePack(): Promise<PackActivation | undefined> {
+    return (await this.list<PackActivation>('pack-activation'))[0];
+  }
+
+  async activatePack(input: { packId: string; by: string }): Promise<PackActivation> {
+    const existing = (await this.list<PackActivation>('pack-activation'))[0];
+    const doc: Omit<PackActivation, 'id' | 'createdAt' | 'updatedAt'> = { packId: input.packId, at: this.now(), by: input.by?.trim() || 'platform-admin' };
+    if (existing) {
+      await this.update<PackActivation>('pack-activation', existing.id, doc);
+      return { ...existing, ...doc };
+    }
+    return this.create<PackActivation>('pack-activation', 'pack-activation', doc);
+  }
+
+  async deactivatePack(): Promise<void> {
+    const existing = (await this.list<PackActivation>('pack-activation'))[0];
+    if (existing) await this.remove('pack-activation', existing.id);
   }
 
   /** Verified-value rollup (Journey N): resolved outcome episodes with a met

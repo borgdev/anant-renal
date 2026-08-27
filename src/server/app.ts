@@ -351,6 +351,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await registerPlatformRoutes(app, {
     users,
     sessions,
+    packs: deps.packs,
     ...(deps.eventBroker ? { broker: deps.eventBroker } : {}),
     ...(deps.eventOutbox ? { eventOutbox: deps.eventOutbox } : {}),
     realms: () => RealmRegistry.list().map((r) => {

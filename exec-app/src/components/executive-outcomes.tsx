@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   ArrowRight,
+  BadgeCheck,
   BadgeDollarSign,
   Building2,
   CheckCircle2,
   ClipboardCheck,
   HeartPulse,
   Network,
+  PlusCircle,
   ShieldCheck,
   Sparkles,
   Target,
@@ -18,6 +20,14 @@ import { ecosystemDemo, operatingModel } from "../lib/catalogs";
 import { startLiveRuntime, type RuntimeSnapshot } from "../lib/harness";
 import type { NavigationId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
+import {
+  completeDelegation,
+  delegateWork,
+  fetchDelegations,
+  fetchExecutiveOutcomes,
+  type Delegation,
+  type ExecutiveOutcomes,
+} from "../lib/work";
 import { Eyebrow, PanelExpand, ProgressBar, Tag } from "./ui";
 
 type Period = "30d" | "quarter" | "year";
@@ -82,6 +92,42 @@ export default function ExecutiveOutcomes({ onNavigate, onOpenDetail }: { onNavi
     const stop = startLiveRuntime((snapshot) => { if (active) setRuntime(snapshot); }, { roleId: "fa" });
     return () => { active = false; stop(); };
   }, []);
+
+  // Journey N — durable delegation ledger + verified-value rollup (live backend).
+  const [delegations, setDelegations] = useState<Delegation[]>([]);
+  const [execOutcomes, setExecOutcomes] = useState<ExecutiveOutcomes | null>(null);
+  const [delegationError, setDelegationError] = useState<string | null>(null);
+  const [newDelegation, setNewDelegation] = useState({ title: "", owner: "", sla: "" });
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([fetchExecutiveOutcomes(), fetchDelegations()])
+      .then(([out, dels]) => { if (active) { setExecOutcomes(out); setDelegations(dels); } })
+      .catch(() => { if (active) setDelegationError("Outcome workspace unavailable"); });
+    return () => { active = false; };
+  }, []);
+
+  async function handleDelegate() {
+    if (!newDelegation.title.trim() || !newDelegation.owner.trim()) return;
+    setBusy(true); setDelegationError(null);
+    try {
+      const created = await delegateWork({ title: newDelegation.title.trim(), owner: newDelegation.owner.trim(), sla: newDelegation.sla.trim() || undefined, reason: "Executive sponsorship" });
+      setDelegations((prev) => [...prev, created]);
+      setNewDelegation({ title: "", owner: "", sla: "" });
+    } catch (e) { setDelegationError(e instanceof Error ? e.message : "delegation failed"); }
+    finally { setBusy(false); }
+  }
+
+  async function handleComplete(d: Delegation, verified: boolean) {
+    setBusy(true); setDelegationError(null);
+    try {
+      const updated = await completeDelegation(d.id, { verified, value: verified ? 2500 : undefined, note: verified ? "Verified via outcome workspace" : "Closed without verified outcome" });
+      setDelegations((prev) => prev.map((item) => (item.id === d.id ? updated : item)));
+      fetchExecutiveOutcomes().then(setExecOutcomes).catch(() => {});
+    } catch (e) { setDelegationError(e instanceof Error ? e.message : "completion failed"); }
+    finally { setBusy(false); }
+  }
 
   // Outcome cards are REAL when the live swarm rollups are available (server
   // computes them from actual KPIs), falling back to the reference values only
@@ -149,6 +195,44 @@ export default function ExecutiveOutcomes({ onNavigate, onOpenDetail }: { onNavi
           <div className="model-counts"><span><Users size={16} /><strong>{operatingModel.roles.length}</strong><small>role cockpits</small></span><span><Network size={16} /><strong>{operatingModel.domains.length}</strong><small>outcome domains</small></span><span><TrendingUp size={16} /><strong>{operatingModel.scopePath.length}</strong><small>hierarchy levels</small></span></div>
           <p>Hierarchy, decision rights, outcome weights and escalation paths are versioned configuration—not hard-coded organization logic.</p>
           <button className="button button-secondary" onClick={() => onNavigate("configuration")} type="button">Inspect operating model <ArrowRight size={14} /></button>
+        </article>
+      </section>
+
+      <section className="executive-delegation-grid">
+        <article className="panel verified-value-card">
+          <div className="panel-title-row"><div><Eyebrow>Outcome Workspace · delegation & verification</Eyebrow><h2>Verified enterprise value</h2></div><Tag tone={execOutcomes ? "mint" : "violet"}><BadgeCheck size={11} /> {execOutcomes ? `${execOutcomes.outcomes.verifiedEpisodes} verified outcomes` : "syncing"}</Tag></div>
+          <div className="verified-stats">
+            <span><strong>{execOutcomes ? `$${execOutcomes.outcomes.realizedValue.toLocaleString()}` : "—"}</strong><small>verified value</small></span>
+            <span><strong>{execOutcomes ? execOutcomes.outcomes.verifiedEpisodes : "—"}</strong><small>verified episodes</small></span>
+            <span><strong>{execOutcomes ? execOutcomes.outcomes.met : "—"}</strong><small>outcome targets met</small></span>
+          </div>
+          <p>Value is only counted when a delegation completes with a <em>verified</em> outcome — never when work is merely assigned. The ledger is durable: every completion is a governed evidence event with an SLA, an owner and a verifiable result.</p>
+        </article>
+
+        <article className="panel delegation-panel">
+          <div className="panel-title-row"><div><Eyebrow>Delegations</Eyebrow><h2>Sponsor → owner, with an SLA</h2></div><Tag tone={delegations.length ? "blue" : "violet"}>{delegations.length} open / done</Tag></div>
+          <form className="delegation-form" onSubmit={(e) => { e.preventDefault(); handleDelegate(); }}>
+            <input value={newDelegation.title} onChange={(e) => setNewDelegation({ ...newDelegation, title: e.target.value })} placeholder="Workstream / outcome to delegate" aria-label="Delegation title" />
+            <input value={newDelegation.owner} onChange={(e) => setNewDelegation({ ...newDelegation, owner: e.target.value })} placeholder="Owner role (e.g. CFO)" aria-label="Delegation owner" />
+            <input value={newDelegation.sla} onChange={(e) => setNewDelegation({ ...newDelegation, sla: e.target.value })} placeholder="SLA (e.g. 7d)" aria-label="Delegation SLA" />
+            <button className="button" type="submit" disabled={busy}><PlusCircle size={13} /> Delegate</button>
+          </form>
+          {delegationError ? <span className="knowledge-error">{delegationError}</span> : null}
+          <div className="delegation-list">
+            {delegations.length === 0 ? <p className="delegation-empty">No delegations yet — sponsor a workstream to an owner above.</p> : delegations.map((d) => (
+              <div className="delegation-row" key={d.id}>
+                <div className="delegation-row-main">
+                  <strong>{d.title}</strong>
+                  <small>owner <em>{d.owner}</em> · SLA {d.sla || "—"} · delegated by {d.delegatedBy}</small>
+                  {d.outcome ? <span className="delegation-outcome"><BadgeCheck size={12} /> {d.outcome.verified ? `verified · $${(d.outcome.value ?? 0).toLocaleString()}` : "closed, not verified"}</span> : null}
+                </div>
+                <div className="delegation-row-actions">
+                  <Tag tone={d.status === "done" ? "mint" : d.status === "in-progress" ? "amber" : "violet"}>{d.status}</Tag>
+                  {d.status !== "done" ? <><button className="button button-ghost" type="button" disabled={busy} onClick={() => handleComplete(d, true)}>Verify</button><button className="button button-ghost" type="button" disabled={busy} onClick={() => handleComplete(d, false)}>Close</button></> : null}
+                </div>
+              </div>
+            ))}
+          </div>
         </article>
       </section>
     </div>

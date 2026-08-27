@@ -22,6 +22,7 @@ import { federalFacts, measurePacks, publicBenchmarks, publicSources } from "../
 import { ensureRuntime, startLiveRuntime, mutateRuntime, fetchCmsReadiness, type CmsReadiness, type RuntimeSnapshot } from "../lib/harness";
 import type { NavigationId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
+import { approveSubmission, createSubmission, fetchSubmissions, type SubmissionPackageView } from "../lib/work";
 import { Eyebrow, PanelExpand, ProgressBar, SourceLink, Tag } from "./ui";
 
 /** Reference readiness — used ONLY when the real CMS datasets aren't reachable. */
@@ -42,6 +43,13 @@ export default function CmsControl({ onOpenDetail }: { onOpenDetail: OpenWorkflo
   const selected = measurePacks.find((pack) => pack.id === activePack) ?? measurePacks[0];
   const selectedSources = publicSources.filter((source) => selected.sourceIds.includes(source.id));
 
+  // Journey K — live EQRS submission lifecycle (dual Class-D → receipt).
+  const [submissions, setSubmissions] = useState<SubmissionPackageView[]>([]);
+  const [submissionBusy, setSubmissionBusy] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [approverA, setApproverA] = useState("Medical Director");
+  const [approverB, setApproverB] = useState("Quality Executive");
+
   // Real CMS QIP readiness — server-parsed from the public cms-data/ CSVs.
   const readiness = cms?.measures?.length ? cms.measures : REFERENCE_READINESS;
   const readinessScore = readiness.length ? readiness.reduce((sum, r) => sum + r.complete, 0) / readiness.length : 0;
@@ -59,6 +67,34 @@ export default function CmsControl({ onOpenDetail }: { onOpenDetail: OpenWorkflo
     void fetchCmsReadiness().then((r) => { if (active) setCms(r); });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetchSubmissions().then((list) => { if (active) setSubmissions(list); }).catch(() => { if (active) setSubmissionError("Submission workspace unavailable"); });
+    return () => { active = false; };
+  }, []);
+
+  async function refreshSubmissions() {
+    setSubmissions(await fetchSubmissions().catch(() => []));
+  }
+
+  async function handleNewPackage() {
+    setSubmissionBusy(true); setSubmissionError(null);
+    try {
+      const created = await createSubmission({ measureId: selected.id, period: { start: "2026-01-01", end: "2026-12-31" }, resultsIncluded: 4237 });
+      setSubmissions((prev) => [created, ...prev]);
+    } catch (e) { setSubmissionError(e instanceof Error ? e.message : "package creation failed"); }
+    finally { setSubmissionBusy(false); }
+  }
+
+  async function handleApprove(pkg: SubmissionPackageView, approver: string) {
+    setSubmissionBusy(true); setSubmissionError(null);
+    try {
+      await approveSubmission(pkg.id, approver);
+      await refreshSubmissions();
+    } catch (e) { setSubmissionError(e instanceof Error ? e.message : "approval failed"); }
+    finally { setSubmissionBusy(false); }
+  }
 
   async function generatePackage() {
     setPackageBusy(true);
@@ -130,6 +166,36 @@ export default function CmsControl({ onOpenDetail }: { onOpenDetail: OpenWorkflo
           {packageResult ? <button className="package-result drillable-surface" type="button" onClick={() => openCmsDetail("Validated EQRS dry-run package", `${packageResult.resultsIncluded} calculated runtime results plus 4,237 reference rows were content-addressed with no live transmission.`, packageResult.status, "assurance", [{ label: "Package", value: packageResult.packageId, source: `SHA-256 ${packageResult.manifestHash}` }, { label: "Live transmission", value: String(packageResult.liveTransmission), source: "External credential boundary" }])}><Fingerprint size={16} /><div><strong>{packageResult.packageId}</strong><p>{packageResult.resultsIncluded} calculated runtime results + 4,237 reference rows · SHA-256 {packageResult.manifestHash.slice(0, 16)}… · live transmission {packageResult.liveTransmission ? "enabled" : "disabled"}</p></div></button> : null}
           {packageError ? <div className="package-result"><AlertTriangle size={16} /><div><strong>Package not created</strong><p>{packageError}</p></div></div> : null}
         </aside>
+      </section>
+
+      <section className="panel submission-lifecycle-panel">
+        <div className="panel-title-row"><div><Eyebrow>EQRS submission lifecycle · Journey K (live)</Eyebrow><h2>Draft → validated → dual Class-D approval → reference-mode gate → receipt</h2></div><button className="button button-ghost" type="button" disabled={submissionBusy} onClick={() => void handleNewPackage()}><PackageCheck size={13} /> Open new package</button></div>
+        <div className="dual-approver-row"><span className="dual-approver-label"><ShieldCheck size={13} /> Class-D approvers</span><input value={approverA} onChange={(e) => setApproverA(e.target.value)} aria-label="First Class-D approver" /><input value={approverB} onChange={(e) => setApproverB(e.target.value)} aria-label="Second Class-D approver" /></div>
+        {submissionError ? <div className="package-result"><AlertTriangle size={16} /><div><strong>Submission action failed</strong><p>{submissionError}</p></div></div> : null}
+        {submissions.length === 0 ? <p className="submission-empty">No live submission packages yet — open one to start the governed EQRS lifecycle.</p> : (
+          <div className="submission-lifecycle-list">
+            {submissions.map((pkg) => {
+              const approvals = pkg.approvals ?? [];
+              const tone = pkg.status === "approved" || pkg.status === "reconciled" ? "mint" : pkg.status === "rejected" ? "red" : pkg.status === "submitted" ? "amber" : pkg.status === "validated" ? "blue" : "violet";
+              return (
+                <div className="submission-lifecycle-row" key={pkg.id}>
+                  <div className="submission-row-main">
+                    <div className="submission-row-top"><strong>{pkg.measureId}</strong><Tag tone={tone}>{pkg.status}</Tag></div>
+                    <small>PY {pkg.period.start} → {pkg.period.end} · {pkg.resultsIncluded.toLocaleString()} results · SHA-256 {pkg.manifestHash.slice(0, 16)}…</small>
+                    <div className="submission-row-approvals">
+                      {[0, 1].map((slot) => approvals[slot] ? <span className="approval-chip" key={slot}><BadgeCheck size={11} /> {approvals[slot].approver} · Class D</span> : <span className="approval-chip is-pending" key={slot}>Class-D approval {slot + 1} pending</span>)}
+                    </div>
+                    {pkg.receipt ? <span className="submission-receipt"><FileCheck2 size={12} /> {pkg.receipt.status === "accepted" ? "Accepted" : "Rejected"} · {pkg.receipt.referenceId}</span> : null}
+                    {pkg.transmissionBlocked ? <span className="submission-blocked"><LockKeyhole size={12} /> {pkg.transmissionBlocked.reason}</span> : null}
+                  </div>
+                  <div className="submission-row-actions">
+                    {pkg.status !== "reconciled" && pkg.status !== "rejected" && pkg.status !== "submitted" ? <button className="button button-ghost" type="button" disabled={submissionBusy} onClick={() => void handleApprove(pkg, approvals.length === 0 ? approverA : approverB)}>{approvals.length === 0 ? "Class-D #1" : approvals.length === 1 ? "Class-D #2" : "Re-approve"} <ArrowRight size={13} /></button> : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <section className="measure-source-grid">

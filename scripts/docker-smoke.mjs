@@ -84,11 +84,19 @@ if (up) {
     if (withApp) {
       try {
         run(['--profile', 'kafka', 'up', '-d', '--build', 'anant-health-app']);
+        // Resolve the ACTUAL host port (ANANT_HTTP_PORT in .env / compose maps
+        // may differ from the container's 8080). `docker compose port` is the
+        // source of truth for the published mapping.
+        let port = 8080;
+        try {
+          const portOut = run(['--profile', 'kafka', 'port', 'anant-health-app', '8080']);
+          const m = /0\.0\.0\.0:(\d+)/.exec(portOut) || /:(\d+)$/.exec(portOut.trim());
+          if (m) port = Number(m[1]);
+        } catch { /* fall back to 8080 */ }
         const probe = async (path) => {
           const http = await import('node:http');
-          const port = 8080;
           return new Promise((res) => {
-            const req = http.get({ host: '127.0.0.1', port, path, timeout: 4000 }, (r) => {
+            const req = http.get({ host: '127.0.0.1', port, path, timeout: 6000 }, (r) => {
               res(r.statusCode === 200);
               r.resume();
             });
@@ -97,7 +105,7 @@ if (up) {
           });
         };
         const appOk = await probe('/health') && await probe('/admin/ui/') && await probe('/exec/');
-        check('app boots (health + both UIs on :8080)', Boolean(appOk), appOk ? '/health + /admin/ui/ + /exec/ 200' : 'app not reachable');
+        check('app boots (health + both UIs on :' + port + ')', Boolean(appOk), appOk ? '/health + /admin/ui/ + /exec/ 200' : 'app not reachable');
       } catch (e) {
         check('app boots (health + both UIs on :8080)', false, String(e));
       }

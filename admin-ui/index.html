@@ -43,38 +43,47 @@
     // Theme bootstrap — apply the saved / system theme before first paint (avoids FOUC).
     (function () {
       try {
+        // Both consoles share one (dark, governed) visual identity — :root is
+        // already the exec palette, so the theme is always dark regardless of
+        // the system preference or a previously saved 'light' choice.
         var t = localStorage.getItem('hh-theme');
-        if (!t) t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        if (t === 'dark') document.documentElement.classList.add('dark');
+        if (t !== 'light') document.documentElement.classList.add('dark');
       } catch (e) {}
     })();
   </script>
   <style id="shell-base">
+    /* =====================================================================
+     * Anant shared design tokens — keep in sync with exec-app/src/tailwind.css.
+     * Both consoles render from these same values (surfaces, text, accents,
+     * borders), so admin-ui and exec share one visual identity.
+     * ===================================================================== */
     :root {
-      color-scheme: light;
-      --fg: #0f172a; --muted: #64748b; --bg: #f8fafc; --card: #ffffff; --border: #e2e8f0;
-      --brand: #1d4ed8; --brand-2: #4f46e5; --accent: #0891b2;
-      --good: #059669; --warn: #d97706; --bad: #dc2626;
-      --code-bg: #0f172a; --code-fg: #e2e8f0;
-      --primary-foreground: #ffffff; --secondary: #f1f5f9; --secondary-foreground: #0f172a;
-      --accent-foreground: #0f172a; --destructive-foreground: #ffffff;
-      --card-foreground: #0f172a; --popover: #ffffff; --popover-foreground: #0f172a;
-      --ring: #1d4ed8; --input: #e2e8f0; --radius: 0.5rem;
-    }
-    .dark {
       color-scheme: dark;
-      --fg: #e2e8f0; --muted: #9aa9bd; --bg: #0b1220; --card: #111a2b; --border: #263449;
-      --brand: #60a5fa; --brand-2: #818cf8; --accent: #22d3ee;
-      --good: #34d399; --warn: #fbbf24; --bad: #f87171;
-      --code-bg: #020617; --code-fg: #e2e8f0;
-      --primary-foreground: #0b1220; --secondary: #1e293b; --secondary-foreground: #e2e8f0;
-      --accent-foreground: #e2e8f0; --destructive-foreground: #ffffff;
-      --card-foreground: #e2e8f0; --popover: #111a2b; --popover-foreground: #e2e8f0;
-      --ring: #60a5fa; --input: #334155;
+      --fg: #eef2f6; --muted: #a4b3c2; --faint: #7b8c9d; --bg: #0c1117; --bg-deep: #080c11;
+      --card: #11161d; --surface: #11161d; --surface-2: #161c24; --surface-3: #1c232d;
+      --border: rgba(152,174,192,0.14); --line-strong: rgba(152,174,192,0.24);
+      --brand: #63c2e6; --brand-2: #75a8ff; --accent: #75a8ff;
+      --good: #8fd9b6; --warn: #efbd68; --bad: #f27987;
+      --mint: #98aec0; --mint-strong: #b6c8d8; --cyan: #63c2e6; --amber: #efbd68; --rose: #f27987; --blue: #75a8ff; --violet: #b49cff;
+      --code-bg: #0b1016; --code-fg: #d8e2ea;
+      --primary-foreground: #0c1117; --secondary: #161c24; --secondary-foreground: #eef2f6;
+      --accent-foreground: #eef2f6; --destructive-foreground: #ffffff;
+      --card-foreground: #eef2f6; --popover: #11161d; --popover-foreground: #eef2f6;
+      --ring: #63c2e6; --input: rgba(152,174,192,0.22); --radius: 0.5rem;
+      --shadow: 0 22px 60px rgba(0,0,0,0.28);
     }
+    /* Dark is identical to :root — the operator console matches the exec console. */
+    .dark { color-scheme: dark; }
     * { box-sizing: border-box; border-color: var(--border); }
     html, body { margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+    body {
+      background-color: var(--bg);
+      background-image: radial-gradient(circle at 76% -20%, rgba(152,174,192,0.12), transparent 36rem), linear-gradient(180deg, #081512 0%, var(--bg-deep) 100%);
+      background-attachment: fixed;
+      color: var(--fg);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      font-size: 13px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+    }
     a { color: var(--brand); text-decoration: none; }
     button, input, select, textarea { font: inherit; color: inherit; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 1px 6px; background: color-mix(in srgb, var(--brand) 10%, transparent); border-radius: 4px; }
@@ -289,6 +298,44 @@
     .section-card h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
     .section-card .kv-row { display: flex; align-items: baseline; gap: 8px; font-size: 13px; padding: 3px 0; }
     .section-card .kv-row .k { min-width: 120px; color: var(--muted); font-size: 12px; }
+    /* ---------- Dashboard cards (operator overview) ---------- */
+    .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; margin-bottom: 12px; }
+    .dash-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; transition: border-color .15s, transform .15s; }
+    .dash-card:hover { border-color: var(--line-strong); }
+    .dash-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .dash-card-head h3 { margin: 0; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+    .dash-card-head h3 svg { color: var(--brand); }
+    .dash-card-body { padding: 12px 16px; }
+    .kpi-grid { grid-template-columns: repeat(4, 1fr); }
+    .dash-kpi { min-height: 104px; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; cursor: pointer; transition: border-color .15s, transform .15s, background .15s; }
+    .dash-kpi:hover { border-color: var(--line-strong); background: var(--surface-2); transform: translateY(-1px); }
+    .dash-kpi .kpi-icon { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; }
+    .dash-kpi .kpi-icon svg { width: 15px; height: 15px; }
+    .dash-kpi .num { font-size: 26px; font-weight: 800; letter-spacing: -.03em; line-height: 1; }
+    .dash-kpi .lbl { margin-top: 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    .mini-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .mini-stat { min-height: 62px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+    .mini-stat strong { font-size: 18px; font-weight: 700; line-height: 1; }
+    .mini-stat small { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    .catalog-row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .catalog-row:last-child { border-bottom: 0; }
+    .catalog-row:hover { background: var(--surface-2); border-radius: 8px; }
+    .catalog-row .catalog-icon { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; }
+    .catalog-row .catalog-icon svg { width: 14px; height: 14px; }
+    .catalog-row .catalog-label { flex: 1; font-size: 12px; color: var(--muted); }
+    .catalog-row .catalog-count { font-size: 15px; font-weight: 700; }
+    .catalog-row .catalog-arrow { color: var(--faint); }
+    .pack-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--border); }
+    .pack-row:last-child { border-bottom: 0; }
+    .pack-row code { flex: 1; }
+    .pack-row .pack-count { font-size: 12px; color: var(--muted); }
+    .activity-row { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px dashed var(--border); }
+    .activity-row:last-child { border-bottom: 0; }
+    .activity-row .activity-icon { width: 16px; flex-shrink: 0; display: inline-flex; justify-content: center; }
+    .activity-row .activity-text { flex: 1; font-size: 13px; }
+    .activity-row .activity-time { color: var(--faint); font-size: 11px; white-space: nowrap; }
+    @media (max-width: 1100px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } .dash-grid { grid-template-columns: 1fr; } .mini-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 560px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } .mini-grid { grid-template-columns: 1fr 1fr; } }
     /* ---------- Grid: drag-to-reorder + column resize + reset ---------- */
     .dg thead th.dg-draggable { cursor: grab; }
     .dg thead th.dg-dragging { opacity: .45; }
@@ -445,6 +492,7 @@
         <span class="status-pill">
           <i data-lucide="activity" style="color:var(--good);"></i> system online
         </span>
+        <span id="synthetic-badge" class="status-pill" style="display:none;border-color:rgba(239,189,104,.4);color:#e8cf9a;" title="This organization is running on synthetic demonstration data — no real patient, facility or claims records are used.">synthetic demonstration data</span>
       </div>
       <div class="global-search">
         <i data-lucide="search"></i>
@@ -1374,6 +1422,7 @@ async function enterConsole() {
   });
   currentView = 'summary';
   await render();
+  refreshSyntheticBadge();
 }
 async function initApp() {
   initTheme();
@@ -1525,7 +1574,14 @@ async function renderSummary() {
   const ob = broker?.outbox ?? { pending: 0, delivered: 0 };
   const br = broker?.bridge ?? { published: 0 };
   const auditRows = audit.audit || [];
-  const packRows = Object.entries(s.agents.byPack).map(([k, v]) => `<tr><td><code>${esc(k)}</code></td><td>${v}</td></tr>`).join('');
+  const packRows = Object.entries(s.agents.byPack).map(([k, v]) => `<div class="pack-row"><code>${esc(k)}</code><span class="pack-count">${v} agent${v === 1 ? '' : 's'}</span></div>`).join('');
+  const catalogRows = [
+    { label: 'Published agents', count: s.agents.total, target: 'agents', icon: 'users', color: 'var(--brand)' },
+    { label: 'CMS measures wired', count: s.measures.total, target: 'measures', icon: 'file-pen-line', color: 'var(--warn)' },
+    { label: 'Validated assessments', count: s.assessments.total, target: 'assessments', icon: 'clipboard-list', color: 'var(--accent)' },
+    { label: 'Lifecycle stages', count: s.lifecycleStages, target: 'lifecycle', icon: 'route', color: 'var(--brand-2)' },
+    { label: 'Knowledge sources', count: s.researchSources, target: 'research', icon: 'library', color: 'var(--good)' },
+  ].map((c) => `<div class="catalog-row" onclick="goTo('${c.target}')" title="Open ${esc(c.label)}"><span class="catalog-icon" style="background:color-mix(in srgb,${c.color} 14%,transparent);color:${c.color};"><i data-lucide="${c.icon}"></i></span><span class="catalog-label">${esc(c.label)}</span><span class="catalog-count">${c.count}</span><span class="catalog-arrow"><i data-lucide="chevron-right" style="width:14px;height:14px;"></i></span></div>`).join('');
   const activity = [
     ...auditRows.slice(0, 8).map((a) => ({
       at: a.occurredAt || '',
@@ -1545,37 +1601,52 @@ async function renderSummary() {
       <div><h2 class="page-title">Operator dashboard</h2><p class="page-sub">Governed agents, measures, workflows, and live simulation activity across your organization.</p></div>
       <button class="btn btn-primary" onclick="goTo('new')"><i data-lucide="plus"></i> Create agent</button>
     </div>
-    <div class="section-card"><h3>Catalog</h3>
-      <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0;">
-        <div class="stat-card" style="cursor:pointer;" onclick="goTo('agents')" title="Open Published agents"><i data-lucide="users" style="color:var(--brand);"></i><div class="num">${s.agents.total}</div><div class="lbl">Published agents →</div></div>
-        <div class="stat-card" style="cursor:pointer;" onclick="goTo('measures')" title="Open CMS measure catalog"><i data-lucide="file-pen-line" style="color:var(--warn);"></i><div class="num">${s.measures.total}</div><div class="lbl">CMS measures wired →</div></div>
-        <div class="stat-card" style="cursor:pointer;" onclick="goTo('assessments')" title="Open Validated assessments"><i data-lucide="clipboard-list" style="color:var(--accent);"></i><div class="num">${s.assessments.total}</div><div class="lbl">Validated assessments →</div></div>
-        <div class="stat-card" style="cursor:pointer;" onclick="goTo('lifecycle')" title="Open Patient lifecycle"><i data-lucide="route" style="color:var(--brand-2);"></i><div class="num">${s.lifecycleStages}</div><div class="lbl">Lifecycle stages →</div></div>
-        <div class="stat-card" style="cursor:pointer;" onclick="goTo('research')" title="Open Knowledge sources"><i data-lucide="library" style="color:var(--warn);"></i><div class="num">${s.researchSources}</div><div class="lbl">Knowledge sources →</div></div>
+
+    <!-- KPI cards -->
+    <div class="cards kpi-grid">
+      <div class="stat-card dash-kpi" onclick="goTo('agents')" title="Open Published agents"><span class="kpi-icon" style="background:color-mix(in srgb,var(--brand) 15%,transparent);color:var(--brand);"><i data-lucide="users"></i></span><div class="num">${s.agents.total}</div><div class="lbl">Published agents</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('measures')" title="Open CMS measure catalog"><span class="kpi-icon" style="background:color-mix(in srgb,var(--warn) 15%,transparent);color:var(--warn);"><i data-lucide="file-pen-line"></i></span><div class="num">${s.measures.total}</div><div class="lbl">CMS measures wired</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('assessments')" title="Open Validated assessments"><span class="kpi-icon" style="background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);"><i data-lucide="clipboard-list"></i></span><div class="num">${s.assessments.total}</div><div class="lbl">Validated assessments</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('lifecycle')" title="Open Patient lifecycle"><span class="kpi-icon" style="background:color-mix(in srgb,var(--brand-2) 15%,transparent);color:var(--brand-2);"><i data-lucide="route"></i></span><div class="num">${s.lifecycleStages}</div><div class="lbl">Lifecycle stages</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('research')" title="Open Knowledge sources"><span class="kpi-icon" style="background:color-mix(in srgb,var(--good) 15%,transparent);color:var(--good);"><i data-lucide="library"></i></span><div class="num">${s.researchSources}</div><div class="lbl">Knowledge sources</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('realm')" title="Open Realm management"><span class="kpi-icon" style="background:color-mix(in srgb,var(--violet) 15%,transparent);color:var(--violet);"><i data-lucide="building-2"></i></span><div class="num">${realmList.length}</div><div class="lbl">Realms</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('realm')" title="Open Realm management"><span class="kpi-icon" style="background:color-mix(in srgb,var(--blue) 15%,transparent);color:var(--blue);"><i data-lucide="bot"></i></span><div class="num">${totalPresences}</div><div class="lbl">Presences</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('realm')" title="Open Realm management"><span class="kpi-icon" style="background:color-mix(in srgb,var(--mint) 15%,transparent);color:var(--mint-strong);"><i data-lucide="scroll-text"></i></span><div class="num">${totalEffects}</div><div class="lbl">Effects</div></div>
+    </div>
+
+    <!-- Live simulation + Catalog -->
+    <div class="dash-grid">
+      <div class="dash-card">
+        <div class="dash-card-head"><h3><i data-lucide="radio"></i> Live simulation</h3><a class="btn btn-ghost" style="height:26px;padding:0 10px;" onclick="goTo('realm')" title="Open Realm management"><i data-lucide="arrow-up-right" style="width:13px;height:13px;"></i> Open</a></div>
+        <div class="dash-card-body">
+          <div class="mini-grid">
+            <div class="mini-stat"><strong>${realmList.length}</strong><small>Realms</small></div>
+            <div class="mini-stat"><strong>${totalPresences}</strong><small>Presences</small></div>
+            <div class="mini-stat"><strong>${totalEffects}</strong><small>Effects</small></div>
+            <div class="mini-stat"><strong>${br.published ?? 0}</strong><small>Effects published</small></div>
+            <div class="mini-stat"><strong>${ob.pending ?? 0}</strong><small>Outbox pending</small></div>
+            <div class="mini-stat"><strong>${auditRows.length > 0 ? 'live' : '—'}</strong><small>Audit stream</small></div>
+          </div>
+          ${realmList.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">${realmList.map((r) => `<button class="btn btn-ghost" style="font-size:12px;padding:3px 10px;" onclick="realmDeepLink='${esc(r.id)}';goTo('realm')" title="Open ${esc(r.id)} in Realm management"><i data-lucide="building-2" style="width:13px;height:13px;"></i> ${esc(r.id)}</button>`).join('')}</div>` : ''}
+        </div>
+      </div>
+      <div class="dash-card">
+        <div class="dash-card-head"><h3><i data-lucide="library-big"></i> Catalog</h3></div>
+        <div class="dash-card-body">${catalogRows}</div>
       </div>
     </div>
-    <div class="section-card"><h3>Live simulation <a class="btn btn-ghost" style="float:right;height:26px;padding:0 10px;" onclick="goTo('realm')" title="Open Realm management"><i data-lucide="arrow-up-right" style="width:13px;height:13px;"></i> Open</a></h3>
-      <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0;">
-        <div class="stat-card" style="cursor:pointer;" onclick="goTo('realm')" title="Open Realm management"><i data-lucide="building-2" style="color:var(--brand);"></i><div class="num">${realmList.length}</div><div class="lbl">Realms →</div></div>
-        <div class="stat-card"><i data-lucide="bot" style="color:var(--accent);"></i><div class="num">${totalPresences}</div><div class="lbl">Presences</div></div>
-        <div class="stat-card"><i data-lucide="scroll-text" style="color:var(--good);"></i><div class="num">${totalEffects}</div><div class="lbl">Effects</div></div>
-        <div class="stat-card"><i data-lucide="radio" style="color:var(--brand-2);"></i><div class="num">${br.published ?? 0}</div><div class="lbl">Effects published</div></div>
-        <div class="stat-card"><i data-lucide="inbox" style="color:var(--warn);"></i><div class="num">${ob.pending ?? 0}</div><div class="lbl">Outbox pending</div></div>
-        <div class="stat-card"><i data-lucide="shield-check" style="color:var(--good);"></i><div class="num">${auditRows.length > 0 ? 'live' : '—'}</div><div class="lbl">Audit stream</div></div>
+
+    <!-- Packs + Recent activity -->
+    <div class="dash-grid">
+      <div class="dash-card">
+        <div class="dash-card-head"><h3><i data-lucide="package"></i> Packs</h3><span class="pill muted">${Object.keys(s.agents.byPack).length} packs</span></div>
+        <div class="dash-card-body">${packRows.length ? packRows : '<div class="muted" style="font-size:13px;">No packs installed.</div>'}</div>
       </div>
-      ${realmList.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">${realmList.map((r) => `<button class="btn btn-ghost" style="font-size:12px;padding:3px 10px;" onclick="realmDeepLink='${esc(r.id)}';goTo('realm')" title="Open ${esc(r.id)} in Realm management"><i data-lucide="building-2" style="width:13px;height:13px;"></i> ${esc(r.id)}</button>`).join('')}</div>` : ''}
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;">
-      <div class="section-card"><h3>Packs</h3><div class="table-wrap"><table>
-        <thead><tr><th>Pack</th><th>Agents</th></tr></thead><tbody>${packRows}</tbody>
-      </table></div></div>
-      <div class="section-card"><h3>Recent activity</h3>
-        ${activity.length === 0 ? '<div class="muted" style="font-size:13px;">No activity yet — create a realm and tick it, or audit some events.</div>' : activity.map((a) => `
-          <div style="display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px dashed var(--border);">
-            <span style="width:16px;display:inline-flex;justify-content:center;color:${a.color};"><i data-lucide="${a.icon}" style="width:14px;height:14px;"></i></span>
-            <span style="flex:1;font-size:13px;">${a.text}</span>
-            <span class="muted" style="font-size:11px;white-space:nowrap;">${a.at ? new Date(a.at).toLocaleString() : ''}</span>
-          </div>`).join('')}
+      <div class="dash-card">
+        <div class="dash-card-head"><h3><i data-lucide="activity"></i> Recent activity</h3></div>
+        <div class="dash-card-body">
+          ${activity.length === 0 ? '<div class="muted" style="font-size:13px;">No activity yet — create a realm and tick it, or audit some events.</div>' : activity.map((a) => `<div class="activity-row"><span class="activity-icon" style="color:${a.color};"><i data-lucide="${a.icon}" style="width:14px;height:14px;"></i></span><span class="activity-text">${a.text}</span><span class="activity-time">${a.at ? new Date(a.at).toLocaleString() : ''}</span></div>`).join('')}
+        </div>
       </div>
     </div>
   `;
@@ -1810,6 +1881,20 @@ function goTo(view) {
   currentView = view;
   renderSidebar();
   render();
+  refreshSyntheticBadge();
+}
+
+// Data provenance labeling (§9.5) — a persistent, topbar-visible "synthetic
+// demonstration data" indicator driven by the org's durable `synthetic` flag.
+// Real (non-synthetic) organizations hide the badge entirely.
+async function refreshSyntheticBadge() {
+  const badge = document.getElementById('synthetic-badge');
+  if (!badge) return;
+  try {
+    const j = await plFetch('GET', '/admin/platform/organization');
+    const synthetic = !!(j.organization && j.organization.synthetic);
+    badge.style.display = synthetic ? '' : 'none';
+  } catch { badge.style.display = 'none'; }
 }
 
 async function renderEditor(initial) {
@@ -2408,7 +2493,7 @@ async function renderResearch() {
         ${srcs.map(s => sourceCard(s, reachMap[s.id])).join('')}
       </div>
     `).join('')}
-    <div id="provenance-drawer" class="drawer" style="position:fixed;right:-560px;top:0;bottom:0;width:540px;background:#fff;border-left:1px solid #ddd;padding:20px;overflow:auto;transition:right .2s;z-index:100;box-shadow:-4px 0 12px rgba(0,0,0,.08)"></div>
+    <div id="provenance-drawer" class="drawer" style="position:fixed;right:-560px;top:0;bottom:0;width:540px;background:var(--card);border-left:1px solid var(--border);padding:20px;overflow:auto;transition:right .2s;z-index:100;box-shadow:-4px 0 12px rgba(0,0,0,.08)"></div>
   `;
 }
 function sourceCard(s, reach) {
@@ -2418,7 +2503,7 @@ function sourceCard(s, reach) {
   const badge = needs.length === 0 ? '<span class="pill good">Public</span>' : missing.length === 0 ? '<span class="pill good">Credentials set</span>' : `<span class="pill bad">${missing.length} credential${missing.length>1?'s':''} needed</span>`;
   const packsPill = reach ? `<span class="pill muted" title="${(reach.packs||[]).join(', ')}">${reach.packs.length} pack${reach.packs.length!==1?'s':''}</span>` : '';
   const last = s.lastSyncedAt ? new Date(s.lastSyncedAt).toLocaleString() : 'never';
-  return `<div class="card" style="padding:16px;border:1px solid #e5e5e5;border-radius:8px">
+  return `<div class="card" style="padding:16px;border:1px solid var(--border);border-radius:8px">
     <div style="display:flex;justify-content:space-between;align-items:start;gap:8px"><strong>${esc(s.name)}</strong>${badge}</div>
     <div class="muted" style="font-size:12px;margin-top:4px"><code>${esc(s.id)}</code> · ${esc(s.publisher)} · ${esc(s.tier)} · cadence <code>${esc(s.cadence)}</code></div>
     <div class="muted" style="font-size:12px;margin-top:6px">${packsPill} · ${s.artifactCount} artifacts · last synced ${last}</div>
@@ -2507,7 +2592,7 @@ async function renderLearn() {
   main.innerHTML = `
     <div class="page-header"><div><h2 class="page-title">Learn</h2><p class="page-sub">Short recipes for the most common Knowledge, Realm, and Agent workflows. Each one has a scoped Run-it-now.</p></div></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px">
-      ${recipes.map(r => `<div class="card" style="padding:16px;border:1px solid #e5e5e5;border-radius:8px">
+      ${recipes.map(r => `<div class="card" style="padding:16px;border:1px solid var(--border);border-radius:8px">
         <h3 style="margin:0 0 6px">${esc(r.title)}</h3>
         <p style="color:#555">${esc(r.body)}</p>
         <button class="btn primary" onclick="nav.querySelector('[data-view=${r.action.view}]').click()">${esc(r.action.label)}</button>
@@ -4309,6 +4394,7 @@ async function renderPlatformOrg() {
         <div class="field"><label>Region</label><input id="po-region" value="${esc(org.region ?? '')}" /></div>
         <div class="field"><label>Timezone</label><input id="po-tz" value="${esc(org.timezone ?? '')}" /></div>
         <div class="field"><label>Retention (days)</label><input id="po-ret" type="number" value="${org.retentionDays ?? 365}" /></div>
+        <div class="field"><label style="display:block;"><input id="po-synthetic" type="checkbox" ${org.synthetic ? 'checked' : ''} /> Synthetic demonstration data</label></div>
       </div>
       <div class="field"><label>Scope path (JSON · [{id, level, label, facilities?, patients?}])</label><textarea id="po-scope" rows="8" class="code">${esc(JSON.stringify(org.scopePath ?? [], null, 2))}</textarea></div>
       <button class="btn btn-primary" id="po-save">Save organization</button>
@@ -4327,9 +4413,11 @@ async function renderPlatformOrg() {
         region: document.getElementById('po-region').value,
         timezone: document.getElementById('po-tz').value,
         retentionDays: Number(document.getElementById('po-ret').value) || 365,
+        synthetic: document.getElementById('po-synthetic').checked,
         scopePath,
       });
-      out.innerHTML = `<span style="color:var(--good);">Saved ${esc(j.organization.displayName)} (${esc(j.organization.operatingModel)}).</span>`;
+      out.innerHTML = `<span style="color:var(--good);">Saved ${esc(j.organization.displayName)} (${esc(j.organization.operatingModel)}${j.organization.synthetic ? ' · synthetic' : ''}).</span>`;
+      refreshSyntheticBadge();
       renderPlatformOrg();
     } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
   });
@@ -4698,8 +4786,10 @@ window.plConfigSavePolicy = async function() {
 async function renderPlatformConfig() {
   let ctx = { pack: { id: '', lens: '' }, configuration: {} };
   try { ctx = await plFetch('GET', '/api/context'); } catch (e) { /* ignore */ }
-  let packs = [];
-  try { packs = (await plFetch('GET', '/admin/swarm/catalog/domain-pack')).rows || []; } catch (e) { /* ignore */ }
+  let packData = { packs: [], activePack: null };
+  try { packData = await plFetch('GET', '/admin/platform/packs'); } catch (e) { /* ignore */ }
+  const packs = packData.packs || [];
+  const activePackId = packData.activePack;
   let policy = { defaultDecision: 'block', externalWritesEnabled: false, escalationThresholdBasisPoints: 5000, minThresholdBasisPoints: 0, maxThresholdBasisPoints: 10000 };
   try { policy = (await plFetch('GET', '/admin/swarm/admin/policy')).policy || policy; } catch (e) { /* ignore */ }
   let releases = [];
@@ -4710,13 +4800,14 @@ async function renderPlatformConfig() {
     <div class="page-header"><div><h2 class="page-title">Configuration Studio</h2>
       <p class="page-sub">Control Center pack + policy/workflow — what the next release will change. Pack/lens (no redeploy), action policy, approval thresholds and the active release all derive from durable state.</p></div></div>
     <div class="cards" style="grid-template-columns: repeat(3,1fr);">
-      <div class="stat-card"><div class="num">${esc(ctx.pack.id || '—')}</div><div class="lbl">Active pack · lens ${esc(ctx.pack.lens || '—')}</div></div>
-      <div class="stat-card"><div class="num">${packs.length}</div><div class="lbl">Domain packs</div></div>
+      <div class="stat-card"><div class="num">${esc(activePackId || ctx.pack.id || '—')}</div><div class="lbl">Active pack · lens ${esc(ctx.pack.lens || '—')}</div></div>
+      <div class="stat-card"><div class="num">${packs.length}</div><div class="lbl">Installed domain packs</div></div>
       <div class="stat-card"><div class="num">${active ? esc(active.version) : '—'}</div><div class="lbl">Active release</div></div>
     </div>
     <div class="detail" style="margin-top:12px;">
       <h3 style="margin-top:0;">Pack registry (installed via the pack loader — no redeploy)</h3>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;">${packs.map((p) => `<span class="pill muted">${esc(p.id)}</span>`).join('') || '<span class="muted" style="font-size:12px;">No domain packs in the catalog.</span>'}</div>
+      <p class="muted" style="font-size:12px;">Activating a pack durably switches the exec lens in <code>/api/context</code> (no redeploy, no org-model edit). Deactivate restores the operating-model default.</p>
+      <div style="display:grid;gap:8px;margin-top:8px;">${packs.map((p) => packRegistryRow(p, activePackId)).join('') || '<span class="muted" style="font-size:12px;">No packs installed.</span>'}</div>
     </div>
     <div class="detail" style="margin-top:12px;">
       <h3 style="margin-top:0;">Policy & Workflow Studio</h3>
@@ -4730,6 +4821,37 @@ async function renderPlatformConfig() {
       </div>
       <div class="muted" style="font-size:12px;margin-top:6px;">The red-team suite evaluates THIS policy live — an unsafe (allow) policy fails the suite and blocks releases.</div>
     </div>`;
+}
+
+function packRegistryRow(p, activePackId) {
+  const isActive = p.active || p.id === activePackId;
+  return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid ${isActive ? 'rgba(0,168,112,.35)' : 'var(--line)'};border-radius:8px;background:${isActive ? 'rgba(0,168,112,.06)' : 'rgba(255,255,255,.02)'};">
+    <div style="min-width:0;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><strong style="font-size:13px;">${esc(p.id)}</strong><span class="pill muted">v${esc(p.version)}</span><span class="pill ${p.lens === 'payer' ? 'amber' : p.lens === 'hybrid' ? 'violet' : 'mint'}">lens · ${esc(p.lens)}</span>${isActive ? '<span class="pill green">active</span>' : ''}</div>
+      <div class="muted" style="font-size:11px;margin-top:3px;">${(p.capabilities || []).length} capabilities · ${(p.cmsUniverse || []).length} CMS authorities · extends ${esc((p.extends || []).join(', ') || 'none')} · applies to ${esc((p.appliesTo && p.appliesTo.organizationKinds || []).join(', '))}</div>
+    </div>
+    <div style="flex:0 0 auto;display:flex;gap:6px;">
+      ${isActive
+        ? `<button class="btn btn-ghost" onclick="plPackDeactivate()">Deactivate</button>`
+        : `<button class="btn btn-primary" onclick="plPackActivate('${esc(p.id)}')">Activate</button>`}
+    </div>
+  </div>`;
+}
+
+async function plPackActivate(id) {
+  try {
+    const r = await plFetch('POST', '/admin/platform/packs/' + encodeURIComponent(id) + '/activate', { by: 'platform-admin' });
+    toast('Pack activated · lens ' + (r.pack ? r.pack.lens : '') + ' · ' + id);
+  } catch (e) { toast(e.message, 'err'); }
+  renderPlatformConfig();
+}
+
+async function plPackDeactivate() {
+  try {
+    await plFetch('POST', '/admin/platform/packs/deactivate', { by: 'platform-admin' });
+    toast('Pack deactivated — operating-model default restored');
+  } catch (e) { toast(e.message, 'err'); }
+  renderPlatformConfig();
 }
 
 async function renderPlatformDlq() {

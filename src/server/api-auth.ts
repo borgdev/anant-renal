@@ -46,6 +46,15 @@ export async function registerAdminApiGuard(app: FastifyInstance, deps: AdminApi
       }
       return;
     }
+    // Executive outcomes + delegation (Journey N) live in the Outcome Workspace,
+    // so they are exec-role-scoped (admin | md | safety) — reachable from the
+    // exec cockpit as well as the operator console (admin).
+    if (url.startsWith('/admin/executive/')) {
+      if (!roleAllowsConsole(role, 'exec')) {
+        return reply.code(403).send({ error: 'role-not-permitted-for-console', console: 'exec', role, allowed: CONSOLE_ROLES.exec });
+      }
+      return;
+    }
     if (url.startsWith('/admin/auth/users')) {
       if (role !== 'admin') {
         return reply.code(403).send({ error: 'admin-required', role });

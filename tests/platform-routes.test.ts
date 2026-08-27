@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from '../src/server/app.js';
 import { Telemetry, InMemorySink } from '../src/server/telemetry.js';
 import { healthcareCorePack } from '../packs/healthcare-core/index.js';
+import { payerPack } from '../packs/payer/index.js';
 import type { PostgresEventStore } from '../src/server/postgres-event-store.js';
 import type { CanonicalEvent } from '../src/healthcare-core/events.js';
 import type { LedgerEntry } from '../src/hypergraph/ledger.js';
@@ -382,5 +383,71 @@ describe('public experience APIs (/api/context, /api/work, /api/graph, /api/canv
       payload: { defaultOutputTopic: 'anant.agent.output.v1', agentDlqTopic: 'anant.agent.output.dlq.v1', actionCommandTopic: 'anant.action.command.v1', actionAckTopic: 'anant.action.ack.v1', outcomeStateTopic: 'anant.outcome.state.v1', assuranceEventTopic: 'anant.assurance.event.v1', entries: [] },
     });
     expect(res.statusCode).toBe(200);
+  });
+});
+
+describe('Pack Studio (/admin/platform/packs — real catalog + durable lens switch)', () => {
+  let app: App;
+  let admin: string;
+  beforeAll(async () => {
+    app = await buildApp({
+      store: inMemoryStore(),
+      telemetry: new Telemetry('test', new InMemorySink()),
+      // payer registered after healthcare-core satisfies its extends range.
+      packs: [healthcareCorePack, payerPack],
+      authenticate: async () => actor,
+      checkHealth: async () => ({ db: true, redis: true }),
+      adminApiAuth: true,
+    });
+    admin = await login(app, 'admin', 'admin123');
+  });
+  afterAll(async () => { await app.close(); });
+
+  it('GET /admin/platform/packs lists the REAL installed packs with lens + active flag', async () => {
+    const res = await app.inject({ method: 'GET', url: '/admin/platform/packs', headers: { cookie: cookie(admin) } });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const ids = body.packs.map((p: { id: string }) => p.id);
+    expect(ids).toContain('healthcare-core');
+    expect(ids).toContain('payer');
+    const core = body.packs.find((p: { id: string }) => p.id === 'healthcare-core');
+    expect(core.lens).toBe('hybrid'); // provider + payer kinds
+    const payer = body.packs.find((p: { id: string }) => p.id === 'payer');
+    expect(payer.lens).toBe('payer');
+    expect(body.activePack).toBeNull();
+    expect(body.packs.every((p: { active: boolean }) => p.active === false)).toBe(true);
+  });
+
+  it('activating a pack flips /api/context pack.id + lens (durable lens switch)', async () => {
+    const act = await app.inject({
+      method: 'POST', url: '/admin/platform/packs/payer/activate', headers: { cookie: cookie(admin) }, payload: { by: 'test' },
+    });
+    expect(act.statusCode).toBe(200);
+    expect(act.json().pack.lens).toBe('payer');
+
+    const ctx = await app.inject({ method: 'GET', url: '/api/context' });
+    expect(ctx.json().pack).toEqual({ id: 'payer', lens: 'payer' });
+
+    const listed = await app.inject({ method: 'GET', url: '/admin/platform/packs', headers: { cookie: cookie(admin) } });
+    const payer = listed.json().packs.find((p: { id: string }) => p.id === 'payer');
+    expect(payer.active).toBe(true);
+  });
+
+  it('rejects activating a pack that is not installed', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/admin/platform/packs/not-a-real-pack/activate', headers: { cookie: cookie(admin) }, payload: { by: 'test' },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe('pack-not-installed');
+  });
+
+  it('deactivating restores the operating-model default lens', async () => {
+    const deact = await app.inject({ method: 'POST', url: '/admin/platform/packs/deactivate', headers: { cookie: cookie(admin) } });
+    expect(deact.statusCode).toBe(200);
+    const ctx = await app.inject({ method: 'GET', url: '/api/context' });
+    // Falls back to the operating-model derivation (a provider org is persisted
+    // by an earlier suite via the shared workspace singleton) — NOT the pack.
+    expect(ctx.json().pack.id).toBe('healthcare.provider');
+    expect(ctx.json().pack.lens).toBe('provider');
   });
 });

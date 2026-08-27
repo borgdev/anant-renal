@@ -27,3 +27,6 @@ packs/.authoring-audit.jsonl
 .codekura/
 # Reference archives
 renal-swarm-intelligence-source-*.zip
+
+# Reference tree — external hosting/project state
+renal-swarm-intelligence/.openai/
