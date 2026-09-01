@@ -1,3 +1,5 @@
+export type RoleId = "evp" | "dvp" | "rod" | "fa" | "medical" | "quality" | "finance" | "biomed";
+
 export type NavigationId =
   | "ecosystem"
   | "agents"

@@ -412,3 +412,76 @@ button.drillable-surface:not(:disabled):hover { border-color: rgba(99,230,190,.2
 @media (max-width:960px) { .admin-workspace-grid { grid-template-columns:1fr; }.admin-step-rail { position:static; }.admin-steps { grid-template-columns:1fr 1fr; }.admin-stage { min-height:0; }.identity-control-grid { grid-template-columns:1fr; }.admin-agent-editor { grid-template-columns:1fr; }.admin-agent-editor > aside { max-height:210px; grid-template-columns:1fr 1fr; border-right:0; border-bottom:1px solid var(--line); }.cms-admin-grid { grid-template-columns:1fr; }.activation-hero { grid-template-columns:auto 1fr; }.activation-facts { grid-column:1/-1; grid-template-columns:repeat(3,1fr); } }
 @media (max-width:720px) { .admin-readiness-facts,.role-matrix-mini { grid-template-columns:1fr 1fr; }.admin-readiness-facts > span:nth-child(2) { border-right:0; }.admin-readiness-facts > span:nth-child(-n+2) { border-bottom:1px solid var(--line); }.admin-steps,.admin-form-grid,.kafka-form-grid,.adapter-contract-grid,.validation-suite-grid,.validation-check-list { grid-template-columns:1fr; }.validation-suite-grid > section:last-child,.admin-form-wide { grid-column:auto; }.admin-stage-head { grid-template-columns:auto 1fr; }.admin-stage-head > .tag { grid-column:2; }.admin-stage-footer { align-items:stretch; flex-direction:column; }.admin-footer-actions { width:100%; }.admin-footer-actions .button { flex:1; }.kafka-boundary-map { grid-template-columns:1fr 1fr; }.release-ledger-head { display:none; }.release-ledger > div:not(.release-ledger-head) { grid-template-columns:1fr auto; }.release-ledger > div:not(.release-ledger-head) > span:nth-child(3) { display:none; }.activation-hero { grid-template-columns:1fr; text-align:center; justify-items:center; }.activation-facts { width:100%; grid-template-columns:1fr; text-align:left; }.policy-config-panel { grid-template-columns:auto 1fr; }.policy-config-panel > label,.policy-config-panel > .button { grid-column:1/-1; grid-row:auto; } }
 @media (max-width:500px) { .admin-readiness-facts,.admin-steps,.role-matrix-mini,.kafka-boundary-map { grid-template-columns:1fr; }.admin-readiness-facts > span { border-right:0; border-bottom:1px solid var(--line); }.admin-agent-editor > aside { grid-template-columns:1fr; }.admin-footer-actions { flex-direction:column; }.admin-footer-actions .button { width:100%; }.kafka-test-result { grid-template-columns:auto 1fr; }.kafka-test-result time { grid-column:2; } }
+
+/* ── Mode banner ── */
+.mode-banner { display:flex; align-items:center; gap:8px; padding:0 28px; height:30px; font-size:9px; border-bottom:1px solid var(--line); position:sticky; top:64px; z-index:25; }
+.mode-banner-demo { background:rgba(180,156,255,.055); color:#c0aeff; border-bottom-color:rgba(180,156,255,.14); }
+.mode-banner-live { background:rgba(99,230,190,.055); color:#8defd4; border-bottom-color:rgba(99,230,190,.18); }
+.mode-banner svg { flex:0 0 auto; }
+.mode-banner > span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mode-banner-link { display:inline-flex; align-items:center; gap:4px; flex:0 0 auto; color:inherit; opacity:.65; text-decoration:none; font-size:8px; white-space:nowrap; }
+.mode-banner-link:hover { opacity:1; text-decoration:underline; }
+
+/* ── Setup banner ── */
+.setup-banner { display:flex; align-items:center; gap:10px; padding:9px 28px; border-bottom:1px solid rgba(239,189,104,.2); background:rgba(239,189,104,.06); }
+.setup-banner > svg { flex:0 0 auto; color:var(--amber); }
+.setup-banner > div { flex:1; font-size:9px; line-height:1.5; }
+.setup-banner strong { color:#f3ce90; }
+.setup-banner span { color:var(--muted); }
+.setup-banner-cta { height:30px; min-height:30px; font-size:9px; padding:0 12px; flex:0 0 auto; }
+.setup-banner-close { flex:0 0 auto; }
+
+/* ── Nav item role-relevance indicator ── */
+.nav-item.is-primary { color:#b8d4cc; }
+.nav-item.is-primary:not(.is-active):hover { color:var(--text); }
+.nav-primary-dot { width:5px; height:5px; border-radius:50%; background:var(--mint); opacity:.55; box-shadow:0 0 6px rgba(99,230,190,.5); }
+
+/* ── Sidebar getting-started checklist ── */
+.sidebar-checklist { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.checklist-header { width:100%; display:flex; align-items:center; gap:7px; padding:8px 10px; border:0; background:rgba(255,255,255,.02); color:#7a9990; font-size:9px; font-weight:700; cursor:pointer; text-align:left; transition:.15s; }
+.checklist-header:hover { background:rgba(255,255,255,.042); color:var(--text); }
+.checklist-header svg:first-child { flex:0 0 auto; }
+.checklist-header > span:nth-child(2) { flex:1; }
+.checklist-fraction { font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--mint); }
+.checklist-chevron { flex:0 0 auto; transition:transform .2s; }
+.checklist-chevron.is-open { transform:rotate(180deg); }
+.checklist-items { padding:5px 5px 7px; border-top:1px solid var(--line); display:grid; gap:1px; }
+.checklist-item { width:100%; display:flex; align-items:center; gap:7px; padding:5px 7px; border:0; border-radius:6px; background:transparent; color:#7a9990; font-size:8px; cursor:pointer; text-align:left; transition:.13s; }
+.checklist-item:hover { background:rgba(255,255,255,.03); color:var(--text); }
+.checklist-item.is-done { color:#88b5a4; }
+.checklist-check { color:var(--mint); flex:0 0 auto; }
+.checklist-circle { color:#3d5e57; flex:0 0 auto; }
+.checklist-item span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.checklist-complete { margin:5px 7px 0; display:flex; align-items:center; gap:5px; color:var(--mint); font-size:8px; }
+.checklist-demo-btn { margin:3px 5px 0; height:27px; min-height:27px; font-size:8px; padding:0 8px; }
+
+/* ── Admin UI console link in sidebar footer ── */
+.admin-console-link { display:inline-flex; align-items:center; gap:3px; color:#6a857d; font-size:8px; text-decoration:none; }
+.admin-console-link:hover { color:var(--mint); }
+
+/* ── Role selector in topbar ── */
+.role-selector-wrap { position:relative; }
+.role-chevron { color:var(--faint); transition:transform .2s; }
+.role-chevron.is-open { transform:rotate(180deg); }
+.profile-button > .role-chevron { margin-left:2px; }
+.role-dropdown { position:absolute; top:calc(100% + 9px); right:0; width:300px; border:1px solid var(--line-strong); border-radius:14px; background:rgba(8,22,18,.98); box-shadow:0 28px 70px rgba(0,0,0,.55); backdrop-filter:blur(24px); overflow:hidden; z-index:100; }
+.role-dropdown-title { margin:0; padding:11px 14px 6px; color:#5f7a70; font-size:8px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+.role-dropdown-group { padding:0 6px 8px; }
+.role-dropdown-group > span { display:block; padding:3px 8px 3px; color:#3f5c52; font-size:7px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+.role-option { width:100%; display:flex; align-items:center; gap:9px; padding:7px 8px; border:0; border-radius:8px; background:transparent; color:#9db8b0; cursor:pointer; text-align:left; transition:.13s; }
+.role-option:hover { background:rgba(255,255,255,.04); color:var(--text); }
+.role-option.is-active { background:rgba(99,230,190,.09); color:#e0f5ec; }
+.role-option-avatar { width:27px; height:27px; flex:0 0 auto; border-radius:8px; display:grid; place-items:center; background:linear-gradient(140deg,#254d41,#172b25); color:#d8f8ec; font-size:9px; font-weight:800; border:1px solid rgba(99,230,190,.12); }
+.role-option > div { flex:1; min-width:0; display:grid; gap:1px; }
+.role-option strong { font-size:9px; }
+.role-option small { color:#577269; font-size:7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.role-option svg:last-child { color:var(--mint); flex:0 0 auto; }
+.role-dropdown-note { padding:8px 14px 10px; border-top:1px solid var(--line); display:flex; align-items:center; gap:5px; color:#4d6960; font-size:7px; }
+
+/* ── Responsive overrides for new components ── */
+@media (max-width:760px) {
+  .mode-banner { padding:0 14px; font-size:8px; }
+  .setup-banner { padding:9px 14px; flex-wrap:wrap; }
+  .setup-banner > div { min-width:0; flex-basis:100%; order:-1; }
+  .role-dropdown { width:min(300px, calc(100vw - 20px)); right:-8px; }
+}

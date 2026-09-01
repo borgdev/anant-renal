@@ -756,11 +756,12 @@ let currentView = 'summary';
 // ---------- Navigation model (drives the dockable sidebar) ----------
 const NAV = [
   { section: 'Overview', icon: 'layout-dashboard', items: [ { view: 'summary', icon: 'layout-dashboard', label: 'Dashboard' } ] },
-  { section: 'Agents', icon: 'users', tabbed: true, items: [
-    { view: 'agents', icon: 'users', label: 'Published', count: 'c-agents' },
-    { view: 'agent-run', icon: 'bot', label: 'Agent runtime' },
-    { view: 'drafts', icon: 'file-pen-line', label: 'Drafts', count: 'c-drafts' },
-    { view: 'new', icon: 'plus', label: 'New agent' },
+  // Observers: bounded perception-only units — they see, assess and propose. They do not act.
+  { section: 'Observers', icon: 'eye', tabbed: true, items: [
+    { view: 'agents', icon: 'eye', label: 'Active observers', count: 'c-agents' },
+    { view: 'agent-run', icon: 'activity', label: 'Observer runtime' },
+    { view: 'drafts', icon: 'file-pen-line', label: 'Draft observers', count: 'c-drafts' },
+    { view: 'new', icon: 'plus', label: 'New observer' },
   ] },
   { section: 'Catalog', icon: 'book-open', tabbed: true, items: [
     { view: 'measures', icon: 'clipboard-check', label: 'CMS measures', count: 'c-measures' },
@@ -769,20 +770,22 @@ const NAV = [
     { view: 'research', icon: 'library', label: 'Knowledge sources', count: 'c-research' },
     { view: 'learn', icon: 'graduation-cap', label: 'Learn' },
   ] },
-  { section: 'World', icon: 'globe', tabbed: true, items: [
-    { view: 'world-builder', icon: 'map', label: 'Build a world' },
-    { view: 'realm', icon: 'building-2', label: 'Realm', count: 'c-realm' },
-    { view: 'presences', icon: 'bot', label: 'Presences', count: 'c-presences' },
-    { view: 'effects', icon: 'scroll-text', label: 'Effect ledger', count: 'c-effects' },
-    { view: 'perception', icon: 'eye', label: 'Perception log' },
-    { view: 'experiences', icon: 'sparkles', label: 'Experiences', count: 'c-experiences' },
-    { view: 'rules', icon: 'scale', label: 'World rules' },
-    { view: 'hypergraph', icon: 'network', label: 'Hypergraph' },
+  // Care environment: the digital twin model — realm → participants → events → observer signals → knowledge
+  { section: 'Care environment', icon: 'globe', tabbed: true, items: [
+    { view: 'world-builder', icon: 'map', label: 'Environment builder' },
+    { view: 'realm', icon: 'building-2', label: 'Care domain', count: 'c-realm' },
+    { view: 'presences', icon: 'users', label: 'Participants', count: 'c-presences' },
+    { view: 'effects', icon: 'scroll-text', label: 'Event ledger', count: 'c-effects' },
+    { view: 'perception', icon: 'eye', label: 'Observer signals' },
+    { view: 'experiences', icon: 'sparkles', label: 'Care encounters', count: 'c-experiences' },
+    { view: 'rules', icon: 'scale', label: 'Domain rules' },
+    { view: 'hypergraph', icon: 'network', label: 'Knowledge graph' },
   ] },
-  { section: "Agents' inner lives", icon: 'brain', tabbed: true, items: [
-    { view: 'episodes', icon: 'film', label: 'Episodes', count: 'c-episodes' },
-    { view: 'sentience', icon: 'brain', label: 'Sentience panel' },
-    { view: 'attributions', icon: 'waypoints', label: 'Attributions', count: 'c-attributions' },
+  // Observer reasoning: the epistemic model — what observers believe, how they trace causation, what episodes they hold
+  { section: 'Observer reasoning', icon: 'brain', tabbed: true, items: [
+    { view: 'episodes', icon: 'film', label: 'Observer episodes', count: 'c-episodes' },
+    { view: 'sentience', icon: 'brain', label: 'Belief states' },
+    { view: 'attributions', icon: 'waypoints', label: 'Causal attributions', count: 'c-attributions' },
   ] },
   { section: 'Governance', icon: 'shield-check', tabbed: true, items: [
     { view: 'audit', icon: 'shield-check', label: 'Audit log' },
@@ -811,26 +814,18 @@ const NAV = [
     { view: 'platform-org', icon: 'network', label: 'Organization' },
     { view: 'platform-topics', icon: 'radio', label: 'Topic plan' },
     { view: 'platform-config', icon: 'sliders-horizontal', label: 'Configuration Studio' },
-    { view: 'platform-agents', icon: 'bot', label: 'Agent Studio' },
+    { view: 'platform-agents', icon: 'eye', label: 'Observer studio' },
     { view: 'platform-assurance', icon: 'shield-check', label: 'AI Assurance' },
-    { view: 'platform-canvases', icon: 'network', label: 'Shared Intelligence' },
-    { view: 'platform-executive', icon: 'trending-up', label: 'Executive Outcomes' },
+    { view: 'rsi-intelligence', icon: 'network', label: 'Shared Intelligence ↗' },
+    { view: 'rsi-executive', icon: 'trending-up', label: 'Executive Outcomes ↗' },
     { view: 'platform-releases', icon: 'git-branch', label: 'Release center' },
     { view: 'platform-dlq', icon: 'archive', label: 'Dead-letter queue' },
     { view: 'platform-context', icon: 'eye', label: 'Context API' },
   ] },
-  // Renal Swarm Intelligence — the executive cockpit layer over bounded cells.
-  { section: 'Renal Swarm', icon: 'network', tabbed: true, items: [
-    { view: 'swarm-control', icon: 'layout-grid', label: 'Swarm control' },
-    { view: 'executive', icon: 'trending-up', label: 'Executive outcomes' },
-    { view: 'swarm-cells', icon: 'boxes', label: 'Bounded cells' },
-    { view: 'swarm-nba', icon: 'list-ordered', label: 'Next-best actions' },
-    { view: 'swarm-episodes', icon: 'workflow', label: 'Outcome episodes' },
-    { view: 'swarm-health', icon: 'activity', label: 'Data health' },
-    { view: 'policy-replay', icon: 'flask-conical', label: 'Policy replay' },
-    { view: 'release-gate', icon: 'gavel', label: 'Release gate' },
-    { view: 'bridge', icon: 'radio', label: 'Kafka bridge' },
-    { view: 'simulator', icon: 'play', label: 'Simulator' },
+  // Renal Swarm Intelligence — linked domain application (operational product).
+  // Clinical / operational screens live in RSI; this section links through to it.
+  { section: 'Renal Swarm', icon: 'network', items: [
+    { view: 'rsi-app', icon: 'external-link', label: 'Open RSI app' },
   ] },
   // Exec workspace — durable executive assets (config releases, red-team, CMS
   // submissions, platform admin, evidence reviews, facility sims, knowledge notes).
@@ -1529,24 +1524,15 @@ async function render() {
   else if (view === 'fhir') await renderFhirPanel();
   else if (view === 'users') await renderUsers();
   else if (view === 'settings') await renderSettings();
-  else if (view === 'swarm-control') await renderSwarmControl();
-  else if (view === 'executive') await renderExecutiveOutcomes();
-  else if (view === 'swarm-cells') await renderSwarmCells();
-  else if (view === 'swarm-nba') await renderSwarmNba();
-  else if (view === 'swarm-episodes') await renderSwarmEpisodes();
-  else if (view === 'swarm-health') await renderSwarmHealth();
-  else if (view === 'policy-replay') await renderPolicyReplay();
-  else if (view === 'release-gate') await renderReleaseGate();
-  else if (view === 'bridge') await renderBridge();
-  else if (view === 'simulator') await renderSimulator();
+  else if (view === 'rsi-app') renderRsiApp();
   else if (view === 'platform-onboarding') await renderPlatformOnboarding();
   else if (view === 'platform-org') await renderPlatformOrg();
   else if (view === 'platform-topics') await renderPlatformTopics();
   else if (view === 'platform-config') await renderPlatformConfig();
   else if (view === 'platform-agents') await renderPlatformAgents();
   else if (view === 'platform-assurance') await renderPlatformAssurance();
-  else if (view === 'platform-canvases') await renderPlatformCanvases();
-  else if (view === 'platform-executive') await renderPlatformExecutive();
+  else if (view === 'rsi-intelligence') renderRsiDeepLink('intelligence', 'Shared Intelligence');
+  else if (view === 'rsi-executive') renderRsiDeepLink('executive', 'Executive Outcomes');
   else if (view === 'platform-releases') await renderPlatformReleases();
   else if (view === 'platform-dlq') await renderPlatformDlq();
   else if (view === 'platform-context') await renderPlatformContext();
@@ -5995,6 +5981,80 @@ async function swarmDemoState() {
     if (res.ok) { const j = await res.json(); if (j && j.cells) return j; }
   } catch (_) { /* offline */ }
   return null;
+}
+
+function renderRsiDeepLink(screen, label) {
+  const url = `http://localhost:5173/`;
+  main.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2 class="page-title">${esc(label)}</h2>
+        <p class="page-sub">This view lives in <strong>Renal Swarm Intelligence</strong> — the governed clinical product. It is role-aware and context-sensitive; open RSI to see it with the full operational context.</p>
+      </div>
+    </div>
+    <div class="state-card" style="padding:24px;max-width:560px;border-color:rgba(99,230,190,.18);background:linear-gradient(110deg,rgba(99,230,190,.04),rgba(117,168,255,.02));">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
+        <span style="width:40px;height:40px;display:grid;place-items:center;border-radius:12px;color:#63e6be;background:rgba(99,230,190,.1);border:1px solid rgba(99,230,190,.18);font-size:18px;">⬡</span>
+        <div>
+          <div style="font-weight:700;font-size:14px;margin-bottom:3px;">${esc(label)}</div>
+          <div class="muted" style="font-size:12px;">Owned by Renal Swarm Intelligence</div>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);line-height:1.65;margin:0 0 18px;">This screen is authoritative in RSI where it is rendered with live role context, org scope, and integrated navigation. Opening RSI will land you on this view if your role has it as a primary screen.</p>
+      <a href="${url}" target="_blank" rel="noreferrer" style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border:1px solid rgba(99,230,190,.25);border-radius:9px;background:rgba(99,230,190,.09);color:#a8f0d8;font-size:13px;font-weight:700;text-decoration:none;">
+        Open RSI
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      </a>
+    </div>
+  `;
+}
+
+function renderRsiApp() {
+  const RSI_URL = 'http://localhost:5173/';
+  main.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2 class="page-title">Renal Swarm Intelligence</h2>
+        <p class="page-sub">The governed clinical and operational product for renal care. Clinical screens, outcome command, patient intelligence and regulatory workflows live in this application.</p>
+      </div>
+    </div>
+    <div class="state-card" style="padding:28px 24px;max-width:700px;border-color:rgba(99,230,190,.18);background:linear-gradient(110deg,rgba(99,230,190,.05),rgba(117,168,255,.025));">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+        <span style="width:48px;height:48px;display:grid;place-items:center;border-radius:14px;color:#63e6be;background:rgba(99,230,190,.1);border:1px solid rgba(99,230,190,.2);font-size:22px;">⬡</span>
+        <div>
+          <div class="state-title" style="margin:0 0 4px;">Renal Swarm Intelligence</div>
+          <div class="state-sub" style="margin:0;font-size:12px;">Governed agentic outcome harness · v0.9.0</div>
+        </div>
+        <a href="${RSI_URL}" target="_blank" rel="noreferrer" style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:1px solid rgba(99,230,190,.25);border-radius:9px;background:rgba(99,230,190,.09);color:#a8f0d8;font-size:12px;font-weight:700;text-decoration:none;" onclick="window.open('${RSI_URL}','_blank');return false;">
+          Open app <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </a>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px;">
+        <div style="padding:11px;border:1px solid var(--border);border-radius:8px;">
+          <div class="muted" style="font-size:11px;margin-bottom:4px;">Screens</div>
+          <strong>12 modules</strong><br><span class="muted" style="font-size:11px;">Command · Patient · Agents + 9 more</span>
+        </div>
+        <div style="padding:11px;border:1px solid var(--border);border-radius:8px;">
+          <div class="muted" style="font-size:11px;margin-bottom:4px;">Data regime</div>
+          <strong style="color:#c9bbff;">Synthetic demo</strong><br><span class="muted" style="font-size:11px;">Connect via Platform setup</span>
+        </div>
+        <div style="padding:11px;border:1px solid var(--border);border-radius:8px;">
+          <div class="muted" style="font-size:11px;margin-bottom:4px;">Runtime</div>
+          <strong style="color:#63e6be;">12 agents active</strong><br><span class="muted" style="font-size:11px;">14 policies · 8 sources</span>
+        </div>
+      </div>
+      <div style="padding:13px;border:1px solid var(--border);border-radius:9px;background:rgba(255,255,255,.02);margin-bottom:14px;">
+        <div style="font-weight:700;font-size:12px;margin-bottom:8px;">What lives in RSI</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px 12px;">
+          ${['Outcome command (FA daily worklist)','Patient intelligence','Assessment intelligence','Facility operations & capacity','Swarm control (enterprise monitoring)','Agent operations','Shared intelligence graph','Executive outcomes','CMS operations','AI assurance & red-teaming','Configuration studio','Platform admin / onboarding'].map(s=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;padding:3px 0;"><span style="width:5px;height:5px;border-radius:50%;background:#63e6be;flex:0 0 auto;"></span>${esc(s)}</div>`).join('')}
+        </div>
+      </div>
+      <div style="padding:11px;border:1px solid rgba(239,189,104,.2);border-radius:9px;background:rgba(239,189,104,.05);display:flex;gap:10px;align-items:flex-start;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#efbd68" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto;margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span style="font-size:12px;color:#c8a85a;">To connect a live organization, complete the <strong>Platform setup</strong> steps under <strong>Platform → Onboarding</strong> in this console. RSI will display a live-data banner once the release is activated.</span>
+      </div>
+    </div>
+  `;
 }
 
 async function renderSwarmControl() {

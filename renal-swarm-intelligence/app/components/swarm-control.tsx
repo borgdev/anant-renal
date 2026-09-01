@@ -24,11 +24,9 @@ import agentManifests from "../../config/agent-manifests.json";
 import ecosystemDemo from "../../config/ecosystem-demo.json";
 import operatingModel from "../../config/enterprise-operating-model.json";
 import { fetchRuntimeSnapshot, mutateRuntime, type PolicySimulation, type RuntimeSnapshot } from "../../lib/runtime/client";
-import type { NavigationId } from "../../lib/types";
+import type { NavigationId, RoleId } from "../../lib/types";
 import type { OpenWorkflowDetail } from "../../lib/workflow-detail";
 import { Eyebrow, ProgressBar, Tag } from "./ui";
-
-type RoleId = "evp" | "dvp" | "rod" | "fa" | "medical" | "quality" | "finance" | "biomed";
 type ScopeLevel = "enterprise" | "division" | "region" | "market" | "facility";
 type TopologyView = "topology" | "propagation" | "regulatory" | "dependencies";
 type ActionState = "idle" | "saving" | "recorded" | "error";
@@ -107,8 +105,29 @@ const messageTone: Record<string, "neutral" | "mint" | "amber" | "red" | "blue" 
   action: "violet",
 };
 
-export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate: (id: NavigationId) => void; onOpenDetail: OpenWorkflowDetail }) {
-  const [roleId, setRoleId] = useState<RoleId>("dvp");
+export default function SwarmControl({
+  onNavigate,
+  onOpenDetail,
+  roleId: roleIdProp,
+  onRoleChange,
+}: {
+  onNavigate: (id: NavigationId) => void;
+  onOpenDetail: OpenWorkflowDetail;
+  roleId?: RoleId;
+  onRoleChange?: (id: RoleId) => void;
+}) {
+  const [internalRoleId, setInternalRoleId] = useState<RoleId>(roleIdProp ?? "dvp");
+  const roleId = roleIdProp ?? internalRoleId;
+
+  // Sync when parent changes the controlled prop
+  useEffect(() => {
+    if (roleIdProp) setInternalRoleId(roleIdProp);
+  }, [roleIdProp]);
+
+  function handleRoleChange(id: RoleId) {
+    setInternalRoleId(id);
+    onRoleChange?.(id);
+  }
   const [topologyView, setTopologyView] = useState<TopologyView>("topology");
   const [selectedAgentId, setSelectedAgentId] = useState(agentManifests[0].id);
   const [threshold, setThreshold] = useState(82);
@@ -380,7 +399,7 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
       <section className="enterprise-context panel">
         <div className="role-perspective">
           <span className="context-icon"><Users size={17} /></span>
-          <label><small>Operator perspective</small><select value={roleId} onChange={(event) => setRoleId(event.target.value as RoleId)}>{operatingModel.roles.map((item) => <option value={item.id} key={item.id}>{item.shortLabel} · {item.label}</option>)}</select></label>
+          <label><small>Operator perspective</small><select value={roleId} onChange={(event) => handleRoleChange(event.target.value as RoleId)}>{operatingModel.roles.map((item) => <option value={item.id} key={item.id}>{item.shortLabel} · {item.label}</option>)}</select></label>
           <p>{role.purpose}</p>
         </div>
         <div className="scope-path" aria-label="Enterprise hierarchy">
