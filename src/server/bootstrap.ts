@@ -56,6 +56,7 @@ import { restoreRealmsFromSpecs } from './realm-restore.js';
 import { getSimulatorController } from './simulator-routes.js';
 import { resumeSimulatorFleet } from './simulator-persistence.js';
 import { decodeCanonicalEvent } from './event-broker.js';
+import { LiveEventFeed } from './live-event-feed.js';
 import {
   registerEventFanoutHandler, registerHeartbeatHandler, registerSnapshotBackupHandler,
   registerKnowledgeSyncHandler, registerAgentTriggerHandler,
@@ -102,6 +103,9 @@ export async function main(): Promise<void> {
     redisUrl: cfg.redisUrl,
     streamGroup: cfg.eventBrokerTopic,
   }), telemetry);
+  // Wildcard binding: broker drivers dispatch by topic (not eventType), so this
+  // subscription receives every canonical type on the topic.
+  const ALL_TYPES = '*' as unknown as import('../healthcare-core/events.js').CanonicalEventType;
   // Read path: consume the canonical stream (logs every delivered event).
   await broker.subscribe(
     { topic: cfg.eventBrokerTopic, source: 'bootstrap', eventType: 'patient.registered', subjectPath: 'subjectId' },
@@ -111,6 +115,18 @@ export async function main(): Promise<void> {
     },
   );
   await broker.start();
+
+  // R0 — live event wall: bounded canonical-event ring fed by the broker
+  // consumer (works under every driver incl. in-process); backs /api/live/events
+  // + /api/live/stream for the exec live wall + replay-from-buffer tail.
+  const liveFeed = new LiveEventFeed(broker.driver, cfg.eventBrokerTopic);
+  await broker.subscribe(
+    { topic: cfg.eventBrokerTopic, source: 'bootstrap-live', eventType: ALL_TYPES, subjectPath: 'subjectId' },
+    async (msg) => {
+      const e = decodeCanonicalEvent(msg.value);
+      if (e) liveFeed.push(e);
+    },
+  );
   const outbox = new SqlEventOutbox(await getSqlStore(), cfg.eventBrokerTopic);
   const outboxPublisher = new OutboxPublisher(outbox, broker, { flushIntervalMs: 1000 });
   outboxPublisher.start();
@@ -190,6 +206,7 @@ export async function main(): Promise<void> {
     // Phase 0 — write path: append → outbox → broker.
     onEvent: async (event) => { await outbox.enqueue(event); await outbox.flush(broker); await webhookDeliverer.onEvent(event); },
     eventBroker: broker,
+    liveEventFeed: liveFeed,
     // Phase 3 — admin broker panel + realm→broker streaming.
     eventOutbox: outbox,
     realmEventBridge: realmBridge,

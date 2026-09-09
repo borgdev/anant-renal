@@ -102,6 +102,8 @@ export interface AppDeps {
   readonly onEvent?: (event: CanonicalEvent) => Promise<void>;
   /** Optional EventBroker — exposes live health at GET /events/broker. */
   readonly eventBroker?: EventBroker;
+  /** R0 — bounded canonical-event ring backing /api/live/events + /api/live/stream. */
+  readonly liveEventFeed?: import('./live-event-feed.js').LiveEventFeed;
   /** Phase 3 — transactional outbox (admin replay + bridge durability). */
   readonly eventOutbox?: import('./event-outbox.js').EventOutbox;
   /** Phase 3 — realm → broker bridge (attached to realms on creation). */
@@ -420,6 +422,48 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   // CMS — real QIP / Dialysis Facility Compare readiness from cms-data/ CSVs.
   await registerCmsRoutes(app);
+
+  // R0 — live event wall: bounded recent canonical-event tail (/api/live/events),
+  // a status endpoint (/api/live/status, drives the exec LIVE · driver badge)
+  // and a push SSE stream (/api/live/stream). Only present when a feed is wired.
+  if (deps.liveEventFeed) {
+    const feed = deps.liveEventFeed;
+    app.get('/api/live/status', async () => ({ driver: feed.driver, topic: feed.topic, retained: feed.size() }));
+    app.get<{ Querystring: { facilityId?: string; realmId?: string; limit?: string } }>('/api/live/events', async (req) => {
+      const q = req.query ?? {};
+      return {
+        driver: feed.driver,
+        topic: feed.topic,
+        retained: feed.size(),
+        events: feed.rows({
+          ...(q.facilityId ? { facilityId: q.facilityId } : {}),
+          ...(q.realmId ? { realmId: q.realmId } : {}),
+          ...(q.limit !== undefined ? { limit: Number(q.limit) } : {}),
+        }),
+      };
+    });
+    app.get<{ Querystring: { once?: string } }>('/api/live/stream', async (req, reply) => {
+      reply.raw.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache, no-transform',
+        'connection': 'keep-alive',
+        'x-accel-buffering': 'no',
+      });
+      const write = (type: string, payload: unknown) => {
+        try { reply.raw.write(`event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`); } catch { /* client gone */ }
+      };
+      write('hello', { driver: feed.driver, topic: feed.topic, retained: feed.size() });
+      if (req.query.once === '1') {
+        write('events', { events: feed.rows({ limit: 200 }) });
+        reply.raw.end();
+        return;
+      }
+      write('events', { events: feed.rows({ limit: 200 }) });
+      const unsub = feed.subscribe((row) => write('event', { event: row }));
+      const hb = setInterval(() => write('ping', { at: new Date().toISOString() }), 15_000);
+      req.raw.on('close', () => { unsub(); clearInterval(hb); });
+    });
+  }
 
   // M20 Knowledge layer
   const knowledgeStoreDir = process.env.KNOWLEDGE_STORE_DIR ?? resolve(process.cwd(), '.harness', 'knowledge');
