@@ -576,3 +576,28 @@ button.drillable-surface:not(:disabled):hover { border-color: rgba(152,174,192,.
 .esa-view .spin { animation: esa-spin .9s linear infinite; }
 @media (max-width: 1080px) { .esa-main-grid { grid-template-columns: 1fr; } .esa-reco-cols { grid-template-columns: 1fr; } .esa-cell-list { grid-template-columns: 1fr; } }
 @media (max-width: 720px) { .esa-form-grid { grid-template-columns: 1fr; } .esa-band-card { grid-template-columns: 1fr; } .esa-ep-main { grid-template-columns: auto minmax(0, 1fr); } }
+
+/* ============ P1 — advisor governance & coverage gate ============ */
+.esa-coverage-ok { display: flex; align-items: flex-start; gap: 8px; padding: 8px 11px; border: 1px solid rgba(152,174,192,.22); border-radius: 9px; color: var(--muted); background: rgba(152,174,192,.05); font-size: 12px; line-height: 1.5; }
+.esa-coverage-ok svg { flex: 0 0 auto; color: var(--mint); margin-top: 1px; }
+.esa-gov-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.esa-gov-loading { min-height: 70px; display: grid; place-items: center; color: var(--faint); font-size: 12px; }
+.esa-gov-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.esa-gov-col { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.esa-gate-list, .esa-probe-list, .esa-drift-list { display: grid; gap: 6px; }
+.esa-gate-row, .esa-probe-row, .esa-drift-row { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.014); min-width: 0; }
+.esa-gate-row { display: grid; grid-template-columns: auto minmax(0, .7fr) minmax(0, 1.4fr) auto; gap: 9px; align-items: center; }
+.esa-gate-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.esa-gate-dot.is-pass { background: var(--mint); box-shadow: 0 0 8px rgba(152,174,192,.5); }
+.esa-gate-dot.is-fail { background: #f4a8b1; box-shadow: 0 0 8px rgba(242,121,135,.5); }
+.esa-gate-row strong, .esa-probe-row strong { font-size: 12px; white-space: nowrap; }
+.esa-gate-row small, .esa-probe-row small, .esa-drift-row span, .esa-drift-row em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-style: normal; font-size: 12px; }
+.esa-gov-facts { margin-top: 6px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.esa-gov-facts > span { padding: 8px 10px; display: grid; gap: 2px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.014); }
+.esa-gov-facts small { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.esa-gov-facts strong { font-size: 12px; }
+.esa-probe-row { display: grid; grid-template-columns: auto minmax(0, .9fr) minmax(0, 1.4fr) auto; gap: 9px; align-items: center; }
+.esa-drift-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 9px; }
+.esa-drift-row em { color: var(--faint); font: 6px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.esa-gov-note { margin: 2px 0 0; color: var(--faint); font-size: 12px; line-height: 1.5; }
+@media (max-width: 900px) { .esa-gov-grid { grid-template-columns: 1fr; } .esa-gate-row, .esa-probe-row { grid-template-columns: auto minmax(0, 1fr) auto; } .esa-gate-row small, .esa-probe-row small { grid-column: 2; } }

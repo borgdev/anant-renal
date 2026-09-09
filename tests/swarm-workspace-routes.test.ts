@@ -48,11 +48,12 @@ describe('swarm workspace routes', () => {
     }
   });
 
-  it('seeds the red-team scenarios (8 core + provider/payer) and replays against live policy', async () => {
+  it('seeds the red-team scenarios (8 core + provider/payer + ESA) and replays against live policy', async () => {
     const app = await build();
     const list = await app.inject({ method: 'GET', url: '/admin/swarm/red-team/scenarios' });
     expect(list.statusCode).toBe(200);
-    expect(list.json().scenarios).toHaveLength(12);
+    expect(list.json().scenarios).toHaveLength(16);
+    expect(list.json().scenarios.map((s: { id: string }) => s.id)).toContain('rt-016');
     const replay = await app.inject({ method: 'POST', url: '/admin/swarm/red-team/replay', payload: { scenarioId: 'rt-001' } });
     expect(replay.statusCode).toBe(200);
     expect(replay.json().run.passed).toBe(true);
@@ -146,10 +147,10 @@ describe('swarm workspace routes', () => {
     expect(traces.json().traces).toHaveLength(6);
 
     const models = await app.inject({ method: 'GET', url: '/admin/swarm/models' });
-    expect(models.json().models[0]?.modelId).toBe('grounded-assessment-extractor');
+    expect(models.json().models.map((m: { modelId: string }) => m.modelId)).toContain('grounded-assessment-extractor');
 
     const drift = await app.inject({ method: 'GET', url: '/admin/swarm/drift' });
-    expect(drift.json().drift).toHaveLength(1);
+    expect(drift.json().drift.length).toBeGreaterThanOrEqual(1);
 
     const authority = await app.inject({ method: 'GET', url: '/admin/swarm/authority' });
     expect(authority.json().sources).toHaveLength(2);

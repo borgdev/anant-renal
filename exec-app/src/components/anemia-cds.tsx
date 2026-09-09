@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Beaker,
+  CheckCircle2,
   ClipboardCheck,
   CloudDownload,
   Dna,
@@ -13,8 +14,11 @@ import {
   Gauge,
   HeartPulse,
   Info,
+  Layers,
   LockKeyhole,
+  Radar,
   RefreshCw,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -25,11 +29,16 @@ import {
 import {
   adviseEsa,
   episodeTitle,
+  ESA_MODEL_ID,
+  fetchAnemiaAssurance,
   fetchAnemiaFeatures,
   fetchAnemiaState,
   resetAnemiaDemo,
+  runAnemiaRedTeam,
   seedAnemiaDemo,
+  snapshotAnemiaDrift,
   type AnemiaStateView,
+  type EsaAssuranceView,
   type EsaDirection,
   type EsaFeaturesView,
   type EsaRecommendation,
@@ -70,6 +79,9 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
   const [rec, setRec] = useState<EsaRecommendation | null>(null);
   const [busy, setBusy] = useState<"advise" | "demo" | "reset" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [assurance, setAssurance] = useState<EsaAssuranceView | null>(null);
+  const [govBusy, setGovBusy] = useState<"redteam" | "drift" | null>(null);
+  const [govError, setGovError] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     patientId: "p-esa-1",
@@ -97,12 +109,32 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
     catch (err) { setError(err instanceof Error ? err.message : "state load failed"); }
   };
 
+  const reloadAssurance = async () => {
+    try { setAssurance(await fetchAnemiaAssurance()); setGovError(null); }
+    catch (err) { setGovError(err instanceof Error ? err.message : "assurance load failed"); }
+  };
+
   useEffect(() => {
     let active = true;
     void fetchAnemiaFeatures().then((f) => { if (active) setFeatures(f); }).catch((err) => { if (active) setError(err instanceof Error ? err.message : "features load failed"); });
     void fetchAnemiaState().then((s) => { if (active) setState(s); }).catch((err) => { if (active) setError(err instanceof Error ? err.message : "state load failed"); });
+    void fetchAnemiaAssurance().then((a) => { if (active) setAssurance(a); }).catch((err) => { if (active) setGovError(err instanceof Error ? err.message : "assurance load failed"); });
     return () => { active = false; };
   }, []);
+
+  const runRedTeam = async () => {
+    setGovBusy("redteam"); setGovError(null);
+    try { await runAnemiaRedTeam(); await reloadAssurance(); }
+    catch (err) { setGovError(err instanceof Error ? err.message : "red-team run failed"); }
+    finally { setGovBusy(null); }
+  };
+
+  const runDrift = async () => {
+    setGovBusy("drift"); setGovError(null);
+    try { await snapshotAnemiaDrift(); await reloadAssurance(); }
+    catch (err) { setGovError(err instanceof Error ? err.message : "drift snapshot failed"); }
+    finally { setGovBusy(null); }
+  };
 
   const numOr = (raw: string): number | undefined => (raw.trim() === "" ? undefined : Number(raw));
 
@@ -244,6 +276,11 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
               {rec?.guardrails.blocked && rec.guardrails.blockReason ? (
                 <div className="esa-block-banner"><AlertTriangle size={15} /><span>{rec.guardrails.blockReason}</span></div>
               ) : null}
+              {rec?.coverage ? rec.coverage.covered ? (
+                <div className="esa-coverage-ok"><CheckCircle2 size={13} /><span>Coverage · in reference manifold (distance {rec.coverage.manifold.distance.toFixed(2)} ≤ {rec.coverage.manifold.threshold}) · lab density {rec.coverage.labDensity.observed}/{rec.coverage.labDensity.required}</span></div>
+              ) : (
+                <div className="esa-block-banner"><ShieldAlert size={15} /><span>{rec.coverage.reason ?? rec.note}</span></div>
+              ) : null}
 
               <div className="esa-reco-cols">
                 <div className="esa-reco-drivers">
@@ -343,6 +380,76 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
                 </div>
               );
             })}
+          </div>
+        )}
+      </section>
+
+      {/* ---- P1 · Advisor governance & coverage gate ---- */}
+      <section className="panel esa-governance">
+        <div className="panel-title-row">
+          <div><Eyebrow>P1 · safe by default · EU AI Act / MDR</Eyebrow><h2>Advisor governance &amp; coverage gate</h2></div>
+          <div className="esa-gov-actions">
+            <Tag tone={assurance?.gate.status === "active" ? "mint" : assurance?.gate.status === "blocked" ? "red" : "amber"}>{assurance?.gate.status ?? "…"}</Tag>
+            <button className="button button-secondary" type="button" disabled={govBusy !== null} onClick={() => void runRedTeam()}>{govBusy === "redteam" ? <RefreshCw size={14} className="spin" /> : <ShieldAlert size={14} />} Run red team</button>
+            <button className="button button-ghost" type="button" disabled={govBusy !== null} onClick={() => void runDrift()}>{govBusy === "drift" ? <RefreshCw size={14} className="spin" /> : <Radar size={14} />} Drift snapshot</button>
+          </div>
+        </div>
+        {govError ? <div className="admin-notice is-error"><AlertTriangle size={15} /><span>{govError}</span></div> : null}
+        {!assurance ? (
+          <div className="esa-gov-loading"><span>Loading assurance…</span></div>
+        ) : (
+          <div className="esa-gov-grid">
+            <div className="esa-gov-col">
+              <Eyebrow>Activation gates · interpretability + coverage + red team + posture</Eyebrow>
+              <div className="esa-gate-list">
+                {assurance.gate.gates.map((g) => (
+                  <div className="esa-gate-row" key={g.name}>
+                    <span className={g.passed ? "esa-gate-dot is-pass" : "esa-gate-dot is-fail"} />
+                    <strong>{g.name}</strong>
+                    <small>{g.observed}</small>
+                    <Tag tone={g.passed ? "mint" : "red"}>{g.passed ? "pass" : "fail"}</Tag>
+                  </div>
+                ))}
+              </div>
+              {assurance.gate.reasons.length ? (
+                <div className="esa-block-banner"><ShieldAlert size={15} /><span>{assurance.gate.reasons.join(" · ")}</span></div>
+              ) : (
+                <div className="esa-coverage-ok"><ShieldCheck size={13} /><span>Advisor may recommend (Class C only) — {assurance.gate.posture?.posture ?? "CDSS · HITL"} · {assurance.gate.posture?.approvalClass ?? "C"} · never autonomous</span></div>
+              )}
+              <div className="esa-gov-facts">
+                <span><small>Model registry</small><strong>{assurance.model.registered ? assurance.model.record?.modelVersion ?? "registered" : "not registered"}</strong></span>
+                <span><small>Coverage gate</small><strong>{assurance.coverage.enabled ? `on · ≥${assurance.coverage.defaults.minTrendSamples} Hb · radius ${assurance.coverage.defaults.manifoldRadius}` : "off"}</strong></span>
+                <span><small>Open findings</small><strong>{assurance.findings.filter((f) => f.status !== "closed").length}</strong></span>
+              </div>
+            </div>
+            <div className="esa-gov-col">
+              <Eyebrow>Red-team probes rt-013…rt-016 · behavioral containment</Eyebrow>
+              <div className="esa-probe-list">
+                {assurance.redTeam.scenarios.map((s) => (
+                  <div className="esa-probe-row" key={s.id}>
+                    <strong>{s.id}</strong>
+                    <span>{s.name}</span>
+                    <small>{s.probe.checks[0]?.observed ?? ""}</small>
+                    <Tag tone={s.probe.passed ? "mint" : "red"}>{s.probe.passed ? "contained" : "unsafe"}</Tag>
+                  </div>
+                ))}
+              </div>
+              <Eyebrow>Drift snapshots · {ESA_MODEL_ID}</Eyebrow>
+              {assurance.drift.length === 0 ? (
+                <p className="esa-gov-note">No drift snapshots yet — run “Drift snapshot” to write a KS snapshot.</p>
+              ) : (
+                <div className="esa-drift-list">
+                  {assurance.drift.map((d) => (
+                    <div className="esa-drift-row" key={d.driftId}>
+                      <span><Radar size={12} /> {d.metric}</span>
+                      <em>{Math.round(d.valueBasisPoints / 100)}%</em>
+                      <Tag tone={d.status === "healthy" ? "mint" : "amber"}>{d.status}</Tag>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="esa-gov-note">Coverage is a P1 gate — out-of-domain or low-density windows get a blocked verdict with a visible reason. Findings are immutable; red-team failures under an unsafe policy block the advisor gate.</p>
+            </div>
           </div>
         )}
       </section>
