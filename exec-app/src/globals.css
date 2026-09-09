@@ -185,7 +185,7 @@ a { color: inherit; }
 .mywork-notice { margin-top: 10px; padding: 8px 12px; border: 1px solid rgba(152,174,192,.18); border-radius: 8px; background: rgba(152,174,192,.06); color: var(--text); font-size: 12px; }
 .mywork-list { margin-top: 8px; }
 .mywork-row { grid-template-columns: auto minmax(0,1fr) auto auto; cursor: default; }
-.mywork-main { display: grid; gap: 3px; text-align: left; background: transparent; border: 0; color: inherit; padding: 0; cursor: pointer; min-width: 0; }.mywork-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }.mywork-main small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.mywork-meta { color: var(--faint); font-size: 12px; }
+.mywork-main { display: grid; gap: 3px; text-align: left; background: transparent; border: 0; color: inherit; padding: 0; cursor: pointer; min-width: 0; }.mywork-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }.mywork-main small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.mywork-meta { color: var(--faint); font-size: 12px; }.mywork-dst { display: inline-flex; align-items: center; gap: 6px; color: #93a7b7; font-size: 11px; }.mywork-dst b { color: var(--mint); font-weight: 700; }
 .mywork-kind { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; }
 .mywork-side { display: grid; justify-items: end; gap: 4px; }.mywork-time { display: inline-flex; align-items: center; gap: 4px; color: var(--faint); font-size: 12px; }
 .mywork-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }

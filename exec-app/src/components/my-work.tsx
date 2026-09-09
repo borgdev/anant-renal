@@ -52,6 +52,13 @@ const STATE_TONE: Record<string, "mint" | "amber" | "red" | "blue" | "neutral"> 
   incident: "red",
 };
 
+// DST-Q — evidence-posture tones for the Dempster–Shafer readout.
+const EVIDENCE_TONE: Record<string, "mint" | "amber" | "red"> = {
+  corroborated: "mint",
+  weak: "amber",
+  contested: "red",
+};
+
 const ACTION_LABEL: Record<string, string> = {
   approve: "Approve", reject: "Reject", escalate: "Escalate", validate: "Validate",
   activate: "Activate", rollback: "Rollback", acknowledge: "Acknowledge", "request-approval": "Request approval",
@@ -81,6 +88,19 @@ function detailToDrawer(item: PlatformWorkItem, detail?: PlatformWorkDetail): Wo
       : item.kind === "release"
         ? { label: "Open Configuration Studio", target: "configuration" }
         : { label: "Open Event Operations", target: "command" };
+  const metrics: WorkflowDetail["metrics"] = [
+    { label: "State", value: detail?.state ?? item.state },
+    { label: "Scope", value: detail?.scope ?? item.scope },
+    { label: "Owner", value: detail?.owner ?? item.owner },
+    { label: "SLA", value: item.sla },
+  ];
+  if (item.kind === "episode" && item.belief !== undefined) {
+    metrics.push({
+      label: "D-S evidence",
+      value: `${item.evidenceStatus ?? "—"} · Bel ${item.belief.toFixed(2)}`,
+      detail: `Pl ${(item.plausibility ?? 0).toFixed(2)} · K ${(item.conflictMass ?? 0).toFixed(2)} · priority ${(item.dstPriority ?? 0).toFixed(2)}`,
+    });
+  }
   return {
     id: `MYWORK-${item.id}`,
     kind: KIND_LABEL[item.kind],
@@ -91,12 +111,7 @@ function detailToDrawer(item: PlatformWorkItem, detail?: PlatformWorkDetail): Wo
     owner: detail?.owner ?? item.owner,
     scope: detail?.scope ?? item.scope,
     due: item.sla,
-    metrics: [
-      { label: "State", value: detail?.state ?? item.state },
-      { label: "Scope", value: detail?.scope ?? item.scope },
-      { label: "Owner", value: detail?.owner ?? item.owner },
-      { label: "SLA", value: item.sla },
-    ],
+    metrics,
     evidence: (detail?.evidence ?? []).map((ev) => ({ label: String(ev.contentType ?? "evidence"), value: String(ev.sourceId ?? ""), source: String(ev.hash ?? "") })),
     activity,
     steps,
@@ -226,6 +241,12 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
                   <strong>{item.title}</strong>
                   <small>{item.summary}</small>
                   <span className="mywork-meta">{KIND_LABEL[item.kind]} · {item.scope} · {item.owner} · due {item.sla}</span>
+                  {item.kind === "episode" && item.belief !== undefined ? (
+                    <span className="mywork-dst" title="Dempster–Shafer fusion over this episode's evidence — Bel(commitment) · Pl(plausibility) · K(conflict). Items order by Bel + 0.3·ignorance − 0.5·Pl(harm).">
+                      <span className={`tag tag-${EVIDENCE_TONE[item.evidenceStatus ?? "weak"]}`}>evidence {item.evidenceStatus ?? "—"}</span>
+                      Bel <b>{item.belief.toFixed(2)}</b> · Pl {item.plausibility?.toFixed(2)} · K {item.conflictMass?.toFixed(2)}
+                    </span>
+                  ) : null}
                 </button>
                 <span className="mywork-side">
                   <Tag tone={toneFor(item) as "mint" | "amber" | "red" | "blue"}>{item.state}</Tag>

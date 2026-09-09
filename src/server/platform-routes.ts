@@ -39,6 +39,7 @@ import { getSwarmWorkspace, getSwarmCoordinator, swarmWhatIf, projectTopology, t
 import type { SwarmWorkspaceStore, WorkspaceDoc, PlatformOrganization, PlatformTopicPlan, PlatformCanvas, ConfigRelease, EvidenceReview, DlqRemediation } from '../swarm/workspace.js';
 import type { PersistentOutcomeCoordinator } from '../swarm/durable-coordinator.js';
 import type { OutcomeEpisode } from '../swarm/outcome-episode.js';
+import { episodeDstReadout, compareDstQueue } from '../swarm/work-dst.js';
 import type { ApprovalClass } from '../swarm/types.js';
 import type { LiveRealmSource } from '../swarm/live.js';
 import type { EventBroker } from './event-broker.js';
@@ -145,6 +146,13 @@ export interface PlatformWorkItem {
   capability: string;
   actions: string[];
   at: string;
+  /** DST-Q — Dempster–Shafer belief readout (present on evidence-driven episode items). */
+  belief?: number;
+  plausibility?: number;
+  conflictMass?: number;
+  evidenceStatus?: 'corroborated' | 'weak' | 'contested';
+  /** DST-Q — belief-aware decision priority in [0,1]; orders items within an urgency tier. */
+  dstPriority?: number;
 }
 
 const OPEN_EPISODE_STATES = new Set(['AwaitingApproval', 'Proposed', 'Coordinating', 'Verifying', 'Escalated']);
@@ -171,7 +179,7 @@ async function buildWorkQueue(ws: SwarmWorkspaceStore, coord: PersistentOutcomeC
     }
     if (e.state !== 'Escalated' && can(consoleId, 'episode.escalate')) actions.push('escalate');
     if (actions.length === 0) continue;
-    items.push({
+    const item: PlatformWorkItem = {
       id: `episode:${e.episodeId}`,
       kind: 'episode',
       title: `${e.kind.replace(/[-.]/g, ' ')} · ${e.subject}`,
@@ -185,7 +193,17 @@ async function buildWorkQueue(ws: SwarmWorkspaceStore, coord: PersistentOutcomeC
       capability: 'episode.decide',
       actions,
       at: e.openedAt,
-    });
+    };
+    // DST-Q — belief readout + priority from the episode's real evidence fusion.
+    const dst = episodeDstReadout(e);
+    if (dst) {
+      item.belief = dst.belief;
+      item.plausibility = dst.plausibility;
+      item.conflictMass = dst.conflictMass;
+      if (dst.evidenceStatus !== undefined) item.evidenceStatus = dst.evidenceStatus;
+      item.dstPriority = dst.score;
+    }
+    items.push(item);
   }
 
   // 2. Pending evidence reviews (clinical/executive).
@@ -267,9 +285,9 @@ async function buildWorkQueue(ws: SwarmWorkspaceStore, coord: PersistentOutcomeC
     } catch { /* store unavailable — DLQ omitted */ }
   }
 
-  // Sort: urgency first, then recency.
-  const rank = { high: 0, medium: 1, low: 2 } as const;
-  return items.sort((a, b) => rank[a.urgency] - rank[b.urgency] || String(b.at).localeCompare(String(a.at)));
+  // DST-Q — sort: urgency tier first, then belief-aware priority (scored items
+  // before unscored; within scored, highest D-S priority first), recency last.
+  return items.sort(compareDstQueue);
 }
 
 /* ---------- aggregates (safe, scoped badges) ---------- */

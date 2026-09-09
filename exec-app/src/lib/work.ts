@@ -25,6 +25,13 @@ export interface PlatformWorkItem {
   capability: string;
   actions: string[];
   at: string;
+  /** DST-Q — Dempster–Shafer belief readout (present on evidence-driven episode items). */
+  belief?: number;
+  plausibility?: number;
+  conflictMass?: number;
+  evidenceStatus?: "corroborated" | "weak" | "contested";
+  /** DST-Q — belief-aware decision priority in [0,1]; orders items within an urgency tier. */
+  dstPriority?: number;
 }
 
 export interface PlatformWorkDetail {
