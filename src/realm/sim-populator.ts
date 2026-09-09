@@ -45,11 +45,20 @@ export interface FacilitySeed {
   patientCount: number;
 }
 
+import { generateLongitudinalHistory } from '../simulator/longitudinal.js';
+
 const TRAJECTORIES = ['stable', 'decompensating', 'recovering', 'anemic-worsening', 'anemic-recovering', 'underdialyzed', 'hyperphosphatemia'] as const;
 const AGES = [45, 52, 58, 61, 64, 68, 71, 74, 77, 79];
 const SEXES: Array<'F' | 'M'> = ['F', 'M'];
 
-export function populateFacility(realm: Realm, seed: FacilitySeed): { facilityId: string; unitIds: string[]; patientIds: string[] } {
+/** R1 — optional complete-data backfill: seed each patient's chart with a
+ *  deterministic 90-day-consistent lab/vitals summary at creation. */
+export interface PopulateHistoryOptions {
+  seed?: number;
+  days?: number;
+}
+
+export function populateFacility(realm: Realm, seed: FacilitySeed, history?: PopulateHistoryOptions): { facilityId: string; unitIds: string[]; patientIds: string[] } {
   const g = realm.graph;
   const facilityUrn = g.urnFor('facility', seed.facilityId);
   if (!g.get(facilityUrn)) g.create('facility', seed.facilityId, { kind: seed.kind, name: seed.name });
@@ -79,6 +88,12 @@ export function populateFacility(realm: Realm, seed: FacilitySeed): { facilityId
       admittedAt: realm.clock.realmAt.toISOString(),
       problemList: problemsFor(seed.kind, trajectory),
       lastVitals: { hr: 72 + (i % 10), bp: '128/78', spo2: 97, at: realm.clock.realmAt.toISOString() },
+      ...(history
+        ? (() => {
+            const profile = generateLongitudinalHistory({ patientId: pid, facilityId: seed.facilityId, trajectory, days: history.days ?? 90, seed: history.seed ?? 1 });
+            return { labs: profile.latest.labs, lastVitals: { ...profile.latest.vitals, at: realm.clock.realmAt.toISOString() } };
+          })()
+        : {}),
     });
     g.addRelation(rec.urn, 'in-unit', g.urnFor('unit', unitId));
     g.addRelation(rec.urn, 'in-facility', facilityUrn);

@@ -87,7 +87,7 @@ export class SimulatorController {
         }),
         hypergraph: new RealmHypergraph(buildHealthcareHypergraphSchema(), def.id),
       });
-      populateFacility(realm, def.facility);
+      populateFacility(realm, def.facility, { seed: sc.seed, days: 90 });
       this.spawnPresences(realm, def.presences);
       if (def.script.entries.length) {
         realm.ambient.register(new ScriptedEventGenerator({ realm, script: def.script, seed: sc.seed }));
