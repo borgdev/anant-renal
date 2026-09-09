@@ -32,6 +32,20 @@ export interface EsaFeaturesView {
 
 export type EsaDirection = "hold" | "increase" | "reduce" | "suspend" | "blocked";
 
+export type EsaEvidenceStatus = "corroborated" | "weak" | "contested";
+
+/** DST-Q #3 — Dempster–Shafer readout for the Class-C suggestion itself. */
+export interface EsaSuggestionDst {
+  belief: number;
+  plausibility: number;
+  uncertainty: number;
+  conflictMass: number;
+  evidenceStatus: EsaEvidenceStatus;
+  score: number;
+  sources: Array<{ sourceId: string; contentType: string; weight: number; alpha: number }>;
+  refs: Array<{ sourceId: string; contentType: string }>;
+}
+
 export interface EsaLatent { l1: number; l2: number; polarRadius: number; polarAngleRad: number }
 
 /** P1 — coverage verdict attached to every recommendation. */
@@ -145,8 +159,8 @@ export function fetchAnemiaState(): Promise<AnemiaStateView> {
   return anemiaJson<AnemiaStateView>("/admin/swarm/anemia/state");
 }
 
-export function adviseEsa(window: EsaPatientWindow): Promise<{ recommendation: EsaRecommendation }> {
-  return anemiaJson<{ recommendation: EsaRecommendation }>("/admin/swarm/anemia/advise", {
+export function adviseEsa(window: EsaPatientWindow): Promise<{ recommendation: EsaRecommendation; dst?: EsaSuggestionDst }> {
+  return anemiaJson<{ recommendation: EsaRecommendation; dst?: EsaSuggestionDst }>("/admin/swarm/anemia/advise", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(window),

@@ -117,6 +117,18 @@ describe('anemia / ESA CDSS (P0 reference)', () => {
     expect(rec.drivers[0].id).toBe('priorEpo');
     expect(rec.drivers[0].relevance).toBe(0.4);
     expect(rec.drivers[1].id).toBe('mcv');
+
+    // DST-Q #3 — every advice carries a D-S readout over the evidence the window
+    // actually carried. A full, fresh window must read corroborated.
+    const dst = res.json().dst;
+    expect(dst).toBeTruthy();
+    expect(dst.belief).toBeGreaterThanOrEqual(0.55);
+    expect(dst.evidenceStatus).toBe('corroborated');
+    expect(dst.belief).toBeLessThanOrEqual(dst.plausibility);
+    expect(dst.plausibility).toBeLessThanOrEqual(1);
+    expect(dst.score).toBeGreaterThan(0.5);
+    expect(dst.score).toBeLessThanOrEqual(1);
+    expect(dst.sources.length).toBeGreaterThanOrEqual(8); // hgb + optional labs + trend + ESA + iron panel + KDIGO
   });
 
   it('advise reduces ~25% when Hb is above the band', async () => {

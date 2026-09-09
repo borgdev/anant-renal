@@ -48,6 +48,7 @@ import {
   type EsaFeaturesView,
   type EsaMdrFileView,
   type EsaRecommendation,
+  type EsaSuggestionDst,
   type EsaStudyView,
   type EsaValidationView,
 } from "../lib/anemia";
@@ -77,6 +78,13 @@ const EP_TONE: Record<string, "mint" | "amber" | "blue" | "red" | "neutral"> = {
   Reopened: "amber",
 };
 
+// DST-Q #3 — evidence-posture tones for the suggestion readout.
+const ESA_EVIDENCE_TONE: Record<string, "mint" | "amber" | "red"> = {
+  corroborated: "mint",
+  weak: "amber",
+  contested: "red",
+};
+
 function fmtDose(v: number | null): string {
   return v === null ? "—" : `${v.toLocaleString()} u/wk`;
 }
@@ -85,6 +93,7 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
   const [features, setFeatures] = useState<EsaFeaturesView | null>(null);
   const [state, setState] = useState<AnemiaStateView | null>(null);
   const [rec, setRec] = useState<EsaRecommendation | null>(null);
+  const [dst, setDst] = useState<EsaSuggestionDst | null>(null);
   const [busy, setBusy] = useState<"advise" | "demo" | "reset" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [assurance, setAssurance] = useState<EsaAssuranceView | null>(null);
@@ -190,7 +199,7 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
     const trend = [0, 1, 2, 3, 4].map((i) => Number((base + i * 0.1).toFixed(1)));
     setBusy("advise"); setError(null);
     try {
-      const { recommendation } = await adviseEsa({
+      const { recommendation, dst: suggestionDst } = await adviseEsa({
         patientId: form.patientId.trim(),
         currentHgb,
         currentDose,
@@ -207,6 +216,7 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
         asOf: REVIEW_AT,
       });
       setRec(recommendation);
+      setDst(suggestionDst ?? null);
     } catch (err) { setError(err instanceof Error ? err.message : "advise failed"); }
     finally { setBusy(null); }
   };
@@ -220,7 +230,7 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
 
   const runReset = async () => {
     setBusy("reset"); setError(null);
-    try { const r = await resetAnemiaDemo(); setRec(null); await reloadState(); if (r.removed) setRec(null); }
+    try { const r = await resetAnemiaDemo(); setRec(null); setDst(null); await reloadState(); if (r.removed) { setRec(null); setDst(null); } }
     catch (err) { setError(err instanceof Error ? err.message : "reset failed"); }
     finally { setBusy(null); }
   };
@@ -332,6 +342,13 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
                 <div className="esa-coverage-ok"><CheckCircle2 size={13} /><span>Coverage · in reference manifold (distance {rec.coverage.manifold.distance.toFixed(2)} ≤ {rec.coverage.manifold.threshold}) · lab density {rec.coverage.labDensity.observed}/{rec.coverage.labDensity.required}</span></div>
               ) : (
                 <div className="esa-block-banner"><ShieldAlert size={15} /><span>{rec.coverage.reason ?? rec.note}</span></div>
+              ) : null}
+              {dst ? (
+                <div className="esa-dst-readout" title="Dempster–Shafer fusion over this window's evidence — charted labs (facts), Hb trend/ESA history (events) and the KDIGO reference. Bel + 0.3·ignorance − 0.5·Pl(harm) is the same priority rule My Work uses to order your queue.">
+                  <span className={`tag tag-${ESA_EVIDENCE_TONE[dst.evidenceStatus ?? "weak"]}`}>D-S evidence · {dst.evidenceStatus ?? "—"}</span>
+                  <span className="esa-dst-values">Bel <b>{dst.belief.toFixed(2)}</b> · Pl {dst.plausibility.toFixed(2)} · K {dst.conflictMass.toFixed(2)}</span>
+                  <span className="esa-dst-note">{dst.sources.length} evidence source(s) fused · priority {dst.score.toFixed(2)} · same D-S rule as My Work</span>
+                </div>
               ) : null}
 
               <div className="esa-reco-cols">

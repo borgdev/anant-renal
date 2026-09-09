@@ -38,6 +38,7 @@ import {
   esaRedTeamProbe, isEsaFinding, recordEsaDrift,
 } from '../swarm/anemia-governance.js';
 import { esaRecommendTrained, loadEsaArtifact } from '../swarm/anemia-model.js';
+import { esaSuggestionDst } from '../swarm/anemia-dst.js';
 import {
   ensureEsaMdrFile, esaAcceptanceStats, getEsaMdrFile, getEsaValidationReport,
   listEsaStudyRecords, recordEsaStudyDecision, runEsaValidation,
@@ -113,12 +114,15 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
       ...(body.lastIronPanelAt ? { lastIronPanelAt: body.lastIronPanelAt } : {}),
       asOf: body.asOf ?? new Date().toISOString(),
     };
+    // DST-Q #3 — fuse the evidence this window actually carries into a Bel/Pl/K
+    // readout for the Class-C suggestion (same D-S rule as My Work).
+    const dst = esaSuggestionDst(window);
     if (body.model === 'trained') {
       const artifact = loadEsaArtifact();
       if (!artifact) return error(reply, 404, 'esa-trained-artifact-not-found');
-      return { recommendation: esaRecommendTrained(window, artifact), model: 'trained' };
+      return { recommendation: esaRecommendTrained(window, artifact), model: 'trained', dst };
     }
-    return { recommendation: esaRecommendCovered(window, { coverageGateEnabled: true }), model: 'reference' };
+    return { recommendation: esaRecommendCovered(window, { coverageGateEnabled: true }), model: 'reference', dst };
   });
 
   app.post('/admin/swarm/anemia/demo', async () => {

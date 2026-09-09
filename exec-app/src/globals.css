@@ -580,6 +580,10 @@ button.drillable-surface:not(:disabled):hover { border-color: rgba(152,174,192,.
 /* ============ P1 — advisor governance & coverage gate ============ */
 .esa-coverage-ok { display: flex; align-items: flex-start; gap: 8px; padding: 8px 11px; border: 1px solid rgba(152,174,192,.22); border-radius: 9px; color: var(--muted); background: rgba(152,174,192,.05); font-size: 12px; line-height: 1.5; }
 .esa-coverage-ok svg { flex: 0 0 auto; color: var(--mint); margin-top: 1px; }
+.esa-dst-readout { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 11px; margin-top: 2px; border: 1px solid rgba(180,156,255,.18); border-radius: 9px; background: rgba(180,156,255,.05); color: #93a7b7; font-size: 12px; }
+.esa-dst-values { display: inline-flex; gap: 6px; align-items: center; }.esa-dst-values b { color: var(--mint); font-weight: 700; }
+.esa-dst-note { margin-left: auto; color: var(--faint); font-size: 11px; }
+@media (max-width: 760px) { .esa-dst-note { margin-left: 0; width: 100%; } }
 .esa-gov-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .esa-gov-loading { min-height: 70px; display: grid; place-items: center; color: var(--faint); font-size: 12px; }
 .esa-gov-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }

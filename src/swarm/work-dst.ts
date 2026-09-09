@@ -57,7 +57,7 @@ export interface DstQueueItem {
 const round = (n: number): number => Math.round(n * 1000) / 1000;
 
 /** Evidence posture straight from the fused conflict/belief gates. */
-function statusFromFusion(fusion: EpisodeEvidenceFusion): QueueEvidenceStatus {
+export function evidenceStatusFromFusion(fusion: EpisodeEvidenceFusion): QueueEvidenceStatus {
   if (fusion.conflictMass >= DST_EPISODE_K_GATE) return 'contested';
   if (fusion.belief >= DST_RESOLVE_BELIEF_GATE) return 'corroborated';
   return 'weak';
@@ -67,6 +67,16 @@ function statusFromFusion(fusion: EpisodeEvidenceFusion): QueueEvidenceStatus {
 function evidencePlHarm(status: QueueEvidenceStatus, uncertainty: number): number {
   const contestedOffset = status === 'contested' ? 0.4 : status === 'weak' ? 0.2 : status === 'corroborated' ? 0.1 : 0;
   return Math.min(1, contestedOffset + uncertainty * 0.5);
+}
+
+/**
+ * The shared belief-aware decision priority rule (used by episodes and by the
+ * anemia suggestion readout): Bel + λ·(Pl − Bel) − γ·Pl(harm), clamped to [0,1].
+ */
+export function dstPriorityFromFusion(fusion: EpisodeEvidenceFusion, status: QueueEvidenceStatus): number {
+  const uncertainty = Math.max(0, fusion.plausibility - fusion.belief);
+  const plHarm = evidencePlHarm(status, uncertainty);
+  return round(Math.max(0, Math.min(1, fusion.belief + DST_WORK_OPTIMISM * uncertainty - DST_WORK_HARM_GAMMA * plHarm)));
 }
 
 /**
@@ -85,9 +95,8 @@ export function episodeDstReadout(e: OutcomeEpisode): EpisodeDstReadout | undefi
   const plausibility = round(fusion.plausibility);
   const conflictMass = round(fusion.conflictMass);
   const uncertainty = round(Math.max(0, plausibility - belief));
-  const status: QueueEvidenceStatus = e.evidenceStatus ?? statusFromFusion(fusion);
-  const plHarm = evidencePlHarm(status, uncertainty);
-  const score = round(Math.max(0, Math.min(1, belief + DST_WORK_OPTIMISM * uncertainty - DST_WORK_HARM_GAMMA * plHarm)));
+  const status: QueueEvidenceStatus = e.evidenceStatus ?? evidenceStatusFromFusion(fusion);
+  const score = dstPriorityFromFusion(fusion, status);
   return { belief, plausibility, uncertainty, conflictMass, evidenceStatus: status, score };
 }
 
