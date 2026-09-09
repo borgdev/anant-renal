@@ -73,7 +73,7 @@ a { color: inherit; }
 .sidebar.is-collapsed .nav-groups { gap: 18px; }
 .nav-groups { display: grid; gap: 24px; }
 .nav-group { display: grid; gap: 5px; }
-.nav-group > p { margin: 0 0 5px 10px; color: #587068; font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.nav-group > p { margin: 0 0 5px 10px; color: #89a49a; font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 .nav-item { border: 0; width: 100%; display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: 8px; min-height: 39px; padding: 0 10px; border-radius: 9px; color: #8fa89f; background: transparent; cursor: pointer; text-align: left; transition: .18s ease; }
 .nav-item:hover { color: var(--text); background: rgba(255,255,255,.035); }
 .nav-item.is-active { color: #dfe8ef; background: linear-gradient(90deg, rgba(152,174,192,.14), rgba(152,174,192,.035)); box-shadow: inset 2px 0 var(--mint); }

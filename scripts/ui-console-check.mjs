@@ -46,8 +46,8 @@ function record(page, viewport, check, ok, detail = '') {
 async function probeContrast(page) {
   return page.evaluate(() => {
     const parseColor = (str) => {
-      const m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(str ?? '');
-      return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+      const m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?/.exec(str ?? '');
+      return m ? [Number(m[1]), Number(m[2]), Number(m[3]), m[4] !== undefined ? Number(m[4]) : 1] : null;
     };
     const luminance = ([r, g, b]) => {
       const f = (c) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
@@ -58,25 +58,47 @@ async function probeContrast(page) {
       const hi = la > lb ? la : lb; const lo = la > lb ? lb : la;
       return (hi + 0.05) / (lo + 0.05);
     };
-    const effectiveBackground = (el) => {
+    // Composited background: walk ancestors bottom-up, blending any alpha
+    // (chips/panels use translucent overlays; gradients are skipped).
+    const compositedBackground = (el) => {
+      const chain = [];
       let node = el;
-      while (node && node !== document.body && node !== document.documentElement) {
-        const bg = getComputedStyle(node).backgroundColor;
-        const c = parseColor(bg);
-        if (c && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return c;
+      while (node && node !== document.documentElement) { chain.push(node); node = node.parentElement; }
+      chain.reverse();
+      let acc = null;
+      for (const nd of chain) {
+        const c = parseColor(getComputedStyle(nd).backgroundColor);
+        if (!c) continue;
+        const a = c[3];
+        if (acc === null) { acc = [c[0], c[1], c[2]]; continue; }
+        acc = [c[0] * a + acc[0] * (1 - a), c[1] * a + acc[1] * (1 - a), c[2] * a + acc[2] * (1 - a)];
+      }
+      return acc ?? parseColor(getComputedStyle(document.body).backgroundColor) ?? [10, 16, 24];
+    };
+    const isActuallyVisible = (el) => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return false;
+      if (rect.left > window.innerWidth || rect.right < 0) return false; // offscreen drawer
+      let node = el;
+      while (node) {
+        if (node.nodeType !== 1) break;
+        const s = getComputedStyle(node);
+        if (s.display === 'none' || s.visibility === 'hidden' || s.opacity === '0') return false;
+        if (node.getAttribute && node.getAttribute('aria-hidden') === 'true') return false;
         node = node.parentElement;
       }
-      return parseColor(getComputedStyle(document.body).backgroundColor) ?? [10, 16, 24];
+      return true;
     };
     const lows = [];
     const els = Array.from(document.querySelectorAll('h1, h2, h3, strong, .eyebrow, .nav-item span, p'));
     for (const el of els.slice(0, 400)) {
       if (!el.textContent?.trim()) continue;
+      if (!isActuallyVisible(el)) continue; // ignore closed/offscreen drawers
       const style = getComputedStyle(el);
       if (style.color.includes('rgba(0, 0, 0, 0)') || style.color === 'transparent') continue;
       const fg = parseColor(style.color);
       if (!fg) continue;
-      const ratio = contrast(fg, effectiveBackground(el));
+      const ratio = contrast([fg[0], fg[1], fg[2]], compositedBackground(el));
       if (ratio < 4.5) lows.push({ ratio: Math.round(ratio * 100) / 100, text: el.textContent.trim().slice(0, 40), tag: el.tagName });
     }
     return lows.slice(0, 8);
