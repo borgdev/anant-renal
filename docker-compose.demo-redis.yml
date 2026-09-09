@@ -1,0 +1,30 @@
+# One-shot Redis real-time demo overlay (R4).
+#
+# Brings the whole enterprise demo up on the real-time event fabric in one
+# command: Postgres (event store) + Redis (BullMQ job bus + redis-streams event
+# broker) + the app running the dialysis-enterprise world (R1 complete data).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.demo-redis.yml up -d --build
+#
+# Then open:
+#   Exec console   http://localhost:3000/exec/          → Swarm control shows
+#                                                          "LIVE · redis-streams"
+#   Admin console  http://localhost:3000/admin/ui/
+#   Broker health  http://localhost:3000/health         → broker.ok
+#
+# Tear down: docker compose -f docker-compose.yml -f docker-compose.demo-redis.yml down
+name: anant-health-demo
+
+services:
+  anant-health-app:
+    environment:
+      # Real-time event fabric over the bundled redis service.
+      HH_EVENTBROKER_DRIVER: redis-streams
+      HH_JOBBUS_DRIVER: bullmq
+      # The complete-data enterprise world (42 patients across 3 TN regions).
+      HH_DEMO_SIM: "1"
+      HH_DEMO_SIM_SCENARIO: dialysis-enterprise
+      # Expose the demo on the standard dev port (host) for parity with npm run dev.
+      HH_HTTP_PORT: 3000
+    ports:
+      - "3000:3000"

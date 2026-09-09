@@ -54,9 +54,27 @@ ANANT_ENV=demo HH_EVENTBROKER_DRIVER=redis-streams HH_REDIS_URL=redis://localhos
       sim + drops `sim:*` realms and demo episodes/releases; verified realms and
       the outbox backlog are untouched.
 
-## 5. What R4 still gates on
+## 5. Hardening tooling (added)
 
-- A Puppeteer/Playwright console-error harness over the SPA (U#8 residual).
-- Packaging the Redis-mode stack (`HH_EVENTBROKER_DRIVER=redis-streams` +
-  `dialysis-enterprise`) as a one-shot `docker compose up` demo profile.
-- Full keyboard/contrast/responsive sweep per U#8 checklist.
+- **Automated console/a11y/responsive harness** — `scripts/ui-console-check.mjs`
+  (Playwright). API-login → drives every exec page at desktop + tablet widths,
+  asserting zero console/page errors, keyboard Tab reachability, no horizontal
+  overflow, and AA text contrast.
+  ```bash
+  npm i -D playwright && npx playwright install chromium
+  node scripts/ui-console-check.mjs --base http://127.0.0.1:3000
+  ```
+- **One-shot Redis real-time demo** — `docker-compose.demo-redis.yml` overlay:
+  ```bash
+  docker compose -f docker-compose.yml -f docker-compose.demo-redis.yml up -d --build
+  ```
+  Postgres + Redis (BullMQ + `redis-streams`) + the app on the
+  `dialysis-enterprise` world at http://localhost:3000 — Swarm control shows
+  `LIVE · redis-streams`. Tear down with the matching `down`.
+
+## 6. What still gates on
+
+- Wiring the real region hierarchy (admin ontology operating model) into the
+  regional board instead of id-derived region names (R2 follow-up).
+- Full manual keyboard/contrast/responsive sweep across every page as a spot
+  pass over the automated harness results.
