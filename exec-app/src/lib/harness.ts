@@ -341,6 +341,14 @@ export interface HarnessPatient {
   };
 }
 
+/* ---------- Patient / Member intelligence (lightweight ledger) ---------- */
+
+/** One patient's recent realm events (newest-first, small JSON) — the Patient
+ *  intelligence page uses this instead of the full global runtime substrate. */
+export async function fetchPatientEvents(patientId: string, limit = 120): Promise<{ patientId: string; total: number; events: RuntimeEventRow[] }> {
+  return harnessJson<{ patientId: string; total: number; events: RuntimeEventRow[] }>(`/admin/swarm/patients/${encodeURIComponent(patientId)}/events?limit=${limit}`);
+}
+
 /** Fetch every patient across live realms — backs the Patient Intelligence selector. */
 export async function fetchPatients(): Promise<HarnessPatient[]> {
   try {

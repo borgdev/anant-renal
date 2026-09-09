@@ -210,4 +210,13 @@ describe('early-warning watch over /admin/swarm/early-warning', () => {
     expect(defaultRegion).toBeTruthy();
     expect(defaultRegion.patients).toBe(6);
   });
+
+  it('serves a lightweight patient-scoped ledger tail (Patient/Member intelligence)', async () => {
+    const res = await app.inject({ method: 'GET', url: '/admin/swarm/patients/nobody/events?limit=20', headers: { cookie: cookie(admin) } });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.patientId).toBe('nobody');
+    expect(typeof body.total).toBe('number');
+    expect(Array.isArray(body.events)).toBe(true);
+  });
 });

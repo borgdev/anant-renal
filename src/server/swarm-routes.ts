@@ -673,6 +673,21 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
     return { ok: true };
   });
 
+  // Patient/Member intelligence — a lightweight, patient-scoped recent-event
+  // tail (the page used to pull the whole global 1500-event substrate). Only
+  // one patient's ledger rows are returned, newest-first, small JSON.
+  app.get<{ Params: { patientId: string }; Querystring: { limit?: string } }>(
+    '/admin/swarm/patients/:patientId/events',
+    async (req) => {
+      const pid = req.params.patientId;
+      const raw = req.query.limit;
+      const limit = raw !== undefined ? Math.max(1, Math.min(parseInt(String(raw), 10) || 120, 300)) : 120;
+      const all = projectRealmEvents(opts.events?.() ?? []);
+      const own = all.filter((e) => e.patientId === pid || e.subjectId === pid || e.subjectId === `patient:${pid}`);
+      return { patientId: pid, total: own.length, events: own.slice(-limit).reverse() };
+    },
+  );
+
   // Evidence
   app.get('/admin/swarm/evidence', async () => ({ evidence: await ws().listEvidence() }));
   app.post<{ Body: { evidenceId?: string; evidenceType?: string; subjectId?: string; exactText: string; confidenceBasisPoints?: number; questionId?: string; humanConfirmed?: boolean } }>(

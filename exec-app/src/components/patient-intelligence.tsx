@@ -15,7 +15,7 @@ import {
   Target,
 } from "lucide-react";
 import { assessmentResponses, outcomeEpisodes, patientTimeline } from "../lib/catalogs";
-import { fetchEarlyWarning, startLiveRuntime, startLivePatients, type EarlyWarningReadout, type HarnessPatient, type RuntimeSnapshot } from "../lib/harness";
+import { fetchEarlyWarning, fetchPatientEvents, startLivePatients, type EarlyWarningReadout, type HarnessPatient, type RuntimeEventRow } from "../lib/harness";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, ProgressBar, Tag } from "./ui";
 
@@ -59,7 +59,8 @@ function riskTone(risk?: number): "mint" | "amber" | "red" {
 export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: OpenWorkflowDetail }) {
   const [patients, setPatients] = useState<HarnessPatient[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [runtime, setRuntime] = useState<RuntimeSnapshot | null>(null);
+  const [patientEvents, setPatientEvents] = useState<RuntimeEventRow[]>([]);
+  const [ledgerTotal, setLedgerTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [watch, setWatch] = useState<EarlyWarningReadout[] | null>(null);
 
@@ -89,10 +90,29 @@ export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: Op
       setSelectedId((prev) => (prev && list.some((p) => p.id === prev) ? prev : list[0]?.id ?? ""));
       setLoading(false);
     }, { intervalMs: 8000 });
-    // Live runtime substrate (events, evidence, counts) streams in separately.
-    const stopRuntime = startLiveRuntime((snapshot) => { if (active) setRuntime(snapshot); }, { roleId: "fa" });
-    return () => { active = false; stopPatients(); stopRuntime(); };
+    return () => { active = false; stopPatients(); };
   }, []);
+
+  // Lightweight patient-scoped ledger — fetch only the selected patient's recent
+  // events (the page used to subscribe to the full global runtime substrate,
+  // which made Member/Patient intelligence slow as the fleet grew).
+  const eventsReady = !loading && !!selectedId;
+  useEffect(() => {
+    if (!eventsReady) return;
+    let active = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const load = async () => {
+      try {
+        const row = await fetchPatientEvents(selectedId, 120);
+        if (!active) return;
+        setPatientEvents(row.events);
+        setLedgerTotal(row.total);
+      } catch { /* advisory — keep last known ledger */ }
+    };
+    void load();
+    timer = setInterval(() => void load(), 6000);
+    return () => { active = false; if (timer) clearInterval(timer); };
+  }, [eventsReady, selectedId]);
 
   const selected = useMemo(() => patients.find((p) => p.id === selectedId) ?? patients[0], [patients, selectedId]);
 
@@ -108,13 +128,10 @@ export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: Op
   const assessment = st.lastAssessment && typeof st.lastAssessment === "object"
     ? (st.lastAssessment as { id?: string; score?: number; band?: string; at?: string })
     : undefined;
-  // Patient-scoped ledger: realm effects carry patientId (projected server-side), so
-  // we only render this patient's events; fall back to realm/subject match for
-  // untagged rows. Cap at the latest 50, newest first, to keep the DOM small.
-  const realmEvents = (runtime?.events ?? [])
-    .filter((e) => (e.patientId ? e.patientId === selected?.id : e.subjectId === selected?.realmId || e.subjectId === selected?.id))
-    .slice(-50)
-    .reverse();
+  // Patient-scoped ledger: the endpoint returns this patient's events only,
+  // newest-first; cap at the latest 50 to keep the DOM small.
+  const realmEvents = patientEvents.slice(0, 50);
+  const evidenceTotal = ledgerTotal || realmEvents.length;
   const scope = selected ? `${selected.realmId} · ${selected.id}` : "—";
 
   function openDetail(kind: string, title: string, summary: string, value: string, tone: "mint" | "amber" | "red" | "blue" = "mint") {
@@ -127,7 +144,7 @@ export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: Op
       tone,
       owner: "Facility coordinator",
       scope,
-      metrics: [{ label: "Evidence objects", value: String(runtime?.counts.evidence ?? 0) }, { label: "Realm", value: selected?.realmId ?? "—" }],
+      metrics: [{ label: "Evidence objects", value: String(evidenceTotal) }, { label: "Realm", value: selected?.realmId ?? "—" }],
       evidence: [],
       steps: [{ label: "Observe", detail: "Source events accepted", state: "done" }, { label: "Reconcile", detail: "Bitemporal state assembled", state: "done" }, { label: "Review", detail: summary, state: "current" }, { label: "Verify", detail: "Await future event", state: "pending" }],
       primary: { label: "Open Shared Intelligence", target: "intelligence" },
@@ -174,7 +191,7 @@ export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: Op
             </select>
           </label>
           <Tag tone="violet"><ShieldCheck size={12} /> {selected.realmId} · {patients.length} patients</Tag>
-          <button className="button button-secondary" type="button" onClick={() => openDetail("Evidence brief", "Evidence brief", "Review the exact sources and provenance before exporting.", `${runtime?.counts.evidence ?? 0} objects`)}><ClipboardList size={15} /> Inspect evidence</button>
+          <button className="button button-secondary" type="button" onClick={() => openDetail("Evidence brief", "Evidence brief", "Review the exact sources and provenance before exporting.", `${evidenceTotal} objects`)}><ClipboardList size={15} /> Inspect evidence</button>
         </div>
       </header>
 
@@ -189,7 +206,7 @@ export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: Op
             <span><ShieldCheck size={13} /> {problems.length ? `${problems.length} problem(s) on record` : "No problems listed"}</span>
           </div>
         </div>
-        <div className="trust-score"><small>Deterioration risk</small><strong>{risk !== undefined ? `${Math.round(risk * 100)}%` : "—"}</strong><span>{runtime?.counts.evidence ?? 0} evidence objects reconciled</span></div>
+        <div className="trust-score"><small>Deterioration risk</small><strong>{risk !== undefined ? `${Math.round(risk * 100)}%` : "—"}</strong><span>{evidenceTotal} evidence objects reconciled</span></div>
       </section>
 
       <section className="panel patient-early-watch" aria-label="Early-warning watch">
