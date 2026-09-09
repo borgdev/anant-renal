@@ -13,6 +13,11 @@
  *                                          red-team runs + findings + drift
  *   POST /admin/swarm/anemia/red-team    — P1: run rt-013..rt-016 vs live policy
  *   POST /admin/swarm/anemia/drift       — P1: KS drift snapshot (durable)
+ *   GET  /admin/swarm/anemia/validation  — P3: external validation report
+ *   POST /admin/swarm/anemia/validation/run — P3: run external validation
+ *   GET  /admin/swarm/anemia/study       — P3: study-mode acceptance records/stats
+ *   POST /admin/swarm/anemia/study/record  — P3: record a clinician decision
+ *   GET  /admin/swarm/anemia/mdr         — P3: MDR / EU-AI-Act technical file
  *
  * Everything runs through the same durable workspace, outcome coordinator and
  * generic platform contracts as renal/payer. Episodes flow into My Work for the
@@ -33,6 +38,11 @@ import {
   esaRedTeamProbe, isEsaFinding, recordEsaDrift,
 } from '../swarm/anemia-governance.js';
 import { esaRecommendTrained, loadEsaArtifact } from '../swarm/anemia-model.js';
+import {
+  ensureEsaMdrFile, esaAcceptanceStats, getEsaMdrFile, getEsaValidationReport,
+  listEsaStudyRecords, recordEsaStudyDecision, runEsaValidation,
+  type EsaClinicianAction,
+} from '../swarm/anemia-validation.js';
 import type { RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
 
 export interface AnemiaRouteOptions {
@@ -177,6 +187,9 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
       drift,
       findings,
       posture: ESA_REGULATORY_POSTURE,
+      validation: await getEsaValidationReport(store),
+      study: esaAcceptanceStats(await listEsaStudyRecords(store)),
+      mdr: await ensureEsaMdrFile(store),
     };
   });
 
@@ -222,5 +235,68 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
     const current = body.current ?? baseline.map((v) => Number((v + 0.2).toFixed(1)));
     const snapshot = await recordEsaDrift(ws(), { baseline, current, metric: body.metric ?? 'hgb-distribution-ks' });
     return { ok: true, snapshot };
+  });
+
+  /* ==================================================================
+   * P3 — external validation & regulatory readiness
+   * ================================================================== */
+
+  /** Durable external-validation report (consumed by assurance / gates). */
+  app.get('/admin/swarm/anemia/validation', async () => {
+    await ensureEsaGovernance();
+    const report = await getEsaValidationReport(ws());
+    return { registered: Boolean(report), ...(report ? { report } : {}) };
+  });
+
+  /** Run external validation of the trained model on the site-B cohort. */
+  app.post<{ Body: { siteId?: string; seed?: number; cohortSize?: number } }>('/admin/swarm/anemia/validation/run', async (req, reply) => {
+    await ensureEsaGovernance();
+    const artifact = loadEsaArtifact();
+    if (!artifact) return error(reply, 404, 'esa-trained-artifact-not-found');
+    const body = req.body ?? ({} as { siteId?: string; seed?: number; cohortSize?: number });
+    const report = await runEsaValidation(ws(), artifact, {
+      ...(body.siteId ? { siteId: body.siteId } : {}),
+      ...(body.seed !== undefined ? { seed: body.seed } : {}),
+      ...(body.cohortSize !== undefined ? { cohortSize: body.cohortSize } : {}),
+    });
+    return { ok: true, report };
+  });
+
+  /** Study-mode acceptance records + analytics (suggest, don't auto-act). */
+  app.get('/admin/swarm/anemia/study', async () => {
+    await ensureEsaGovernance();
+    const records = await listEsaStudyRecords(ws());
+    return { records, stats: esaAcceptanceStats(records) };
+  });
+
+  /** Record one clinician decision on a Class-C suggestion. */
+  app.post<{ Body: { patientId: string; recommendedDose: number; clinicianAction: EsaClinicianAction; adjustedDose?: number; by?: string; note?: string; window: { currentHgb: number; currentDose: number }; modelId?: string; modelVersion?: string } }>('/admin/swarm/anemia/study/record', async (req, reply) => {
+    await ensureEsaGovernance();
+    const body = req.body ?? ({} as Partial<{ patientId: string; recommendedDose: number; clinicianAction: EsaClinicianAction; adjustedDose?: number; by?: string; note?: string; window: { currentHgb: number; currentDose: number }; modelId?: string; modelVersion?: string }>);
+    if (!body.patientId || body.recommendedDose === undefined || !body.clinicianAction || !body.window) {
+      return error(reply, 400, 'patientId, recommendedDose, clinicianAction and window are required');
+    }
+    const actions: EsaClinicianAction[] = ['accepted', 'adjusted', 'rejected', 'withheld'];
+    if (!actions.includes(body.clinicianAction)) return error(reply, 400, `clinicianAction must be one of ${actions.join('|')}`);
+    const record = await recordEsaStudyDecision(ws(), {
+      patientId: body.patientId,
+      modelId: body.modelId ?? 'anemia.esa-dose-v1',
+      modelVersion: body.modelVersion ?? '1.0.0',
+      recommendedDose: body.recommendedDose,
+      clinicianAction: body.clinicianAction,
+      ...(body.adjustedDose !== undefined ? { adjustedDose: body.adjustedDose } : {}),
+      by: body.by ?? 'Dr. Alvarez (nephrology)',
+      ...(body.note ? { note: body.note } : {}),
+      window: body.window,
+    });
+    const records = await listEsaStudyRecords(ws());
+    return { ok: true, record, stats: esaAcceptanceStats(records) };
+  });
+
+  /** MDR / EU-AI-Act technical file (risk class, intended use, XAI + HITL). */
+  app.get('/admin/swarm/anemia/mdr', async () => {
+    await ensureEsaGovernance();
+    const file = await ensureEsaMdrFile(ws());
+    return { file };
   });
 }

@@ -601,3 +601,13 @@ button.drillable-surface:not(:disabled):hover { border-color: rgba(152,174,192,.
 .esa-drift-row em { color: var(--faint); font: 6px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .esa-gov-note { margin: 2px 0 0; color: var(--faint); font-size: 12px; line-height: 1.5; }
 @media (max-width: 900px) { .esa-gov-grid { grid-template-columns: 1fr; } .esa-gate-row, .esa-probe-row { grid-template-columns: auto minmax(0, 1fr) auto; } .esa-gate-row small, .esa-probe-row small { grid-column: 2; } }
+
+/* ============ P3 — external validation & regulatory file ============ */
+.esa-p3-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.esa-val-metrics { margin-top: 8px; display: grid; gap: 6px; }
+.esa-val-metrics .esa-drift-row em { color: var(--text); }
+.esa-mdr-intent { margin: 6px 0 0; padding: 9px 10px; border-left: 2px solid var(--violet); background: rgba(180,156,255,.045); color: var(--muted); font-size: 12px; line-height: 1.5; }
+.esa-mdr-list { margin: 6px 0 0; padding: 0 0 0 16px; display: grid; gap: 3px; color: var(--faint); font-size: 12px; line-height: 1.4; }
+.esa-mdr-list li::marker { color: var(--violet); }
+.esa-p3-grid .esa-flags { margin-top: 8px; }
+@media (max-width: 1180px) { .esa-p3-grid { grid-template-columns: 1fr; } }

@@ -32,16 +32,24 @@ import {
   ESA_MODEL_ID,
   fetchAnemiaAssurance,
   fetchAnemiaFeatures,
+  fetchAnemiaMdr,
   fetchAnemiaState,
+  fetchAnemiaStudy,
+  fetchAnemiaValidation,
+  recordAnemiaStudy,
   resetAnemiaDemo,
   runAnemiaRedTeam,
+  runAnemiaValidation,
   seedAnemiaDemo,
   snapshotAnemiaDrift,
   type AnemiaStateView,
   type EsaAssuranceView,
   type EsaDirection,
   type EsaFeaturesView,
+  type EsaMdrFileView,
   type EsaRecommendation,
+  type EsaStudyView,
+  type EsaValidationView,
 } from "../lib/anemia";
 import type { NavigationId } from "../lib/types";
 import { Eyebrow, Metric, PanelExpand, Tag } from "./ui";
@@ -82,6 +90,11 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
   const [assurance, setAssurance] = useState<EsaAssuranceView | null>(null);
   const [govBusy, setGovBusy] = useState<"redteam" | "drift" | null>(null);
   const [govError, setGovError] = useState<string | null>(null);
+  const [validation, setValidation] = useState<EsaValidationView | null>(null);
+  const [study, setStudy] = useState<EsaStudyView | null>(null);
+  const [mdr, setMdr] = useState<EsaMdrFileView | null>(null);
+  const [p3Busy, setP3Busy] = useState<"validation" | "study" | null>(null);
+  const [p3Error, setP3Error] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     patientId: "p-esa-1",
@@ -134,6 +147,34 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
     try { await snapshotAnemiaDrift(); await reloadAssurance(); }
     catch (err) { setGovError(err instanceof Error ? err.message : "drift snapshot failed"); }
     finally { setGovBusy(null); }
+  };
+
+  const reloadP3 = async () => {
+    try {
+      const [v, s, m] = await Promise.all([fetchAnemiaValidation(), fetchAnemiaStudy(), fetchAnemiaMdr()]);
+      setValidation(v); setStudy(s); setMdr(m.file); setP3Error(null);
+    } catch (err) { setP3Error(err instanceof Error ? err.message : "P3 load failed"); }
+  };
+
+  useEffect(() => { void reloadP3(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const runExternalValidation = async () => {
+    setP3Busy("validation"); setP3Error(null);
+    try { await runAnemiaValidation(); await reloadP3(); }
+    catch (err) { setP3Error(err instanceof Error ? err.message : "external validation failed"); }
+    finally { setP3Busy(null); }
+  };
+
+  const recordSampleStudy = async () => {
+    setP3Busy("study"); setP3Error(null);
+    try {
+      // “Suggest, don’t auto-act” — three representative clinician decisions.
+      await recordAnemiaStudy({ patientId: "p-esa-1", recommendedDose: 9500, clinicianAction: "accepted", by: "Dr. Alvarez (nephrology)", window: { currentHgb: 9.4, currentDose: 8000 } });
+      await recordAnemiaStudy({ patientId: "p-esa-3", recommendedDose: 10000, clinicianAction: "adjusted", adjustedDose: 8000, by: "Dr. Chen", note: "Prefer slower titration", window: { currentHgb: 9.6, currentDose: 8000 } });
+      await recordAnemiaStudy({ patientId: "p-esa-5", recommendedDose: 6000, clinicianAction: "withheld", by: "Dr. Alvarez (nephrology)", window: { currentHgb: 10.9, currentDose: 8000 } });
+      await reloadP3();
+    } catch (err) { setP3Error(err instanceof Error ? err.message : "study record failed"); }
+    finally { setP3Busy(null); }
   };
 
   const numOr = (raw: string): number | undefined => (raw.trim() === "" ? undefined : Number(raw));
@@ -452,6 +493,85 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
             </div>
           </div>
         )}
+      </section>
+
+      {/* ---- P3 · External validation & regulatory file ---- */}
+      <section className="panel esa-governance">
+        <div className="panel-title-row">
+          <div><Eyebrow>P3 · external validation &amp; regulatory readiness</Eyebrow><h2>Validation, study-mode &amp; MDR file</h2></div>
+          <div className="esa-gov-actions">
+            {validation?.report ? <Tag tone={validation.report.verdict.passed ? "mint" : "red"}>validation {validation.report.verdict.passed ? "passed" : "failed"}</Tag> : null}
+            {study ? <Tag tone="violet">acceptance {study.stats.acceptanceRatePct}%</Tag> : null}
+            <button className="button button-secondary" type="button" disabled={p3Busy !== null} onClick={() => void runExternalValidation()}>{p3Busy === "validation" ? <RefreshCw size={14} className="spin" /> : <Beaker size={14} />} Run external validation</button>
+            <button className="button button-ghost" type="button" disabled={p3Busy !== null} onClick={() => void recordSampleStudy()}>{p3Busy === "study" ? <RefreshCw size={14} className="spin" /> : <ClipboardCheck size={14} />} Record sample decisions</button>
+          </div>
+        </div>
+        {p3Error ? <div className="admin-notice is-error"><AlertTriangle size={15} /><span>{p3Error}</span></div> : null}
+        <div className="esa-p3-grid">
+          <div className="esa-gov-col">
+            <Eyebrow>External cohort · independent site-B</Eyebrow>
+            {!validation?.report ? (
+              <p className="esa-gov-note">No external validation report yet — run “Run external validation” to score the trained model against an independent cohort (protocol: MAE, % within one dose, quartiles, Spearman, Hb-forecast &lt; 10%).</p>
+            ) : (
+              <>
+                <div className="esa-gov-facts">
+                  <span><small>Site / cohort</small><strong>{validation.report.siteId} · {validation.report.cohortSize}</strong></span>
+                  <span><small>MAE (u/wk)</small><strong>{validation.report.metrics.maeUnits}</strong></span>
+                  <span><small>Within one step</small><strong>{validation.report.metrics.withinOneStepPct}%</strong></span>
+                </div>
+                <div className="esa-val-metrics">
+                  <div className="esa-drift-row"><span><Radar size={12} /> Spearman</span><em>{validation.report.metrics.spearman}</em><Tag tone="mint">rank</Tag></div>
+                  <div className="esa-drift-row"><span><Activity size={12} /> Hb-forecast MAE</span><em>{validation.report.metrics.hbForecastMaePct}%</em><Tag tone={validation.report.metrics.hbForecastMaePct < 10 ? "mint" : "amber"}>&lt;10% bar</Tag></div>
+                  <div className="esa-drift-row"><span><Gauge size={12} /> Error quartiles</span><em>q1 {validation.report.metrics.errorQuartiles.q1} · med {validation.report.metrics.errorQuartiles.median} · q3 {validation.report.metrics.errorQuartiles.q3}</em></div>
+                </div>
+                <p className="esa-gov-note">{validation.report.verdict.reason} Report for {validation.report.modelId} v{validation.report.modelVersion} is durable and consumed by assurance.</p>
+              </>
+            )}
+          </div>
+          <div className="esa-gov-col">
+            <Eyebrow>Study-mode · suggest, don&apos;t auto-act</Eyebrow>
+            {study ? (
+              <>
+                <div className="esa-gov-facts">
+                  <span><small>Decisions</small><strong>{study.stats.total}</strong></span>
+                  <span><small>Acceptance</small><strong>{study.stats.acceptanceRatePct}%</strong></span>
+                  <span><small>Clinician retained control</small><strong>{study.stats.clinicianRetainedControlPct}%</strong></span>
+                </div>
+                <div className="esa-probe-list">
+                  {study.records.slice(0, 6).map((r) => (
+                    <div className="esa-probe-row" key={r.id}>
+                      <strong>{r.patientId}</strong>
+                      <span>{r.clinicianAction}</span>
+                      <small>{r.by}{r.adjustedDose !== undefined ? ` → ${r.adjustedDose}` : ""}</small>
+                      <Tag tone={r.clinicianAction === "accepted" ? "mint" : r.clinicianAction === "adjusted" ? "amber" : "red"}>{r.clinicianAction}</Tag>
+                    </div>
+                  ))}
+                </div>
+                <p className="esa-gov-note">Every suggestion is Class C — the clinician accepts, adjusts, rejects or withholds; the platform records adoption (the paper’s physician-trust finding).</p>
+              </>
+            ) : null}
+          </div>
+          <div className="esa-gov-col">
+            <Eyebrow>MDR / EU AI Act technical file</Eyebrow>
+            {mdr ? (
+              <>
+                <div className="esa-gov-facts">
+                  <span><small>Risk class</small><strong>{mdr.riskClass.aiAct}</strong></span>
+                  <span><small>MDR</small><strong>{mdr.riskClass.mdr}</strong></span>
+                  <span><small>Autonomy</small><strong>{mdr.hitlDesignRecord.autonomy}</strong></span>
+                </div>
+                <p className="esa-mdr-intent">{mdr.intendedUse}</p>
+                <ul className="esa-mdr-list">
+                  {mdr.clinicalEvaluationPlan.map((p) => <li key={p}>{p}</li>)}
+                </ul>
+                <div className="esa-flags">
+                  <span className="esa-chip"><ShieldCheck size={11} /> Class {mdr.hitlDesignRecord.approvalClass} · {mdr.hitlDesignRecord.role}</span>
+                  <span className="esa-chip">{mdr.synthetic ? "synthetic file — P3 real cohorts pending" : "real"}</span>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
       </section>
     </div>
   );

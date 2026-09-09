@@ -203,3 +203,89 @@ export function runAnemiaRedTeam(): Promise<{ ok: boolean; runs: Array<{ scenari
 export function snapshotAnemiaDrift(): Promise<{ ok: boolean; snapshot: { metric: string; status: string; ksStatistic: number; valueBasisPoints: number } }> {
   return anemiaJson("/admin/swarm/anemia/drift", { method: "POST" });
 }
+
+/* ======================================================================
+ * P3 — external validation & regulatory readiness
+ * ====================================================================== */
+
+export interface EsaValidationMetricsView {
+  n: number;
+  siteId: string;
+  maeUnits: number;
+  withinOneStepPct: number;
+  errorQuartiles: { q1: number; median: number; q3: number };
+  spearman: number;
+  hbForecastMaePct: number;
+}
+export interface EsaValidationReportView {
+  modelId: string;
+  modelVersion: string;
+  siteId: string;
+  cohortSize: number;
+  verdict: { passed: boolean; reason: string };
+  ranAt: string;
+  seed: number;
+  synthetic: boolean;
+  metrics: EsaValidationMetricsView;
+}
+export interface EsaAcceptanceStatsView {
+  total: number;
+  accepted: number;
+  adjusted: number;
+  rejected: number;
+  withheld: number;
+  acceptanceRatePct: number;
+  clinicianRetainedControlPct: number;
+}
+export type EsaClinicianAction = "accepted" | "adjusted" | "rejected" | "withheld";
+export interface EsaStudyRecordView {
+  id: string;
+  patientId: string;
+  modelId: string;
+  recommendedDose: number;
+  clinicianAction: EsaClinicianAction;
+  adjustedDose?: number;
+  by: string;
+  window: { currentHgb: number; currentDose: number };
+}
+export interface EsaMdrFileView {
+  version: string;
+  riskClass: { aiAct: string; mdr: string; rationale: string };
+  intendedUse: string;
+  clinicalEvaluationPlan: string[];
+  xaiEvidence: Record<string, boolean>;
+  hitlDesignRecord: { role: string; approvalClass: string; autonomy: string; audit: string; veto: string };
+  synthetic: boolean;
+}
+
+export interface EsaValidationView {
+  registered: boolean;
+  report?: EsaValidationReportView;
+}
+export interface EsaStudyView {
+  records: EsaStudyRecordView[];
+  stats: EsaAcceptanceStatsView;
+}
+
+export function fetchAnemiaValidation(): Promise<EsaValidationView> {
+  return anemiaJson<EsaValidationView>("/admin/swarm/anemia/validation");
+}
+
+export function runAnemiaValidation(): Promise<{ ok: boolean; report: EsaValidationReportView }> {
+  return anemiaJson("/admin/swarm/anemia/validation/run", { method: "POST" });
+}
+
+export function fetchAnemiaStudy(): Promise<EsaStudyView> {
+  return anemiaJson<EsaStudyView>("/admin/swarm/anemia/study");
+}
+
+export function recordAnemiaStudy(payload: {
+  patientId: string; recommendedDose: number; clinicianAction: EsaClinicianAction; adjustedDose?: number; by?: string; note?: string;
+  window: { currentHgb: number; currentDose: number };
+}): Promise<{ ok: boolean; record: EsaStudyRecordView; stats: EsaAcceptanceStatsView }> {
+  return anemiaJson("/admin/swarm/anemia/study/record", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export function fetchAnemiaMdr(): Promise<{ file: EsaMdrFileView }> {
+  return anemiaJson<{ file: EsaMdrFileView }>("/admin/swarm/anemia/mdr");
+}

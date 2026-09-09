@@ -78,7 +78,10 @@ export type WorkspaceKind =
   | 'assurance-finding'
   | 'green-team-run'
   | 'delegated-work'
-  | 'pack-activation';
+  | 'pack-activation'
+  | 'esa-validation-report'
+  | 'esa-study-record'
+  | 'esa-mdr-file';
 
 export interface WorkspaceDoc {
   id: string;
@@ -2202,6 +2205,9 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'assurance-finding',
   'green-team-run',
   'delegated-work',
+  'esa-validation-report',
+  'esa-study-record',
+  'esa-mdr-file',
 ];
 
 function slug(input: string): string {
