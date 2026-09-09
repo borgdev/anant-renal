@@ -19,7 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { agentManifests, ecosystemDemo, operatingModel } from "../lib/catalogs";
-import { startLiveRuntime, fetchRuntimeSnapshot, mutateRuntime, type PolicySimulation, type RuntimeInsightRow, type RuntimeSnapshot } from "../lib/harness";
+import { startLiveFeed, startLiveRuntime, fetchRuntimeSnapshot, mutateRuntime, type LiveFeedView, type PolicySimulation, type RuntimeInsightRow, type RuntimeSnapshot } from "../lib/harness";
 import type { NavigationId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, PanelExpand, ProgressBar, Tag } from "./ui";
@@ -118,6 +118,7 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
   const [runtimeBusy, setRuntimeBusy] = useState(true);
   const [simulation, setSimulation] = useState<PolicySimulation | null>(null);
   const [lastNotice, setLastNotice] = useState<string | null>(null);
+  const [live, setLive] = useState<LiveFeedView | null>(null);
 
   const role = operatingModel.roles.find((item) => item.id === roleId) ?? operatingModel.roles[1];
   const scope = operatingModel.scopePath.find((item) => item.level === role.scopeLevel) ?? operatingModel.scopePath[0];
@@ -189,15 +190,25 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
       .slice(0, 5);
   }, [roleId, runtime]);
 
-  const visibleMessages = useMemo(() => runtime?.events.length ? runtime.events.slice(0, 6).map((event) => ({
-    time: new Date(event.recordedTime).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-    topic: event.eventType,
-    key: event.subjectId,
-    partition: event.sourceSystem,
-    offset: event.traceId.slice(0, 8),
-    type: messageType(event.eventType),
-    summary: messageSummary(event.eventType, event.payload),
-  })) : ecosystemDemo.messages.slice(0, 6), [runtime]);
+  const visibleMessages = useMemo(() => {
+    // R0 — prefer the broker-fed live tail when the server wires a live feed;
+    // otherwise fall back to the runtime (replay/ledger) events.
+    const liveRows = live?.driver ? live.events : [];
+    const source = liveRows.length ? liveRows : runtime?.events ?? [];
+    const rows = source.slice(0, 6);
+    if (!rows.length) return ecosystemDemo.messages.slice(0, 6);
+    return rows.map((event) => ({
+      time: new Date(event.recordedTime).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      topic: event.eventType,
+      key: event.subjectId ?? event.patientId ?? "—",
+      partition: event.sourceSystem,
+      offset: (event.traceId ?? event.eventId).slice(0, 8),
+      type: messageType(event.eventType),
+      summary: messageSummary(event.eventType, event.payload ?? {}),
+    }));
+  }, [live, runtime]);
+
+  const liveDriverLabel = live?.driver ? (live.driver === "inprocess" ? "in-process" : live.driver) : null;
 
   const stepReplay = useCallback(async () => {
     if (runtimeBusy) return;
@@ -223,6 +234,13 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
     );
     return () => { active = false; stop(); };
   }, [roleId]);
+
+  // R0 — live broker-fed wall (poll /api/live/events; no-op when not wired).
+  useEffect(() => {
+    let active = true;
+    const stop = startLiveFeed((view) => { if (active) setLive(view); }, { intervalMs: 3000 });
+    return () => { active = false; stop(); };
+  }, []);
 
   useEffect(() => {
     if (!runtime?.counts.events) return;
@@ -449,8 +467,8 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
         </article>
 
         <article className="panel message-cockpit">
-          <div className="panel-title-row"><div><Eyebrow>Event fabric · Postgres outbox + Kafka bridge</Eyebrow><h2>Watch the enterprise think in events</h2></div><div className="message-controls"><button onClick={() => playing ? setPlaying(false) : void startReplay()} disabled={runtimeBusy} aria-label={playing ? "Pause replay" : "Play replay"} type="button">{playing ? <Pause size={14} /> : <Play size={14} />}</button><button onClick={() => { setPlaying(false); void stepReplay(); }} disabled={runtimeBusy || (runtime?.counts.events ?? 0) >= (runtime?.runtime.replayEventsAvailable ?? 0)} aria-label="Step one event" type="button"><StepForward size={14} /></button><button onClick={() => void resetReplay()} disabled={runtimeBusy} aria-label="Reset persisted replay" type="button"><RotateCcw size={14} /></button></div><PanelExpand /></div>
-          <div className="message-status"><span className={playing ? "is-live" : ""}><i /> {runtimeBusy ? "runtime working" : playing ? "replay running" : "runtime ready"}</span><span>{runtime?.counts.events ?? 0} / {runtime?.runtime.replayEventsAvailable ?? "—"} persisted events</span><span>contract · canonical-event@1</span><span>outbox · {runtime?.health.pendingOutbox ?? 0} pending</span></div>
+          <div className="panel-title-row"><div><Eyebrow>Event fabric · {liveDriverLabel ? `broker-fed · ${liveDriverLabel}` : "Postgres outbox + Kafka bridge"}</Eyebrow><h2>Watch the enterprise think in events</h2></div><div className="message-controls"><button onClick={() => playing ? setPlaying(false) : void startReplay()} disabled={runtimeBusy} aria-label={playing ? "Pause replay" : "Play replay"} type="button">{playing ? <Pause size={14} /> : <Play size={14} />}</button><button onClick={() => { setPlaying(false); void stepReplay(); }} disabled={runtimeBusy || (runtime?.counts.events ?? 0) >= (runtime?.runtime.replayEventsAvailable ?? 0)} aria-label="Step one event" type="button"><StepForward size={14} /></button><button onClick={() => void resetReplay()} disabled={runtimeBusy} aria-label="Reset persisted replay" type="button"><RotateCcw size={14} /></button></div><PanelExpand /></div>
+          <div className="message-status"><span className={playing ? "is-live" : ""}><i /> {liveDriverLabel ? `LIVE · ${liveDriverLabel}` : runtimeBusy ? "runtime working" : playing ? "replay running" : "runtime ready"}</span><span>{live?.driver ? `${live.retained} retained` : `${runtime?.counts.events ?? 0} / ${runtime?.runtime.replayEventsAvailable ?? "—"} persisted events`}</span><span>contract · canonical-event@1</span><span>outbox · {runtime?.health.pendingOutbox ?? 0} pending</span></div>
           <div className="message-table">
             <div className="message-head"><span>Time</span><span>Topic / message</span><span>Key</span><span>Source / trace</span><span>Type</span></div>
             {visibleMessages.map((message, index) => <button type="button" onClick={() => openMessageDetail(message)} className={index === 0 ? "message-row is-new drillable-surface" : "message-row drillable-surface"} key={`${message.topic}-${message.offset}`}><time>{message.time}</time><span><strong>{message.topic}</strong><small>{message.summary}</small></span><code>{message.key}</code><code>{message.partition}/{message.offset}</code><Tag tone={messageTone[message.type] ?? "neutral"}>{message.type}</Tag></button>)}

@@ -383,6 +383,57 @@ function statusOf(nba: HarnessNba): string {
   return nba.status === "awaiting-approval" ? "review" : "queued";
 }
 
+/* ---------- R0 — broker-fed live event wall ---------- */
+
+export interface LiveEventRow {
+  eventId: string;
+  eventType: string;
+  subjectId?: string;
+  subjectType?: string;
+  patientId?: string;
+  realmId?: string;
+  facilityId?: string;
+  sourceSystem: string;
+  recordedTime: string;
+  traceId: string;
+  status: string;
+  payload?: Record<string, unknown>;
+}
+export interface LiveFeedView {
+  driver: string;
+  topic: string;
+  retained: number;
+  events: LiveEventRow[];
+}
+
+/** Fetch the bounded broker-fed live tail (/api/live/events). */
+export async function fetchLiveEvents(): Promise<LiveFeedView> {
+  try {
+    return await harnessJson<LiveFeedView>("/api/live/events");
+  } catch {
+    // Feed not wired (e.g. an app instance without a live feed) — empty is the
+    // signal to fall back to the runtime replay feed.
+    return { driver: "", topic: "", retained: 0, events: [] };
+  }
+}
+
+/** Live wall subscription — polls /api/live/events; empty driver = unavailable. */
+export function startLiveFeed(
+  onView: (view: LiveFeedView) => void,
+  opts: { intervalMs?: number } = {},
+): () => void {
+  let stop = false;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const poll = async () => {
+    if (stop) return;
+    const view = await fetchLiveEvents();
+    if (!stop) onView(view);
+  };
+  void poll();
+  timer = setInterval(() => void poll(), opts.intervalMs ?? 3000);
+  return () => { stop = true; if (timer) clearInterval(timer); };
+}
+
 /* ---------- demo → RuntimeSnapshot mapping ---------- */
 
 function sha256ish(input: string): string {
