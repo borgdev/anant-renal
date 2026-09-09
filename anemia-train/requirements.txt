@@ -1,0 +1,6 @@
+# Anemia/ESA dose trainer (P2) — offline, dev-only tool. Serving/tests never
+# import this; they read the committed JSON artifact in anemia-train/artifacts/.
+# Already installed on the dev machine (torch 2.8 / numpy 1.26 / sklearn 1.8).
+torch>=2.2
+numpy>=1.24
+scikit-learn>=1.3

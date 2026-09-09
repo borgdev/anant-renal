@@ -111,6 +111,19 @@ export function runDemoReplay(): DemoData {
     assessLab({ id: 'l3', patientId: 'p3', loinc: '2777-1', value: 8.5, unit: 'mg/dL', observedAt: '2026-08-01T00:00:00Z' }),
   ]);
 
+  // P2 — ESA anemia supplement on the shared DemoData shape: an "Hb in target
+  // band" measure row + a Class-C ESA dose case from the synthetic ESA cohort.
+  // (API-backed loaders will replace these rows in production; the shape stays
+  // identical, so the measures/cases pages render them with no changes.)
+  const ESA_MEASURE_ID = 'esrd-qip.anemia-management';
+  const baseMeasures = measures.map((m) => ({ id: m.id, score: m.result.score, numerator: m.result.numerator, denominator: m.result.denominator }));
+  const measureRows = baseMeasures.some((m) => m.id === ESA_MEASURE_ID)
+    ? baseMeasures
+    : [...baseMeasures, { id: ESA_MEASURE_ID, score: 88, numerator: 7, denominator: 8 }];
+  const baseCases = Object.values(report.finalState.cases).map((c) => ({ id: c.id, patientId: c.patientId, facilityId: c.facilityId, status: c.status, reason: c.reason }));
+  const esaCase = { id: 'case:esa-1', patientId: 'p-esa-1', facilityId: 'fac-1', status: 'verifying', reason: 'Hb 9.4 below the 10–12 g/dL target — Class C ESA dose review (synthetic ESA cohort)' };
+  const caseRows = baseCases.some((c) => c.id === esaCase.id) ? baseCases : [...baseCases, esaCase];
+
   CACHE = {
     eventCount: report.eventCount,
     emittedCount: report.emittedCount,
@@ -118,8 +131,8 @@ export function runDemoReplay(): DemoData {
     worstSeverity: report.worstSeverity,
     auditValid: audit.verify() === null,
     packs: registry.all().map((p) => ({ id: p.id, version: p.version })),
-    measures: measures.map((m) => ({ id: m.id, score: m.result.score, numerator: m.result.numerator, denominator: m.result.denominator })),
-    cases: Object.values(report.finalState.cases).map((c) => ({ id: c.id, patientId: c.patientId, facilityId: c.facilityId, status: c.status, reason: c.reason })),
+    measures: measureRows,
+    cases: caseRows,
     labs,
     audit: audit.all().map((a) => ({ sequence: a.sequence, action: a.action, actorId: a.actorId, hash: a.hash })),
   };

@@ -32,6 +32,7 @@ import {
   deriveEsaAdvisorGate, ensureEsaModel, ensureEsaRedTeamScenarios, esaRecommendCovered,
   esaRedTeamProbe, isEsaFinding, recordEsaDrift,
 } from '../swarm/anemia-governance.js';
+import { esaRecommendTrained, loadEsaArtifact } from '../swarm/anemia-model.js';
 import type { RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
 
 export interface AnemiaRouteOptions {
@@ -77,9 +78,11 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
   });
 
   /** CDSS advise — given a patient's weekly feature window, return the dose
-   *  recommendation + latent position + drivers + guardrail verdicts. */
-  app.post<{ Body: EsaPatientWindow }>('/admin/swarm/anemia/advise', async (req, reply) => {
-    const body = req.body ?? ({} as Partial<EsaPatientWindow>);
+   *  recommendation + latent position + drivers + guardrail verdicts. The body
+   *  may select `model: 'reference'` (default surrogate) or `'trained'` (the P2
+   *  exported latent model, served under the SAME contract + gates). */
+  app.post<{ Body: EsaPatientWindow & { model?: 'reference' | 'trained' } }>('/admin/swarm/anemia/advise', async (req, reply) => {
+    const body = req.body ?? ({} as Partial<EsaPatientWindow & { model?: 'reference' | 'trained' }>);
     if (!body.patientId || body.currentHgb === undefined || body.onESA === undefined) {
       return error(reply, 400, 'patientId, currentHgb and onESA are required');
     }
@@ -100,7 +103,12 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
       ...(body.lastIronPanelAt ? { lastIronPanelAt: body.lastIronPanelAt } : {}),
       asOf: body.asOf ?? new Date().toISOString(),
     };
-    return { recommendation: esaRecommendCovered(window, { coverageGateEnabled: true }) };
+    if (body.model === 'trained') {
+      const artifact = loadEsaArtifact();
+      if (!artifact) return error(reply, 404, 'esa-trained-artifact-not-found');
+      return { recommendation: esaRecommendTrained(window, artifact), model: 'trained' };
+    }
+    return { recommendation: esaRecommendCovered(window, { coverageGateEnabled: true }), model: 'reference' };
   });
 
   app.post('/admin/swarm/anemia/demo', async () => {
@@ -123,6 +131,22 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
   app.post('/admin/swarm/anemia/reset', async () => {
     const removed = await dropAnemiaEpisodes(coord());
     return { ok: true, removed };
+  });
+
+  /** P2 — trained-model metadata (served through the same contract + gates). */
+  app.get('/admin/swarm/anemia/trained-model', async () => {
+    await ensureEsaGovernance();
+    const artifact = loadEsaArtifact();
+    if (!artifact) return { registered: false };
+    return {
+      registered: true,
+      model: artifact.model,
+      architecture: artifact.architecture,
+      metrics: artifact.metrics,
+      relevance: artifact.relevance,
+      golden: { window: artifact.golden.window, prediction: artifact.golden.prediction },
+      synthetic: artifact.synthetic,
+    };
   });
 
   /* ==================================================================

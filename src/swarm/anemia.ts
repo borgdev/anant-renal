@@ -157,6 +157,8 @@ export interface EsaPatientWindow {
   asOf: string;
 }
 
+export type EsaModelKind = 'reference-surrogate' | 'trained';
+
 export interface EsaRecommendation {
   patientId: string;
   inTargetBand: boolean;
@@ -167,7 +169,7 @@ export interface EsaRecommendation {
   delta: number;
   direction: 'hold' | 'increase' | 'reduce' | 'suspend' | 'blocked';
   drivers: Array<{ id: string; label: string; relevance: number }>;
-  model: { id: string; version: string; kind: 'reference-surrogate' };
+  model: { id: string; version: string; kind: EsaModelKind };
   synthetic: boolean;
   note: string;
 }

@@ -19,7 +19,8 @@ export interface EsaFeature {
 }
 
 export interface EsaTargetBand { min: number; max: number }
-export interface EsaModelInfo { id: string; version: string; kind: "reference-surrogate" }
+export type EsaModelKind = "reference-surrogate" | "trained";
+export interface EsaModelInfo { id: string; version: string; kind: EsaModelKind }
 export interface EsaSafety { posture: string; approvalClass: string; synthetic: boolean }
 
 export interface EsaFeaturesView {

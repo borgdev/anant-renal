@@ -1,0 +1,31 @@
+{
+  "format": "anant-esa-feature-catalog@1",
+  "description": "Single source of truth for the anemia/ESA feature vector. Mirrors src/swarm/anemia.ts (ESA_FEATURES / HGB_TARGET / ESA_DOSE_STEP). A TS drift test asserts this file equals the TS constants, so the Python trainer and the TS server can never drift apart.",
+  "hgbTarget": { "min": 10, "max": 12 },
+  "doseStep": 500,
+  "features": [
+    { "id": "hgb", "label": "Hemoglobin", "loinc": "718-7", "unit": "g/dL", "min": 5, "max": 19, "relevance": 0.12 },
+    { "id": "mcv", "label": "Mean corpuscular volume", "loinc": "787-2", "unit": "fL", "min": 55, "max": 130, "relevance": 0.16 },
+    { "id": "ferritin", "label": "Ferritin", "loinc": "2276-4", "unit": "ng/mL", "min": 5, "max": 3000, "relevance": 0.05 },
+    { "id": "transferrinSat", "label": "Transferrin saturation", "unit": "%", "min": 5, "max": 80, "relevance": 0.06 },
+    { "id": "crp", "label": "C-reactive protein", "unit": "mg/L", "min": 0.1, "max": 300, "relevance": 0.05 },
+    { "id": "calcium", "label": "Calcium", "unit": "mg/dL", "min": 6, "max": 13, "relevance": 0.08 },
+    { "id": "pth", "label": "Parathyroid hormone", "unit": "pg/mL", "min": 5, "max": 1500, "relevance": 0.04 },
+    { "id": "priorEpo", "label": "Prior EPO dose", "unit": "units/wk", "min": 1, "max": 20000, "relevance": 0.4 }
+  ],
+  "vector": {
+    "inputDim": 20,
+    "layout": [
+      { "kind": "hgb-week", "count": 12, "feature": "hgb" },
+      { "kind": "feature", "id": "mcv" },
+      { "kind": "feature", "id": "ferritin" },
+      { "kind": "feature", "id": "transferrinSat" },
+      { "kind": "feature", "id": "crp" },
+      { "kind": "feature", "id": "calcium" },
+      { "kind": "feature", "id": "pth" },
+      { "kind": "feature", "id": "priorEpo" },
+      { "kind": "indicator", "id": "onESA" }
+    ],
+    "normalize": "per-feature-domain: (v - min) / (max - min) * 2 - 1, clamped to [-1, 1]"
+  }
+}
