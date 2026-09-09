@@ -7,6 +7,8 @@
  * 'provider' (it never flips the operating lens the way the payer demo does).
  */
 
+import { responseOrThrow } from "./session";
+
 export interface EsaFeature {
   id: string;
   label: string;
@@ -141,14 +143,7 @@ export interface AnemiaSeedResult {
 
 async function anemiaJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { cache: "no-store", credentials: "same-origin", ...init });
-  const payload = (await response.json()) as T & { error?: string };
-  if (!response.ok) {
-    const err = new Error(payload.error ?? `anemia request failed: ${path}`) as Error & { code?: string; status?: number };
-    err.status = response.status;
-    if (response.status === 401) err.code = "unauthorized";
-    throw err;
-  }
-  return payload;
+  return responseOrThrow<T>(path, response);
 }
 
 export function fetchAnemiaFeatures(): Promise<EsaFeaturesView> {

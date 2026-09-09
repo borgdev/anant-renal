@@ -6,7 +6,7 @@
 // session role's consoles + capabilities. The browser only renders what the
 // server says the current session may see and act on — it never decides
 // authorization.
-
+import { responseOrThrow } from "./session";
 export type PlatformWorkKind = "episode" | "review" | "release" | "dlq";
 export type PlatformUrgency = "high" | "medium" | "low";
 export type ConsoleId = "exec" | "ops";
@@ -67,9 +67,7 @@ export interface PlatformContext {
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { cache: "no-store", credentials: "same-origin", ...init });
-  const payload = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(payload.error ?? `work request failed: ${path}`);
-  return payload;
+  return responseOrThrow<T>(path, response);
 }
 
 /** Role-scoped My Work queue (server-filtered by session role). */

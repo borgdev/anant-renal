@@ -33,6 +33,34 @@ export function Tag({
   return <span className={`tag tag-${tone}`}>{children}</span>;
 }
 
+/* U #7 — shared Dempster–Shafer evidence-posture language (one tone rule).
+ * corroborated = mint (committed) · weak = amber (build, below gate) ·
+ * contested = violet (verify, never auto-act). An *alert* state is a separate
+ * red semantic layered on top (e.g. the early-warning watch auto-flag). */
+export type EvidencePosture = "corroborated" | "weak" | "contested";
+export const EVIDENCE_TONE: Record<EvidencePosture, "mint" | "amber" | "violet"> = {
+  corroborated: "mint",
+  weak: "amber",
+  contested: "violet",
+};
+export const EVIDENCE_LABEL: Record<EvidencePosture, string> = {
+  corroborated: "corroborated",
+  weak: "weak",
+  contested: "contested",
+};
+export function evidenceTone(posture?: string | null): "mint" | "amber" | "violet" {
+  return EVIDENCE_TONE[(posture as EvidencePosture) ?? "weak"] ?? "amber";
+}
+
+/** A `evidence <posture>` pill that obeys the shared tone rule. */
+export function EvidenceTag({ posture, children }: { posture?: string | null; children?: ReactNode }) {
+  return (
+    <Tag tone={evidenceTone(posture)}>
+      {children ?? `evidence ${EVIDENCE_LABEL[(posture as EvidencePosture) ?? "weak"] ?? "—"}`}
+    </Tag>
+  );
+}
+
 export function Metric({
   label,
   value,

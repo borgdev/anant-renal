@@ -17,7 +17,7 @@ import {
 import { fetchMyWork, fetchWorkDetail, performWorkAction, type PlatformWorkItem, type PlatformWorkDetail, type PlatformUrgency } from "../lib/work";
 import type { NavigationId } from "../lib/types";
 import type { OpenWorkflowDetail, WorkflowDetail } from "../lib/workflow-detail";
-import { Eyebrow, EmptyView, Tag } from "./ui";
+import { EvidenceTag, Eyebrow, EmptyView, Tag } from "./ui";
 
 const KIND_LABEL: Record<PlatformWorkItem["kind"], string> = {
   episode: "Outcome episode",
@@ -50,13 +50,6 @@ const STATE_TONE: Record<string, "mint" | "amber" | "red" | "blue" | "neutral"> 
   draft: "neutral",
   failed: "red",
   incident: "red",
-};
-
-// DST-Q — evidence-posture tones for the Dempster–Shafer readout.
-const EVIDENCE_TONE: Record<string, "mint" | "amber" | "red"> = {
-  corroborated: "mint",
-  weak: "amber",
-  contested: "red",
 };
 
 const ACTION_LABEL: Record<string, string> = {
@@ -243,7 +236,7 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
                   <span className="mywork-meta">{KIND_LABEL[item.kind]} · {item.scope} · {item.owner} · due {item.sla}</span>
                   {item.kind === "episode" && item.belief !== undefined ? (
                     <span className="mywork-dst" title="Dempster–Shafer fusion over this episode's evidence — Bel(commitment) · Pl(plausibility) · K(conflict). Items order by Bel + 0.3·ignorance − 0.5·Pl(harm).">
-                      <span className={`tag tag-${EVIDENCE_TONE[item.evidenceStatus ?? "weak"]}`}>evidence {item.evidenceStatus ?? "—"}</span>
+                      <EvidenceTag posture={item.evidenceStatus} />
                       Bel <b>{item.belief.toFixed(2)}</b> · Pl {item.plausibility?.toFixed(2)} · K {item.conflictMass?.toFixed(2)}
                     </span>
                   ) : null}

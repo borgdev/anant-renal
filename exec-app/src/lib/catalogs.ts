@@ -6,6 +6,7 @@
  */
 
 import type { GraphEdge, GraphNode, OutcomeEpisode, TraceSpan } from "./types";
+import { responseOrThrow } from "./session";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Runtime-loaded catalogs — shapes mirror the JSON fixtures; components access
@@ -42,9 +43,7 @@ export const demoContext: { label: string; organization: string; region: string;
 
 async function catalogJson<T>(path: string): Promise<T> {
   const res = await fetch(path, { cache: "no-store", credentials: "same-origin" });
-  const payload = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(payload.error ?? `catalog request failed: ${path}`);
-  return payload;
+  return responseOrThrow<T>(path, res);
 }
 
 /** Fetch every catalog from the backend and populate the module exports. */

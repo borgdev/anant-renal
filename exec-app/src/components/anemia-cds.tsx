@@ -53,7 +53,7 @@ import {
   type EsaValidationView,
 } from "../lib/anemia";
 import type { NavigationId } from "../lib/types";
-import { Eyebrow, Metric, PanelExpand, Tag } from "./ui";
+import { EvidenceTag, Eyebrow, Metric, PanelExpand, Tag } from "./ui";
 
 /** Panel review epoch — deterministic so iron-freshness checks behave like the tests. */
 const REVIEW_AT = "2026-09-01T00:00:00Z";
@@ -76,13 +76,6 @@ const EP_TONE: Record<string, "mint" | "amber" | "blue" | "red" | "neutral"> = {
   Rejected: "red",
   Blocked: "red",
   Reopened: "amber",
-};
-
-// DST-Q #3 — evidence-posture tones for the suggestion readout.
-const ESA_EVIDENCE_TONE: Record<string, "mint" | "amber" | "red"> = {
-  corroborated: "mint",
-  weak: "amber",
-  contested: "red",
 };
 
 function fmtDose(v: number | null): string {
@@ -345,7 +338,7 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
               ) : null}
               {dst ? (
                 <div className="esa-dst-readout" title="Dempster–Shafer fusion over this window's evidence — charted labs (facts), Hb trend/ESA history (events) and the KDIGO reference. Bel + 0.3·ignorance − 0.5·Pl(harm) is the same priority rule My Work uses to order your queue.">
-                  <span className={`tag tag-${ESA_EVIDENCE_TONE[dst.evidenceStatus ?? "weak"]}`}>D-S evidence · {dst.evidenceStatus ?? "—"}</span>
+                  <EvidenceTag posture={dst.evidenceStatus}>D-S evidence · {dst.evidenceStatus ?? "—"}</EvidenceTag>
                   <span className="esa-dst-values">Bel <b>{dst.belief.toFixed(2)}</b> · Pl {dst.plausibility.toFixed(2)} · K {dst.conflictMass.toFixed(2)}</span>
                   <span className="esa-dst-note">{dst.sources.length} evidence source(s) fused · priority {dst.score.toFixed(2)} · same D-S rule as My Work</span>
                 </div>

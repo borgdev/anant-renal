@@ -24,6 +24,7 @@ import {
   Network,
   Settings2,
   ShieldCheck,
+  ShieldAlert,
   Sparkles,
   TrendingUp,
   UserRound,
@@ -47,6 +48,7 @@ import WorkflowDetailDrawer from "./components/workflow-detail-drawer";
 import { Tag } from "./components/ui";
 import { demoContext, outcomeEpisodes } from "./lib/catalogs";
 import { fetchWorkItemContext, fetchRuntimeSnapshot } from "./lib/harness";
+import { onSessionExpired } from "./lib/session";
 import { fetchContext } from "./lib/work";
 import type { MeUser } from "./lib/auth";
 import type { NavigationId } from "./lib/types";
@@ -130,6 +132,10 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
   const [workflowDetail, setWorkflowDetail] = useState<WorkflowDetail | null>(null);
   const [canSwitchToOps, setCanSwitchToOps] = useState(false);
   const [lens, setLens] = useState<"provider" | "payer" | "hybrid">("provider");
+  // U #7 — one session-expiry banner for the whole console. Any 401 from any
+  // fetch wrapper (harness/anemia/work/catalog) signals this; the page keeps its
+  // own empty/loading/error states, but the sign-in gate is always the same.
+  const [sessionExpired, setSessionExpired] = useState(false);
   const contextRequest = useRef(0);
 
   // Server-authorized console switcher (P0-6) + active lens. The pack/lens comes
@@ -145,6 +151,9 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
     }).catch(() => { /* console/lens unavailable */ });
     return () => { active = false; };
   }, []);
+
+  // U #7 — subscribe to 401s so the banner shows on whichever page it happens.
+  useEffect(() => onSessionExpired(() => setSessionExpired(true)), []);
 
   function toggleCollapse() {
     setCollapsed((prev) => {
@@ -324,6 +333,14 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
             <button className="icon-button signout-button" aria-label="Sign out" title="Sign out" type="button" onClick={() => onLogout?.()}><LogOut size={17} /></button>
           </div>
         </header>
+
+        {sessionExpired ? (
+          <div className="session-expired-banner" role="alert">
+            <ShieldAlert size={16} />
+            <span><strong>Session expired.</strong> The server cleared your sign-in — this happens when the dev server restarts. Re-authenticate to keep working; no state is lost.</span>
+            <button className="button button-secondary" type="button" onClick={() => window.location.reload()}>Sign in again</button>
+          </div>
+        ) : null}
 
         <main className="content-shell">
           {module}

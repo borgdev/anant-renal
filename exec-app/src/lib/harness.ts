@@ -10,6 +10,7 @@ import type { AgentCategory, AgentOperationsSnapshot, AgentView } from "./contra
 import type { NavigationId } from "./types";
 import type { WorkflowDetail } from "./workflow-detail";
 import { demoContext } from "./catalogs";
+import { responseOrThrow } from "./session";
 
 /* ---------- harness wire shapes (from src/swarm) ---------- */
 
@@ -289,9 +290,7 @@ export type NbaDecisionRow = {
 
 async function harnessJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { cache: "no-store", credentials: "same-origin", ...init });
-  const payload = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(payload.error ?? `harness request failed: ${path}`);
-  return payload;
+  return responseOrThrow<T>(path, response);
 }
 
 /** DST-Q #2 — multi-signal early-warning watch (per-patient Bel/Pl/K readout). */
