@@ -45,6 +45,37 @@ export interface RealmCensusRow {
   presences?: number;
 }
 
+/** One operating-model scopePath node (region/market nodes may list facilityIds). */
+export interface OntologyScopeNode {
+  id?: string;
+  level?: string;
+  label?: string;
+  facilityIds?: string[];
+}
+
+/** Build facilityId → region-label from the admin operating-model scopePath. */
+export function buildRegionMembership(scopePath: OntologyScopeNode[]): Map<string, string> {
+  const membership = new Map<string, string>();
+  for (const node of scopePath) {
+    const level = node.level ?? '';
+    if (level !== 'region' && level !== 'market') continue;
+    const label = node.label ?? node.id ?? level;
+    for (const facilityId of node.facilityIds ?? []) membership.set(facilityId, label);
+  }
+  return membership;
+}
+
+/** Region for a facility: real ontology membership when configured, else id-derived. */
+export function resolveRegionForFacility(
+  membership: Map<string, string>,
+  facilityId: string | null | undefined,
+  realmId?: string | null,
+): string {
+  const id = facilityId ?? '';
+  if (membership.has(id)) return membership.get(id)!;
+  return regionFromRealmId(realmId ?? '');
+}
+
 export interface RegionCensus {
   regionId: string;
   label: string;
@@ -66,11 +97,13 @@ export interface PostureCounts {
 
 export interface RegionDeterioration extends RegionCensus, PostureCounts {}
 
-/** Group realm census rows by region and sum them (R2). */
-export function rollupRealmRegions(rows: RealmCensusRow[]): RegionCensus[] {
+/** Group realm census rows by region and sum them (R2). When `regionOf` is
+ *  provided (e.g. real ontology membership keyed by each facility's realm), it
+ *  is used instead of the id-derived region. */
+export function rollupRealmRegions(rows: RealmCensusRow[], regionOf?: (row: RealmCensusRow) => string): RegionCensus[] {
   const byRegion = new Map<string, RegionCensus>();
   for (const row of rows) {
-    const regionId = regionFromRealmId(row.realmId ?? '');
+    const regionId = regionOf ? regionOf(row) : regionFromRealmId(row.realmId ?? '');
     const cur = byRegion.get(regionId) ?? { regionId, label: regionId, realms: 0, units: 0, patients: 0, liveEffects: 0, presences: 0 };
     cur.realms += 1;
     cur.units += row.units ?? 0;

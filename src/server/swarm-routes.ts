@@ -31,7 +31,7 @@ import { InProcessEventBroker } from './inprocess-event-broker.js';
 import { KafkaBridge, seedBridgeOutbox, tenantValidation, type BridgeStore } from './kafka-bridge.js';
 import { getSqlStore } from './sql/index.js';
 import { defaultEarlyWarningSignals, fuseEarlyWarningCohort, EW_ALERT_BELIEF_GATE, EW_WATCH_BELIEF_GATE, EW_CONTESTED_K_GATE, type EarlyWarningSignal, type EwPolarity, type EwSignalKind } from '../swarm/early-warning.js';
-import { aggregateDeteriorationByRegion, countPostures, regionForFacility, rollupRealmRegions } from '../swarm/region-ops.js';
+import { aggregateDeteriorationByRegion, buildRegionMembership, countPostures, regionForFacility, resolveRegionForFacility, rollupRealmRegions } from '../swarm/region-ops.js';
 
 export interface SwarmRouteOptions {
   /** kafka-bridge durability store (SqlStore in prod); absent → bridge endpoints report unavailable. */
@@ -962,17 +962,44 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
     return { ok: true, cohort: ewCohort() };
   });
 
-  // ---- R2/R3 — regional operations: realm census rollup + region-level D-S
-  // deterioration aggregation (DST at enterprise scale).
+  // ---- R2/R3 — regional operations: realm census roll-up + region-level D-S
+  // deterioration aggregation (DST at enterprise scale). Region identity comes
+  // from the admin operating-model ontology when it lists facilities under
+  // region/market scope nodes; otherwise it falls back to id-derived regions.
   app.get('/admin/region-ops', async () => {
     const realms = liveRealms(opts);
-    const census = rollupRealmRegions(realms.map((r) => ({
+    const censusRows = realms.map((r) => ({
       realmId: r.realmId,
       patients: r.counts.patient ?? 0,
       units: r.counts.unit ?? 0,
       liveEffects: r.effects ?? 0,
       presences: r.presences ?? 0,
-    })));
+    }));
+
+    // Operating-model region membership (facility → region label).
+    let membership = new Map<string, string>();
+    try {
+      const cat = await ws().catalogs();
+      const ontology = (cat['operating-model'] as Record<string, unknown> | null) ?? null;
+      membership = buildRegionMembership((ontology?.scopePath as Parameters<typeof buildRegionMembership>[0]) ?? []);
+    } catch { /* ontology unavailable — id-derived regions only */ }
+
+    // Map each realm to its facility's ontology region when master data exists.
+    const facilityByRealm = new Map<string, string>();
+    if (membership.size > 0) {
+      try {
+        const store = await getSqlStore();
+        for (const f of await store.listFacilities()) {
+          if (f.realmId && !facilityByRealm.has(f.realmId)) facilityByRealm.set(f.realmId, f.id);
+        }
+      } catch { /* master data unavailable */ }
+    }
+    const regionOf = (row: { realmId: string }): string => {
+      const facilityId = facilityByRealm.get(row.realmId);
+      return resolveRegionForFacility(membership, facilityId, row.realmId);
+    };
+
+    const census = rollupRealmRegions(censusRows, (row) => regionOf(row));
     const cohort = ewCohort();
     const deterioration = aggregateDeteriorationByRegion(cohort, (r) => regionForFacility(r.facilityId));
     return {

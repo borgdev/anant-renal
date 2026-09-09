@@ -12,6 +12,8 @@ import {
   rollupRealmRegions,
   countPostures,
   aggregateDeteriorationByRegion,
+  buildRegionMembership,
+  resolveRegionForFacility,
 } from '../src/swarm/region-ops.js';
 import { fusePatientReadout, defaultEarlyWarningSignals, type EarlyWarningSignal } from '../src/swarm/early-warning.js';
 
@@ -33,6 +35,44 @@ describe('regionFromRealmId / regionForFacility', () => {
     expect(regionForFacility('rb-memphis-b')).toBe('West TN');
     expect(regionForFacility('fac-1')).toBe('Default');
     expect(regionForFacility('rb-x', { 'rb-x': 'South' })).toBe('South');
+  });
+});
+
+describe('operating-model region membership (real ontology wiring)', () => {
+  const scopePath = [
+    { id: 'ent', level: 'enterprise', label: 'Riverbend Kidney Care' },
+    { id: 'reg-mid', level: 'region', label: 'Middle TN', facilityIds: ['rb-nashville-a', 'rb-nashville-b'] },
+    { id: 'reg-east', level: 'region', label: 'East TN', facilityIds: ['rb-knoxville-a', 'rb-chattanooga-a'] },
+    { id: 'fac-sample', level: 'facility', label: 'Ignored', facilityIds: ['rb-whatever'] },
+  ];
+  const membership = buildRegionMembership(scopePath);
+
+  it('builds facility → region membership from region/market nodes only', () => {
+    expect(membership.get('rb-nashville-a')).toBe('Middle TN');
+    expect(membership.get('rb-knoxville-a')).toBe('East TN');
+    // facility-level nodes are ignored for membership.
+    expect(membership.has('rb-whatever')).toBe(false);
+  });
+
+  it('resolveRegionForFacility prefers ontology membership, else id-derived fallback', () => {
+    expect(resolveRegionForFacility(membership, 'rb-chattanooga-a', 'sim:ent-easttn-b')).toBe('East TN');
+    expect(resolveRegionForFacility(membership, 'rb-unknown', 'sim:ent-westtn-a')).toBe('West TN');
+    expect(resolveRegionForFacility(membership, 'rb-unknown', 'sim:renal-a')).toBe('Default');
+  });
+
+  it('rollupRealmRegions honours an ontology-driven regionOf', () => {
+    const rows = [
+      { realmId: 'sim:ent-midtn-a', patients: 8, units: 3 },
+      { realmId: 'sim:ent-midtn-b', patients: 6, units: 2 },
+      { realmId: 'sim:ent-westtn-a', patients: 8, units: 3 },
+    ];
+    const byFacility = new Map<string, string>([['sim:ent-midtn-a', 'rb-nashville-a'], ['sim:ent-midtn-b', 'rb-nashville-b'], ['sim:ent-westtn-a', 'rb-unknown']]);
+    const out = rollupRealmRegions(rows, (row) => resolveRegionForFacility(membership, byFacility.get(row.realmId), row.realmId));
+    const mid = out.find((r) => r.regionId === 'Middle TN');
+    const west = out.find((r) => r.regionId === 'West TN');
+    expect(mid?.realms).toBe(2);
+    expect(mid?.patients).toBe(14);
+    expect(west?.patients).toBe(8); // rb-unknown fell back to the realm's West TN
   });
 });
 
