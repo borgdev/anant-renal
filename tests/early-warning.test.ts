@@ -198,4 +198,16 @@ describe('early-warning watch over /admin/swarm/early-warning', () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  it('serves regional operations (census + region D-S roll-up)', async () => {
+    const res = await app.inject({ method: 'GET', url: '/admin/region-ops', headers: { cookie: cookie(admin) } });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body.census)).toBe(true);
+    expect(body.enterprise.alerts).toBeGreaterThanOrEqual(1);
+    expect(Array.isArray(body.deterioration)).toBe(true);
+    const defaultRegion = body.deterioration.find((r: { regionId: string }) => r.regionId === 'Default');
+    expect(defaultRegion).toBeTruthy();
+    expect(defaultRegion.patients).toBe(6);
+  });
 });

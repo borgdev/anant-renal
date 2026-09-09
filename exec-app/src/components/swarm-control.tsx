@@ -19,7 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { agentManifests, ecosystemDemo, operatingModel } from "../lib/catalogs";
-import { startLiveFeed, startLiveRuntime, fetchRuntimeSnapshot, mutateRuntime, type LiveFeedView, type PolicySimulation, type RuntimeInsightRow, type RuntimeSnapshot } from "../lib/harness";
+import { startLiveFeed, startLiveRuntime, fetchRegionOps, fetchRuntimeSnapshot, mutateRuntime, type LiveFeedView, type PolicySimulation, type RegionCensus, type RegionDeterioration, type RegionOpsView, type RuntimeInsightRow, type RuntimeSnapshot } from "../lib/harness";
 import type { NavigationId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, PanelExpand, ProgressBar, Tag } from "./ui";
@@ -119,6 +119,7 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
   const [simulation, setSimulation] = useState<PolicySimulation | null>(null);
   const [lastNotice, setLastNotice] = useState<string | null>(null);
   const [live, setLive] = useState<LiveFeedView | null>(null);
+  const [regionOps, setRegionOps] = useState<RegionOpsView | null>(null);
 
   const role = operatingModel.roles.find((item) => item.id === roleId) ?? operatingModel.roles[1];
   const scope = operatingModel.scopePath.find((item) => item.level === role.scopeLevel) ?? operatingModel.scopePath[0];
@@ -240,6 +241,18 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
     let active = true;
     const stop = startLiveFeed((view) => { if (active) setLive(view); }, { intervalMs: 3000 });
     return () => { active = false; stop(); };
+  }, []);
+
+  // R2/R3 — regional operations board (census + region D-S watch).
+  useEffect(() => {
+    let active = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const poll = async () => {
+      try { const view = await fetchRegionOps(); if (active) setRegionOps(view); } catch { /* advisory — ignore */ }
+    };
+    void poll();
+    timer = setInterval(() => void poll(), 7000);
+    return () => { active = false; if (timer) clearInterval(timer); };
   }, []);
 
   useEffect(() => {
@@ -495,6 +508,42 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
         <div className="insight-strip-title"><span className="context-icon"><Network size={17} /></span><div><Eyebrow>Cross-facility swarm intelligence</Eyebrow><strong>{runtime?.counts.insights ?? 0} persisted insights · {runtime?.health.conflicts ?? 0} retained conflicts · no autonomous action</strong></div></div>
         {(runtime?.insights.length ? runtime.insights : ecosystemDemo.swarmInsights.slice(0, 3).map((insight) => ({ insightId: insight.id, title: insight.title, summary: insight.summary, confidenceBasisPoints: Math.round(insight.confidence * 10000), scopeId: insight.scope, state: insight.state, agentIds: insight.agentIds, conflicts: [] }))).map((insight) => <button className="swarm-insight-card drillable-surface" type="button" onClick={() => openInsightDetail(insight)} key={insight.insightId}><div><Tag tone={insight.conflicts.length ? "amber" : "mint"}>{Math.round(insight.confidenceBasisPoints / 100)}%</Tag><small>{insight.scopeId}</small></div><strong>{insight.title}</strong><p>{insight.summary}</p><span>{insight.agentIds.length} cells · {insight.conflicts.length ? `${insight.conflicts.length} conflict` : insight.state}{typeof insight.belief === "number" ? ` · Bel ${Math.round(insight.belief * 100)}% · Pl ${Math.round((insight.plausibility ?? 0) * 100)}% · K ${(insight.conflictMass ?? 0).toFixed(2)}` : ""}</span></button>)}
       </section>
+
+      {regionOps ? (
+        <section className="panel region-board" aria-label="Regional operations">
+          <div className="panel-title-row">
+            <div><Eyebrow>Regional operations · census + D-S watch</Eyebrow><h2>Where the network needs attention right now</h2></div>
+            <Tag tone={(regionOps.enterprise.alerts ?? 0) > 0 ? "red" : "mint"}><Network size={11} /> {(regionOps.enterprise.alerts ?? 0)} alert(s) across {regionOps.enterprise.patients ?? 0} watched patients</Tag>
+          </div>
+          <div className="region-grid">
+            {(regionOps.deterioration.length ? regionOps.deterioration : regionOps.census).length ? (regionOps.deterioration.length ? regionOps.deterioration : regionOps.census).map((raw) => {
+              const r = raw as RegionCensus & Partial<RegionDeterioration>;
+              const alerts = r.alerts ?? 0;
+              return (
+                <article className={`region-card ${alerts > 0 ? "is-alert" : ""}`} key={r.regionId}>
+                  <div className="region-card-head"><strong>{r.label}</strong><Tag tone={alerts > 0 ? "red" : "mint"}>{alerts > 0 ? `${alerts} alert(s)` : "clear"}</Tag></div>
+                  <div className="region-card-metrics">
+                    <span><small>Realm(s)</small><strong>{r.realms ?? "—"}</strong></span>
+                    <span><small>Patients</small><strong>{r.patients ?? "—"}</strong></span>
+                    <span><small>Units</small><strong>{r.units ?? "—"}</strong></span>
+                    {r.alerts !== undefined ? (
+                      <>
+                        <span><small>Watch</small><strong>{r.watch ?? 0}</strong></span>
+                        <span><small>Contested</small><strong>{r.contested ?? 0}</strong></span>
+                        <span><small>Peak Bel</small><strong>{r.maxBelief !== null && r.maxBelief !== undefined ? r.maxBelief.toFixed(2) : "—"}</strong></span>
+                      </>
+                    ) : (
+                      <span><small>Live effects</small><strong>{r.liveEffects ?? 0}</strong></span>
+                    )}
+                  </div>
+                </article>
+              );
+            }) : (
+              <p className="ew-copy">No regions with live realms yet — start a scenario (e.g. <code>HH_DEMO_SIM_SCENARIO=dialysis-enterprise</code>) to populate the regional board.</p>
+            )}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

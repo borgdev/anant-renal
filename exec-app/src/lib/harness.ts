@@ -382,6 +382,39 @@ function statusOf(nba: HarnessNba): string {
   return nba.status === "awaiting-approval" ? "review" : "queued";
 }
 
+/* ---------- R2/R3 — regional operations (census + region D-S watch) ---------- */
+
+export interface RegionCensus {
+  regionId: string;
+  label: string;
+  realms: number;
+  units: number;
+  patients: number;
+  liveEffects: number;
+  presences: number;
+}
+export interface RegionDeterioration {
+  regionId: string;
+  label: string;
+  patients: number;
+  alerts: number;
+  contested: number;
+  watch: number;
+  reassured: number;
+  maxBelief: number | null;
+}
+export interface RegionOpsView {
+  asOf: string;
+  census: RegionCensus[];
+  deterioration: RegionDeterioration[];
+  enterprise: { patients: number; alerts: number; contested: number; watch: number; reassured: number; maxBelief: number | null };
+}
+
+/** Fetch the regional operations board (census + region-level D-S watch). */
+export async function fetchRegionOps(): Promise<RegionOpsView> {
+  return harnessJson<RegionOpsView>("/admin/region-ops");
+}
+
 /* ---------- R0 — broker-fed live event wall ---------- */
 
 export interface LiveEventRow {

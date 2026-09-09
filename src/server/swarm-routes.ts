@@ -31,6 +31,7 @@ import { InProcessEventBroker } from './inprocess-event-broker.js';
 import { KafkaBridge, seedBridgeOutbox, tenantValidation, type BridgeStore } from './kafka-bridge.js';
 import { getSqlStore } from './sql/index.js';
 import { defaultEarlyWarningSignals, fuseEarlyWarningCohort, EW_ALERT_BELIEF_GATE, EW_WATCH_BELIEF_GATE, EW_CONTESTED_K_GATE, type EarlyWarningSignal, type EwPolarity, type EwSignalKind } from '../swarm/early-warning.js';
+import { aggregateDeteriorationByRegion, countPostures, regionForFacility, rollupRealmRegions } from '../swarm/region-ops.js';
 
 export interface SwarmRouteOptions {
   /** kafka-bridge durability store (SqlStore in prod); absent → bridge endpoints report unavailable. */
@@ -959,5 +960,26 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
   app.post('/admin/swarm/early-warning/reset', async () => {
     earlyWarningSignals = defaultEarlyWarningSignals();
     return { ok: true, cohort: ewCohort() };
+  });
+
+  // ---- R2/R3 — regional operations: realm census rollup + region-level D-S
+  // deterioration aggregation (DST at enterprise scale).
+  app.get('/admin/region-ops', async () => {
+    const realms = liveRealms(opts);
+    const census = rollupRealmRegions(realms.map((r) => ({
+      realmId: r.realmId,
+      patients: r.counts.patient ?? 0,
+      units: r.counts.unit ?? 0,
+      liveEffects: r.effects ?? 0,
+      presences: r.presences ?? 0,
+    })));
+    const cohort = ewCohort();
+    const deterioration = aggregateDeteriorationByRegion(cohort, (r) => regionForFacility(r.facilityId));
+    return {
+      asOf: new Date().toISOString(),
+      census,
+      deterioration,
+      enterprise: countPostures(cohort),
+    };
   });
 };
