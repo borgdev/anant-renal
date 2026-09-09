@@ -294,6 +294,34 @@ async function harnessJson<T>(path: string, init?: RequestInit): Promise<T> {
   return payload;
 }
 
+/** DST-Q #2 — multi-signal early-warning watch (per-patient Bel/Pl/K readout). */
+export type EwPosture = "corroborated" | "weak" | "contested" | "reassured";
+export interface EarlyWarningSignalView { kind: string; label: string; polarity: "deteriorating" | "stable"; weight: number; alpha: number }
+export interface EarlyWarningReadout {
+  patientId: string;
+  facilityId: string | null;
+  belief: number;
+  plausibility: number;
+  uncertainty: number;
+  conflictMass: number;
+  posture: EwPosture;
+  alert: boolean;
+  score: number;
+  signalCount: number;
+  signals: EarlyWarningSignalView[];
+}
+export interface EarlyWarningView {
+  asOf: string;
+  gates: { alertBelief: number; watchBelief: number; contestedK: number };
+  cohort: EarlyWarningReadout[];
+  signalCount: number;
+}
+
+/** Fetch the fused early-warning cohort (vitals + labs + missed-Tx + ESA). */
+export async function fetchEarlyWarning(): Promise<EarlyWarningView> {
+  return harnessJson<EarlyWarningView>("/admin/swarm/early-warning");
+}
+
 export interface HarnessPatient {
   realmId: string;
   id: string;

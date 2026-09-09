@@ -30,6 +30,7 @@ import type { EventBroker } from './event-broker.js';
 import { InProcessEventBroker } from './inprocess-event-broker.js';
 import { KafkaBridge, seedBridgeOutbox, tenantValidation, type BridgeStore } from './kafka-bridge.js';
 import { getSqlStore } from './sql/index.js';
+import { defaultEarlyWarningSignals, fuseEarlyWarningCohort, EW_ALERT_BELIEF_GATE, EW_WATCH_BELIEF_GATE, EW_CONTESTED_K_GATE, type EarlyWarningSignal, type EwPolarity, type EwSignalKind } from '../swarm/early-warning.js';
 
 export interface SwarmRouteOptions {
   /** kafka-bridge durability store (SqlStore in prod); absent → bridge endpoints report unavailable. */
@@ -63,6 +64,9 @@ let bridge: KafkaBridge | null = null;
 let coordinator: PersistentOutcomeCoordinator | null = null;
 let workspace: SwarmWorkspaceStore | null = null;
 let whatIfRunner: ((threshold: number) => Promise<Record<string, unknown>>) | null = null;
+// DST-Q #2 — in-memory multi-signal early-warning watch (deterministic demo seed,
+// reset per registration so each app instance/tests start clean).
+let earlyWarningSignals: EarlyWarningSignal[] | null = null;
 
 /** The durable swarm workspace (built by registerSwarmRoutes) — shared with
  *  demo-cleanup and other modules. Null until swarm routes register. */
@@ -221,6 +225,7 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
   }
   coordinator = new PersistentOutcomeCoordinator(workspace);
   await coordinator.ensureLoaded();
+  earlyWarningSignals = null; // fresh watch per app instance
 
   const ws = (): SwarmWorkspaceStore => workspace as SwarmWorkspaceStore;
   const realmCounts = (realmId?: string): { units: number; patients: number; presences: number; effects: number } => {
@@ -908,5 +913,51 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
     if (rows[0]) await ws().update<WorkspaceDoc & { data?: unknown }>('operating-model', String(rows[0].id), { data: doc });
     else await ws().create<WorkspaceDoc & { data?: unknown }>('operating-model', 'operating-model-default', { data: doc });
     return { ok: true };
+  });
+
+  // ---- DST-Q #2 — multi-signal early-warning watch (advisory; complements the
+  // liquid CfC/LTC forecast). Fuses vitals + labs + missed-treatment + ESA
+  // no-response into a per-patient deterioration Bel/Pl/K; auto-flags only when
+  // commitment is high and conflict is low. Contested reads are never auto-flagged.
+  const ewSignals = (): EarlyWarningSignal[] => (earlyWarningSignals ??= defaultEarlyWarningSignals());
+  const ewCohort = () => fuseEarlyWarningCohort(ewSignals());
+
+  app.get('/admin/swarm/early-warning', async () => {
+    const signals = ewSignals();
+    return {
+      asOf: new Date().toISOString(),
+      gates: { alertBelief: EW_ALERT_BELIEF_GATE, watchBelief: EW_WATCH_BELIEF_GATE, contestedK: EW_CONTESTED_K_GATE },
+      cohort: ewCohort(),
+      signalCount: signals.length,
+    };
+  });
+
+  app.post<{ Body: { patientId?: string; facilityId?: string; kind?: string; label?: string; polarity?: string; weight?: number; sourceId?: string; at?: string } }>(
+    '/admin/swarm/early-warning/signal',
+    async (req, reply) => {
+      const b = req.body ?? {};
+      if (!b.patientId || !b.kind || !b.polarity) return reply.code(400).send({ error: 'patientId, kind and polarity are required' });
+      if (!['deteriorating', 'stable'].includes(b.polarity)) return reply.code(400).send({ error: 'polarity must be deteriorating | stable' });
+      if (!['vitals', 'lab', 'missed-treatment', 'esa-no-response', 'access'].includes(b.kind)) {
+        return reply.code(400).send({ error: 'kind must be vitals | lab | missed-treatment | esa-no-response | access' });
+      }
+      const signal: EarlyWarningSignal = {
+        patientId: b.patientId,
+        ...(b.facilityId ? { facilityId: b.facilityId } : {}),
+        kind: b.kind as EwSignalKind,
+        label: b.label ?? b.kind,
+        polarity: b.polarity as EwPolarity,
+        weight: Math.max(0, Math.min(1, b.weight ?? 0.5)),
+        sourceId: b.sourceId ?? 'operator:entered',
+        at: b.at ?? new Date().toISOString(),
+      };
+      earlyWarningSignals = [...ewSignals(), signal];
+      return { added: signal, cohort: ewCohort() };
+    },
+  );
+
+  app.post('/admin/swarm/early-warning/reset', async () => {
+    earlyWarningSignals = defaultEarlyWarningSignals();
+    return { ok: true, cohort: ewCohort() };
   });
 };

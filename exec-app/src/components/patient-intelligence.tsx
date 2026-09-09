@@ -15,9 +15,16 @@ import {
   Target,
 } from "lucide-react";
 import { assessmentResponses, outcomeEpisodes, patientTimeline } from "../lib/catalogs";
-import { startLiveRuntime, startLivePatients, type HarnessPatient, type RuntimeSnapshot } from "../lib/harness";
+import { fetchEarlyWarning, startLiveRuntime, startLivePatients, type EarlyWarningReadout, type HarnessPatient, type RuntimeSnapshot } from "../lib/harness";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, ProgressBar, Tag } from "./ui";
+
+const EW_TONE: Record<string, "mint" | "amber" | "red" | "violet" | "neutral"> = {
+  corroborated: "red",
+  weak: "amber",
+  contested: "violet",
+  reassured: "mint",
+};
 
 function patientLabel(p?: HarnessPatient): string {
   if (!p) return "—";
@@ -54,6 +61,23 @@ export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: Op
   const [selectedId, setSelectedId] = useState("");
   const [runtime, setRuntime] = useState<RuntimeSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
+  const [watch, setWatch] = useState<EarlyWarningReadout[] | null>(null);
+
+  // DST-Q #2 — early-warning watch: poll the server-fused cohort so new signals
+  // (or a manual signal entry elsewhere) move the watch live without a reload.
+  useEffect(() => {
+    let active = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const poll = async () => {
+      try {
+        const view = await fetchEarlyWarning();
+        if (active) setWatch(view.cohort ?? []);
+      } catch { /* advisory watch — never blocks the page */ }
+    };
+    void poll();
+    timer = setInterval(() => void poll(), 6000);
+    return () => { active = false; if (timer) clearInterval(timer); };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -77,6 +101,9 @@ export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: Op
   const flags = labFlags(st.labs);
   const risk = typeof st.risk === "number" ? st.risk : undefined;
   const trajectory = st.trajectory ?? "unknown";
+  // DST-Q #2 — selected patient's fused watch (if any) + cohort-level alerts.
+  const selectedWatch = (watch ?? []).find((r) => r.patientId === selected?.id) ?? null;
+  const cohortAlerts = (watch ?? []).filter((r) => r.alert);
   const problems = Array.isArray(st.problemList) ? st.problemList : [];
   const assessment = st.lastAssessment && typeof st.lastAssessment === "object"
     ? (st.lastAssessment as { id?: string; score?: number; band?: string; at?: string })
@@ -163,6 +190,49 @@ export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: Op
           </div>
         </div>
         <div className="trust-score"><small>Deterioration risk</small><strong>{risk !== undefined ? `${Math.round(risk * 100)}%` : "—"}</strong><span>{runtime?.counts.evidence ?? 0} evidence objects reconciled</span></div>
+      </section>
+
+      <section className="panel patient-early-watch" aria-label="Early-warning watch">
+        <div className="panel-title-row">
+          <div><Eyebrow>Early-warning watch · Dempster–Shafer fusion</Eyebrow><h2>Deterioration watch — vitals + labs + missed Tx + ESA response</h2></div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}><Tag tone={cohortAlerts.length ? "red" : "mint"}>{cohortAlerts.length} alert(s)</Tag></div>
+        </div>
+        {selectedWatch ? (
+          <div className={`ew-card ew-${selectedWatch.posture}`}>
+            <div className="ew-head">
+              <span className={`tag tag-${EW_TONE[selectedWatch.posture] ?? "neutral"}`}>evidence {selectedWatch.posture}</span>
+              <strong>Bel {selectedWatch.belief.toFixed(2)}</strong>
+              <span>Pl {selectedWatch.plausibility.toFixed(2)}</span>
+              <span>K {selectedWatch.conflictMass.toFixed(2)}</span>
+              <span className="ew-count">{selectedWatch.signalCount} signal(s)</span>
+            </div>
+            {selectedWatch.alert ? (
+              <div className="ew-alert"><AlertTriangle size={14} /><span>Auto-flagged — {selectedWatch.signalCount} independent signals agree on deterioration (Bel ≥ {selectedWatch.belief.toFixed(2)}, K {selectedWatch.conflictMass.toFixed(2)}). Escalate to the region MD / open an outcome episode.</span></div>
+            ) : selectedWatch.posture === "contested" ? (
+              <div className="ew-contested"><ShieldCheck size={14} /><span>Contested — alarming and reassuring evidence conflict (K {selectedWatch.conflictMass.toFixed(2)} ≥ contested gate). Held for human verification; never auto-flagged.</span></div>
+            ) : (
+              <p className="ew-copy">No auto-flag — {selectedWatch.posture === "weak" ? "commitment is building but below the alert gate" : "commitment to deterioration is low"}. Bel {selectedWatch.belief.toFixed(2)} · Pl {selectedWatch.plausibility.toFixed(2)} — the watch keeps fusing new signals as they arrive.</p>
+            )}
+            <div className="ew-signals">{selectedWatch.signals.slice(0, 8).map((s, i) => (
+              <span key={`${s.kind}-${i}`} className={`ew-signal ${s.polarity}`} title={`reliability α ${s.alpha.toFixed(2)}`}>{s.polarity === "deteriorating" ? "▲" : "▽"} {s.label}</span>
+            ))}</div>
+            <p className="ew-footnote">Advisory watch — complements the CfC/LTC trajectory forecast. An auto-flag is a recommendation to review, never a diagnosis or an order.</p>
+          </div>
+        ) : (
+          <p className="ew-copy">No fused watch for this patient yet{selected ? ` (${selected.id})` : ""} — the cohort below shows patients with active signal fusion.</p>
+        )}
+        {cohortAlerts.length ? (
+          <div className="ew-alert-list">
+            <Eyebrow>Cohort alerts · {cohortAlerts.length}</Eyebrow>
+            {cohortAlerts.map((a) => (
+              <button className="ew-alert-row" type="button" key={a.patientId} onClick={() => setSelectedId(a.patientId)}>
+                <span className="tag tag-red">{a.patientId}</span>
+                <span className="ew-row-copy">Bel {a.belief.toFixed(2)} · Pl {a.plausibility.toFixed(2)} · {a.signalCount} signals · {a.facilityId ?? "—"}</span>
+                <span className="ew-row-arrow">open →</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <section className="state-grid" aria-label="Current patient state">
