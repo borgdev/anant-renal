@@ -4,6 +4,7 @@ export type NavigationId =
   | "agents"
   | "command"
   | "patient"
+  | "anemia"
   | "intelligence"
   | "assessments"
   | "facility"

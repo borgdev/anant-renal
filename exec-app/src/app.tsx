@@ -16,6 +16,7 @@ import {
   DatabaseZap,
   FlaskConical,
   Gauge,
+  HeartPulse,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -38,6 +39,7 @@ import AssessmentIntelligence from "./components/assessment-intelligence";
 import IntelligenceWorkspace from "./components/intelligence-workspace";
 import FacilityTwin from "./components/facility-twin";
 import CmsControl from "./components/cms-control";
+import AnemiaCds from "./components/anemia-cds";
 import AssuranceCenter from "./components/assurance-center";
 import AdminConsole from "./components/admin-console";
 import ConfigurationStudio from "./components/configuration-studio";
@@ -66,6 +68,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { id: "agents", label: "Agent operations", icon: Blocks, badge: "12" },
       { id: "command", label: "Outcome command", icon: Gauge, badge: "4" },
       { id: "patient", label: "Patient intelligence", icon: UserRound },
+      { id: "anemia", label: "Anemia & ESA", icon: HeartPulse, badge: "CDSS" },
       { id: "facility", label: "Facility operations", icon: Box },
       { id: "assessments", label: "Assessment intelligence", icon: BookOpenText },
     ],
@@ -257,6 +260,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
       case "agents": return <AgentOperations onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "command": return <CommandCockpit selectedId={selectedId} onSelect={setSelectedId} onOpenDemo={launchDemo} onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "patient": return <PatientIntelligence onOpenDetail={openWorkflowDetail} />;
+      case "anemia": return <AnemiaCds onNavigate={selectNav} />;
       case "assessments": return <AssessmentIntelligence onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "intelligence": return <IntelligenceWorkspace onOpenDetail={openWorkflowDetail} />;
       case "facility": return <FacilityTwin onOpenDetail={openWorkflowDetail} />;

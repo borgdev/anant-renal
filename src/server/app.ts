@@ -74,6 +74,7 @@ import { registerEnterpriseRoutes } from './enterprise-routes.js';
 import { registerSwarmRoutes, getSwarmWorkspace, resetSwarmRuntime } from './swarm-routes.js';
 import { registerPlatformRoutes } from './platform-routes.js';
 import { registerPayerRoutes } from './payer-routes.js';
+import { registerAnemiaRoutes } from './anemia-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
 import { registerAssuranceRoutes } from './assurance-routes.js';
 import { registerSubmissionRoutes } from './submission-routes.js';
@@ -373,6 +374,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // Payer proof pack (Phase 5 / Epic 7) — a second domain closing a payer loop
   // through the SAME durable coordinator + workspace contracts. No runtime fork.
   await registerPayerRoutes(app);
+
+  // Anemia / ESA dose-adjustment CDSS (P0 reference) — a governed, Class-C,
+  // human-in-the-loop decision-support domain (manifold-learning EPO model)
+  // over the same shared coordinator + workspace contracts. Recommends, never
+  // orders.
+  await registerAnemiaRoutes(app);
 
   // Agent Studio (Phase D) — one unified surface for authoring, triggers, topics,
   // outputs, test, kill switch and rollback over the existing agent services.
