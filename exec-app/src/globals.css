@@ -603,6 +603,9 @@ button.drillable-surface:not(:disabled):hover { border-color: rgba(152,174,192,.
 @media (max-width: 900px) { .esa-gov-grid { grid-template-columns: 1fr; } .esa-gate-row, .esa-probe-row { grid-template-columns: auto minmax(0, 1fr) auto; } .esa-gate-row small, .esa-probe-row small { grid-column: 2; } }
 
 /* ============ P3 — external validation & regulatory file ============ */
+.esa-auth-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.esa-auth-banner > span { flex: 1 1 320px; }
+.esa-auth-banner .button { flex: 0 0 auto; }
 .esa-p3-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .esa-val-metrics { margin-top: 8px; display: grid; gap: 6px; }
 .esa-val-metrics .esa-drift-row em { color: var(--text); }

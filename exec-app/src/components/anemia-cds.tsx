@@ -229,6 +229,9 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
 
   const directionMeta = rec ? DIRECTION_META[rec.direction] : null;
   const hasFlags = (rec?.guardrails.flags.length ?? 0) > 0;
+  // The dev server clears in-memory sessions on every src-file restart — a 401
+  // here means the browser cookie is stale, not a product failure.
+  const sessionExpired = [error, govError, p3Error].some((m) => (m ?? "").toLowerCase().includes("not-authenticated") || (m ?? "").toLowerCase().includes("session expired"));
 
   return (
     <div className="view-stack anemia-view">
@@ -244,6 +247,14 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
           <Tag tone="amber"><Sparkles size={11} /> Synthetic demo</Tag>
         </div>
       </header>
+
+      {sessionExpired ? (
+        <div className="admin-notice is-error esa-auth-banner">
+          <ShieldAlert size={16} />
+          <span><strong>Session expired.</strong> The server restarted and cleared your sign-in. Re-authenticate to keep using the advisor.</span>
+          <button className="button button-secondary" type="button" onClick={() => window.location.reload()}>Sign in again</button>
+        </div>
+      ) : null}
 
       <section className="regulatory-banner panel">
         <div className="regulatory-icon"><ShieldCheck size={22} /></div>
