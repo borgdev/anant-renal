@@ -197,6 +197,11 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
     await app.register(fastifyStatic, { root: execRoot, prefix: '/exec/', decorateReply: false });
   } catch { /* exec-app not built — console unavailable */ }
 
+  // Canonical documents carry a trailing slash (the static plugins match
+  // '/admin/ui/*' and '/exec/*'); the bare paths 404 otherwise. Redirect.
+  app.get('/admin/ui', async (_req, reply) => reply.redirect('/admin/ui/'));
+  app.get('/exec', async (_req, reply) => reply.redirect('/exec/'));
+
   // GET /admin/agents — list all agents across all packs with filters
   app.get<{ Querystring: { pack?: string; setting?: string; lifecycleStage?: string; q?: string } }>('/admin/agents', async (req) => {
     const all = loadAllAgents();

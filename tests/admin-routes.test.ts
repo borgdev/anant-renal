@@ -121,3 +121,21 @@ describe('Admin API (M6)', () => {
     await app.close();
   });
 });
+
+describe('console document redirects', () => {
+  it('redirects the bare console paths to their trailing-slash documents', async () => {
+    const app = await makeApp();
+    const ui = await app.inject({ method: 'GET', url: '/admin/ui' });
+    expect(ui.statusCode).toBe(302);
+    expect(ui.headers.location).toBe('/admin/ui/');
+    const exec = await app.inject({ method: 'GET', url: '/exec' });
+    expect(exec.statusCode).toBe(302);
+    expect(exec.headers.location).toBe('/exec/');
+    // The trailing-slash documents themselves resolve (static shell or exec build).
+    const uiDoc = await app.inject({ method: 'GET', url: '/admin/ui/' });
+    expect(uiDoc.statusCode).toBe(200);
+    const execDoc = await app.inject({ method: 'GET', url: '/exec/' });
+    expect(execDoc.statusCode).toBe(200);
+    await app.close();
+  });
+});
