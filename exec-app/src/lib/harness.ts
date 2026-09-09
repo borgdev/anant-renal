@@ -415,6 +415,21 @@ export async function fetchRegionOps(): Promise<RegionOpsView> {
   return harnessJson<RegionOpsView>("/admin/region-ops");
 }
 
+export interface RegionAssignmentResult {
+  ok: boolean;
+  assigned: number;
+  assignments: Array<{ regionId: string; label: string; facilityIds: string[] }>;
+}
+
+/** Auto-assign master-data facilities to operating-model region nodes. */
+export async function autofillRegionAssignments(): Promise<RegionAssignmentResult> {
+  return harnessJson<RegionAssignmentResult>("/admin/ontology/regions/autofill", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+}
+
 /* ---------- R0 — broker-fed live event wall ---------- */
 
 export interface LiveEventRow {

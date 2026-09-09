@@ -19,7 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { agentManifests, ecosystemDemo, operatingModel } from "../lib/catalogs";
-import { startLiveFeed, startLiveRuntime, fetchRegionOps, fetchRuntimeSnapshot, mutateRuntime, type LiveFeedView, type PolicySimulation, type RegionCensus, type RegionDeterioration, type RegionOpsView, type RuntimeInsightRow, type RuntimeSnapshot } from "../lib/harness";
+import { startLiveFeed, startLiveRuntime, autofillRegionAssignments, fetchRegionOps, fetchRuntimeSnapshot, mutateRuntime, type LiveFeedView, type PolicySimulation, type RegionCensus, type RegionDeterioration, type RegionOpsView, type RuntimeInsightRow, type RuntimeSnapshot } from "../lib/harness";
 import type { NavigationId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, PanelExpand, ProgressBar, Tag } from "./ui";
@@ -120,6 +120,7 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
   const [lastNotice, setLastNotice] = useState<string | null>(null);
   const [live, setLive] = useState<LiveFeedView | null>(null);
   const [regionOps, setRegionOps] = useState<RegionOpsView | null>(null);
+  const [regionBusy, setRegionBusy] = useState(false);
 
   const role = operatingModel.roles.find((item) => item.id === roleId) ?? operatingModel.roles[1];
   const scope = operatingModel.scopePath.find((item) => item.level === role.scopeLevel) ?? operatingModel.scopePath[0];
@@ -254,6 +255,12 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
     timer = setInterval(() => void poll(), 7000);
     return () => { active = false; if (timer) clearInterval(timer); };
   }, []);
+
+  const runRegionAutofill = async () => {
+    if (regionBusy) return;
+    setRegionBusy(true);
+    try { await autofillRegionAssignments(); setRegionOps(await fetchRegionOps()); } catch { /* advisory */ } finally { setRegionBusy(false); }
+  };
 
   useEffect(() => {
     if (!runtime?.counts.events) return;
@@ -513,7 +520,12 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
         <section className="panel region-board" aria-label="Regional operations">
           <div className="panel-title-row">
             <div><Eyebrow>Regional operations · census + D-S watch</Eyebrow><h2>Where the network needs attention right now</h2></div>
-            <Tag tone={(regionOps.enterprise.alerts ?? 0) > 0 ? "red" : "mint"}><Network size={11} /> {(regionOps.enterprise.alerts ?? 0)} alert(s) across {regionOps.enterprise.patients ?? 0} watched patients</Tag>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button className="button button-ghost" type="button" disabled={regionBusy} onClick={() => void runRegionAutofill()} title="Auto-assign master-data facilities to the operating-model's region nodes">
+                {regionBusy ? <Activity size={13} /> : <Sparkles size={13} />} Assign from facilities
+              </button>
+              <Tag tone={(regionOps.enterprise.alerts ?? 0) > 0 ? "red" : "mint"}><Network size={11} /> {(regionOps.enterprise.alerts ?? 0)} alert(s) across {regionOps.enterprise.patients ?? 0} watched patients</Tag>
+            </div>
           </div>
           <div className="region-grid">
             {(regionOps.deterioration.length ? regionOps.deterioration : regionOps.census).length ? (regionOps.deterioration.length ? regionOps.deterioration : regionOps.census).map((raw) => {

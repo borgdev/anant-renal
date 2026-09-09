@@ -76,6 +76,59 @@ export function resolveRegionForFacility(
   return regionFromRealmId(realmId ?? '');
 }
 
+export interface FacilityIdentity {
+  id: string;
+  name?: string | null;
+  realmId?: string | null;
+}
+
+export interface RegionAssignment {
+  regionId: string;
+  label: string;
+  facilityIds: string[];
+}
+
+function isRegionScopeNode(level: string | undefined): boolean {
+  return level === 'region' || level === 'market';
+}
+
+const slug = (label: string): string => label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'region';
+
+/** Merge explicit facility→region assignments into a scopePath, preserving all other nodes. */
+export function upsertRegionMembership(scopePath: OntologyScopeNode[], assignments: RegionAssignment[]): OntologyScopeNode[] {
+  const out = scopePath.map((node) => ({ ...node, ...(node.facilityIds ? { facilityIds: [...node.facilityIds] } : {}) }));
+  for (const assignment of assignments) {
+    const existing = out.find((node) => isRegionScopeNode(node.level) && (node.id === assignment.regionId || node.label === assignment.label));
+    if (existing) {
+      existing.facilityIds = [...new Set([...(existing.facilityIds ?? []), ...assignment.facilityIds])];
+    } else {
+      out.push({ id: assignment.regionId || `region-${slug(assignment.label)}`, level: 'region', label: assignment.label, facilityIds: [...assignment.facilityIds] });
+    }
+  }
+  return out;
+}
+
+/** Deterministic target region for an unassigned facility during autofill. */
+export function autofillRegionFor(facility: FacilityIdentity): string {
+  const keyword = regionForFacility(facility.id);
+  if (keyword !== 'Default') return keyword;
+  return regionFromRealmId(facility.realmId ?? '');
+}
+
+/** Group real facilities into region assignments (id-derived, ready to persist). */
+export function autofillRegionAssignments(facilities: FacilityIdentity[]): RegionAssignment[] {
+  const byLabel = new Map<string, string[]>();
+  for (const facility of facilities) {
+    const label = autofillRegionFor(facility);
+    const list = byLabel.get(label) ?? [];
+    list.push(facility.id);
+    byLabel.set(label, list);
+  }
+  return [...byLabel.entries()]
+    .map(([label, facilityIds]) => ({ regionId: `region-${slug(label)}`, label, facilityIds: [...new Set(facilityIds)].sort() }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 export interface RegionCensus {
   regionId: string;
   label: string;

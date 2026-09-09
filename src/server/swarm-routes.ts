@@ -31,7 +31,7 @@ import { InProcessEventBroker } from './inprocess-event-broker.js';
 import { KafkaBridge, seedBridgeOutbox, tenantValidation, type BridgeStore } from './kafka-bridge.js';
 import { getSqlStore } from './sql/index.js';
 import { defaultEarlyWarningSignals, fuseEarlyWarningCohort, EW_ALERT_BELIEF_GATE, EW_WATCH_BELIEF_GATE, EW_CONTESTED_K_GATE, type EarlyWarningSignal, type EwPolarity, type EwSignalKind } from '../swarm/early-warning.js';
-import { aggregateDeteriorationByRegion, buildRegionMembership, countPostures, regionForFacility, resolveRegionForFacility, rollupRealmRegions } from '../swarm/region-ops.js';
+import { aggregateDeteriorationByRegion, autofillRegionAssignments, buildRegionMembership, countPostures, regionForFacility, resolveRegionForFacility, rollupRealmRegions, upsertRegionMembership, type FacilityIdentity, type OntologyScopeNode } from '../swarm/region-ops.js';
 
 export interface SwarmRouteOptions {
   /** kafka-bridge durability store (SqlStore in prod); absent → bridge endpoints report unavailable. */
@@ -914,6 +914,65 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
     if (rows[0]) await ws().update<WorkspaceDoc & { data?: unknown }>('operating-model', String(rows[0].id), { data: doc });
     else await ws().create<WorkspaceDoc & { data?: unknown }>('operating-model', 'operating-model-default', { data: doc });
     return { ok: true };
+  });
+
+  // ---- Facility → region assignments (R2) — the org hierarchy drives the
+  // regional board. Region/market scope nodes carry the facilityIds they own;
+  // these routes read, set, and auto-fill that membership from master data.
+  const ontologyStore = async (): Promise<{ rows: WorkspaceDoc[]; data: Record<string, unknown> }> => {
+    const rows = await ws().list<WorkspaceDoc & { data?: unknown }>('operating-model');
+    const data = ((rows[0] as WorkspaceDoc & { data?: unknown } | undefined)?.data ?? {}) as Record<string, unknown>;
+    return { rows: rows as WorkspaceDoc[], data };
+  };
+  const persistOntology = async (rows: WorkspaceDoc[], data: Record<string, unknown>): Promise<void> => {
+    if (rows[0]) await ws().update<WorkspaceDoc & { data?: unknown }>('operating-model', String(rows[0].id), { data });
+    else await ws().create<WorkspaceDoc & { data?: unknown }>('operating-model', 'operating-model-default', { data });
+  };
+  const listMasterFacilities = async (): Promise<FacilityIdentity[]> => {
+    try {
+      const store = await getSqlStore();
+      const facilities = await store.listFacilities();
+      return facilities.map((f) => ({ id: f.id, name: f.name ?? f.id, realmId: f.realmId ?? null }));
+    } catch {
+      return [];
+    }
+  };
+
+  app.get('/admin/ontology/regions', async () => {
+    const { data } = await ontologyStore();
+    const scopePath = (data.scopePath as OntologyScopeNode[] | undefined) ?? [];
+    const membership = buildRegionMembership(scopePath);
+    const facilities = await listMasterFacilities();
+    const regions = scopePath
+      .filter((n) => n.level === 'region' || n.level === 'market')
+      .map((n) => ({ id: n.id ?? '', label: n.label ?? n.id ?? n.level ?? 'region', level: n.level ?? 'region', facilityIds: n.facilityIds ?? [] }));
+    const assigned = facilities.map((f) => ({ id: f.id, name: f.name, realmId: f.realmId, region: membership.get(f.id) ?? null }));
+    return { regions, facilities: assigned, unassigned: assigned.filter((a) => !a.region) };
+  });
+
+  app.put<{ Body: { assignments?: Array<{ regionId?: string; label?: string; facilityIds?: string[] }> } }>('/admin/ontology/regions', async (req, reply) => {
+    const raw = (req.body?.assignments ?? []) as Array<{ regionId?: string; label?: string; facilityIds?: string[] }>;
+    const assignments = raw
+      .filter((a) => a.label && Array.isArray(a.facilityIds))
+      .map((a) => ({ regionId: a.regionId ?? '', label: a.label!, facilityIds: a.facilityIds! }));
+    if (assignments.length === 0) return reply.code(400).send({ error: 'assignments require label + facilityIds' });
+    const { rows, data } = await ontologyStore();
+    const scopePath = upsertRegionMembership((data.scopePath as OntologyScopeNode[] | undefined) ?? [], assignments);
+    data.scopePath = scopePath;
+    await persistOntology(rows, data);
+    return { ok: true, regions: scopePath.filter((n) => n.level === 'region' || n.level === 'market').length };
+  });
+
+  app.post('/admin/ontology/regions/autofill', async () => {
+    const facilities = await listMasterFacilities();
+    if (facilities.length === 0) return { ok: true, assigned: 0, assignments: [] };
+    const assignments = autofillRegionAssignments(facilities);
+    const { rows, data } = await ontologyStore();
+    const scopePath = upsertRegionMembership((data.scopePath as OntologyScopeNode[] | undefined) ?? [], assignments);
+    data.scopePath = scopePath;
+    await persistOntology(rows, data);
+    const assigned = assignments.reduce((sum, a) => sum + a.facilityIds.length, 0);
+    return { ok: true, assigned, assignments };
   });
 
   // ---- DST-Q #2 — multi-signal early-warning watch (advisory; complements the

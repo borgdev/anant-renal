@@ -14,6 +14,9 @@ import {
   aggregateDeteriorationByRegion,
   buildRegionMembership,
   resolveRegionForFacility,
+  upsertRegionMembership,
+  autofillRegionFor,
+  autofillRegionAssignments,
 } from '../src/swarm/region-ops.js';
 import { fusePatientReadout, defaultEarlyWarningSignals, type EarlyWarningSignal } from '../src/swarm/early-warning.js';
 
@@ -73,6 +76,41 @@ describe('operating-model region membership (real ontology wiring)', () => {
     expect(mid?.realms).toBe(2);
     expect(mid?.patients).toBe(14);
     expect(west?.patients).toBe(8); // rb-unknown fell back to the realm's West TN
+  });
+
+  it('upsertRegionMembership merges into existing region nodes and preserves others', () => {
+    const scope = [
+      { id: 'ent', level: 'enterprise', label: 'RK' },
+      { id: 'reg-mid', level: 'region', label: 'Middle TN', facilityIds: ['rb-nashville-a'] },
+      { id: 'f-node', level: 'facility', label: 'Sample' },
+    ];
+    const out = upsertRegionMembership(scope, [
+      { regionId: 'reg-mid', label: 'Middle TN', facilityIds: ['rb-nashville-b', 'rb-nashville-a'] },
+      { regionId: '', label: 'East TN', facilityIds: ['rb-knoxville-a'] },
+    ]);
+    const mid = out.find((n) => n.id === 'reg-mid');
+    expect(mid?.facilityIds?.sort()).toEqual(['rb-nashville-a', 'rb-nashville-b']);
+    expect(out.find((n) => n.id === 'ent')).toBeTruthy();
+    expect(out.find((n) => n.id === 'f-node')).toBeTruthy();
+    const east = out.find((n) => n.label === 'East TN');
+    expect(east?.level).toBe('region');
+    expect(east?.facilityIds).toEqual(['rb-knoxville-a']);
+  });
+
+  it('autofill derives facility → region assignments deterministically', () => {
+    const facilities = [
+      { id: 'rb-nashville-a', name: 'A', realmId: 'sim:ent-midtn-a' },
+      { id: 'rb-nashville-b', name: 'B', realmId: 'sim:ent-midtn-b' },
+      { id: 'rb-memphis-a', name: 'M', realmId: 'sim:ent-westtn-a' },
+      { id: 'fac-1', name: 'Plain', realmId: 'sim:renal-a' },
+    ];
+    expect(autofillRegionFor(facilities[0]!)).toBe('Middle TN');
+    const assignments = autofillRegionAssignments(facilities);
+    const mid = assignments.find((a) => a.label === 'Middle TN');
+    const west = assignments.find((a) => a.label === 'West TN');
+    expect(mid?.facilityIds).toEqual(['rb-nashville-a', 'rb-nashville-b']);
+    expect(west?.facilityIds).toEqual(['rb-memphis-a']);
+    expect(assignments.some((a) => a.label === 'Default' && a.facilityIds.includes('fac-1'))).toBe(true);
   });
 });
 
