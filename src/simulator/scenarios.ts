@@ -156,7 +156,24 @@ export const DIALYSIS_BASIC: SimScenario = {
   ],
 };
 
-const SCENARIOS: SimScenario[] = [DIALYSIS_DEMO, DIALYSIS_BASIC];
+export const DIALYSIS_ENTERPRISE: SimScenario = {
+  id: 'dialysis-enterprise',
+  label: 'Dialysis enterprise (multi-region fleet)',
+  description: 'Enterprise-scale deterministic fleet — three Tennessee regions, six facilities, ~48 patients, every one running the liquid (CfC/LTC) trajectory engine with the full scripted event mix (labs, vitals, assessments, follow-ups, claims, safety flags). Completes the demo world with cross-facility breadth; launch with HH_DEMO_SIM_SCENARIO=dialysis-enterprise.',
+  seed: 2026,
+  startAt: new Date('2026-08-01T06:00:00.000Z'),
+  pace: { realmHoursPerTick: 1, wallMsPerTick: 350 },
+  realms: [
+    { id: 'sim:ent-midtn-a', trajectoryEngine: 'liquid', facility: { facilityId: 'rb-nashville-a', kind: 'dialysis', name: 'Riverbend Nashville A (Middle TN)', units: ['ICH-A', 'ICH-B', 'ICH-C'], patientCount: 8 }, presences: ['md', 'nurse', 'coder'], script: { entries: dialysisScript() } },
+    { id: 'sim:ent-midtn-b', trajectoryEngine: 'liquid', facility: { facilityId: 'rb-nashville-b', kind: 'dialysis', name: 'Riverbend Nashville B (Middle TN)', units: ['ICH-D', 'ICH-E'], patientCount: 6 }, presences: ['md', 'nurse', 'coder'], script: { entries: dialysisScript() } },
+    { id: 'sim:ent-easttn-a', trajectoryEngine: 'liquid', facility: { facilityId: 'rb-knoxville-a', kind: 'dialysis', name: 'Riverbend Knoxville (East TN)', units: ['ICH-A', 'ICH-B', 'ICH-C'], patientCount: 8 }, presences: ['md', 'nurse', 'coder'], script: { entries: dialysisScript() } },
+    { id: 'sim:ent-easttn-b', trajectoryEngine: 'liquid', facility: { facilityId: 'rb-chattanooga-a', kind: 'dialysis', name: 'Riverbend Chattanooga (East TN)', units: ['ICH-A', 'ICH-B'], patientCount: 6 }, presences: ['md', 'nurse', 'coder'], script: { entries: dialysisScript() } },
+    { id: 'sim:ent-westtn-a', trajectoryEngine: 'liquid', facility: { facilityId: 'rb-memphis-a', kind: 'dialysis', name: 'Riverbend Memphis (West TN)', units: ['ICH-A', 'ICH-B', 'ICH-C'], patientCount: 8 }, presences: ['md', 'nurse', 'coder'], script: { entries: dialysisScript() } },
+    { id: 'sim:ent-westtn-b', trajectoryEngine: 'liquid', facility: { facilityId: 'rb-jackson-a', kind: 'dialysis', name: 'Riverbend Jackson (West TN)', units: ['ICH-A', 'ICH-B'], patientCount: 6 }, presences: ['md', 'nurse', 'coder'], script: { entries: dialysisScript() } },
+  ],
+};
+
+const SCENARIOS: SimScenario[] = [DIALYSIS_DEMO, DIALYSIS_BASIC, DIALYSIS_ENTERPRISE];
 
 export function listScenarios(): Array<{ id: string; label: string; description: string; seed: number; realms: number }> {
   return SCENARIOS.map((s) => ({ id: s.id, label: s.label, description: s.description, seed: s.seed, realms: s.realms.length }));

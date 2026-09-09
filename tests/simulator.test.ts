@@ -77,8 +77,27 @@ describe('scenario registry + RNG determinism', () => {
     const ids = listScenarios().map((s) => s.id);
     expect(ids).toContain('dialysis-demo');
     expect(ids).toContain('dialysis-basic');
+    expect(ids).toContain('dialysis-enterprise');
     expect(scenarioFor('dialysis-demo')?.realms.length).toBeGreaterThan(0);
     expect(scenarioFor('nope')).toBeUndefined();
+  });
+
+  it('dialysis-enterprise builds a deterministic multi-region fleet (R1 world)', () => {
+    const sc = scenarioFor('dialysis-enterprise');
+    expect(sc).toBeDefined();
+    // Three regions × two facilities each, all on the liquid trajectory engine.
+    expect(sc!.realms).toHaveLength(6);
+    const patients = sc!.realms.reduce((sum, r) => sum + r.facility.patientCount, 0);
+    expect(patients).toBe(42);
+    for (const realm of sc!.realms) {
+      expect(realm.trajectoryEngine).toBe('liquid');
+      expect(realm.facility.units.length).toBeGreaterThanOrEqual(2);
+      expect(realm.script.entries.length).toBeGreaterThan(0);
+      expect(realm.id.startsWith('sim:ent-')).toBe(true);
+    }
+    expect(sc!.seed).toBe(2026);
+    // Deterministic: registry order + totals are stable.
+    expect(listScenarios().find((s) => s.id === 'dialysis-enterprise')?.realms).toBe(6);
   });
 
   it('mulberry32 is deterministic for a seed', () => {
