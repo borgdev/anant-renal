@@ -19,7 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { agentManifests, ecosystemDemo, operatingModel } from "../lib/catalogs";
-import { startLiveFeed, startLiveRuntime, autofillRegionAssignments, fetchRegionOps, fetchRuntimeSnapshot, mutateRuntime, type LiveFeedView, type PolicySimulation, type RegionCensus, type RegionDeterioration, type RegionOpsView, type RuntimeInsightRow, type RuntimeSnapshot } from "../lib/harness";
+import { startLiveFeed, startLiveRuntime, autofillRegionAssignments, fetchRegionOps, fetchRuntimeSnapshot, fetchSimulatorScenarios, fetchSimulatorStatus, mutateRuntime, pauseSimulator, resumeSimulator, startSimulator, stopSimulator, type LiveFeedView, type PolicySimulation, type RegionCensus, type RegionDeterioration, type RegionOpsView, type RuntimeInsightRow, type RuntimeSnapshot, type SimScenarioMeta, type SimulatorStatusView } from "../lib/harness";
 import type { NavigationId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, PanelExpand, ProgressBar, Tag } from "./ui";
@@ -121,6 +121,11 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
   const [live, setLive] = useState<LiveFeedView | null>(null);
   const [regionOps, setRegionOps] = useState<RegionOpsView | null>(null);
   const [regionBusy, setRegionBusy] = useState(false);
+  // Simulator driver (start / pause / resume / stop the synthetic fleet).
+  const [simStatus, setSimStatus] = useState<SimulatorStatusView>({ status: "idle", scenario: null, scenarioLabel: null, pace: null, tickCount: 0, eventCount: 0, startedAt: null, totals: { realms: 0, patients: 0, presences: 0, effects: 0 } });
+  const [simScenarios, setSimScenarios] = useState<SimScenarioMeta[]>([]);
+  const [simScenario, setSimScenario] = useState("dialysis-enterprise");
+  const [simBusy, setSimBusy] = useState(false);
 
   const role = operatingModel.roles.find((item) => item.id === roleId) ?? operatingModel.roles[1];
   const scope = operatingModel.scopePath.find((item) => item.level === role.scopeLevel) ?? operatingModel.scopePath[0];
@@ -260,6 +265,41 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
     if (regionBusy) return;
     setRegionBusy(true);
     try { await autofillRegionAssignments(); setRegionOps(await fetchRegionOps()); } catch { /* advisory */ } finally { setRegionBusy(false); }
+  };
+
+  // Simulator driver — poll status + scenario list; expose Start/Pause/Resume/Stop.
+  useEffect(() => {
+    let active = true;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const poll = async () => {
+      const status = await fetchSimulatorStatus();
+      if (!active) return;
+      setSimStatus(status);
+      if (status.scenario) setSimScenario((prev) => prev === status.scenario ? prev : (status.scenario as string));
+    };
+    void poll();
+    timer = setInterval(() => void poll(), 4000);
+    return () => { active = false; if (timer) clearInterval(timer); };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    void fetchSimulatorScenarios().then((list) => {
+      if (!active || !list.length) return;
+      setSimScenarios(list);
+      if (!list.some((s) => s.id === simScenario)) setSimScenario(list[0].id);
+    });
+    return () => { active = false; };
+  }, []);
+
+  const runSimulator = async (action: "start" | "pause" | "resume" | "stop") => {
+    if (simBusy) return;
+    setSimBusy(true);
+    try {
+      if (action === "start") setSimStatus(await startSimulator(simScenario));
+      else if (action === "pause") setSimStatus(await pauseSimulator());
+      else if (action === "resume") setSimStatus(await resumeSimulator());
+      else { await stopSimulator(); setSimStatus(await fetchSimulatorStatus()); }
+    } catch { /* driver advisory — status poll will reconcile */ } finally { setSimBusy(false); }
   };
 
   useEffect(() => {
@@ -434,6 +474,37 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
           <button className="button button-secondary" onClick={() => onNavigate("admin")} type="button"><Settings2 size={15} /> Launch & configure</button>
         </div>
       </header>
+
+      <section className="panel simulator-strip" aria-label="Simulator driver">
+        <div className="panel-title-row">
+          <div><Eyebrow>Simulator driver · event fabric</Eyebrow><h2>Start and stop the synthetic fleet</h2></div>
+          <Tag tone={simStatus.status === "running" ? "mint" : simStatus.status === "paused" ? "amber" : "blue"}>{simStatus.status === "idle" ? "Idle · not started" : simStatus.status === "running" ? `Running · ${simStatus.scenarioLabel ?? simStatus.scenario}` : `Paused · ${simStatus.scenarioLabel ?? simStatus.scenario}`}</Tag>
+        </div>
+        <div className="simulator-controls">
+          <label className="sim-field"><span>Scenario</span>
+            <select aria-label="Scenario" value={simScenario} disabled={simBusy || simStatus.status !== "idle"} onChange={(event) => setSimScenario(event.target.value)}>
+              {simScenarios.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </label>
+          <div className="sim-actions">
+            {simStatus.status === "idle" ? (
+              <button className="button button-primary" type="button" disabled={simBusy} onClick={() => void runSimulator("start")}>{simBusy ? <Activity size={13} /> : <Play size={13} />} Start fleet</button>
+            ) : null}
+            {simStatus.status === "running" ? (
+              <button className="button button-secondary" type="button" disabled={simBusy} onClick={() => void runSimulator("pause")}>{simBusy ? <Activity size={13} /> : <Pause size={13} />} Pause</button>
+            ) : null}
+            {simStatus.status === "paused" ? (
+              <button className="button button-secondary" type="button" disabled={simBusy} onClick={() => void runSimulator("resume")}>{simBusy ? <Activity size={13} /> : <Play size={13} />} Resume</button>
+            ) : null}
+            {simStatus.status !== "idle" ? (
+              <button className="button button-ghost" type="button" disabled={simBusy} onClick={() => void runSimulator("stop")}>{simBusy ? <Activity size={13} /> : <RotateCcw size={13} />} Stop & clear</button>
+            ) : null}
+          </div>
+          <p className="sim-facts">{simStatus.status === "idle"
+            ? "Starting a scenario builds its realms and streams labs, vitals, assessments, claims and safety flags into the live wall, My Work and the regional board."
+            : `${simStatus.totals.realms} realm(s) · ${simStatus.totals.patients} patient(s) · ${simStatus.eventCount} events · ${simStatus.tickCount} ticks`}</p>
+        </div>
+      </section>
 
       <section className="enterprise-context panel">
         <div className="role-perspective">

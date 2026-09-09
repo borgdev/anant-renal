@@ -248,6 +248,16 @@ a { color: inherit; }
 .region-card-metrics small { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
 .region-card-metrics strong { font-size: 13px; }
 .region-card.is-alert .region-card-metrics strong { color: #ffb4a8; }
+
+/* Simulator driver strip (start / stop the synthetic fleet) */
+.simulator-strip { display: grid; gap: 10px; }
+.simulator-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.sim-field { display: grid; gap: 5px; }.sim-field > span { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.sim-field select { min-width: 300px; max-width: 420px; height: 38px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); color: var(--text); font-size: 12px; outline: none; }
+.sim-field select:focus { border-color: var(--mint); }
+.sim-field select option { color: #0c1218; }
+.sim-actions { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+.sim-facts { flex: 1 1 320px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .patient-main-grid { display: grid; grid-template-columns: minmax(0,1.32fr) minmax(290px,.68fr); gap: 12px; }.patient-narrative, .outcome-loops-panel, .evidence-ledger, .patient-assessment-preview { padding: 17px; }.narrative-block { margin: 13px 0 10px; padding: 16px; border-left: 2px solid var(--mint); border-radius: 0 9px 9px 0; background: rgba(152,174,192,.045); }.narrative-block > p { margin: 0; color: #cfe0da; font-size: 12px; line-height: 1.75; }.citation-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 11px; }.citation-row span { padding: 4px 7px; border: 1px solid rgba(152,174,192,.15); border-radius: 6px; color: #88c9b5; background: rgba(152,174,192,.04); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .narrative-boundary { display: flex; gap: 9px; padding: 11px; border: 1px solid var(--line); border-radius: 9px; }.narrative-boundary > svg { color: var(--violet); flex: 0 0 auto; }.narrative-boundary strong { display: block; font-size: 12px; }.narrative-boundary p { margin: 3px 0 0; color: var(--faint); font-size: 12px; line-height: 1.5; }
 .goal-list { display: grid; margin-top: 13px; border-top: 1px solid var(--line); }.list-section-title { display: flex !important; justify-content: space-between; padding: 11px 0 7px !important; border: 0 !important; }.list-section-title span { color: #819b91; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }.list-section-title small { color: var(--faint); font-size: 12px; }.goal-list > div:not(.list-section-title) { min-height: 48px; padding: 8px 3px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; border-top: 1px solid var(--line); }.goal-list > div > svg { color: var(--mint); }.goal-list > div > span { display: grid; gap: 2px; }.goal-list strong { font-size: 12px; }.goal-list small { color: var(--faint); font-size: 12px; }

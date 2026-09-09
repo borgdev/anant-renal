@@ -430,6 +430,58 @@ export async function autofillRegionAssignments(): Promise<RegionAssignmentResul
   });
 }
 
+/* ---------- Simulator driver (start / stop / step the fleet) ---------- */
+
+export type SimulatorRunState = "idle" | "running" | "paused";
+export interface SimulatorStatusView {
+  status: SimulatorRunState;
+  scenario: string | null;
+  scenarioLabel: string | null;
+  pace: { realmHoursPerTick: number; wallMsPerTick: number } | null;
+  tickCount: number;
+  eventCount: number;
+  startedAt: string | null;
+  totals: { realms: number; patients: number; presences: number; effects: number };
+}
+export interface SimScenarioMeta { id: string; label: string; description: string; seed: number; realms: number }
+
+export async function fetchSimulatorStatus(): Promise<SimulatorStatusView> {
+  try {
+    const res = await harnessJson<{ simulator: SimulatorStatusView }>("/admin/simulator/status");
+    return res.simulator;
+  } catch {
+    return { status: "idle", scenario: null, scenarioLabel: null, pace: null, tickCount: 0, eventCount: 0, startedAt: null, totals: { realms: 0, patients: 0, presences: 0, effects: 0 } };
+  }
+}
+export async function fetchSimulatorScenarios(): Promise<SimScenarioMeta[]> {
+  try {
+    const res = await harnessJson<{ scenarios: SimScenarioMeta[] }>("/admin/simulator/scenarios");
+    return res.scenarios ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function startSimulator(scenario: string, opts: { autoRun?: boolean; wallMsPerTick?: number } = {}): Promise<SimulatorStatusView> {
+  const res = await harnessJson<{ simulator: SimulatorStatusView }>("/admin/simulator/start", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ scenario, ...(opts.autoRun !== undefined ? { autoRun: opts.autoRun } : {}), ...(opts.wallMsPerTick ? { wallMsPerTick: opts.wallMsPerTick } : {}) }),
+  });
+  return res.simulator;
+}
+export async function pauseSimulator(): Promise<SimulatorStatusView> {
+  const res = await harnessJson<{ simulator: SimulatorStatusView }>("/admin/simulator/pause", { method: "POST" });
+  return res.simulator;
+}
+export async function resumeSimulator(): Promise<SimulatorStatusView> {
+  const res = await harnessJson<{ simulator: SimulatorStatusView }>("/admin/simulator/resume", { method: "POST" });
+  return res.simulator;
+}
+export async function stopSimulator(): Promise<{ ok: boolean }> {
+  return harnessJson<{ ok: boolean }>("/admin/simulator/reset", { method: "POST" });
+}
+
 /* ---------- R0 — broker-fed live event wall ---------- */
 
 export interface LiveEventRow {
