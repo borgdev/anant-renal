@@ -52,6 +52,7 @@ import AccessCds from "./components/access-cds";
 import MbdCds from "./components/mbd-cds";
 import NutritionCds from "./components/nutrition-cds";
 import InfectionCds from "./components/infection-cds";
+import AssuranceTrack from "./components/assurance-track";
 import AssuranceCenter from "./components/assurance-center";
 import AdminConsole from "./components/admin-console";
 import ConfigurationStudio from "./components/configuration-studio";
@@ -87,6 +88,7 @@ const PROTOCOL_VIEWS: Array<{ id: NavigationId; label: string; stage: string }> 
   { id: "mbd", label: "CKD-MBD", stage: "P4" },
   { id: "nutrition", label: "Nutrition & electrolytes", stage: "P5" },
   { id: "infection", label: "Infection & vaccination", stage: "P6" },
+  { id: "protocol-assurance", label: "Cross-pack assurance", stage: "P7" },
 ];
 
 const PROTOCOL_IDS: readonly NavigationId[] = PROTOCOL_VIEWS.map((view) => view.id);
@@ -101,7 +103,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { id: "agents", label: "Agent operations", icon: Blocks, badge: "12" },
       { id: "command", label: "Outcome command", icon: Gauge, badge: "4" },
       { id: "patient", label: "Patient intelligence", icon: UserRound },
-      { id: "protocols", label: "Clinical protocols", icon: FlaskConical, badge: "8" },
+      { id: "protocols", label: "Clinical protocols", icon: FlaskConical, badge: "9" },
       { id: "facility", label: "Facility operations", icon: Box },
       { id: "assessments", label: "Assessment intelligence", icon: BookOpenText },
     ],
@@ -141,8 +143,10 @@ const ROLE_LABELS: Record<string, string> = {
 /** Lens-aware terminology — the active solution-pack lens from /api/context.
  *  Payer users never see renal concepts (spec §6.4 acceptance). */
 const LENS_TEXT = {
-  brand: { provider: "Renal Swarm", payer: "Anant Payer" } as Record<string, string>,
-  brandSub: { provider: "Observer Mechanics", payer: "Outcome orchestration" } as Record<string, string>,
+  // Unified brand (matches the landing page / operator console) — brand is lens-independent
+  // and carries no subtitle, so the lockup reads simply "AnantHealth" in every lens.
+  brand: { provider: "AnantHealth", payer: "AnantHealth" } as Record<string, string>,
+  brandSub: { provider: "", payer: "" } as Record<string, string>,
   syntheticTag: { provider: "Synthetic patient data", payer: "Synthetic member data" } as Record<string, string>,
   statusLine: { provider: "12 cells · 14 policies · 8 verified sources", payer: "6 payer cells · 4 policies · 8 verified sources" } as Record<string, string>,
   patientNav: { provider: "Patient intelligence", payer: "Member intelligence" } as Record<string, string>,
@@ -310,6 +314,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
       case "mbd": return <MbdCds onNavigate={selectNav} />;
       case "nutrition": return <NutritionCds onNavigate={selectNav} />;
       case "infection": return <InfectionCds onNavigate={selectNav} />;
+      case "protocol-assurance": return <AssuranceTrack onNavigate={selectNav} />;
       case "assessments": return <AssessmentIntelligence onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "intelligence": return <IntelligenceWorkspace onOpenDetail={openWorkflowDetail} />;
       case "facility": return <FacilityTwin onOpenDetail={openWorkflowDetail} />;
@@ -326,7 +331,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
       <aside className={`sidebar ${collapsed ? "is-collapsed" : ""} ${sidebarOpen ? "is-open" : ""}`} aria-label="Primary navigation">
         <div className="brand-lockup">
           <span className="brand-mark"><Activity size={21} aria-hidden="true" /></span>
-          <div><strong>{LENS_TEXT.brand[lens] ?? "Renal Swarm"}</strong><small>{LENS_TEXT.brandSub[lens] ?? "Observer Mechanics"}</small></div>
+          <div><strong>{LENS_TEXT.brand[lens] ?? "AnantHealth"}</strong>{LENS_TEXT.brandSub[lens] ? <small>{LENS_TEXT.brandSub[lens]}</small> : null}</div>
           <button className="icon-button sidebar-collapse" onClick={toggleCollapse} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} type="button">{collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}</button>
           <button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" type="button"><X size={18} /></button>
         </div>

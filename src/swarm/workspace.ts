@@ -106,7 +106,11 @@ export type WorkspaceKind =
   | 'infection-validation-report'
   | 'infection-study-record'
   | 'infection-mdr-file'
-  | 'infection-twin-drift';
+  | 'infection-twin-drift'
+  | 'protocol-mode'
+  | 'assurance-slice-report'
+  | 'assurance-burden-report'
+  | 'cross-pack-release-gate';
 
 export interface WorkspaceDoc {
   id: string;
@@ -2190,8 +2194,7 @@ async listCatalog<T extends WorkspaceDoc>(kind: WorkspaceKind): Promise<T[]> {
 /* ---------- helpers ---------- */
 
 export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
-  'red-team-scenario',
-  'red-team-run',
+  'red-team-scenario',  'red-team-run',
   'submission-package',
   'config-release',
   'evidence-review',
@@ -2264,6 +2267,10 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'infection-study-record',
   'infection-mdr-file',
   'infection-twin-drift',
+  'protocol-mode',
+  'assurance-slice-report',
+  'assurance-burden-report',
+  'cross-pack-release-gate',
 ];
 
 function slug(input: string): string {

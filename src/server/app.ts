@@ -83,6 +83,7 @@ import { registerAccessRoutes } from './access-routes.js';
 import { registerMbdRoutes } from './mbd-routes.js';
 import { registerNutritionRoutes } from './nutrition-routes.js';
 import { registerInfectionRoutes } from './infection-routes.js';
+import { registerAssuranceRoutes as registerCrossPackAssuranceRoutes } from './assurance-track-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
 import { registerAssuranceRoutes } from './assurance-routes.js';
 import { registerSubmissionRoutes } from './submission-routes.js';
@@ -488,6 +489,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await registerInfectionRoutes(app, {
     ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
     ...(deps.infectionEvents ? { events: deps.infectionEvents } : {}),
+  });
+
+  // Cross-pack assurance track — the one view across all seven protocol packs:
+  // declared guideline rules, per-protocol ledger evidence, cohort fairness
+  // slices, alert burden, surfacing modes and a single release gate that
+  // aggregates every pack's per-protocol MDR file.
+  await registerCrossPackAssuranceRoutes(app, {
+    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
   });
 
   // Agent Studio (Phase D) — one unified surface for authoring, triggers, topics,
