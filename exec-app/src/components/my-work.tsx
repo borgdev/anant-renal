@@ -17,7 +17,7 @@ import {
 import { fetchMyWork, fetchWorkDetail, performWorkAction, type PlatformWorkItem, type PlatformWorkDetail, type PlatformUrgency } from "../lib/work";
 import type { NavigationId } from "../lib/types";
 import type { OpenWorkflowDetail, WorkflowDetail } from "../lib/workflow-detail";
-import { EvidenceTag, Eyebrow, EmptyView, Tag } from "./ui";
+import { EvidenceTag, Eyebrow, EmptyView, LoadMore, Tag, usePaged } from "./ui";
 
 const KIND_LABEL: Record<PlatformWorkItem["kind"], string> = {
   episode: "Outcome episode",
@@ -150,6 +150,8 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
   }), [items]);
 
   const visible = filter === "all" ? items : items.filter((i) => i.urgency === filter);
+  // Page the queue (10/page) so long role-scoped lists never stretch the page.
+  const paged = usePaged(visible, 10, filter);
 
   const act = async (item: PlatformWorkItem, action: string) => {
     const key = `${item.id}:${action}`;
@@ -223,8 +225,9 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
           <button className="button button-primary" onClick={() => onNavigate("command")} type="button">Open Outcome Command <ArrowRight size={14} /></button>
         </div>
       ) : (
-        <div className="episode-list mywork-list">
-          {visible.map((item) => {
+        <>
+        <div className="episode-list mywork-list list-scroll list-scroll-tall">
+          {paged.visible.map((item) => {
             const Icon = KIND_ICON[item.kind];
             const actionKey = `${item.id}:${item.actions[0] ?? ""}`;
             return (
@@ -264,6 +267,8 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
             );
           })}
         </div>
+        <LoadMore shown={paged.visible.length} total={visible.length} onMore={paged.showMore} label="work item(s)" />
+        </>
       )}
     </div>
   );

@@ -23,7 +23,7 @@ import { ensureRuntime, startLiveRuntime, mutateRuntime, fetchCmsReadiness, type
 import type { NavigationId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { approveSubmission, createSubmission, fetchSubmissions, type SubmissionPackageView } from "../lib/work";
-import { Eyebrow, PanelExpand, ProgressBar, SourceLink, Tag } from "./ui";
+import { Eyebrow, LoadMore, PanelExpand, ProgressBar, SourceLink, Tag, usePaged } from "./ui";
 
 /** Reference readiness — used ONLY when the real CMS datasets aren't reachable. */
 const REFERENCE_READINESS: CmsReadiness["measures"] = [
@@ -45,6 +45,7 @@ export default function CmsControl({ onOpenDetail }: { onOpenDetail: OpenWorkflo
 
   // Journey K — live EQRS submission lifecycle (dual Class-D → receipt).
   const [submissions, setSubmissions] = useState<SubmissionPackageView[]>([]);
+  const submissionPager = usePaged(submissions, 8);
   const [submissionBusy, setSubmissionBusy] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [approverA, setApproverA] = useState("Medical Director");
@@ -173,8 +174,9 @@ export default function CmsControl({ onOpenDetail }: { onOpenDetail: OpenWorkflo
         <div className="dual-approver-row"><span className="dual-approver-label"><ShieldCheck size={13} /> Class-D approvers</span><input value={approverA} onChange={(e) => setApproverA(e.target.value)} aria-label="First Class-D approver" /><input value={approverB} onChange={(e) => setApproverB(e.target.value)} aria-label="Second Class-D approver" /></div>
         {submissionError ? <div className="package-result"><AlertTriangle size={16} /><div><strong>Submission action failed</strong><p>{submissionError}</p></div></div> : null}
         {submissions.length === 0 ? <p className="submission-empty">No live submission packages yet — open one to start the governed EQRS lifecycle.</p> : (
-          <div className="submission-lifecycle-list">
-            {submissions.map((pkg) => {
+          <>
+          <div className="submission-lifecycle-list list-scroll list-scroll-tall">
+            {submissionPager.visible.map((pkg) => {
               const approvals = pkg.approvals ?? [];
               const tone = pkg.status === "approved" || pkg.status === "reconciled" ? "mint" : pkg.status === "rejected" ? "red" : pkg.status === "submitted" ? "amber" : pkg.status === "validated" ? "blue" : "violet";
               return (
@@ -195,6 +197,8 @@ export default function CmsControl({ onOpenDetail }: { onOpenDetail: OpenWorkflo
               );
             })}
           </div>
+          <LoadMore shown={submissionPager.visible.length} total={submissions.length} onMore={submissionPager.showMore} label="package(s)" />
+          </>
         )}
       </section>
 

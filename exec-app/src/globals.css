@@ -197,6 +197,13 @@ a { color: inherit; }
 .module-loading { min-height: calc(100vh - 150px); display: grid; place-content: center; justify-items: center; gap: 13px; color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spacing: .1em; }.module-loading p { margin: 0; }.module-loading-orbit { width: 32px; height: 32px; border: 1px solid rgba(152,174,192,.18); border-top-color: var(--mint); border-radius: 50%; animation: module-spin .8s linear infinite; }@keyframes module-spin { to { transform: rotate(360deg); } }
 .source-link { display: inline-flex; align-items: center; gap: 4px; color: #9debd3; text-decoration: none; font-size: 12px; }.source-link:hover { text-decoration: underline; }
 
+/* Page-by-page UI pass — shared scroll containment + pagination chrome. */
+.list-scroll { max-height: 380px; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; scrollbar-width: thin; }
+.list-scroll.list-scroll-tall { max-height: 480px; }
+.list-scroll.list-scroll-short { max-height: 260px; }
+.load-more { display: flex; justify-content: center; align-items: center; padding: 10px 0 2px; }
+.load-more .button { display: inline-flex; align-items: center; gap: 6px; }
+
 /* Patient intelligence */
 .heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .patient-identity { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 15px; padding: 17px; }

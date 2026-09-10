@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { useRef, useState } from "react";
-import { Check, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, ChevronDown, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
 
 export function Eyebrow({ children }: { children: ReactNode }) {
   return <p className="eyebrow">{children}</p>;
@@ -113,5 +113,32 @@ export function EmptyView({ title, description }: { title: string; description: 
       <h1>{title}</h1>
       <p>{description}</p>
     </section>
+  );
+}
+
+/* ---------- pagination + scroll containment (page-by-page UI pass) ---------- */
+
+/** Reveal a growing list a page at a time instead of rendering it all. When
+ *  `resetKey` changes (e.g. a filter/patient selection), the page resets. */
+export function usePaged<T>(items: readonly T[], pageSize: number, resetKey?: unknown) {
+  const [limit, setLimit] = useState(pageSize);
+  useEffect(() => { setLimit(pageSize); }, [resetKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const visible = items.slice(0, limit);
+  const hasMore = items.length > limit;
+  const remaining = Math.max(0, items.length - limit);
+  const showMore = () => setLimit((previous) => Math.min(items.length, previous + pageSize));
+  const reset = () => setLimit(pageSize);
+  return { visible, hasMore, remaining, showMore, reset };
+}
+
+/** A centred "show more" control; renders nothing once everything is shown. */
+export function LoadMore({ shown, total, onMore, label }: { shown: number; total: number; onMore: () => void; label?: string }) {
+  if (shown >= total) return null;
+  return (
+    <div className="load-more">
+      <button className="button button-ghost" type="button" onClick={onMore}>
+        Show more ({total - shown} more{label ? ` · ${label}` : ""}) <ChevronDown size={14} />
+      </button>
+    </div>
   );
 }

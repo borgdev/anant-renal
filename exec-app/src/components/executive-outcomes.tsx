@@ -28,7 +28,7 @@ import {
   type Delegation,
   type ExecutiveOutcomes,
 } from "../lib/work";
-import { Eyebrow, PanelExpand, ProgressBar, Tag } from "./ui";
+import { Eyebrow, LoadMore, PanelExpand, ProgressBar, Tag, usePaged } from "./ui";
 
 type Period = "30d" | "quarter" | "year";
 
@@ -95,6 +95,7 @@ export default function ExecutiveOutcomes({ onNavigate, onOpenDetail }: { onNavi
 
   // Journey N — durable delegation ledger + verified-value rollup (live backend).
   const [delegations, setDelegations] = useState<Delegation[]>([]);
+  const delegationPager = usePaged(delegations, 8);
   const [execOutcomes, setExecOutcomes] = useState<ExecutiveOutcomes | null>(null);
   const [delegationError, setDelegationError] = useState<string | null>(null);
   const [newDelegation, setNewDelegation] = useState({ title: "", owner: "", sla: "" });
@@ -218,8 +219,8 @@ export default function ExecutiveOutcomes({ onNavigate, onOpenDetail }: { onNavi
             <button className="button" type="submit" disabled={busy}><PlusCircle size={13} /> Delegate</button>
           </form>
           {delegationError ? <span className="knowledge-error">{delegationError}</span> : null}
-          <div className="delegation-list">
-            {delegations.length === 0 ? <p className="delegation-empty">No delegations yet — sponsor a workstream to an owner above.</p> : delegations.map((d) => (
+          <div className="delegation-list list-scroll list-scroll-tall">
+            {delegations.length === 0 ? <p className="delegation-empty">No delegations yet — sponsor a workstream to an owner above.</p> : delegationPager.visible.map((d) => (
               <div className="delegation-row" key={d.id}>
                 <div className="delegation-row-main">
                   <strong>{d.title}</strong>
@@ -233,6 +234,7 @@ export default function ExecutiveOutcomes({ onNavigate, onOpenDetail }: { onNavi
               </div>
             ))}
           </div>
+          <LoadMore shown={delegationPager.visible.length} total={delegations.length} onMore={delegationPager.showMore} label="delegation(s)" />
         </article>
       </section>
     </div>

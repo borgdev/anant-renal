@@ -17,7 +17,7 @@ import {
 import { assessmentResponses, outcomeEpisodes, patientTimeline } from "../lib/catalogs";
 import { fetchEarlyWarning, fetchPatientEvents, startLivePatients, type EarlyWarningReadout, type HarnessPatient, type RuntimeEventRow } from "../lib/harness";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
-import { Eyebrow, ProgressBar, Tag } from "./ui";
+import { Eyebrow, LoadMore, ProgressBar, Tag, usePaged } from "./ui";
 
 const EW_TONE: Record<string, "mint" | "amber" | "red" | "violet" | "neutral"> = {
   corroborated: "red",
@@ -128,10 +128,12 @@ export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: Op
   const assessment = st.lastAssessment && typeof st.lastAssessment === "object"
     ? (st.lastAssessment as { id?: string; score?: number; band?: string; at?: string })
     : undefined;
-  // Patient-scoped ledger: the endpoint returns this patient's events only,
-  // newest-first; cap at the latest 50 to keep the DOM small.
-  const realmEvents = patientEvents.slice(0, 50);
-  const evidenceTotal = ledgerTotal || realmEvents.length;
+  // Patient-scoped ledger — page through the fetched tail (30/page) instead of
+  // rendering up to 120 rows at once; cohort alerts paginate too.
+  const ledger = usePaged(patientEvents, 30, selectedId);
+  const alertPager = usePaged(cohortAlerts, 8);
+  const realmEvents = ledger.visible;
+  const evidenceTotal = ledgerTotal || patientEvents.length;
   const scope = selected ? `${selected.realmId} · ${selected.id}` : "—";
 
   function openDetail(kind: string, title: string, summary: string, value: string, tone: "mint" | "amber" | "red" | "blue" = "mint") {
@@ -239,15 +241,16 @@ export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: Op
           <p className="ew-copy">No fused watch for this patient yet{selected ? ` (${selected.id})` : ""} — the cohort below shows patients with active signal fusion.</p>
         )}
         {cohortAlerts.length ? (
-          <div className="ew-alert-list">
+          <div className="ew-alert-list list-scroll list-scroll-short">
             <Eyebrow>Cohort alerts · {cohortAlerts.length}</Eyebrow>
-            {cohortAlerts.map((a) => (
+            {alertPager.visible.map((a) => (
               <button className="ew-alert-row" type="button" key={a.patientId} onClick={() => setSelectedId(a.patientId)}>
                 <span className="tag tag-red">{a.patientId}</span>
                 <span className="ew-row-copy">Bel {a.belief.toFixed(2)} · Pl {a.plausibility.toFixed(2)} · {a.signalCount} signals · {a.facilityId ?? "—"}</span>
                 <span className="ew-row-arrow">open →</span>
               </button>
             ))}
+            <LoadMore shown={alertPager.visible.length} total={cohortAlerts.length} onMore={alertPager.showMore} label="alert(s)" />
           </div>
         ) : null}
       </section>
@@ -314,8 +317,8 @@ export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: Op
 
       <section className="patient-lower-grid">
         <article className="panel evidence-ledger">
-          <div className="panel-title-row"><div><Eyebrow>Bitemporal event ledger</Eyebrow><h2>What changed, and when we knew</h2></div><Tag tone="mint">{realmEvents.length} events</Tag></div>
-          <div className="ledger-table">
+          <div className="panel-title-row"><div><Eyebrow>Bitemporal event ledger</Eyebrow><h2>What changed, and when we knew</h2></div><Tag tone="mint">{ledgerTotal} events</Tag></div>
+          <div className="ledger-table list-scroll list-scroll-short">
             <div className="ledger-head"><span>Valid time</span><span>Evidence</span><span>Source</span><span>State</span></div>
             {(realmEvents.length ? realmEvents.map((event) => ({ time: new Date(event.recordedTime).toLocaleString(), label: event.eventType, source: event.sourceSystem, state: event.status === "accepted" ? "complete" : "review" })) : patientTimeline).map((event) => (
               <button className="ledger-row drillable-surface" type="button" onClick={() => onOpenDetail({ id: `LEDGER-${event.time}-${event.label}`, kind: "Bitemporal ledger entry", title: event.label, summary: `The event was retained from ${event.source} with its valid and recorded time.`, status: event.state, tone: event.state === "review" ? "amber" : "mint", owner: event.source, scope, metrics: [{ label: "Valid / recorded time", value: event.time }, { label: "State", value: event.state }], evidence: [{ label: "Source", value: event.source, source: "Canonical event envelope" }], steps: [{ label: "Ingest", detail: "Schema and integrity checked", state: "done" }, { label: "Persist", detail: "Immutable envelope retained", state: "done" }, { label: "Project", detail: "Patient state updated", state: "done" }, { label: "Review", detail: event.state, state: event.state === "review" ? "current" : "done" }], primary: { label: "Open Shared Intelligence", target: "intelligence" } })} key={`${event.time}-${event.label}`}>
@@ -323,6 +326,7 @@ export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: Op
               </button>
             ))}
           </div>
+          <LoadMore shown={realmEvents.length} total={patientEvents.length} onMore={ledger.showMore} label="event(s)" />
         </article>
 
         <article className="panel patient-assessment-preview">
