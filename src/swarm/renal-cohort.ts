@@ -104,6 +104,8 @@ export interface RenalPatientFacts {
     telemetryPoints: number;
   };
   labs: Record<string, number>;
+  /** latest recorded vitals (temperature is the infection-surveillance input) */
+  vitals: { hr?: number; spo2?: number; tempC?: number; bp?: string; systolic?: number };
   panel: { present: RenalPanelKey[]; missing: RenalPanelKey[]; completenessPct: number };
   exposure: {
     esaDoseUnits?: number;
@@ -170,6 +172,13 @@ const num = (v: unknown): number | undefined => {
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
 const avg = (xs: number[]): number | undefined => (xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : undefined);
+
+/** Systolic value from a "128/78" blood-pressure string. */
+function systolicOf(bp: string | undefined): number | undefined {
+  if (!bp) return undefined;
+  const n = Number.parseInt(bp.split('/')[0] ?? '', 10);
+  return Number.isFinite(n) ? n : undefined;
+}
 
 function toSessionFacts(raw: Record<string, unknown>, previous: Record<string, unknown> | undefined): RenalSessionFacts {
   const deliveredMinutes = num(raw.deliveredMinutes) ?? 0;
@@ -248,6 +257,8 @@ export function renalPatientFacts(input: RenalPatientInput): RenalPatientFacts {
   const wbc = labs.wbc;
   const procalcitonin = labs.procalcitonin;
   const temp = num((s.lastVitals as Record<string, unknown> | undefined)?.temp);
+  const lastVitals = (s.lastVitals ?? {}) as Record<string, unknown>;
+  const systolic = systolicOf(str(lastVitals.bp));
   const phos = labs.PHOS;
 
   return {
@@ -282,6 +293,13 @@ export function renalPatientFacts(input: RenalPatientInput): RenalPatientFacts {
       telemetryPoints: sessions.reduce((acc, x) => acc + x.telemetryPoints, 0),
     },
     labs,
+    vitals: {
+      ...(num(lastVitals.hr) !== undefined ? { hr: num(lastVitals.hr) } : {}),
+      ...(num(lastVitals.spo2) !== undefined ? { spo2: num(lastVitals.spo2) } : {}),
+      ...(temp !== undefined ? { tempC: temp } : {}),
+      ...(str(lastVitals.bp) ? { bp: str(lastVitals.bp) } : {}),
+      ...(systolic !== undefined ? { systolic } : {}),
+    },
     panel: { present, missing, completenessPct: Math.round((present.length / RENAL_PANEL_KEYS.length) * 100) },
     exposure: {
       ...(num(s.esaDose) !== undefined ? { esaDoseUnits: num(s.esaDose) } : {}),
