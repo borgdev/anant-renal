@@ -51,6 +51,7 @@ import FluidCds from "./components/fluid-cds";
 import AccessCds from "./components/access-cds";
 import MbdCds from "./components/mbd-cds";
 import NutritionCds from "./components/nutrition-cds";
+import InfectionCds from "./components/infection-cds";
 import AssuranceCenter from "./components/assurance-center";
 import AdminConsole from "./components/admin-console";
 import ConfigurationStudio from "./components/configuration-studio";
@@ -85,6 +86,7 @@ const PROTOCOL_VIEWS: Array<{ id: NavigationId; label: string; stage: string }> 
   { id: "vascular-access", label: "Vascular access", stage: "P3" },
   { id: "mbd", label: "CKD-MBD", stage: "P4" },
   { id: "nutrition", label: "Nutrition & electrolytes", stage: "P5" },
+  { id: "infection", label: "Infection & vaccination", stage: "P6" },
 ];
 
 const PROTOCOL_IDS: readonly NavigationId[] = PROTOCOL_VIEWS.map((view) => view.id);
@@ -99,7 +101,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { id: "agents", label: "Agent operations", icon: Blocks, badge: "12" },
       { id: "command", label: "Outcome command", icon: Gauge, badge: "4" },
       { id: "patient", label: "Patient intelligence", icon: UserRound },
-      { id: "protocols", label: "Clinical protocols", icon: FlaskConical, badge: "7" },
+      { id: "protocols", label: "Clinical protocols", icon: FlaskConical, badge: "8" },
       { id: "facility", label: "Facility operations", icon: Box },
       { id: "assessments", label: "Assessment intelligence", icon: BookOpenText },
     ],
@@ -307,6 +309,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
       case "vascular-access": return <AccessCds onNavigate={selectNav} />;
       case "mbd": return <MbdCds onNavigate={selectNav} />;
       case "nutrition": return <NutritionCds onNavigate={selectNav} />;
+      case "infection": return <InfectionCds onNavigate={selectNav} />;
       case "assessments": return <AssessmentIntelligence onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "intelligence": return <IntelligenceWorkspace onOpenDetail={openWorkflowDetail} />;
       case "facility": return <FacilityTwin onOpenDetail={openWorkflowDetail} />;

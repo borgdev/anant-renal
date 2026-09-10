@@ -16,7 +16,7 @@ import type { ScriptEmitInput, SimScenario, SimScriptEntry } from './types.js';
 import type { WorldEffect } from '../realm/types.js';
 import type { Realm } from '../realm/realm.js';
 
-const LAB_CODES = ['K', 'HGB', 'URR', 'PHOS', 'FERRITIN', 'TSAT'] as const;
+const LAB_CODES = ['K', 'HGB', 'URR', 'PHOS', 'FERRITIN', 'TSAT', 'HBSAB'] as const;
 const ASSESSMENTS = [
   { id: 'phq9', band: 'mild', lo: 2, hi: 6 },
   { id: 'phq9', band: 'moderate', lo: 7, hi: 12 },
@@ -25,7 +25,14 @@ const ASSESSMENTS = [
 
 // ---- F1 renal protocol foundations ----
 /** CKD-MBD / nutrition / inflammation / infection panel ordered on a periodic cadence. */
-export const PANEL_CODES = ['CALCIUM', 'PTH', 'ALBUMIN', 'CREATININE', 'BICARB', 'CRP', 'WBC', 'PROCALCITONIN', 'VITD', 'NONHDL'] as const;
+export const PANEL_CODES = ['CALCIUM', 'PTH', 'ALBUMIN', 'CREATININE', 'BICARB', 'CRP', 'WBC', 'PROCALCITONIN', 'VITD', 'NONHDL', 'NEUTPCT', 'LYMPHPCT'] as const;
+/**
+ * P6 — fever-prone patient subset. One patient in seven carries a recurring
+ * inflammatory/access episode so the BSI triage signal is genuinely present in
+ * the simulated world (a world with no fevers cannot exercise infection triage).
+ */
+const FEVER_PRONE_EVERY = 3;
+const FEVER_THRESHOLD_C = 38.0;
 /** Sessions open every 48 realm-hours; telemetry/close are gated on their offset within that cycle. */
 const SESSION_CYCLE_HOURS = 48;
 const SESSION_TELEMETRY_OFFSET = 6;
@@ -35,6 +42,19 @@ const MAINTENANCE_MEDS = [
   { code: 'calcium-acetate', dose: '667 mg', route: 'PO', frequency: 'three times daily', indication: 'hyperphosphatemia' },
   { code: 'cinacalcet', dose: '30 mg', route: 'PO', frequency: 'daily', indication: 'secondary-hyperparathyroidism' },
   { code: 'calcitriol', dose: '0.25 mcg', route: 'PO', frequency: 'daily', indication: 'vitamin-d-deficiency' },
+] as const;
+
+/**
+ * P6 — the immunisation schedule as DATA. The simulator only records what was
+ * GIVEN (with the dose number and the series size); deciding what is DUE is the
+ * deterministic prevention state machine's job, never the simulator's and never a
+ * model's.
+ */
+const IMMUNISATIONS = [
+  { code: 'hepatitis-b', series: 3 },
+  { code: 'influenza', series: 1 },
+  { code: 'pneumococcal', series: 1 },
+  { code: 'sars-cov-2', series: 1 },
 ] as const;
 
 const every = (id: string, hours: number, viaRole: SimScriptEntry['viaRole'], emit: (i: ScriptEmitInput) => WorldEffect[]): SimScriptEntry =>
@@ -54,15 +74,25 @@ function orderLabs({ patientIds, rng }: ScriptEmitInput): WorldEffect[] {
 }
 
 /** Record drifting vitals for every patient. */
-function recordVitals({ patientIds, rng }: ScriptEmitInput): WorldEffect[] {
-  return patientIds.map((pid) => ({
-    kind: 'record-vitals',
-    patientId: pid,
-    hr: 72 + Math.round(rng() * 30),
-    spo2: 93 + Math.round(rng() * 6),
-    bp: '128/78',
-    temp: Number((36.2 + rng() * 0.7).toFixed(1)),
-  }));
+function recordVitals({ patientIds, rng, seq }: ScriptEmitInput): WorldEffect[] {
+  return patientIds.map((pid, index) => {
+    // P6 — one patient in three is in an inflammatory episode, on a 3-reading
+    // rise/peak/fall cycle, so temperature is a real (not decorative) triage
+    // signal and the same patient yields a serial series rather than a spike.
+    const feverProne = index % FEVER_PRONE_EVERY === 0;
+    const febrile = feverProne && seq % 3 === 0;
+    const temp = febrile
+      ? Number((38.0 + rng() * 1.1).toFixed(1))
+      : Number((36.2 + rng() * 0.7).toFixed(1));
+    return {
+      kind: 'record-vitals' as const,
+      patientId: pid,
+      hr: 72 + Math.round(rng() * 30) + (febrile ? 18 : 0),
+      spo2: 93 + Math.round(rng() * 6) - (febrile ? 2 : 0),
+      bp: febrile ? '104/62' : '128/78',
+      temp,
+    };
+  });
 }
 
 /** Record a screening assessment on a rotating ~40% subset. */function recordAssessments({ patientIds, rng }: ScriptEmitInput): WorldEffect[] {
@@ -369,6 +399,128 @@ function maintenanceMeds({ patientIds, rng }: ScriptEmitInput): WorldEffect[] {
   return out;
 }
 
+/**
+ * P6 — immunisation records. Dialysis patients follow a real schedule (hepatitis
+ * B series, annual influenza, pneumococcal, SARS-CoV-2); the record carries the
+ * dose number and the due date so the PREVENTION state machine can decide what
+ * is due — the rules read these records, the triage model never does.
+ */
+function immunisationRecords({ patientIds, seq, rng }: ScriptEmitInput): WorldEffect[] {
+  const pid = patientIds[seq % Math.max(1, patientIds.length)];
+  if (!pid) return [];
+  const vaccine = IMMUNISATIONS[Math.min(IMMUNISATIONS.length - 1, Math.floor(rng() * IMMUNISATIONS.length))] as (typeof IMMUNISATIONS)[number];
+  const seriesDose = vaccine.series === 1 ? 1 : 1 + Math.floor(rng() * vaccine.series);
+  return [{
+    kind: 'record-immunisation',
+    patientId: pid,
+    vaccine: vaccine.code,
+    seriesDose,
+    seriesTotal: vaccine.series,
+    lotNumber: `lot-${Math.round(rng() * 100000).toString(36)}`,
+  }];
+}
+
+/**
+ * P6 — the immunisation HISTORY a dialysis unit actually holds. A rolling
+ * emitter alone would leave every patient "never immunised" for weeks, which is
+ * both unrealistic and misleading in the console. Each patient gets a
+ * deterministic backfilled history (by index):
+ *
+ *   0 → never immunised (all four doses due)
+ *   1 → fully up to date (flu this season, pneumococcal, SARS-CoV-2, hep-B 3/3)
+ *   2 → hep-B series incomplete (2/3)
+ *   3 → overdue: last influenza 2 years ago, pneumococcal 6 years ago
+ *
+ * The dates are written as `administeredAt` so the RECORD carries when the dose
+ * happened. What is DUE is still computed by the rules, never by the simulator.
+ */
+function immunisationHistory({ patientIds, realmAt }: ScriptEmitInput): WorldEffect[] {
+  const daysAgo = (days: number): string => new Date(realmAt.getTime() - days * 86_400_000).toISOString();
+  const out: WorldEffect[] = [];
+  for (const [index, pid] of patientIds.entries()) {
+    const shape = index % 4;
+    if (shape === 0) continue; // nothing on file
+    const dose = (vaccine: string, seriesDose: number, seriesTotal: number, days: number): WorldEffect => ({
+      kind: 'record-immunisation',
+      patientId: pid,
+      vaccine,
+      seriesDose,
+      seriesTotal,
+      administeredAt: daysAgo(days),
+      lotNumber: `hist-${index}-${vaccine}`,
+    });
+    if (shape === 1) {
+      out.push(dose('influenza', 1, 1, 120), dose('pneumococcal', 1, 1, 400), dose('sars-cov-2', 1, 1, 150), dose('hepatitis-b', 3, 3, 620));
+    } else if (shape === 2) {
+      out.push(dose('influenza', 1, 1, 130), dose('hepatitis-b', 2, 3, 200));
+    } else {
+      out.push(dose('influenza', 1, 1, 730), dose('pneumococcal', 1, 1, 2_190), dose('hepatitis-b', 3, 3, 900));
+    }
+  }
+  return out;
+}
+
+/**
+ * P6 — infection-prevention audits (CDC core interventions). Audits are
+ * recorded as assessments so they flow through the same assessment path and the
+ * prevention state machine can mark them current/overdue.
+ */
+function infectionPreventionAudits({ patientIds, seq, rng }: ScriptEmitInput): WorldEffect[] {
+  const pid = patientIds[seq % Math.max(1, patientIds.length)];
+  if (!pid) return [];
+  const both = rng() < 0.5;
+  const out: WorldEffect[] = [{
+    kind: 'record-assessment',
+    patientId: pid,
+    assessmentId: 'hand-hygiene-audit',
+    score: Math.round(82 + rng() * 16),
+    band: 'audit',
+  }];
+  if (both) {
+    out.push({ kind: 'record-assessment', patientId: pid, assessmentId: 'access-care-audit', score: Math.round(78 + rng() * 20), band: 'audit' });
+  }
+  return out;
+}
+
+/**
+ * P6 — the audit HISTORY: half the cohort audited inside the 30-day cadence and
+ * half not, so the cadence rule has something real to find on day one.
+ */
+function infectionAuditHistory({ patientIds, realmAt }: ScriptEmitInput): WorldEffect[] {
+  const out: WorldEffect[] = [];
+  for (const [index, pid] of patientIds.entries()) {
+    if (index % 2 === 0) continue; // no audit on file → overdue
+    const days = index % 4 === 1 ? 12 : 45;
+    out.push({
+      kind: 'record-assessment',
+      patientId: pid,
+      assessmentId: 'hand-hygiene-audit',
+      score: 88 + (index % 9),
+      band: 'audit',
+      observedAt: new Date(realmAt.getTime() - days * 86_400_000).toISOString(),
+    });
+  }
+  return out;
+}
+
+/**
+ * P6 — blood-culture order for a febrile patient. A culture order is the
+ * deterministic prerequisite the triage contract demands before any empiric
+ * antimicrobial discussion; the simulator only orders the LAB, never a drug.
+ */
+function bloodCultureOrders({ patientIds, seq, rng, realm }: ScriptEmitInput): WorldEffect[] {
+  const states = stateById(realm);
+  const out: WorldEffect[] = [];
+  for (const [index, pid] of patientIds.entries()) {
+    if (index % FEVER_PRONE_EVERY !== 0) continue;
+    if (seq % 3 !== 2) continue; // the culture follows the febrile reading
+    const temp = Number((states.get(pid)?.lastVitals as { temp?: number } | undefined)?.temp ?? 0);
+    if (temp < FEVER_THRESHOLD_C && rng() > 0.2) continue;
+    out.push({ kind: 'order-lab', patientId: pid, code: 'BCULT', priority: 'stat' });
+  }
+  return out;
+}
+
 function dialysisScript(): SimScriptEntry[] {
   return [
     every('labs', 3, 'md', orderLabs),
@@ -394,6 +546,15 @@ function dialysisScript(): SimScriptEntry[] {
     // ---- P4/P5 protocol data: serial MBD/nutrition panel + handgrip + ECG adjunct ----
     every('handgrip', 168, 'nurse', handgripAssessments),
     every('ecg-pattern', 120, 'nurse', ecgPatternFlags),
+    // ---- P6 protocol data: immunisation history, prevention audits, cultures ----
+    // The HISTORY baselines fire once so a fresh realm already holds the records a
+    // real unit would have (some up to date, some overdue, one never immunised);
+    // what is DUE is then computed by the rules, never by the simulator.
+    at('immunisation-history', 9, 'nurse', immunisationHistory),
+    at('infection-audit-history', 11, 'nurse', infectionAuditHistory),
+    every('immunisation', 336, 'nurse', immunisationRecords),
+    every('infection-audit', 240, 'nurse', infectionPreventionAudits),
+    every('blood-culture', 6, 'md', bloodCultureOrders),
   ];
 }
 

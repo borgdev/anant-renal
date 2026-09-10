@@ -205,6 +205,31 @@ function draw(code: string, trajectory: string): { value: number; unit: string; 
       const v = Math.round(jitter(trajectory === 'underdialyzed' ? 92 : 118, 14));
       return { value: v, unit: 'mg/dL', ...(v < 100 ? { abnormal: 'L' as const } : {}) };
     }
+    // ---- P6: infection triage inputs (differential, culture, serology) ----
+    case 'NEUTPCT': {
+      // neutrophil fraction, % — the numerator of the NLR (sepsis triage signal)
+      const base = trajectory === 'decompensating' ? 78 : 62;
+      const v = Math.round(jitter(base, 10));
+      return { value: v, unit: '%', ...(v > 75 ? { abnormal: 'H' as const } : {}) };
+    }
+    case 'LYMPHPCT': {
+      // lymphocyte fraction, % — the denominator of the NLR
+      const base = trajectory === 'decompensating' ? 12 : 24;
+      const v = Math.round(jitter(base, 7));
+      return { value: v, unit: '%', ...(v < 15 ? { abnormal: 'L' as const } : {}) };
+    }
+    case 'BCULT': {
+      // blood culture result: 1 = organism grown, 0 = no growth. The route/
+      // organism detail lives on the order, not in the numeric result.
+      const positive = trajectory === 'decompensating' && Math.random() < 0.45;
+      return { value: positive ? 1 : 0, unit: '0/1', ...(positive ? { abnormal: 'A' as const } : {}) };
+    }
+    case 'HBSAB': {
+      // hepatitis B surface antibody titre, mIU/mL — <10 is non-protective, so
+      // the serology follow-up rule fires instead of an assumption of immunity
+      const v = Math.round(jitter(trajectory === 'decompensating' ? 8 : 42, 22));
+      return { value: Math.max(1, v), unit: 'mIU/mL', ...(v < 10 ? { abnormal: 'L' as const } : {}) };
+    }
     default: {
       const v = Number(jitter(50, 20).toFixed(1));
       return { value: v, unit: 'unit' };

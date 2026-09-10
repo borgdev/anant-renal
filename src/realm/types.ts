@@ -172,7 +172,11 @@ export type WorldEffect =
   // feature vector (mel-band energies), never raw audio, and every capture carries
   // its provenance. Ingestion is gated by ACCESS_ACOUSTIC_ENABLED in the engine.
   | { kind: 'record-access-acoustic'; patientId: string; captureId: string; features: number[]; baseline: boolean; provenance: string; synthetic: true; featureKind?: 'mel-band-energies'; note?: string }
-  | { kind: 'record-assessment'; patientId: string; assessmentId: string; score: number; band?: string }
+  | { kind: 'record-assessment'; patientId: string; assessmentId: string; score: number; band?: string; observedAt?: string }
+  // P6 — immunisation record (dialectics: hepatitis B series, annual influenza,
+  // pneumococcal, SARS-CoV-2). The record states what was GIVEN; what is DUE is
+  // computed by the deterministic prevention rules, never by a model.
+  | { kind: 'record-immunisation'; patientId: string; vaccine: string; seriesDose: number; seriesTotal?: number; administeredAt?: string; lotNumber?: string; note?: string }
   | { kind: 'update-care-plan'; patientId: string; patch: Record<string, unknown> }
   | { kind: 'schedule-followup'; patientId: string; when: string; resource: string; followupKind: string }
   | { kind: 'notify-staff'; targetRole: string; message: string; priority: 'low' | 'normal' | 'high' | 'critical'; patientRef?: string }

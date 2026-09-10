@@ -67,6 +67,8 @@ export type CanonicalEventType =
   | 'claim.denied'
   | 'claim.remittance'
   | 'condition.recorded'
+  | 'immunization.recorded'
+  | 'infection.screened'
   | 'medication.ordered'
   | 'medication.updated'
   | 'procedure.performed'

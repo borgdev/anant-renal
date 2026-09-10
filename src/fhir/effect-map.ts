@@ -212,6 +212,21 @@ export function effectToFhirResource(effect: WorldEffect, opts: EffectFhirOption
         ...(effect.band ? { interpretation: [concept('http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation', effect.band)] } : {}),
       } as never, ctx)];
 
+    case 'record-immunisation':
+      // P6 — immunisation record → FHIR Immunization. This is the patient's own
+      // history; what is DUE is decided by the deterministic prevention rules.
+      return [stamp({
+        resourceType: 'Immunization',
+        status: 'completed',
+        vaccineCode: concept(CODE_SYSTEMS.cvx, effect.vaccine),
+        patient: subject() ? { reference: subject() } : undefined,
+        occurrenceDateTime: effect.administeredAt ?? opts.issued ?? ctx.ingestedAt,
+        recorded: ctx.ingestedAt,
+        ...(effect.lotNumber ? { lotNumber: effect.lotNumber } : {}),
+        protocolApplied: [{ doseNumberPositiveInt: effect.seriesDose, ...(effect.seriesTotal ? { seriesDosesPositiveInt: effect.seriesTotal } : {}) }],
+        ...(effect.note ? { note: [{ text: effect.note }] } : {}),
+      } as never, ctx)];
+
     case 'update-care-plan':
       return [stamp({
         resourceType: 'CarePlan',
@@ -301,7 +316,7 @@ export function effectResourceType(effect: WorldEffect): string[] {
     case 'admit-patient': case 'transfer-patient': case 'discharge-patient': return ['Encounter'];
     case 'order-lab': case 'schedule-followup': return ['ServiceRequest'];
     case 'order-med': return ['MedicationRequest'];
-    case 'result-lab': case 'record-vitals': case 'record-assessment': return ['Observation'];
+    case 'result-lab': case 'record-vitals': case 'record-assessment': case 'record-immunisation': return ['Observation'];
     case 'update-care-plan': return ['CarePlan'];
     case 'submit-claim': case 'request-prior-auth': return ['Claim'];
     case 'open-ticket': return ['Task'];

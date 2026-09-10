@@ -53,6 +53,7 @@ export function effectKindToEventType(kind: EmittedEffect['effect']['kind']): Ca
     case 'result-lab': return 'lab.result-arrived';
     case 'record-vitals': return 'vital.observed';
     case 'record-assessment': return 'condition.recorded';
+    case 'record-immunisation': return 'immunization.recorded';
     case 'order-med': return 'medication.ordered';
     case 'submit-claim': return 'claim.submitted';
     case 'request-prior-auth': return 'prior-auth.submitted';

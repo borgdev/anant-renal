@@ -68,8 +68,8 @@ const UNIVERSAL_EFFECTS: Array<WorldEffect['kind']> = [
 ];
 
 export const DEFAULT_AUTHORITY: EffectAuthorityMap = {
-  nurse: ['admit-patient', 'transfer-patient', 'administer-med', 'record-vitals', 'record-assessment', 'record-agent-thought', 'notify-staff', 'flag-safety-event', 'update-care-plan', 'result-lab', 'start-session', 'record-session-telemetry', 'end-session', 'record-access', 'record-access-acoustic'],
-  md: ['admit-patient', 'transfer-patient', 'discharge-patient', 'order-lab', 'order-med', 'hold-med', 'titrate-med', 'update-care-plan', 'schedule-followup', 'notify-staff', 'flag-safety-event', 'record-agent-thought', 'record-assessment', 'record-vitals', 'result-lab', 'start-session', 'record-session-telemetry', 'end-session', 'record-access', 'record-access-acoustic'],
+  nurse: ['admit-patient', 'transfer-patient', 'administer-med', 'record-vitals', 'record-assessment', 'record-agent-thought', 'notify-staff', 'flag-safety-event', 'update-care-plan', 'result-lab', 'start-session', 'record-session-telemetry', 'end-session', 'record-access', 'record-access-acoustic', 'record-immunisation'],
+  md: ['admit-patient', 'transfer-patient', 'discharge-patient', 'order-lab', 'order-med', 'hold-med', 'titrate-med', 'update-care-plan', 'schedule-followup', 'notify-staff', 'flag-safety-event', 'record-agent-thought', 'record-assessment', 'record-vitals', 'result-lab', 'start-session', 'record-session-telemetry', 'end-session', 'record-access', 'record-access-acoustic', 'record-immunisation'],
   pa: ['order-lab', 'order-med', 'titrate-med', 'update-care-plan', 'schedule-followup', 'notify-staff', 'record-agent-thought'],
   pharmacist: ['hold-med', 'titrate-med', 'notify-staff', 'flag-safety-event', 'record-agent-thought'],
   tech: ['administer-med', 'record-vitals', 'record-agent-thought', 'notify-staff', 'start-session', 'record-session-telemetry', 'end-session', 'record-access', 'record-access-acoustic'],
@@ -442,7 +442,31 @@ export class EffectReducer {
         return results;
       }
       case 'record-assessment': {        const patientUrn = g.urnFor('patient', effect.patientId);
-        const patch = { lastAssessment: { id: effect.assessmentId, score: effect.score, band: effect.band, at } };
+        // an assessment can be disclosed today for a visit observed earlier
+        // (a backfilled audit); the observation time is what the rules read
+        const patch = { lastAssessment: { id: effect.assessmentId, score: effect.score, band: effect.band, at: effect.observedAt ?? at } };
+        if (g.get(patientUrn)) g.patch(patientUrn, patch, `effect:${effect.kind}`);
+        else g.create('patient', effect.patientId, patch);
+        results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
+        return results;
+      }
+      case 'record-immunisation': {
+        const patientUrn = g.urnFor('patient', effect.patientId);
+        const state = g.get(patientUrn)?.state as { immunisations?: unknown[] } | undefined;
+        const record = {
+          // the record carries WHEN the dose was given; the disclosure time is
+          // only used when the source did not supply one (a backfilled history)
+          at: effect.administeredAt ?? at,
+          vaccine: effect.vaccine,
+          seriesDose: effect.seriesDose,
+          ...(effect.seriesTotal !== undefined ? { seriesTotal: effect.seriesTotal } : {}),
+          ...(effect.lotNumber ? { lotNumber: effect.lotNumber } : {}),
+          ...(effect.note ? { note: effect.note } : {}),
+        };
+        const prior = Array.isArray(state?.immunisations) ? (state?.immunisations as unknown[]) : [];
+        // the ring keeps the patient's immunisation history; what is DUE is
+        // computed by the deterministic prevention rules from these records
+        const patch = { immunisations: [...prior, record].slice(-24) };
         if (g.get(patientUrn)) g.patch(patientUrn, patch, `effect:${effect.kind}`);
         else g.create('patient', effect.patientId, patch);
         results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });

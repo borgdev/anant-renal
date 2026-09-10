@@ -52,6 +52,8 @@ const AUDIT_ACTIVITY: Record<string, string> = {
   'fhir.resource-ingested': '110100',
   // M24 clinical-record family — all "Patient Record" activity (110100).
   'condition.recorded': '110100',
+  'immunization.recorded': '110100',
+  'infection.screened': '110100',
   'procedure.performed': '110100',
   'medication.updated': '110100',
   'encounter.summary': '110100',

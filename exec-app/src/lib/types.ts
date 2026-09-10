@@ -10,6 +10,7 @@ export type NavigationId =
   | "vascular-access"
   | "mbd"
   | "nutrition"
+  | "infection"
   | "protocols"
   | "intelligence"
   | "assessments"

@@ -102,7 +102,11 @@ export type WorkspaceKind =
   | 'nutrition-validation-report'
   | 'nutrition-study-record'
   | 'nutrition-mdr-file'
-  | 'nutrition-twin-drift';
+  | 'nutrition-twin-drift'
+  | 'infection-validation-report'
+  | 'infection-study-record'
+  | 'infection-mdr-file'
+  | 'infection-twin-drift';
 
 export interface WorkspaceDoc {
   id: string;
@@ -614,6 +618,7 @@ export function projectRealmEvents(entries: Array<{ realmId: string; eventId: st
     'admit-patient': 'adt.admit.v2', 'transfer-patient': 'adt.transfer.v2', 'discharge-patient': 'adt.discharge.v2',
     'order-lab': 'treatment.scheduled', 'result-lab': 'lab.result-arrived', 'order-med': 'medication.ordered',
     'record-vitals': 'vital.observed', 'record-assessment': 'assessment.response.v1', 'update-care-plan': 'care.plan.updated',
+    'record-immunisation': 'immunization.recorded',
     'submit-claim': 'claim.submitted', 'request-prior-auth': 'prior-auth.requested', 'schedule-followup': 'followup.scheduled',
     'flag-safety-event': 'safety.flagged', 'notify-staff': 'staff.notified',
     // F1 — dialysis session lifecycle + access observations.
@@ -2255,6 +2260,10 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'nutrition-study-record',
   'nutrition-mdr-file',
   'nutrition-twin-drift',
+  'infection-validation-report',
+  'infection-study-record',
+  'infection-mdr-file',
+  'infection-twin-drift',
 ];
 
 function slug(input: string): string {

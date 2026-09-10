@@ -82,6 +82,7 @@ import { registerFluidRoutes } from './fluid-routes.js';
 import { registerAccessRoutes } from './access-routes.js';
 import { registerMbdRoutes } from './mbd-routes.js';
 import { registerNutritionRoutes } from './nutrition-routes.js';
+import { registerInfectionRoutes } from './infection-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
 import { registerAssuranceRoutes } from './assurance-routes.js';
 import { registerSubmissionRoutes } from './submission-routes.js';
@@ -141,6 +142,8 @@ export interface AppDeps {
    *  the runtime defaults to RealmRegistry's own ledger. */
   readonly mbdEvents?: () => import('../swarm/mbd-twin.js').MbdTwinEventInput[];
   readonly nutritionEvents?: () => import('../swarm/nutrition-twin.js').NutritionTwinEventInput[];
+  /** P6 twin data source — real realm ledger events. Optional override for tests. */
+  readonly infectionEvents?: () => import('../swarm/infection-twin.js').InfectionTwinEventInput[];
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -475,6 +478,16 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await registerNutritionRoutes(app, {
     ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
     ...(deps.nutritionEvents ? { events: deps.nutritionEvents } : {}),
+  });
+
+  // P6 — infection / vaccination pack. The first pack whose answer is split: a
+  // statistical TRIAGE head and a DETERMINISTIC, model-free PREVENTION state
+  // machine over immunisation / serology / audit records. CDSS: the platform
+  // holds no antimicrobial or prescribing authority, and blood cultures must
+  // exist before any antimicrobial discussion.
+  await registerInfectionRoutes(app, {
+    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+    ...(deps.infectionEvents ? { events: deps.infectionEvents } : {}),
   });
 
   // Agent Studio (Phase D) — one unified surface for authoring, triggers, topics,

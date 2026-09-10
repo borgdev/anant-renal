@@ -71,6 +71,7 @@ export const DEFAULT_WEIGHTS: CostWeights = {
     'titrate-med': 4,
     'record-vitals': 2,
     'record-assessment': 6,
+    'record-immunisation': 8,
     'update-care-plan': 8,
     'schedule-followup': 4,
     'notify-staff': 2,
