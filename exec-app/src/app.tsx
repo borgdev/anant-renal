@@ -71,6 +71,25 @@ type NavItem = {
   badge?: string;
 };
 
+/**
+ * The clinical protocols share one shell: one sidebar entry, one tab strip.
+ * The cockpit is the hub (registry-driven, every pack in one green/amber/red
+ * index) and each pack keeps its own page one click away — so the sidebar stays
+ * short as packs are added, and nothing becomes a second-class citizen.
+ */
+const PROTOCOL_VIEWS: Array<{ id: NavigationId; label: string; stage: string }> = [
+  { id: "protocols", label: "Cockpit", stage: "all" },
+  { id: "anemia", label: "Anemia & ESA", stage: "CDSS" },
+  { id: "adequacy", label: "Adequacy & Kt/V", stage: "P1" },
+  { id: "fluid", label: "Fluid & IDH", stage: "P2" },
+  { id: "vascular-access", label: "Vascular access", stage: "P3" },
+  { id: "mbd", label: "CKD-MBD", stage: "P4" },
+  { id: "nutrition", label: "Nutrition & electrolytes", stage: "P5" },
+];
+
+const PROTOCOL_IDS: readonly NavigationId[] = PROTOCOL_VIEWS.map((view) => view.id);
+const isProtocolView = (id: NavigationId): boolean => PROTOCOL_IDS.includes(id);
+
 const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "Operate",
@@ -80,13 +99,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { id: "agents", label: "Agent operations", icon: Blocks, badge: "12" },
       { id: "command", label: "Outcome command", icon: Gauge, badge: "4" },
       { id: "patient", label: "Patient intelligence", icon: UserRound },
-      { id: "anemia", label: "Anemia & ESA", icon: HeartPulse, badge: "CDSS" },
-      { id: "protocols", label: "Protocol cockpit", icon: FlaskConical, badge: "7" },
-      { id: "adequacy", label: "Adequacy & Kt/V", icon: Gauge, badge: "P1" },
-      { id: "fluid", label: "Fluid & IDH", icon: Droplets, badge: "P2" },
-      { id: "vascular-access", label: "Vascular access", icon: Stethoscope, badge: "P3" },
-      { id: "mbd", label: "CKD-MBD", icon: Beaker, badge: "P4" },
-      { id: "nutrition", label: "Nutrition & electrolytes", icon: Apple, badge: "P5" },
+      { id: "protocols", label: "Clinical protocols", icon: FlaskConical, badge: "7" },
       { id: "facility", label: "Facility operations", icon: Box },
       { id: "assessments", label: "Assessment intelligence", icon: BookOpenText },
     ],
@@ -181,7 +194,9 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
 
   const currentDemo = demoSteps[demoStep];
   const activeLabel = useMemo(
-    () => navGroups.flatMap((group) => group.items).find((item) => item.id === activeNav)?.label ?? "Swarm control",
+    () => navGroups.flatMap((group) => group.items).find((item) => item.id === activeNav)?.label
+      ?? PROTOCOL_VIEWS.find((view) => view.id === activeNav)?.label
+      ?? "Swarm control",
     [activeNav],
   );
 
@@ -362,6 +377,24 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
             <span><strong>Session expired.</strong> The server cleared your sign-in — this happens when the dev server restarts. Re-authenticate to keep working; no state is lost.</span>
             <button className="button button-secondary" type="button" onClick={() => window.location.reload()}>Sign in again</button>
           </div>
+        ) : null}
+
+        {isProtocolView(activeNav) ? (
+          <nav className="protocol-tabs" aria-label="Clinical protocols">
+            <span className="protocol-tabs-label"><FlaskConical size={13} aria-hidden="true" /> Protocols</span>
+            {PROTOCOL_VIEWS.map((view) => (
+              <button
+                className={`protocol-tab ${activeNav === view.id ? "is-active" : ""}`}
+                key={view.id}
+                onClick={() => selectNav(view.id)}
+                type="button"
+                aria-current={activeNav === view.id ? "page" : undefined}
+              >
+                <span>{view.label}</span>
+                <small>{view.stage}</small>
+              </button>
+            ))}
+          </nav>
         ) : null}
 
         <main className="content-shell">
