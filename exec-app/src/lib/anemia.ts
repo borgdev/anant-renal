@@ -27,6 +27,7 @@ export interface EsaSafety { posture: string; approvalClass: string; synthetic: 
 
 export interface EsaFeaturesView {
   features: EsaFeature[];
+  exposureFeatures?: Array<{ id: string; label: string; unit: string; detail: string }>;
   hgbTarget: EsaTargetBand;
   model: EsaModelInfo;
   safety: EsaSafety;
@@ -73,6 +74,8 @@ export interface EsaRecommendation {
   synthetic: boolean;
   note: string;
   coverage?: EsaCoverageVerdict;
+  /** Paper-A PK-informed cumulative / time-weighted exposure. */
+  exposure?: EsaExposureReadout;
 }
 
 export interface EsaPatientWindow {
@@ -89,6 +92,9 @@ export interface EsaPatientWindow {
   hgbTrendLast90d?: number[];
   esaEscalationsLast90d?: number;
   lastIronPanelAt?: string;
+  /** PK exposure inputs (Paper A) — ESA administrations (ISO timestamps). */
+  esaDosingHistory?: Array<{ at: string; dose: number }>;
+  ivIronHistory?: Array<{ at: string; mg: number }>;
   asOf?: string;
 }
 
@@ -355,6 +361,8 @@ export interface EsaWhatIfResult {
   chosenIndex: number | null;
   controller: EsaMpcController | null;
   note: string;
+  /** PK-informed exposure readout (Paper A) used for the hold candidate. */
+  exposure: EsaExposureReadout;
 }
 
 /** Project the 12-week Hb path under each candidate dose + the MPC choice. */
@@ -363,5 +371,40 @@ export function forecastEsa(window: EsaPatientWindow, horizonWeeks?: number): Pr
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...window, ...(horizonWeeks !== undefined ? { horizonWeeks } : {}) }),
+  });
+}
+
+/* ======================================================================
+ * Slice 3 (Paper A) — PK cumulative / time-weighted exposure
+ * ====================================================================== */
+
+export interface EsaExposureFeature { id: string; label: string; unit: string; value: number; detail: string }
+
+export interface EsaExposureReadout {
+  basis: "history" | "window";
+  halfLifeHours: number;
+  intervalDays: number;
+  administrations: number;
+  nominalWeeklyDose: number;
+  effectiveWeeklyDose: number;
+  exposureIntensity: number;
+  decayedActivity: number;
+  cumulativeDose90d: number;
+  timeWeightedExposure90d: number;
+  doseTimeProduct: number;
+  cumulativeIron14d: number;
+  daysSinceLastDose: number | null;
+  features: EsaExposureFeature[];
+}
+
+/** PK exposure readout (130 h decay): effective weekly dose + decayed activity. */
+export function fetchEsaExposure(
+  window: EsaPatientWindow,
+  opts?: { halfLifeHours?: number; intervalDays?: number },
+): Promise<{ exposure: EsaExposureReadout; catalog: Array<{ id: string; label: string; unit: string; detail: string }> }> {
+  return anemiaJson("/admin/swarm/anemia/exposure", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...window, ...(opts ?? {}) }),
   });
 }

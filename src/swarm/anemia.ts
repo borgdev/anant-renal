@@ -25,6 +25,7 @@
  ******************************************************************************/
 
 import type { CellManifest } from './cells.js';
+import type { EsaExposureReadout } from './anemia-exposure.js';
 import { aggregateSwarmInsights, makeProposal, type CellProposal, type SwarmInsight } from './insight.js';
 import { attachInsightBelief, rankNextBestActions, type NbaCandidate, type NextBestAction } from './nba.js';
 import type { OutcomeEpisode } from './outcome-episode.js';
@@ -154,6 +155,10 @@ export interface EsaPatientWindow {
   hgbTrendLast90d: readonly number[];
   esaEscalationsLast90d: number;
   lastIronPanelAt?: string;
+  /** Paper-A PK exposure inputs — ESA administrations with timestamps (ISO). */
+  esaDosingHistory?: readonly { at: string; dose: number }[];
+  /** IV iron administrations (elemental mg) with timestamps (ISO). */
+  ivIronHistory?: readonly { at: string; mg: number }[];
   asOf: string;
 }
 
@@ -172,6 +177,8 @@ export interface EsaRecommendation {
   model: { id: string; version: string; kind: EsaModelKind };
   synthetic: boolean;
   note: string;
+  /** PK-informed cumulative / time-weighted exposure (Paper A) — route-enriched. */
+  exposure?: EsaExposureReadout;
 }
 
 export const ESA_ADVISOR_MODEL = { id: 'anemia.esa-dose-v0', version: '0.1.0', kind: 'reference-surrogate' as const };

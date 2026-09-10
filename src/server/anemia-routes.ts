@@ -43,6 +43,7 @@ import {
 } from '../swarm/anemia-governance.js';
 import { esaRecommendTrained, loadEsaArtifact } from '../swarm/anemia-model.js';
 import { esaRecommendMpc, esaWhatIf } from '../swarm/anemia-forecast.js';
+import { esaExposure, ESA_EXPOSURE_CATALOG, type EsaExposureOptions } from '../swarm/anemia-exposure.js';
 import { esaSuggestionDst } from '../swarm/anemia-dst.js';
 import {
   ensureEsaMdrFile, esaAcceptanceStats, getEsaMdrFile, getEsaValidationReport,
@@ -76,10 +77,35 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
     await ensureEsaModel(ws());
   };
 
+  /** Build the patient window from a request body (shared by advise/what-if/exposure). */
+  const buildWindow = (body: Partial<EsaPatientWindow>): EsaPatientWindow => ({
+    patientId: body.patientId as string,
+    ...(body.facilityId ? { facilityId: body.facilityId } : {}),
+    currentHgb: body.currentHgb as number,
+    ...(body.mcv !== undefined ? { mcv: body.mcv } : {}),
+    ...(body.ferritin !== undefined ? { ferritin: body.ferritin } : {}),
+    ...(body.transferrinSat !== undefined ? { transferrinSat: body.transferrinSat } : {}),
+    ...(body.crp !== undefined ? { crp: body.crp } : {}),
+    ...(body.calcium !== undefined ? { calcium: body.calcium } : {}),
+    ...(body.pth !== undefined ? { pth: body.pth } : {}),
+    onESA: body.onESA as boolean,
+    currentDose: body.currentDose ?? 0,
+    hgbTrendLast90d: body.hgbTrendLast90d ?? [],
+    esaEscalationsLast90d: body.esaEscalationsLast90d ?? 0,
+    ...(body.lastIronPanelAt ? { lastIronPanelAt: body.lastIronPanelAt } : {}),
+    ...(body.esaDosingHistory ? { esaDosingHistory: body.esaDosingHistory } : {}),
+    ...(body.ivIronHistory ? { ivIronHistory: body.ivIronHistory } : {}),
+    asOf: body.asOf ?? new Date().toISOString(),
+  });
+
+  const missingWindow = (body: Partial<EsaPatientWindow>): boolean =>
+    !body.patientId || body.currentHgb === undefined || body.onESA === undefined;
+
   app.get('/admin/swarm/anemia/cells', async () => ({ cells: ESA_CELLS }));
 
   app.get('/admin/swarm/anemia/features', async () => ({
     features: ESA_FEATURES,
+    exposureFeatures: ESA_EXPOSURE_CATALOG,
     hgbTarget: HGB_TARGET,
     model: ESA_ADVISOR_MODEL,
     safety: { posture: 'cdss-human-in-the-loop', approvalClass: 'C', synthetic: true },
@@ -99,39 +125,37 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
    *  exported latent model, served under the SAME contract + gates). */
   app.post<{ Body: EsaPatientWindow & { model?: 'reference' | 'trained' | 'mpc' } }>('/admin/swarm/anemia/advise', async (req, reply) => {
     const body = req.body ?? ({} as Partial<EsaPatientWindow & { model?: 'reference' | 'trained' | 'mpc' }>);
-    if (!body.patientId || body.currentHgb === undefined || body.onESA === undefined) {
-      return error(reply, 400, 'patientId, currentHgb and onESA are required');
-    }
-    const window: EsaPatientWindow = {
-      patientId: body.patientId,
-      ...(body.facilityId ? { facilityId: body.facilityId } : {}),
-      currentHgb: body.currentHgb,
-      ...(body.mcv !== undefined ? { mcv: body.mcv } : {}),
-      ...(body.ferritin !== undefined ? { ferritin: body.ferritin } : {}),
-      ...(body.transferrinSat !== undefined ? { transferrinSat: body.transferrinSat } : {}),
-      ...(body.crp !== undefined ? { crp: body.crp } : {}),
-      ...(body.calcium !== undefined ? { calcium: body.calcium } : {}),
-      ...(body.pth !== undefined ? { pth: body.pth } : {}),
-      onESA: body.onESA,
-      currentDose: body.currentDose ?? 0,
-      hgbTrendLast90d: body.hgbTrendLast90d ?? [],
-      esaEscalationsLast90d: body.esaEscalationsLast90d ?? 0,
-      ...(body.lastIronPanelAt ? { lastIronPanelAt: body.lastIronPanelAt } : {}),
-      asOf: body.asOf ?? new Date().toISOString(),
-    };
+    if (missingWindow(body)) return error(reply, 400, 'patientId, currentHgb and onESA are required');
+    const window = buildWindow(body);
+    // Paper-A PK-informed cumulative / time-weighted exposure (130 h decay).
+    const exposure = esaExposure(window);
     // DST-Q #3 — fuse the evidence this window actually carries into a Bel/Pl/K
     // readout for the Class-C suggestion (same D-S rule as My Work).
     const dst = esaSuggestionDst(window);
     if (body.model === 'mpc') {
       const { recommendation, whatIf } = esaRecommendMpc(window);
-      return { recommendation, model: 'mpc', dst, whatIf };
+      return { recommendation: { ...recommendation, exposure }, model: 'mpc', dst, whatIf };
     }
     if (body.model === 'trained') {
       const artifact = loadEsaArtifact();
       if (!artifact) return error(reply, 404, 'esa-trained-artifact-not-found');
-      return { recommendation: esaRecommendTrained(window, artifact), model: 'trained', dst };
+      return { recommendation: { ...esaRecommendTrained(window, artifact), exposure }, model: 'trained', dst };
     }
-    return { recommendation: esaRecommendCovered(window, { coverageGateEnabled: true }), model: 'reference', dst };
+    return { recommendation: { ...esaRecommendCovered(window, { coverageGateEnabled: true }), exposure }, model: 'reference', dst };
+  });
+
+  /** Slice 3 / Paper A — PK exposure features: 130 h-decayed cumulative and
+   *  time-weighted ESA exposure, dose–time product, 14-day IV iron load, and the
+   *  effective weekly dose implied by the dosing history. */
+  app.post<{ Body: Partial<EsaPatientWindow> & { halfLifeHours?: number; intervalDays?: number } }>('/admin/swarm/anemia/exposure', async (req, reply) => {
+    const body = req.body ?? ({} as Partial<EsaPatientWindow> & { halfLifeHours?: number; intervalDays?: number });
+    if (missingWindow(body)) return error(reply, 400, 'patientId, currentHgb and onESA are required');
+    const exposureOpts: EsaExposureOptions = {
+      ...(body.asOf ? { asOf: body.asOf } : {}),
+      ...(body.halfLifeHours !== undefined ? { halfLifeHours: body.halfLifeHours } : {}),
+      ...(body.intervalDays !== undefined ? { intervalDays: body.intervalDays } : {}),
+    };
+    return { exposure: esaExposure(buildWindow(body), exposureOpts), catalog: ESA_EXPOSURE_CATALOG };
   });
 
   /** Slice 1/2 — dose what-if: project the weekly Hb path under each candidate
@@ -140,26 +164,8 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
    *  intervention. Advisory only — iron-first guardrails still apply. */
   app.post<{ Body: Partial<EsaPatientWindow> & { horizonWeeks?: number } }>('/admin/swarm/anemia/what-if', async (req, reply) => {
     const body = req.body ?? ({} as Partial<EsaPatientWindow> & { horizonWeeks?: number });
-    if (!body.patientId || body.currentHgb === undefined || body.onESA === undefined) {
-      return error(reply, 400, 'patientId, currentHgb and onESA are required');
-    }
-    const window: EsaPatientWindow = {
-      patientId: body.patientId,
-      ...(body.facilityId ? { facilityId: body.facilityId } : {}),
-      currentHgb: body.currentHgb,
-      ...(body.mcv !== undefined ? { mcv: body.mcv } : {}),
-      ...(body.ferritin !== undefined ? { ferritin: body.ferritin } : {}),
-      ...(body.transferrinSat !== undefined ? { transferrinSat: body.transferrinSat } : {}),
-      ...(body.crp !== undefined ? { crp: body.crp } : {}),
-      ...(body.calcium !== undefined ? { calcium: body.calcium } : {}),
-      ...(body.pth !== undefined ? { pth: body.pth } : {}),
-      onESA: body.onESA,
-      currentDose: body.currentDose ?? 0,
-      hgbTrendLast90d: body.hgbTrendLast90d ?? [],
-      esaEscalationsLast90d: body.esaEscalationsLast90d ?? 0,
-      ...(body.lastIronPanelAt ? { lastIronPanelAt: body.lastIronPanelAt } : {}),
-      asOf: body.asOf ?? new Date().toISOString(),
-    };
+    if (missingWindow(body)) return error(reply, 400, 'patientId, currentHgb and onESA are required');
+    const window = buildWindow(body);
     return { whatIf: esaWhatIf(window, { ...(body.horizonWeeks !== undefined ? { horizonWeeks: body.horizonWeeks } : {}) }) };
   });
 

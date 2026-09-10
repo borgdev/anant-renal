@@ -37,6 +37,7 @@ import {
   fetchAnemiaState,
   fetchAnemiaStudy,
   fetchAnemiaValidation,
+  fetchEsaExposure,
   forecastEsa,
   recordAnemiaStudy,
   resetAnemiaDemo,
@@ -47,6 +48,7 @@ import {
   type AnemiaStateView,
   type EsaAssuranceView,
   type EsaDirection,
+  type EsaExposureReadout,
   type EsaFeaturesView,
   type EsaMdrFileView,
   type EsaRecommendation,
@@ -109,6 +111,9 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
   const [fcFocus, setFcFocus] = useState(0);
   const [fcBusy, setFcBusy] = useState(false);
   const [fcError, setFcError] = useState<string | null>(null);
+  const [exposure, setExposure] = useState<EsaExposureReadout | null>(null);
+  const [pkBusy, setPkBusy] = useState(false);
+  const [pkError, setPkError] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     patientId: "p-esa-1",
@@ -243,8 +248,22 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
       const { whatIf: result } = await forecastEsa(windowFromForm());
       setWhatIf(result);
       setFcFocus(result.chosenIndex ?? 0);
+      setExposure(result.exposure);
     } catch (err) { setFcError(err instanceof Error ? err.message : "dose what-if failed"); }
     finally { setFcBusy(false); }
+  };
+
+  const runExposure = async () => {
+    if (form.patientId.trim() === "" || form.currentHgb.trim() === "") {
+      setPkError("patientId and currentHgb are required to compute exposure.");
+      return;
+    }
+    setPkBusy(true); setPkError(null);
+    try {
+      const { exposure: readout } = await fetchEsaExposure(windowFromForm());
+      setExposure(readout);
+    } catch (err) { setPkError(err instanceof Error ? err.message : "exposure computation failed"); }
+    finally { setPkBusy(false); }
   };
 
   const runDemo = async () => {
@@ -256,7 +275,7 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
 
   const runReset = async () => {
     setBusy("reset"); setError(null);
-    try { const r = await resetAnemiaDemo(); setRec(null); setDst(null); setWhatIf(null); setFcFocus(0); await reloadState(); if (r.removed) { setRec(null); setDst(null); } }
+    try { const r = await resetAnemiaDemo(); setRec(null); setDst(null); setWhatIf(null); setFcFocus(0); setExposure(null); await reloadState(); if (r.removed) { setRec(null); setDst(null); } }
     catch (err) { setError(err instanceof Error ? err.message : "reset failed"); }
     finally { setBusy(null); }
   };
@@ -268,6 +287,8 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
   const fcOpen = whatIf !== null && !whatIf.blocked;
   const fcChosen = fcOpen ? whatIf.candidates[whatIf.chosenIndex ?? 0] : undefined;
   const fcFocusCandidate = fcOpen ? (whatIf.candidates[fcFocus] ?? whatIf.candidates[whatIf.chosenIndex ?? 0]) : undefined;
+  // Paper-A PK exposure — prefer the latest explicit readout, else the one on the recommendation.
+  const pkView = exposure ?? rec?.exposure ?? null;
   // The dev server clears in-memory sessions on every src-file restart — a 401
   // here means the browser cookie is stale, not a product failure.
   const sessionExpired = [error, govError, p3Error].some((m) => (m ?? "").toLowerCase().includes("not-authenticated") || (m ?? "").toLowerCase().includes("session expired"));
@@ -339,8 +360,28 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
 
           <div className="esa-actions">
             <button className="button button-primary" type="button" disabled={busy !== null} onClick={() => void runAdvise()}>{busy === "advise" ? <RefreshCw size={14} className="spin" /> : <Dna size={14} />} Run advisor</button>
+            <button className="button button-secondary" type="button" disabled={pkBusy} onClick={() => void runExposure()}>{pkBusy ? <RefreshCw size={14} className="spin" /> : <FlaskConical size={14} />} PK exposure</button>
             <span className="esa-actions-note"><HeartPulse size={13} /> Band {features ? `${features.hgbTarget.min}–${features.hgbTarget.max} g/dL` : "10–12"} · step 500 u/wk</span>
           </div>
+
+          {pkError ? <div className="admin-notice is-error"><AlertTriangle size={15} /><span>{pkError}</span></div> : null}
+          {pkView ? (
+            <div className="esa-pk">
+              <div className="esa-pk-head">
+                <Eyebrow>PK exposure · {pkView.halfLifeHours} h half-life · {(pkView.intervalDays)}-day cadence</Eyebrow>
+                <Tag tone={pkView.basis === "history" ? "mint" : "neutral"}>{pkView.basis === "history" ? `${pkView.administrations} administration(s)` : "nominal (no history)"}</Tag>
+              </div>
+              <div className="esa-pk-grid">
+                <div><small>Effective weekly dose</small><strong>{fmtDose(pkView.effectiveWeeklyDose)}</strong><em>vs {fmtDose(pkView.nominalWeeklyDose)} ordered</em></div>
+                <div><small>Exposure intensity</small><strong>{pkView.exposureIntensity.toFixed(2)}×</strong><em>steady-state activity</em></div>
+                <div><small>Decayed activity</small><strong>{pkView.decayedActivity.toLocaleString()} u</strong><em>on board (90 d)</em></div>
+                <div><small>Time-weighted 90 d</small><strong>{pkView.timeWeightedExposure90d.toLocaleString()} u</strong><em>Σ dose × decay</em></div>
+                <div><small>Dose–time product</small><strong>{pkView.doseTimeProduct.toLocaleString()} u·d</strong><em>magnitude × age</em></div>
+                <div><small>IV iron 14 d</small><strong>{pkView.cumulativeIron14d.toLocaleString()} mg</strong><em>co-intervention</em></div>
+              </div>
+              <p className="esa-pk-note">Effective dose = ordered dose × decayed activity ÷ steady state — it falls when doses lapse or are held and builds as a new order accumulates. {pkView.daysSinceLastDose !== null ? `Last ESA ${pkView.daysSinceLastDose} day(s) ago.` : "No administration on record."}</p>
+            </div>
+          ) : null}
 
           {rec ? (
             <div className={`esa-reco esa-reco-${rec.direction}`}>

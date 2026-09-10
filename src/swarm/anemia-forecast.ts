@@ -34,6 +34,7 @@ import {
   type EsaRecommendation,
 } from './anemia.js';
 import { esaCoverage, type EsaCoverageVerdict } from './anemia-governance.js';
+import { esaExposure, type EsaExposureReadout } from './anemia-exposure.js';
 
 /** The recommendation direction union (anemia.ts does not export it directly). */
 type EsaDirection = EsaRecommendation['direction'];
@@ -217,11 +218,12 @@ export interface EsaCandidateForecast {
 function computeCandidate(
   window: Pick<EsaPatientWindow, 'currentHgb' | 'currentDose' | 'mcv' | 'ferritin' | 'transferrinSat' | 'crp' | 'pth' | 'calcium'>,
   dose: number,
+  deliveredDose: number,
   iron: number,
   resistance: number,
   horizonWeeks: number,
 ): EsaCandidateForecast {
-  const series = esaForecastSeries(window, dose, { horizonWeeks, iron, resistance });
+  const series = esaForecastSeries(window, deliveredDose, { horizonWeeks, iron, resistance });
   let below = 0;
   let inBand = 0;
   let above = 0;
@@ -322,10 +324,13 @@ export interface EsaWhatIfResult {
   chosenIndex: number | null;
   controller: EsaMpcController | null;
   note: string;
+  /** PK-informed exposure readout (Paper A) for this window. */
+  exposure: EsaExposureReadout;
 }
 
 export function esaWhatIf(window: EsaPatientWindow, opts: { horizonWeeks?: number } = {}): EsaWhatIfResult {
   const guardrails = guardDose(window);
+  const exposure = esaExposure(window);
   const horizon = clamp(
     opts.horizonWeeks ?? ESA_FORECAST_DEFAULT_HORIZON_WEEKS,
     ESA_FORECAST_MIN_HORIZON_WEEKS,
@@ -346,12 +351,18 @@ export function esaWhatIf(window: EsaPatientWindow, opts: { horizonWeeks?: numbe
       candidates: [],
       chosenIndex: null,
       controller: null,
+      exposure,
       note: guardrails.blockReason ?? 'Blocked by an iron-first guardrail — fix the substrate before projecting ESA response.',
     };
   }
 
   const { iron, resistance } = esaForecastSubstrate(window);
-  const candidates = esaCandidateDoses(window).map((dose) => computeCandidate(window, dose, iron, resistance, horizon));
+  // With a real dosing history the *hold* candidate projects the exposure the
+  // patient is actually carrying (PK-decayed), not the labelled order — so a
+  // lapsed / held dose shows Hb falling even though the order is unchanged.
+  const holdDelivered = exposure.basis === 'history' ? exposure.effectiveWeeklyDose : current;
+  const candidates = esaCandidateDoses(window).map((dose) =>
+    computeCandidate(window, dose, dose === current ? holdDelivered : dose, iron, resistance, horizon));
   const chosen = pickMpcCandidate(candidates, current);
   const chosenIndex = candidates.findIndex((c) => c.dose === chosen.dose);
   const chosenWeeksInBand = chosen.weeksInBand;
@@ -392,6 +403,7 @@ export function esaWhatIf(window: EsaPatientWindow, opts: { horizonWeeks?: numbe
     candidates,
     chosenIndex,
     controller,
+    exposure,
     note,
   };
 }
