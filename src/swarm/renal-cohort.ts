@@ -154,6 +154,100 @@ export interface RenalPatientInput {
   state: Record<string, unknown>;
   /** Medication codes ordered for this patient (from the realm ledger, order-med effects). */
   medCodes?: readonly string[];
+  /** Latest lab result per code from the realm ledger (authoritative over seeded state.labs). */
+  labs?: Readonly<Record<string, { value: number; at: string }>>;
+}
+
+/** Minimal realm surface the cohort builder needs (keeps this module pure/testable). */
+export interface RealmLike {
+  id: string;
+  ledger: { listAll(): ReadonlyArray<{ emittedAt: string; realmAt?: string; effect: unknown }> };
+  graph: { listKind(kind: string): ReadonlyArray<{ id: string; state: unknown }> };
+}
+
+const UP = RENAL_CORE_LAB_KEYS as readonly string[];
+
+/**
+ * Merge patient state.labs with the latest lab RESULTS on the ledger.
+ * Seeded state.labs is only the chart baseline at facility creation; the ledger
+ * carries every result since, so it wins per code. Panel codes arrive uppercase
+ * ('CALCIUM') and are stored under their camelCase panel key.
+ */
+function mergedLabs(state: Record<string, unknown>, ledgerLabs: RenalPatientInput['labs']): Record<string, number> {
+  const labs: Record<string, number> = {};
+  const raw = (state.labs ?? {}) as Record<string, unknown>;
+  for (const [k, v] of Object.entries(raw)) {
+    const n = num(v);
+    if (n !== undefined) labs[k] = n;
+  }
+  for (const [code, point] of Object.entries(ledgerLabs ?? {})) {
+    const lower = code.toLowerCase();
+    const key = (RENAL_PANEL_KEYS as readonly string[]).includes(lower) ? lower : code;
+    if (Number.isFinite(point.value)) labs[key] = point.value;
+  }
+  return labs;
+}
+
+/**
+ * Attribute a lab result to a patient. Matured results (`result-lab`) carry only
+ * an `orderId` of the form `<patientId>-<code>-<seq>`, and patient ids contain
+ * dashes, so the LONGEST known patient id that prefixes the order id wins.
+ */
+export function attributePatientIdFromOrder(orderId: string, knownPatientIds: readonly string[]): string | undefined {
+  let best: string | undefined;
+  for (const id of knownPatientIds) {
+    if (!orderId.startsWith(`${id}-`)) continue;
+    if (!best || id.length > best.length) best = id;
+  }
+  return best;
+}
+
+/**
+ * Build cohort inputs from live realms: patient state + ledger-derived med
+ * exposures and latest lab results. One implementation for every route.
+ */
+export function renalPatientInputs(realms: readonly RealmLike[]): RenalPatientInput[] {
+  const knownPatientIds: string[] = [];
+  for (const realm of realms) {
+    for (const patient of realm.graph.listKind('patient')) knownPatientIds.push(patient.id);
+  }
+  const meds = new Map<string, string[]>();
+  const labs = new Map<string, Record<string, { value: number; at: string }>>();
+  for (const realm of realms) {
+    for (const entry of realm.ledger.listAll()) {
+      const effect = entry.effect as { kind?: string; patientId?: string; orderId?: string; code?: string; value?: unknown };
+      const pid = effect.patientId
+        ?? (effect.orderId ? attributePatientIdFromOrder(effect.orderId, knownPatientIds) : undefined);
+      if (!pid) continue;
+      if (effect.kind === 'order-med' && effect.code) {
+        const list = meds.get(pid) ?? [];
+        if (!list.includes(effect.code)) list.push(effect.code);
+        meds.set(pid, list);
+      }
+      if (effect.kind === 'result-lab' && effect.code) {
+        const value = num(effect.value);
+        if (value === undefined) continue;
+        const bag = labs.get(pid) ?? {};
+        bag[effect.code] = { value, at: entry.realmAt ?? entry.emittedAt };
+        labs.set(pid, bag);
+      }
+    }
+  }
+  const out: RenalPatientInput[] = [];
+  for (const realm of realms) {
+    for (const patient of realm.graph.listKind('patient')) {
+      const codes = meds.get(patient.id);
+      const labBag = labs.get(patient.id);
+      out.push({
+        id: patient.id,
+        realmId: realm.id,
+        state: patient.state as Record<string, unknown>,
+        ...(codes ? { medCodes: codes } : {}),
+        ...(labBag ? { labs: labBag } : {}),
+      });
+    }
+  }
+  return out;
 }
 
 const BINDERS = ['sevelamer', 'calcium-acetate', 'lanthanum', 'sucroferric-oxyhydroxide'];
@@ -228,12 +322,7 @@ export function renalPatientFacts(input: RenalPatientInput): RenalPatientFacts {
   const observations = Array.isArray(s.accessObservations) ? (s.accessObservations as Array<Record<string, unknown>>) : [];
   const lastObservation = observations.length ? observations[observations.length - 1] : undefined;
 
-  const labs: Record<string, number> = {};
-  const rawLabs = (s.labs ?? {}) as Record<string, unknown>;
-  for (const [k, v] of Object.entries(rawLabs)) {
-    const n = num(v);
-    if (n !== undefined) labs[k] = n;
-  }
+  const labs: Record<string, number> = mergedLabs(s, input.labs);
 
   const present: RenalPanelKey[] = [];
   const missing: RenalPanelKey[] = [];

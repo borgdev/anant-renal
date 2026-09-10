@@ -45,7 +45,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { RealmRegistry } from '../realm/registry.js';
 import {
-  buildRenalCohort, renalPatientFacts, RENAL_PANEL_KEYS, RENAL_CORE_LAB_KEYS,
+  buildRenalCohort, renalPatientFacts, renalPatientInputs, RENAL_PANEL_KEYS, RENAL_CORE_LAB_KEYS,
   type RenalPatientFacts, type RenalPatientInput,
 } from '../swarm/renal-cohort.js';
 
@@ -56,39 +56,9 @@ export interface RenalRouteOptions {
 
 const error = (reply: FastifyReply, code: number, message: string) => reply.code(code).send({ error: message });
 
-/** Med codes ordered on the ledger for each patient (order-med effects). */
-function medCodesByPatient(): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  for (const realm of RealmRegistry.list()) {
-    for (const entry of realm.ledger.listAll()) {
-      const effect = entry.effect as { kind?: string; patientId?: string; code?: string };
-      if (effect.kind !== 'order-med') continue;
-      const pid = effect.patientId;
-      const code = effect.code;
-      if (!pid || !code) continue;
-      const list = out.get(pid) ?? [];
-      if (!list.includes(code)) list.push(code);
-      out.set(pid, list);
-    }
-  }
-  return out;
-}
-
-/** Default patient source: patient entities across every registered realm. */
+/** Default patient source: ledger-derived renal inputs across every registered realm. */
 function registryPatients(): RenalPatientInput[] {
-  const meds = medCodesByPatient();
-  const out: RenalPatientInput[] = [];
-  for (const realm of RealmRegistry.list()) {
-    for (const patient of realm.graph.listKind('patient')) {
-      out.push({
-        id: patient.id,
-        realmId: realm.id,
-        state: patient.state as Record<string, unknown>,
-        ...(meds.get(patient.id) ? { medCodes: meds.get(patient.id) } : {}),
-      });
-    }
-  }
-  return out;
+  return renalPatientInputs(RealmRegistry.list());
 }
 
 export async function registerRenalRoutes(app: FastifyInstance, opts: RenalRouteOptions = {}): Promise<void> {

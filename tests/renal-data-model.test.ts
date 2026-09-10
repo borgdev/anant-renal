@@ -9,7 +9,7 @@ import type { ActorContext } from '../src/server/scoped-persistence.js';
 import { RealmRegistry } from '../src/realm/index.js';
 import { SimulatorController } from '../src/simulator/controller.js';
 import { PANEL_CODES } from '../src/simulator/scenarios.js';
-import { RENAL_PANEL_KEYS, buildRenalCohort, renalPatientFacts } from '../src/swarm/renal-cohort.js';
+import { RENAL_PANEL_KEYS, buildRenalCohort, renalPatientFacts, renalPatientInputs, attributePatientIdFromOrder } from '../src/swarm/renal-cohort.js';
 import { projectRealmEvents } from '../src/swarm/workspace.js';
 
 function inMemoryStore(): PostgresEventStore {
@@ -138,8 +138,7 @@ describe('F1 dialysis session data model (sim → reducer → state)', () => {
   });
 });
 
-describe('F1 renal cohort derivation', () => {
-  const state = {
+describe('F1 renal cohort derivation', () => {  const state = {
     facilityId: 'fac-a', unitId: 'ICH-A', trajectory: 'hyperphosphatemia', age: 66, sex: 'M',
     access: { type: 'avf', site: 'left-forearm', ageDays: 420 },
     accessObservations: [{ at: '2026-08-05T07:00:00.000Z', event: 'cannulation-difficulty' }],
@@ -151,6 +150,47 @@ describe('F1 renal cohort derivation', () => {
       { sessionId: 's2', startedAt: '2026-08-03T07:00:00.000Z', endedAt: '2026-08-03T10:30:00.000Z', deliveredMinutes: 180, prescribedMinutes: 240, ufVolumeL: 1.9, targetUfL: 2.6, preWeightKg: 73.6, postWeightKg: 71.7, qbAvg: 340, recirculationPct: 14.5, nadirSbp: 86, meanSbp: 98, stoppedEarly: true, complication: 'intradialytic-hypotension', symptoms: ['cramping'], telemetryPoints: 1 },
     ],
   };
+
+  it('attributes matured lab results to a patient via the longest order-id prefix', () => {
+    expect(attributePatientIdFromOrder('p1-2-HGB-1', ['p1', 'p1-2'])).toBe('p1-2');
+    expect(attributePatientIdFromOrder('p1-2-HGB-1', ['p1'])).toBe('p1');
+    expect(attributePatientIdFromOrder('unrelated-1', ['p1'])).toBeUndefined();
+  });
+
+  it('merges ledger lab results (orderId-attributed) over seeded patient-state labs', () => {
+    const realms = [
+      {
+        id: 'sim:renal-a',
+        ledger: {
+          listAll: () => [
+            { emittedAt: '2026-08-01T06:05:00.000Z', effect: { kind: 'order-lab', patientId: 'fac-a-pt-0001', code: 'CALCIUM' } },
+            // matured results carry ONLY an orderId
+            { emittedAt: '2026-08-01T06:09:00.000Z', effect: { kind: 'result-lab', orderId: 'fac-a-pt-0001-CALCIUM-1', code: 'CALCIUM', value: 9.4, unit: 'mg/dL' } },
+            { emittedAt: '2026-08-01T06:09:00.000Z', effect: { kind: 'result-lab', orderId: 'fac-a-pt-0001-PTH-1', code: 'PTH', value: 640, unit: 'pg/mL' } },
+            { emittedAt: '2026-08-01T06:10:00.000Z', effect: { kind: 'order-med', patientId: 'fac-a-pt-0001', code: 'sevelamer', dose: '800 mg', route: 'PO', frequency: 'three times daily' } },
+          ],
+        },
+        graph: {
+          listKind: () => [
+            { id: 'fac-a-pt-0001', state: { labs: { PHOS: 6.2 }, access: { type: 'avf' }, sessions: [] } },
+            { id: 'fac-a-pt-0002', state: { labs: {}, access: { type: 'avf' }, sessions: [] } },
+          ],
+        },
+      },
+    ];
+    const inputs = renalPatientInputs(realms as never);
+    expect(inputs).toHaveLength(2);
+    expect(inputs[0]!.labs?.CALCIUM?.value).toBe(9.4);
+    expect(inputs[0]!.medCodes).toEqual(['sevelamer']);
+    expect(inputs[1]!.labs).toBeUndefined();
+
+    const facts = renalPatientFacts(inputs[0]!);
+    expect(facts.labs.calcium).toBe(9.4); // ledger wins
+    expect(facts.labs.PHOS).toBe(6.2); // seeded state retained
+    expect(facts.panel.present).toEqual(['calcium', 'pth']);
+    expect(facts.panel.completenessPct).toBe(25);
+    expect(facts.exposure.phosphateBinders).toEqual(['sevelamer']);
+  });
 
   it('derives sessions, adherence, IDWG, access and panel facts from patient state', () => {
     const facts = renalPatientFacts({ id: 'fac-a-pt-0001', realmId: 'sim:renal-a', state, medCodes: ['sevelamer', 'cinacalcet', 'calcitriol', 'ferric-sucrose'] });

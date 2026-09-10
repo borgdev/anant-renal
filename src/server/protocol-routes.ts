@@ -46,7 +46,7 @@
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { RealmRegistry } from '../realm/registry.js';
-import { buildRenalCohort, type RenalPatientInput } from '../swarm/renal-cohort.js';
+import { buildRenalCohort, renalPatientInputs, type RenalPatientInput } from '../swarm/renal-cohort.js';
 import { buildRenalState, forecastRenalState, RENAL_FORECAST_HORIZONS_DAYS, RENAL_SUBSTATES } from '../protocols/shared-state.js';
 import { runF2Evaluation, defaultCohort, type F2EvaluationReport } from '../protocols/shared-state.js';
 import {
@@ -62,31 +62,9 @@ export interface ProtocolRouteOptions {
 
 const error = (reply: FastifyReply, code: number, message: string) => reply.code(code).send({ error: message });
 
-/** Default patient source: patient entities across every registered realm. */
+/** Default patient source: ledger-derived renal inputs across every registered realm. */
 function registryPatients(): RenalPatientInput[] {
-  const meds = new Map<string, string[]>();
-  for (const realm of RealmRegistry.list()) {
-    for (const entry of realm.ledger.listAll()) {
-      const effect = entry.effect as { kind?: string; patientId?: string; code?: string };
-      if (effect.kind !== 'order-med' || !effect.patientId || !effect.code) continue;
-      const list = meds.get(effect.patientId) ?? [];
-      if (!list.includes(effect.code)) list.push(effect.code);
-      meds.set(effect.patientId, list);
-    }
-  }
-  const out: RenalPatientInput[] = [];
-  for (const realm of RealmRegistry.list()) {
-    for (const patient of realm.graph.listKind('patient')) {
-      const codes = meds.get(patient.id);
-      out.push({
-        id: patient.id,
-        realmId: realm.id,
-        state: patient.state as Record<string, unknown>,
-        ...(codes ? { medCodes: codes } : {}),
-      });
-    }
-  }
-  return out;
+  return renalPatientInputs(RealmRegistry.list());
 }
 
 let cachedEvaluation: { report: F2EvaluationReport; at: number } | undefined;

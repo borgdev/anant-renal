@@ -135,7 +135,10 @@ export interface AppDeps {
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false, trustProxy: true });
+  // pluginTimeout: boot can include heavy warm-up work (SQLite/Postgres store,
+  // pack registry, realm restore). Fastify's 10s default aborts plugin
+  // registration mid-boot, leaving a listening socket that never answers.
+  const app = Fastify({ logger: false, trustProxy: true, pluginTimeout: 120_000 });
   // Per-origin CORS: allowlist from deps (HH_CORS_ORIGINS), else allow all.
   const origins = deps.corsOrigins?.length ? [...deps.corsOrigins] : true;
   await app.register(cors, {

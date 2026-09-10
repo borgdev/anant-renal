@@ -181,7 +181,12 @@ export async function main(): Promise<void> {
   // Phase 0 — durable outbox (SqlStore: SQLite file, or Postgres anant-health via HH_STORAGE).
   const sqlStore = await getSqlStore();
   // Restore persisted realms (B3) so `tsx watch` reloads keep the worlds alive.
-  await restoreRealmsFromSpecs(sqlStore);
+  // Deferred: rebuilding a large fleet snapshot can block the loop for seconds,
+  // which used to exceed Fastify's plugin timeout and abort the whole boot.
+  // The server now starts serving immediately; worlds reappear moments later.
+  void restoreRealmsFromSpecs(sqlStore)
+    .then((ids) => { if (ids.length) telemetry.log('info', `restored ${ids.length} realms`, { attributes: { realms: ids.join(',') } }); })
+    .catch((err: unknown) => telemetry.log('warn', 'realm restore failed', { attributes: { error: err instanceof Error ? err.message : String(err) } }));
   const outbox = new SqlEventOutbox(sqlStore, config.eventBrokerTopic);
 
   // Phase 3 — periodic outbox flusher + realm → broker bridge.

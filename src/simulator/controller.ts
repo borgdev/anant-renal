@@ -208,6 +208,12 @@ export class SimulatorController {
       const realm = RealmRegistry.get(id);
       if (realm) RealmRegistry.remove(id); // stops the clock + unsubscribes
     }
+    // Realms restored from persistence on boot are not part of this controller's
+    // tracked fleet, but they still occupy the process-global registry and would
+    // make the next `start` fail with realm-exists. Sweep every sim realm.
+    for (const realm of RealmRegistry.list()) {
+      if (realm.id.startsWith('sim:')) RealmRegistry.remove(realm.id);
+    }
     this.realmIds = [];
     this.status = 'idle';
     this.scenario = null;
