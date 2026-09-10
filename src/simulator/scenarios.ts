@@ -15,7 +15,7 @@
 import type { ScriptEmitInput, SimScenario, SimScriptEntry } from './types.js';
 import type { WorldEffect } from '../realm/types.js';
 
-const LAB_CODES = ['K', 'HGB', 'URR', 'PHOS'] as const;
+const LAB_CODES = ['K', 'HGB', 'URR', 'PHOS', 'FERRITIN', 'TSAT'] as const;
 const ASSESSMENTS = [
   { id: 'phq9', band: 'mild', lo: 2, hi: 6 },
   { id: 'phq9', band: 'moderate', lo: 7, hi: 12 },

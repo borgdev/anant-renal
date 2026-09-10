@@ -151,6 +151,16 @@ function draw(code: string, trajectory: string): { value: number; unit: string; 
       const v = Number(jitter(base, 0.6).toFixed(1));
       return { value: v, unit: 'mg/dL', ...(v > 5.5 ? { abnormal: 'H' as const } : {}) };
     }
+    case 'FERRITIN': {
+      const base = trajectory.startsWith('anemic') ? 320 : 650;
+      const v = Math.round(jitter(base, 180));
+      return { value: v, unit: 'ng/mL', ...(v < 100 ? { abnormal: 'L' as const } : {}) };
+    }
+    case 'TSAT': {
+      const base = trajectory.startsWith('anemic') ? 18 : 30;
+      const v = Math.round(jitter(base, 7));
+      return { value: v, unit: '%', ...(v < 20 ? { abnormal: 'L' as const } : {}) };
+    }
     default: {
       const v = Number(jitter(50, 20).toFixed(1));
       return { value: v, unit: 'unit' };

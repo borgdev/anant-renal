@@ -90,8 +90,17 @@ export function populateFacility(realm: Realm, seed: FacilitySeed, history?: Pop
       lastVitals: { hr: 72 + (i % 10), bp: '128/78', spo2: 97, at: realm.clock.realmAt.toISOString() },
       ...(history
         ? (() => {
-            const profile = generateLongitudinalHistory({ patientId: pid, facilityId: seed.facilityId, trajectory, days: history.days ?? 90, seed: history.seed ?? 1 });
-            return { labs: profile.latest.labs, lastVitals: { ...profile.latest.vitals, at: realm.clock.realmAt.toISOString() } };
+            const profile = generateLongitudinalHistory({ patientId: pid, facilityId: seed.facilityId, trajectory, days: history.days ?? 90, seed: history.seed ?? 1, asOf: new Date(realm.clock.realmAt) });
+            const esaPts = profile.history.filter((p) => p.esaDose !== undefined);
+            const latestEsa = esaPts.length ? esaPts[esaPts.length - 1]?.esaDose : undefined;
+            const esaDosingHistory = esaPts.map((p) => ({ at: `${p.date}T07:00:00.000Z`, dose: p.esaDose as number }));
+            return {
+              labs: profile.latest.labs,
+              lastVitals: { ...profile.latest.vitals, at: realm.clock.realmAt.toISOString() },
+              ...(latestEsa !== undefined ? { esaDose: latestEsa } : {}),
+              esaEscalationsLast90d: profile.latest.esaEscalationsLast90d,
+              ...(esaDosingHistory.length ? { esaDosingHistory } : {}),
+            };
           })()
         : {}),
     });

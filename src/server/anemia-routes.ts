@@ -11,6 +11,13 @@
  *                                          ('mpc' = slice-2 dose optimizer)
  *   POST /admin/swarm/anemia/what-if     — slice-1/2: project the 12-week Hb path
  *                                          under each candidate dose + MPC choice
+ *   POST /admin/swarm/anemia/exposure    — slice-3 (Paper A): PK cumulative /
+ *                                          time-weighted exposure readout
+ *   POST /admin/swarm/anemia/twin        — slice-4: patient twin from the REAL
+ *                                          ledger + patient state, with what-if
+ *                                          and ONLINE forecast-vs-observed drift
+ *   POST /admin/swarm/anemia/twin/score  — persist the online drift snapshot
+ *   GET  /admin/swarm/anemia/twin/drift  — durable drift snapshots
  *   POST /admin/swarm/anemia/demo        — seed durable anemia episodes (Class C)
  *   POST /admin/swarm/anemia/reset       — remove only anemia episodes
  *   GET  /admin/swarm/anemia/assurance   — P1: coverage config + advisor gate +
@@ -46,6 +53,10 @@ import { esaRecommendMpc, esaWhatIf } from '../swarm/anemia-forecast.js';
 import { esaExposure, ESA_EXPOSURE_CATALOG, type EsaExposureOptions } from '../swarm/anemia-exposure.js';
 import { esaSuggestionDst } from '../swarm/anemia-dst.js';
 import {
+  buildEsaTwin, scoreEsaTwinDrift,
+  type EsaTwin, type EsaTwinDriftScore, type EsaTwinEventInput, type EsaTwinPatientInput, type EsaTwinProvenance,
+} from '../swarm/anemia-twin.js';
+import {
   ensureEsaMdrFile, esaAcceptanceStats, getEsaMdrFile, getEsaValidationReport,
   listEsaStudyRecords, recordEsaStudyDecision, runEsaValidation,
   type EsaClinicianAction,
@@ -55,6 +66,10 @@ import type { RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
 export interface AnemiaRouteOptions {
   /** Seed the durable anemia episodes on POST /demo. Default true. */
   seed?: boolean;
+  /** Real realm ledger events for the patient twin (defaults to none). */
+  events?: () => EsaTwinEventInput[];
+  /** Live patient twin state for the patient twin (defaults to none). */
+  patients?: () => EsaTwinPatientInput[];
 }
 
 const error = (reply: FastifyReply, code: number, message: string) => reply.code(code).send({ error: message });
@@ -100,6 +115,34 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
 
   const missingWindow = (body: Partial<EsaPatientWindow>): boolean =>
     !body.patientId || body.currentHgb === undefined || body.onESA === undefined;
+
+  const twinEvents = (): EsaTwinEventInput[] => opts.events?.() ?? [];
+  const twinPatients = (): EsaTwinPatientInput[] => opts.patients?.() ?? [];
+
+  /** Persist a durable drift snapshot for one patient (idempotent per patient). */
+  const persistTwinDrift = async (patientId: string, twin: EsaTwin, drift: EsaTwinDriftScore): Promise<boolean> => {
+    const store = ws();
+    const id = `esa-twin-drift:${patientId}`;
+    const now = new Date().toISOString();
+    const doc = {
+      id,
+      createdAt: now,
+      updatedAt: now,
+      patientId,
+      realmId: twin.realmId,
+      asOf: twin.asOf,
+      provenance: twin.provenance as EsaTwinProvenance,
+      score: drift,
+      recordedAt: now,
+    };
+    const existing = (await store.list('esa-twin-drift')).find((row) => row.id === id);
+    if (existing) {
+      await store.update('esa-twin-drift', id, doc);
+    } else {
+      await store.create('esa-twin-drift', id, doc);
+    }
+    return true;
+  };
 
   app.get('/admin/swarm/anemia/cells', async () => ({ cells: ESA_CELLS }));
 
@@ -167,6 +210,39 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
     if (missingWindow(body)) return error(reply, 400, 'patientId, currentHgb and onESA are required');
     const window = buildWindow(body);
     return { whatIf: esaWhatIf(window, { ...(body.horizonWeeks !== undefined ? { horizonWeeks: body.horizonWeeks } : {}) }) };
+  });
+
+  /** Slice 4 / Paper A — patient twin: derive the governed ESA window for a REAL
+   *  patient from the realm event ledger + patient state, project the dose
+   *  response, and score forecast-vs-observed drift ONLINE. */
+  app.post<{ Body: { patientId?: string; horizonWeeks?: number; persist?: boolean } }>('/admin/swarm/anemia/twin', async (req, reply) => {
+    const body = req.body ?? {};
+    if (!body.patientId) return error(reply, 400, 'patientId is required');
+    const twin = buildEsaTwin({ patientId: body.patientId, events: twinEvents(), patients: twinPatients() });
+    const whatIf = twin.window
+      ? esaWhatIf(twin.window, { ...(body.horizonWeeks !== undefined ? { horizonWeeks: body.horizonWeeks } : {}) })
+      : null;
+    const drift = scoreEsaTwinDrift(twin);
+    const persisted = body.persist ? await persistTwinDrift(body.patientId, twin, drift) : false;
+    return { twin, whatIf, drift, persisted };
+  });
+
+  /** Slice 4 — persist / refresh the online forecast-vs-observed drift snapshot. */
+  app.post<{ Body: { patientId?: string; persist?: boolean } }>('/admin/swarm/anemia/twin/score', async (req, reply) => {
+    const body = req.body ?? {};
+    if (!body.patientId) return error(reply, 400, 'patientId is required');
+    const twin = buildEsaTwin({ patientId: body.patientId, events: twinEvents(), patients: twinPatients() });
+    const drift = scoreEsaTwinDrift(twin);
+    const persisted = body.persist === false ? false : await persistTwinDrift(body.patientId, twin, drift);
+    return { drift, persisted, provenance: twin.provenance, hasWindow: twin.window !== null };
+  });
+
+  /** Slice 4 — durable drift snapshots (optionally filtered by patient). */
+  app.get<{ Querystring: { patientId?: string } }>('/admin/swarm/anemia/twin/drift', async (req) => {
+    const rows = await ws().list('esa-twin-drift');
+    const patientId = req.query?.patientId;
+    const filtered = patientId ? rows.filter((row) => row.id === `esa-twin-drift:${patientId}`) : rows;
+    return { rows: filtered };
   });
 
   app.post('/admin/swarm/anemia/demo', async () => {

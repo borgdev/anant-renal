@@ -408,3 +408,75 @@ export function fetchEsaExposure(
     body: JSON.stringify({ ...window, ...(opts ?? {}) }),
   });
 }
+
+/* ======================================================================
+ * Slice 4 (Paper A) — patient twin over the real ledger + online drift
+ * ====================================================================== */
+
+export interface EsaTwinProvenance {
+  realmId: string | null;
+  eventsConsidered: number;
+  hgbLabs: number;
+  ironLabs: number;
+  esaDoses: number;
+  ironDoses: number;
+  doseSource: "ledger" | "patient-state" | "none";
+  derivedFrom: "ledger" | "patient-state" | "insufficient";
+}
+
+export interface EsaTwinDriftRow { at: string; observed: number; predicted: number; error: number; pctError: number }
+
+export interface EsaTwinDriftScore {
+  patientId: string;
+  n: number;
+  mae: number;
+  mape: number;
+  rmse: number;
+  withinBandPct: number;
+  verdict: "pass" | "watch" | "insufficient";
+  targetMapePct: number;
+  rows: EsaTwinDriftRow[];
+  note: string;
+}
+
+export interface EsaTwinView {
+  patientId: string;
+  realmId: string | null;
+  asOf: string;
+  window: EsaPatientWindow | null;
+  hgbSeries: Array<{ at: string; hgb: number }>;
+  dosingHistory: Array<{ at: string; dose: number }>;
+  ironHistory: Array<{ at: string; mg: number }>;
+  provenance: EsaTwinProvenance;
+  note: string;
+}
+
+export interface EsaTwinBuildResult {
+  twin: EsaTwinView;
+  whatIf: EsaWhatIfResult | null;
+  drift: EsaTwinDriftScore;
+  persisted: boolean;
+}
+
+/** Build the patient twin from the real ledger/patient state + score drift. */
+export function fetchEsaTwin(patientId: string, opts?: { horizonWeeks?: number; persist?: boolean }): Promise<EsaTwinBuildResult> {
+  return anemiaJson("/admin/swarm/anemia/twin", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ patientId, ...(opts ?? {}) }),
+  });
+}
+
+/** Persist / refresh the online forecast-vs-observed drift snapshot. */
+export function persistEsaTwinDrift(patientId: string): Promise<{ drift: EsaTwinDriftScore; persisted: boolean; provenance: EsaTwinProvenance; hasWindow: boolean }> {
+  return anemiaJson("/admin/swarm/anemia/twin/score", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ patientId }),
+  });
+}
+
+/** Durable drift snapshots. */
+export function fetchEsaTwinDrift(patientId?: string): Promise<{ rows: Array<{ id: string; patientId: string; asOf: string; score: EsaTwinDriftScore; provenance: EsaTwinProvenance }> }> {
+  return anemiaJson(`/admin/swarm/anemia/twin/drift${patientId ? `?patientId=${encodeURIComponent(patientId)}` : ""}`);
+}

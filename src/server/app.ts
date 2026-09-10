@@ -124,6 +124,10 @@ export interface AppDeps {
   /** Enforce session + role on /admin/* APIs (401 unauth, role-scoped /admin/swarm/*).
    *  ON in the real runtime entry points (dev.ts / bootstrap.ts); tests opt in. */
   readonly adminApiAuth?: boolean;
+  /** Anemia patient-twin data sources — real realm ledger events + patient state.
+   *  Optional overrides for tests; the runtime defaults to RealmRegistry. */
+  readonly anemiaEvents?: () => Array<{ realmId?: string; eventId?: string; kind: string; emittedAt: string; realmAt?: string; patientId?: string; payload: Record<string, unknown> }>;
+  readonly anemiaPatients?: () => Array<{ realmId: string; patientId: string; state: Record<string, unknown> }>;
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -380,8 +384,34 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // Anemia / ESA dose-adjustment CDSS (P0 reference) — a governed, Class-C,
   // human-in-the-loop decision-support domain (manifold-learning EPO model)
   // over the same shared coordinator + workspace contracts. Recommends, never
-  // orders.
-  await registerAnemiaRoutes(app);
+  // orders. The patient twin reads the REAL realm ledger + patient state.
+  await registerAnemiaRoutes(app, {
+    ...(deps.anemiaEvents
+      ? { events: deps.anemiaEvents }
+      : {
+          events: () => RealmRegistry.list().flatMap((r) =>
+            r.ledger.listAll().map((e) => {
+              const pid = (e.effect as { patientId?: unknown }).patientId;
+              return {
+                realmId: r.id,
+                eventId: e.effectId,
+                kind: e.effect.kind,
+                emittedAt: e.emittedAt,
+                ...(e.realmAt ? { realmAt: e.realmAt } : {}),
+                ...(typeof pid === 'string' ? { patientId: pid } : {}),
+                payload: e.effect as Record<string, unknown>,
+              };
+            }),
+          ),
+        }),
+    ...(deps.anemiaPatients
+      ? { patients: deps.anemiaPatients }
+      : {
+          patients: () => RealmRegistry.list().flatMap((r) =>
+            r.graph.listKind('patient').map((p) => ({ realmId: r.id, patientId: p.id, state: p.state as Record<string, unknown> })),
+          ),
+        }),
+  });
 
   // Agent Studio (Phase D) — one unified surface for authoring, triggers, topics,
   // outputs, test, kill switch and rollback over the existing agent services.

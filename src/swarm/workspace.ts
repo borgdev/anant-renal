@@ -81,7 +81,8 @@ export type WorkspaceKind =
   | 'pack-activation'
   | 'esa-validation-report'
   | 'esa-study-record'
-  | 'esa-mdr-file';
+  | 'esa-mdr-file'
+  | 'esa-twin-drift';
 
 export interface WorkspaceDoc {
   id: string;
@@ -2208,6 +2209,7 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'esa-validation-report',
   'esa-study-record',
   'esa-mdr-file',
+  'esa-twin-drift',
 ];
 
 function slug(input: string): string {

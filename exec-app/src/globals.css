@@ -735,3 +735,32 @@ button.drillable-surface:not(:disabled):hover { border-color: rgba(152,174,192,.
 .esa-pk-grid em { color: var(--muted); font-style: normal; font-size: 11px; }
 .esa-pk-note { margin: 9px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 @media (max-width: 900px) { .esa-pk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ============ Slice 4 — patient twin over the real ledger + online drift ============ */
+.esa-twin { padding: 17px; }
+.esa-twin .panel-title-row { align-items: flex-start; }
+.esa-twin-facts { margin-top: 12px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.esa-twin-facts > div { padding: 9px 11px; display: grid; gap: 2px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.014); }
+.esa-twin-facts small { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.esa-twin-facts strong { font-size: 13px; }
+.esa-twin-facts em { color: var(--muted); font-style: normal; font-size: 11px; }
+.esa-twin-drift { margin-top: 12px; padding: 12px 13px; border: 1px solid rgba(152,174,192,.18); border-radius: 11px; background: rgba(152,174,192,.035); }
+.esa-twin-drift-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.esa-twin-drift-metrics { margin-top: 9px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.esa-twin-drift-metrics > span { display: grid; gap: 2px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.014); }
+.esa-twin-drift-metrics small { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.esa-twin-drift-metrics strong { font-size: 13px; }
+.esa-twin-drift-rows { margin-top: 10px; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.esa-twin-drift-row { display: grid; grid-template-columns: minmax(0,1.2fr) repeat(3, minmax(0,.8fr)); gap: 8px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.esa-twin-drift-row:last-child { border-bottom: 0; }
+.esa-twin-drift-row.is-head { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; background: rgba(255,255,255,.02); }
+.esa-twin-drift-row .is-close { color: var(--mint); }
+.esa-twin-drift-row .is-wide { color: var(--amber); }
+.esa-twin-note { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.esa-twin-drift-rows .esa-twin-note { padding: 10px; }
+.esa-twin-summary { margin-top: 12px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.esa-twin-summary > div { padding: 9px 11px; display: grid; gap: 2px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.014); }
+.esa-twin-summary small { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.esa-twin-summary strong { font-size: 12px; }
+.esa-twin-summary em { color: var(--muted); font-style: normal; font-size: 11px; }
+@media (max-width: 900px) { .esa-twin-facts, .esa-twin-drift-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .esa-twin-summary { grid-template-columns: 1fr; } }

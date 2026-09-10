@@ -38,7 +38,9 @@ import {
   fetchAnemiaStudy,
   fetchAnemiaValidation,
   fetchEsaExposure,
+  fetchEsaTwin,
   forecastEsa,
+  persistEsaTwinDrift,
   recordAnemiaStudy,
   resetAnemiaDemo,
   runAnemiaRedTeam,
@@ -54,6 +56,7 @@ import {
   type EsaRecommendation,
   type EsaSuggestionDst,
   type EsaStudyView,
+  type EsaTwinBuildResult,
   type EsaValidationView,
   type EsaWhatIfResult,
 } from "../lib/anemia";
@@ -114,6 +117,10 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
   const [exposure, setExposure] = useState<EsaExposureReadout | null>(null);
   const [pkBusy, setPkBusy] = useState(false);
   const [pkError, setPkError] = useState<string | null>(null);
+  const [twin, setTwin] = useState<EsaTwinBuildResult | null>(null);
+  const [twinBusy, setTwinBusy] = useState(false);
+  const [twinPersistBusy, setTwinPersistBusy] = useState(false);
+  const [twinError, setTwinError] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     patientId: "p-esa-1",
@@ -264,6 +271,22 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
       setExposure(readout);
     } catch (err) { setPkError(err instanceof Error ? err.message : "exposure computation failed"); }
     finally { setPkBusy(false); }
+  };
+
+  const buildTwin = async () => {
+    if (form.patientId.trim() === "") { setTwinError("A patient id is required to build the twin."); return; }
+    setTwinBusy(true); setTwinError(null);
+    try { setTwin(await fetchEsaTwin(form.patientId.trim())); }
+    catch (err) { setTwinError(err instanceof Error ? err.message : "patient twin build failed"); }
+    finally { setTwinBusy(false); }
+  };
+
+  const persistTwin = async () => {
+    if (form.patientId.trim() === "") return;
+    setTwinPersistBusy(true); setTwinError(null);
+    try { await persistEsaTwinDrift(form.patientId.trim()); await buildTwin(); }
+    catch (err) { setTwinError(err instanceof Error ? err.message : "drift persistence failed"); }
+    finally { setTwinPersistBusy(false); }
   };
 
   const runDemo = async () => {
@@ -533,6 +556,66 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
                 <p className="esa-fc-note">{whatIf.note}</p>
               </div>
             ) : null}
+          </>
+        )}
+      </section>
+
+      {/* ---- Slice 4 · patient twin over the real ledger ---- */}
+      <section className="panel esa-twin">
+        <div className="panel-title-row">
+          <div><Eyebrow>Patient twin · real ledger + patient state</Eyebrow><h2>Forecast the real patient, then score it against what happened</h2></div>
+          <div className="esa-fc-actions">
+            <Tag tone="violet">{twin ? twin.twin.provenance.derivedFrom : "not built"}</Tag>
+            <button className="button button-secondary" type="button" disabled={twinBusy} onClick={() => void buildTwin()}>{twinBusy ? <RefreshCw size={14} className="spin" /> : <Radar size={14} />} Build twin from ledger</button>
+            <button className="button button-ghost" type="button" disabled={twinPersistBusy || !twin} onClick={() => void persistTwin()}>{twinPersistBusy ? <RefreshCw size={14} className="spin" /> : <ShieldCheck size={14} />} Persist drift</button>
+          </div>
+        </div>
+        <p className="esa-fc-hint">The twin derives the governed window from persisted Hb results, the iron panel and the ESA dose on record (order attribution), then scores the reference responder ONLINE — each weekly observed Hb is compared with the value projected from the previous week&apos;s dose (Paper A&apos;s Hb-forecast bar ≤ {twin?.drift.targetMapePct ?? 10}%).</p>
+        {twinError ? <div className="admin-notice is-error"><AlertTriangle size={15} /><span>{twinError}</span></div> : null}
+        {!twin ? (
+          <div className="esa-fc-empty"><Radar size={20} /><span><strong>No twin built yet</strong><small>Set the patient id above, then build the twin from the live ledger to compare the forecast with what was observed.</small></span></div>
+        ) : (
+          <>
+            <div className="esa-twin-facts">
+              <div><small>Derived from</small><strong>{twin.twin.provenance.derivedFrom}</strong><em>{twin.twin.provenance.eventsConsidered} attributed event(s)</em></div>
+              <div><small>Hb results</small><strong>{twin.twin.provenance.hgbLabs}</strong><em>{twin.twin.hgbSeries.length} total</em></div>
+              <div><small>ESA doses</small><strong>{twin.twin.provenance.esaDoses}</strong><em>source: {twin.twin.provenance.doseSource}</em></div>
+              <div><small>Iron panel</small><strong>{twin.twin.provenance.ironLabs}</strong><em>result(s) on ledger</em></div>
+            </div>
+            <div className="esa-twin-drift">
+              <div className="esa-twin-drift-head">
+                <Eyebrow>Online drift · forecast vs observed</Eyebrow>
+                <Tag tone={twin.drift.verdict === "pass" ? "mint" : twin.drift.verdict === "watch" ? "amber" : "neutral"}>{twin.drift.verdict} · {twin.drift.n} step(s)</Tag>
+              </div>
+              <div className="esa-twin-drift-metrics">
+                <span><small>MAPE</small><strong>{twin.drift.mape}%</strong></span>
+                <span><small>MAE</small><strong>{twin.drift.mae} g/dL</strong></span>
+                <span><small>RMSE</small><strong>{twin.drift.rmse} g/dL</strong></span>
+                <span><small>Target</small><strong>≤ {twin.drift.targetMapePct}%</strong></span>
+              </div>
+              <div className="esa-twin-drift-rows list-scroll list-scroll-short">
+                <div className="esa-twin-drift-row is-head"><span>Observed at</span><span>Observed</span><span>Predicted</span><span>Error</span></div>
+                {twin.drift.rows.map((r) => (
+                  <div className="esa-twin-drift-row" key={r.at}>
+                    <span>{new Date(r.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                    <span>{r.observed.toFixed(1)}</span>
+                    <span>{r.predicted.toFixed(1)}</span>
+                    <span className={Math.abs(r.error) > 0.8 ? "is-wide" : "is-close"}>{r.error > 0 ? "+" : ""}{r.error.toFixed(2)} ({r.pctError}%)</span>
+                  </div>
+                ))}
+                {!twin.drift.rows.length ? <p className="esa-twin-note">{twin.drift.note}</p> : null}
+              </div>
+              <p className="esa-twin-note">{twin.drift.note} {twin.twin.note}</p>
+            </div>
+            {twin.whatIf ? (
+              <div className="esa-twin-summary">
+                <div><small>Twin window</small><strong>Hb {twin.whatIf.currentHgb} g/dL · {fmtDose(twin.whatIf.currentDose)}</strong><em>{twin.whatIf.exposure.basis} exposure · {twin.whatIf.exposure.administrations} administration(s)</em></div>
+                <div><small>MPC choice</small><strong>{twin.whatIf.candidates[twin.whatIf.chosenIndex ?? 0]?.label ?? "—"}</strong><em>{twin.whatIf.controller ? `${twin.whatIf.controller.expected.weeksInBand}/${twin.whatIf.controller.horizonWeeks} wk in band` : "—"}</em></div>
+                <div><small>Candidates</small><strong>{twin.whatIf.candidates.length}</strong><em>{twin.whatIf.horizonWeeks}-week horizon</em></div>
+              </div>
+            ) : (
+              <div className="esa-block-banner"><ShieldAlert size={15} /><span>{twin.twin.note}</span></div>
+            )}
           </>
         )}
       </section>
