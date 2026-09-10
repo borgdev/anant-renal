@@ -31,6 +31,16 @@ methods + metrics used here.
 of machine telemetry precede events) is consistent with the fluid protocol and does not change any
 model choice above.
 
+**Review / guideline sources (clinical context + constraints, not model evidence):**
+David-Olawade et al., *Clin Chim Acta* 2026;586:120908 (AI in dialysis review — confirms the
+"deployment lags model literature" framing); Neri, Zhang & Usvyat, *Curr Opin Nephrol Hypertens*
+2026;35(1):30-35; **KDIGO 2026 Anemia in CKD** (targets + intervals → anemia guardrails);
+KDIGO CKD-MBD (serial, joint P/Ca/PTH interpretation → coupled model requirement); KDIGO CKD 2024;
+**KDOQI Vascular Access 2019/2020** (monitoring/dysfunction context); **CDC dialysis BSI prevention
+core interventions** (the deterministic workflow spec for infection); ASN *Responsible Use of AI to
+Improve Kidney Care* (governance posture). These norms are encoded as guardrails/approval classes,
+not as learned models.
+
 ### Model-choice corrections vs. the report's framing
 
 1. **Adequacy is not a deep-learning problem.** Both adequacy papers put tree ensembles on top
@@ -259,7 +269,73 @@ graph LR
 
 ---
 
-## 6. Immediate next slice (recommendation)
+## 6. Report → plan traceability (nothing intentionally dropped)
+
+`protocols.md` contains material this plan compresses. This section maps it explicitly so no insight
+is lost, and records the two deliberate deviations.
+
+### 6.1 The four physiological clocks (report: "Where CfC/LTC could be genuinely differentiated")
+
+| Clock | Signals | Protocol(s) | Where it lives in this codebase |
+|---|---|---|---|
+| **Minutes** | BP, UF rate/volume, venous/arterial pressure, blood flow, elapsed session time | Fluid/IDH | New intra-session telemetry entity + `TrajectoryAmbientProcess` fast dimension (`vitals_instability`); realm tick already supports per-hour `dt` + τ scaling (`src/liquid/regime.ts`) |
+| **Days** | interdialytic weight gain, K, fluid accumulation, missed treatments | Fluid, electrolytes | Existing daily vitals/labs in `longitudinal.ts`; extend with session records |
+| **Weeks** | ESA/iron → Hb | Anemia (**done**) | `anemia-forecast.ts` (1-wk lag + ~10-wk settling), `anemia-exposure.ts` (130 h PK), `anemia-twin.ts` (weekly bucketing + drift) |
+| **Months** | phosphate / Ca / PTH / vitamin D; nutritional decline | CKD-MBD, nutrition | New coupled multi-output responder (slice 2.5) + `phosphate`/`anemia_severity` liquid dims today |
+
+### 6.2 The three CfC/LTC research questions (report §"Where CfC/LTC…")
+
+| Report's research question | Concrete experiment in this platform | How we measure it |
+|---|---|---|
+| Can one continuous latent state forecast **multiple horizons**? | One encoder, heads for within-session / next-session / +1 wk / +1 mo | MAE/AUROC per horizon vs per-protocol tabular baselines (`native/liquid-train` + `src/liquid/trainer.ts` already compare CfC vs LTC vs baseline MAE) |
+| Does **patient-specific adaptation** beat population models? | Per-patient warm-start from population weights + online residual (the anemia twin already does per-patient drift) | Calibration drift + error by trajectory/vintage; drift snapshots per patient (`esa-twin-drift` pattern) |
+| Can it **predict response to interventions**? | Counterfactual engine per protocol (UF steps, ESA ±%, binder changes) scored against naturally occurring changes | Response-prediction error on held-out action events before any recommendation use (report Phase 3) |
+
+### 6.3 The report's 5-phase experimental program → our phases
+
+| Report phase | Our equivalent | Status / gap |
+|---|---|---|
+| 1. Retrospective replication on one harmonized renal data model | Reference surrogates + trained artifacts on a shared feature contract (`ESA_FEATURES` ↔ `anemia-train/feature_catalog.json` with a drift test) | ✅ pattern exists for anemia; replicate per protocol. **Gap**: we have no real retrospective cohort — synthetic until P3 |
+| 2. Multi-task renal state model (one encoder, protocol heads) | `native/` CfC/LTC + protocol observers as cells | ⏳ partial: `domain-dialysis` has 5 dims; needs per-protocol heads + training data |
+| 3. Treatment-response & counterfactual estimation | Anemia MPC what-if + twin drift are the working exemplar | ✅ anemia; ⏳ other protocols |
+| 4. Prospective silent deployment (calibration drift, lead time, alert burden, fairness strata) | P1 governance (coverage gate, KS drift, red-team, assurance findings) + drift snapshots | ⏳ needs silent-mode wiring per protocol + fairness slices (age/sex/vintage/access) |
+| 5. Decision-support trial (stepped-wedge/cluster) | P3 validation + study-mode acceptance records (`esa-study-record`, MDR file) | ✅ scaffold exists; real cohorts needed |
+
+### 6.4 Report's "Data Model Required" table → our additions and true gaps
+
+Captured in §3.1. **Still missing from the platform** (must be added before the corresponding
+protocol can be more than a surrogate): continuous machine waveforms, relative blood volume,
+reticulocytes, FGF23, vitamin D, actual adherence/refill data, digital bruit audio, ultrasound/angio
+ground truth, patient-reported symptoms and outcomes. Each is flagged in the per-protocol
+"sim data to add" row; none may be fabricated as if real (synthetic labelling is mandatory).
+
+### 6.5 Report's "What Not to Do" → enforceable checklist
+
+| Report prohibition | Enforced by |
+|---|---|
+| No generic LLM recommending therapy without physiological state + safety layer | Every protocol is a typed engine + guardrails; the knowledge agent has no ordering capability |
+| Don't optimise AUROC only | Acceptance criteria require calibration (Brier/reliability), MAPE for continuous, lead time/false-alert rate |
+| No random row splits | Mandated patient-level (and clinic-level) splits in §3.2 |
+| Don't treat clinician actions as ground truth | §5 confounding risk; treatment-response estimated, never imitated; RL sequenced last |
+| No direct online RL | Anemia uses constrained MPC; RL is explicitly deferred behind offline policy evaluation |
+| No autonomous infection-control / emergency-K action | Approval classes + §2.6/2.7 acceptance criteria (lab confirmation, deterministic prevention) |
+
+### 6.6 Deliberate deviations from the report (with rationale)
+
+1. **Sequencing**: the report lists *Live Dialysis Intelligence (fluid)* first; this plan does
+   **adequacy first**. Rationale: adequacy is the highest evidence-per-effort item (tree models +
+   mechanistic prior, real CMS Kt/V data already parsed) and it exercises the whole protocol-pack
+   template before the larger real-time fluid build — after which fluid/IDH is the flagship showcase.
+2. **Model family for fluid**: report centres TFT; this plan leads with LightGBM and treats TFT as a
+   benchmark, because our differentiator is the **counterfactual intervention simulator** (the
+   report's own §1 opportunity), not the risk head.
+3. **Anemia's data label**: the report notes the Anemia Control Model (ACM) is commercially deployed;
+   we keep our implementation explicitly **reference/synthetic** until a real cohort exists, rather
+   than implying clinical equivalence to ACM.
+
+---
+
+## 7. Immediate next slice (recommendation)
 
 **Slice 6 — Dialysis adequacy observer + prescription simulator.** Rationale: highest
 evidence-to-effort ratio (XGBoost/RF + Daugoudas prior), reuses the existing `ktv_adequacy` liquid
