@@ -110,7 +110,9 @@ export type WorkspaceKind =
   | 'protocol-mode'
   | 'assurance-slice-report'
   | 'assurance-burden-report'
-  | 'cross-pack-release-gate';
+  | 'cross-pack-release-gate'
+  | 'cohort-definition'
+  | 'cohort-membership';
 
 export interface WorkspaceDoc {
   id: string;
@@ -473,6 +475,50 @@ export interface DelegatedWork extends WorkspaceDoc {
   delegatedBy: string;
   outcome?: { verified: boolean; value?: number; note?: string };
   doneAt?: string;
+}
+
+/**
+ * A configured living cohort. The definition body is operator-editable data: the
+ * criteria reference the closed metric vocabulary in `src/swarm/cohort.ts`, so a
+ * user-authored cohort can compose existing pack outputs but cannot invent
+ * clinical logic of its own.
+ */
+export interface CohortDefinitionDoc extends WorkspaceDoc {
+  definitionId: string;
+  label: string;
+  kind: 'suggested' | 'monitoring';
+  protocol: string;
+  rationale: string;
+  entry: Array<{ metric: string; comparator: string; value?: number | string | boolean; min?: number; max?: number; note?: string }>;
+  exit: Array<{ metric: string; comparator: string; value?: number | string | boolean; min?: number; max?: number; note?: string }>;
+  entryMode?: 'all' | 'any';
+  suggestedAction: string;
+  approvalClass: string;
+  mayNever: string[];
+  guard: string[];
+  minN: number;
+  criterionVersion: string;
+  owner: string;
+  enabled: boolean;
+}
+
+/** One (cohort, patient) pair with entry/exit history — the explainability record. */
+export interface CohortMembershipDoc extends WorkspaceDoc {
+  cohortId: string;
+  patientId: string;
+  realmId: string;
+  member: boolean;
+  reason: string;
+  confidence: number;
+  criterionVersion: string;
+  risk: number;
+  suggestedAction: string;
+  protocol: string;
+  unresolved: string[];
+  enteredAt?: string | undefined;
+  lastEvaluatedAt: string;
+  history: Array<{ at: string; event: 'entered' | 'exited'; reason: string; criterionVersion: string }>;
+  metrics?: Record<string, unknown> | undefined;
 }
 
 /** Durable Pack Studio activation — which installed domain pack drives the
@@ -1550,6 +1596,126 @@ export class SwarmWorkspaceStore {
     return this.update<DelegatedWork>('delegated-work', id, update);
   }
 
+  /* ---------- Living cohorts — configurable definitions + membership ---------- */
+
+  /** Every configured cohort definition (operator-editable). */
+  async listCohortDefinitions(): Promise<CohortDefinitionDoc[]> {
+    return this.list<CohortDefinitionDoc>('cohort-definition');
+  }
+
+  async getCohortDefinition(id: string): Promise<CohortDefinitionDoc | undefined> {
+    return this.get<CohortDefinitionDoc>('cohort-definition', id);
+  }
+
+  /**
+   * Seed the shipped catalog once. Idempotent per cohort id, so an operator's
+   * edits to a seeded definition are never overwritten on the next boot.
+   */
+  async seedCohortDefinitions(
+    definitions: readonly Omit<CohortDefinitionDoc, 'id' | 'createdAt' | 'updatedAt'>[],
+  ): Promise<number> {
+    let created = 0;
+    for (const def of definitions) {
+      const existing = await this.getCohortDefinition(def.definitionId);
+      if (existing) continue;
+      await this.create<CohortDefinitionDoc>('cohort-definition', def.definitionId, def);
+      created += 1;
+    }
+    return created;
+  }
+
+  async saveCohortDefinition(
+    doc: Omit<CohortDefinitionDoc, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<CohortDefinitionDoc> {
+    const existing = await this.getCohortDefinition(doc.definitionId);
+    if (existing) {
+      const updated = await this.update<CohortDefinitionDoc>('cohort-definition', existing.id, doc);
+      return updated ?? existing;
+    }
+    return this.create<CohortDefinitionDoc>('cohort-definition', doc.definitionId, doc);
+  }
+
+  async removeCohortDefinition(definitionId: string): Promise<boolean> {
+    const existing = await this.getCohortDefinition(definitionId);
+    if (!existing) return false;
+    await this.remove('cohort-definition', existing.id);
+    return true;
+  }
+
+  async listCohortMemberships(): Promise<CohortMembershipDoc[]> {
+    return this.list<CohortMembershipDoc>('cohort-membership');
+  }
+
+  /**
+   * Record this evaluation's membership for one (cohort, patient) pair.
+   *
+   * The document keeps entry/exit HISTORY, so "when did this emerge, under which
+   * criterion version, and what ended it" is answerable from the record rather
+   * than by re-running today's predicate — which would silently rewrite history
+   * every time a criterion is edited.
+   */
+  async recordCohortMembership(input: {
+    cohortId: string;
+    patientId: string;
+    realmId: string;
+    member: boolean;
+    reason: string;
+    confidence: number;
+    criterionVersion: string;
+    risk: number;
+    suggestedAction: string;
+    protocol: string;
+    unresolved: string[];
+    metrics?: Record<string, unknown>;
+  }): Promise<CohortMembershipDoc> {
+    const id = `${input.cohortId}::${input.patientId}`;
+    const existing = await this.get<CohortMembershipDoc>('cohort-membership', id);
+    const at = this.now();
+    const history = existing?.history ? [...existing.history] : [];
+    const wasMember = existing?.member ?? false;
+    if (input.member !== wasMember) {
+      history.push({
+        at,
+        event: input.member ? 'entered' : 'exited',
+        reason: input.reason,
+        criterionVersion: input.criterionVersion,
+      });
+    }
+    const doc: CohortMembershipDoc = {
+      id,
+      createdAt: existing?.createdAt ?? at,
+      updatedAt: at,
+      cohortId: input.cohortId,
+      patientId: input.patientId,
+      realmId: input.realmId,
+      member: input.member,
+      reason: input.reason,
+      confidence: input.confidence,
+      criterionVersion: input.criterionVersion,
+      risk: input.risk,
+      suggestedAction: input.suggestedAction,
+      protocol: input.protocol,
+      unresolved: input.unresolved,
+      enteredAt: input.member ? (existing?.member ? existing.enteredAt : at) : existing?.enteredAt,
+      lastEvaluatedAt: at,
+      history,
+      ...(input.metrics ? { metrics: input.metrics } : {}),
+    };
+    if (existing) {
+      const updated = await this.update<CohortMembershipDoc>('cohort-membership', id, doc);
+      return updated ?? doc;
+    }
+    return this.create<CohortMembershipDoc>('cohort-membership', id, doc);
+  }
+
+  /** Membership rows for one cohort, newest evaluation first. */
+  async cohortMembers(cohortId: string, opts: { membersOnly?: boolean } = {}): Promise<CohortMembershipDoc[]> {
+    const rows = await this.listCohortMemberships();
+    return rows
+      .filter((r) => r.cohortId === cohortId && (!opts.membersOnly || r.member))
+      .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  }
+
   /* ---------- Pack Studio — durable pack activation (lens switch) ---------- */
 
   async activePack(): Promise<PackActivation | undefined> {
@@ -2271,6 +2437,8 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'assurance-slice-report',
   'assurance-burden-report',
   'cross-pack-release-gate',
+  'cohort-definition',
+  'cohort-membership',
 ];
 
 function slug(input: string): string {

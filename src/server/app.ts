@@ -84,6 +84,7 @@ import { registerMbdRoutes } from './mbd-routes.js';
 import { registerNutritionRoutes } from './nutrition-routes.js';
 import { registerInfectionRoutes } from './infection-routes.js';
 import { registerAssuranceRoutes as registerCrossPackAssuranceRoutes } from './assurance-track-routes.js';
+import { registerCohortRoutes } from './cohort-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
 import { registerAssuranceRoutes } from './assurance-routes.js';
 import { registerSubmissionRoutes } from './submission-routes.js';
@@ -93,6 +94,7 @@ import { registerDemoCleanupRoutes } from './demo-cleanup.js';
 import { registerCmsRoutes } from './cms-routes.js';
 import { sqlSimulatorPersistence } from './simulator-persistence.js';
 import { RealmRegistry } from '../realm/registry.js';
+import { renalPatientInputs } from '../swarm/renal-cohort.js';
 import { registerConsoleGate } from './console-gate.js';
 import { registerAdminApiGuard } from './api-auth.js';
 import { LocalUserStore, seedDefaultUsers, SessionManager, registerAuthRoutes } from './auth/index.js';
@@ -375,10 +377,21 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // topic plan, releases, DLQ inspection, plus the public /api/context and
   // /api/work (My Work) experience APIs. Composes the same durable workspace,
   // coordinator and store the swarm routes already use — no second store.
+  // ONE patient source for every renal surface.
+  //
+  // This used to be an optional dep that only tests supplied, so at runtime the
+  // cohort layer silently evaluated nothing and its suggestions never reached
+  // the work queue — a whole capability missing with no error anywhere. Deriving
+  // the default from the realm registry means a surface cannot go quietly empty
+  // just because a caller forgot to pass patients.
+  const renalPatients: () => ReturnType<typeof renalPatientInputs> =
+    deps.renalPatients ?? (() => renalPatientInputs(RealmRegistry.list()));
+
   await registerPlatformRoutes(app, {
     users,
     sessions,
     packs: deps.packs,
+    patients: renalPatients,
     ...(deps.eventBroker ? { broker: deps.eventBroker } : {}),
     ...(deps.eventOutbox ? { eventOutbox: deps.eventOutbox } : {}),
     realms: () => RealmRegistry.list().map((r) => {
@@ -436,40 +449,40 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // F1 — renal data model read surface (sessions, access, MBD/nutrition/infection
   // panel labs, maintenance exposures) derived from realm state + ledger.
   await registerRenalRoutes(app, {
-    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+    patients: renalPatients,
   });
 
   // F3 — protocol operations shell: registry-driven cockpit (green/amber/red
   // across all seven renal protocols) + the F2 head-vs-baseline evaluation.
   await registerProtocolRoutes(app, {
-    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+    patients: renalPatients,
   });
 
   // P1 — dialysis adequacy protocol pack (engine · guardrails · what-if · twin ·
   // trained artifact · governance). CDSS: recommends, never touches a machine.
   await registerAdequacyRoutes(app, {
-    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+    patients: renalPatients,
   });
 
   // P2 — fluid / dry weight / IDH protocol pack (engine · guardrails · UF
   // counterfactual simulator · twin over the real ledger · trained artifact ·
   // governance). CDSS: advisory only, never an autonomous UF change.
   await registerFluidRoutes(app, {
-    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+    patients: renalPatients,
   });
 
   // P3 — vascular access pack (longitudinal pressure/flow observer + gated
   // acoustic contract + referral proposal). CDSS: referrals are proposals for
   // the access team; the platform never books a procedure.
   await registerAccessRoutes(app, {
-    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+    patients: renalPatients,
   });
 
   // P4 — CKD-MBD pack (coupled [P, Ca, PTH] responder + KDIGO hard envelope +
   // counterfactual over candidate therapies + twin + multi-output artifact +
   // governance). CDSS: advisory only, never a prescribed dose.
   await registerMbdRoutes(app, {
-    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+    patients: renalPatients,
     ...(deps.mbdEvents ? { events: deps.mbdEvents } : {}),
   });
 
@@ -477,7 +490,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // potassium forecast with the mandatory lab-confirmation contract + plan
   // counterfactual + twin + artifact). CDSS: the ECG is an adjunct only.
   await registerNutritionRoutes(app, {
-    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+    patients: renalPatients,
     ...(deps.nutritionEvents ? { events: deps.nutritionEvents } : {}),
   });
 
@@ -487,7 +500,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // holds no antimicrobial or prescribing authority, and blood cultures must
   // exist before any antimicrobial discussion.
   await registerInfectionRoutes(app, {
-    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+    patients: renalPatients,
     ...(deps.infectionEvents ? { events: deps.infectionEvents } : {}),
   });
 
@@ -496,7 +509,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // slices, alert burden, surfacing modes and a single release gate that
   // aggregates every pack's per-protocol MDR file.
   await registerCrossPackAssuranceRoutes(app, {
-    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+    patients: renalPatients,
+  });
+
+  // Living cohorts — operator-configurable clinical cohorts whose membership is a
+  // declaration over existing pack outputs. Cohorts SUGGEST; they never act, and
+  // their suggestions land in the one existing work queue rather than a second
+  // inbox.
+  await registerCohortRoutes(app, {
+    patients: renalPatients,
   });
 
   // Agent Studio (Phase D) — one unified surface for authoring, triggers, topics,

@@ -63,13 +63,16 @@ export interface PlatformRouteOptions {
   /** Installed solution packs (from the PackRegistry) — the real Pack Studio
    *  catalog. Activating one durably drives `/api/context` pack.id + lens. */
   packs?: readonly DomainPack[];
+  /** F2 renal patient source — lets cohort suggestions appear in the work queue
+   *  instead of a second inbox. Defaults to every patient in RealmRegistry. */
+  patients?: (() => import('../swarm/renal-cohort.js').RenalPatientInput[]) | undefined;
 }
 
 /** Capabilities granted per console (server-authoritative). A work item carries
  *  a capability; a role can act when its console grants it. */
 export const CAPABILITIES: Record<ConsoleId, string[]> = {
-  exec: ['work.review', 'work.approve', 'release.approve', 'episode.decide', 'episode.escalate', 'evidence.review'],
-  ops: ['onboarding.run', 'org.configure', 'integration.operate', 'topic.configure', 'dlq.remediate', 'release.validate', 'catalog.admin'],
+  exec: ['work.review', 'work.approve', 'release.approve', 'episode.decide', 'episode.escalate', 'evidence.review', 'cohort.review'],
+  ops: ['onboarding.run', 'org.configure', 'integration.operate', 'topic.configure', 'dlq.remediate', 'release.validate', 'catalog.admin', 'cohort.review'],
 };
 
 /* ---------- onboarding model (12-step product rail, gated) ---------- */
@@ -134,7 +137,7 @@ async function onboardingState(ws: SwarmWorkspaceStore, users?: LocalUserStore):
 
 export interface PlatformWorkItem {
   id: string;
-  kind: 'episode' | 'review' | 'release' | 'dlq';
+  kind: 'episode' | 'review' | 'release' | 'dlq' | 'cohort';
   title: string;
   summary: string;
   state: string;
@@ -283,6 +286,51 @@ async function buildWorkQueue(ws: SwarmWorkspaceStore, coord: PersistentOutcomeC
         });
       }
     } catch { /* store unavailable — DLQ omitted */ }
+  }
+
+  // 5. Living-cohort suggestions awaiting a clinical decision.
+  //
+  // These are SUGGESTIONS, not actions: a patient satisfying a cohort is a
+  // statement about state, and the decision belongs to a human. They land HERE,
+  // in the one queue, rather than in a second cohort inbox — a cohort that
+  // opened its own alert stream would be exactly the failure mode the cohort
+  // design exists to avoid.
+  const cohortCapability = can('ops', 'cohort.review') ? 'ops' : can('exec', 'cohort.review') ? 'exec' : null;
+  if (cohortCapability && opts.patients) {
+    try {
+      const docs = await ws.listCohortDefinitions();
+      if (docs.length > 0) {
+        const { evaluateCohorts, toCohortDefinition } = await import('./cohort-routes.js');
+        const { cachedLedgerSeries } = await import('./cohort-routes.js');
+        const live = opts.patients();
+        const series = cachedLedgerSeries(live);
+        const { rows } = evaluateCohorts(docs.filter((d) => d.enabled).map(toCohortDefinition), live, { series, at: new Date().toISOString(), intervalDays: 2 });
+        for (const row of rows) {
+          if (row.state !== 'member' || row.kind !== 'suggested') continue;
+          items.push({
+            id: `cohort:${row.cohortId}:${row.patientId}`,
+            kind: 'cohort',
+            title: `${row.label} · ${row.patientId}`,
+            // the reason is the product: why is this patient in this cohort
+            summary: `${row.reason} → ${row.suggestedAction}`,
+            state: 'suggested',
+            urgency: row.opportunity >= 1.2 ? 'high' : row.opportunity >= 0.6 ? 'medium' : 'low',
+            scope: row.protocol,
+            owner: row.approvalClass === 'C' ? 'Nephrologist' : 'Renal nurse',
+            sla: 'Next session',
+            console: cohortCapability,
+            capability: 'cohort.review',
+            actions: ['review', 'decline'],
+            at: new Date().toISOString(),
+          });
+        }
+      }
+    } catch (err) {
+      // Cohort suggestions are additive: a failure here must not take down the
+      // work queue. But silence is how a whole cohort layer goes missing without
+      // anyone noticing, so the reason is always recorded.
+      console.warn('[work-queue] cohort suggestions unavailable:', err instanceof Error ? err.message : String(err));
+    }
   }
 
   // DST-Q — sort: urgency tier first, then belief-aware priority (scored items
