@@ -173,6 +173,14 @@ const num = (v: unknown): number | undefined => {
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
 const avg = (xs: number[]): number | undefined => (xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : undefined);
 
+/**
+ * exactOptionalPropertyTypes-safe conditional spread: `...opt('qbAvg', num(raw.qbAvg))`
+ * contributes the key only when the value is defined (never `key: undefined`).
+ */
+function opt<K extends string, V>(key: K, value: V | undefined): Record<K, V> | Record<string, never> {
+  return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
+}
+
 /** Systolic value from a "128/78" blood-pressure string. */
 function systolicOf(bp: string | undefined): number | undefined {
   if (!bp) return undefined;
@@ -188,23 +196,24 @@ function toSessionFacts(raw: Record<string, unknown>, previous: Record<string, u
   const preWeightKg = num(raw.preWeightKg);
   const prevPostWeightKg = previous ? num(previous.postWeightKg) : undefined;
   const symptoms = Array.isArray(raw.symptoms) ? raw.symptoms.filter((s): s is string => typeof s === 'string') : undefined;
+  const complication = str(raw.complication);
   return {
     sessionId: str(raw.sessionId) ?? 'unknown',
     startedAt: str(raw.startedAt) ?? '',
     endedAt: str(raw.endedAt) ?? '',
     deliveredMinutes,
-    ...(prescribedMinutes !== undefined ? { prescribedMinutes } : {}),
+    ...opt('prescribedMinutes', prescribedMinutes),
     ...(prescribedMinutes ? { adherencePct: Math.round((deliveredMinutes / prescribedMinutes) * 100) } : {}),
     ufVolumeL,
-    ...(targetUfL !== undefined ? { targetUfL } : {}),
+    ...opt('targetUfL', targetUfL),
     ...(targetUfL && targetUfL > 0 ? { ufAchievementPct: Math.round((ufVolumeL / targetUfL) * 100) } : {}),
     ...(preWeightKg !== undefined && prevPostWeightKg !== undefined ? { idwgKg: Math.round((preWeightKg - prevPostWeightKg) * 10) / 10 } : {}),
-    ...(num(raw.qbAvg) !== undefined ? { qbAvg: num(raw.qbAvg) } : {}),
-    ...(num(raw.recirculationPct) !== undefined ? { recirculationPct: num(raw.recirculationPct) } : {}),
-    ...(num(raw.nadirSbp) !== undefined ? { nadirSbp: num(raw.nadirSbp) } : {}),
-    ...(num(raw.meanSbp) !== undefined ? { meanSbp: num(raw.meanSbp) } : {}),
+    ...opt('qbAvg', num(raw.qbAvg)),
+    ...opt('recirculationPct', num(raw.recirculationPct)),
+    ...opt('nadirSbp', num(raw.nadirSbp)),
+    ...opt('meanSbp', num(raw.meanSbp)),
     stoppedEarly: raw.stoppedEarly === true,
-    ...(str(raw.complication) ? { complication: str(raw.complication) } : {}),
+    ...opt('complication', complication),
     ...(symptoms?.length ? { symptoms } : {}),
     telemetryPoints: num(raw.telemetryPoints) ?? 0,
   };
@@ -264,45 +273,45 @@ export function renalPatientFacts(input: RenalPatientInput): RenalPatientFacts {
   return {
     patientId: input.id,
     realmId: input.realmId,
-    ...(str(s.facilityId) ? { facilityId: str(s.facilityId) } : {}),
-    ...(str(s.unitId) ? { unitId: str(s.unitId) } : {}),
-    ...(str(s.trajectory) ? { trajectory: str(s.trajectory) } : {}),
-    ...(num(s.age) !== undefined ? { age: num(s.age) } : {}),
-    ...(str(s.sex) ? { sex: str(s.sex) } : {}),
+    ...opt('facilityId', str(s.facilityId)),
+    ...opt('unitId', str(s.unitId)),
+    ...opt('trajectory', str(s.trajectory)),
+    ...opt('age', num(s.age)),
+    ...opt('sex', str(s.sex)),
     access: {
-      ...(str(accessRaw.type) ? { type: str(accessRaw.type) } : {}),
-      ...(str(accessRaw.site) ? { site: str(accessRaw.site) } : {}),
-      ...(num(accessRaw.ageDays) !== undefined ? { ageDays: num(accessRaw.ageDays) } : {}),
+      ...opt('type', str(accessRaw.type)),
+      ...opt('site', str(accessRaw.site)),
+      ...opt('ageDays', num(accessRaw.ageDays)),
       observations: observations.length,
-      ...(lastObservation && str(lastObservation.event) ? { lastEvent: str(lastObservation.event) } : {}),
-      ...(lastObservation && str(lastObservation.at) ? { lastEventAt: str(lastObservation.at) } : {}),
+      ...opt('lastEvent', lastObservation ? str(lastObservation.event) : undefined),
+      ...opt('lastEventAt', lastObservation ? str(lastObservation.at) : undefined),
       dysfunction: accessRisk,
     },
     sessions: {
       count: sessions.length,
-      ...(sessions.length ? { lastAt: sessions[sessions.length - 1]?.endedAt } : {}),
-      ...(avg(delivered) !== undefined ? { avgDeliveredMinutes: avg(delivered) } : {}),
-      ...(avg(uf) !== undefined ? { avgUfVolumeL: avg(uf) } : {}),
-      ...(avg(ufAch) !== undefined ? { avgUfAchievementPct: avg(ufAch) } : {}),
-      ...(avg(adherence) !== undefined ? { avgAdherencePct: avg(adherence) } : {}),
+      ...opt('lastAt', sessions.length ? sessions[sessions.length - 1]?.endedAt : undefined),
+      ...opt('avgDeliveredMinutes', avg(delivered)),
+      ...opt('avgUfVolumeL', avg(uf)),
+      ...opt('avgUfAchievementPct', avg(ufAch)),
+      ...opt('avgAdherencePct', avg(adherence)),
       ...(nadir.length ? { minNadirSbp: Math.min(...nadir) } : {}),
-      ...(avgRecirculationPct !== undefined ? { avgRecirculationPct } : {}),
-      ...(avg(idwg) !== undefined ? { avgIdwgKg: avg(idwg) } : {}),
+      ...opt('avgRecirculationPct', avgRecirculationPct),
+      ...opt('avgIdwgKg', avg(idwg)),
       stoppedEarlyCount: sessions.filter((x) => x.stoppedEarly).length,
       complicationCount: sessions.filter((x) => x.complication !== undefined).length,
       telemetryPoints: sessions.reduce((acc, x) => acc + x.telemetryPoints, 0),
     },
     labs,
     vitals: {
-      ...(num(lastVitals.hr) !== undefined ? { hr: num(lastVitals.hr) } : {}),
-      ...(num(lastVitals.spo2) !== undefined ? { spo2: num(lastVitals.spo2) } : {}),
-      ...(temp !== undefined ? { tempC: temp } : {}),
-      ...(str(lastVitals.bp) ? { bp: str(lastVitals.bp) } : {}),
-      ...(systolic !== undefined ? { systolic } : {}),
+      ...opt('hr', num(lastVitals.hr)),
+      ...opt('spo2', num(lastVitals.spo2)),
+      ...opt('tempC', temp),
+      ...opt('bp', str(lastVitals.bp)),
+      ...opt('systolic', systolic),
     },
     panel: { present, missing, completenessPct: Math.round((present.length / RENAL_PANEL_KEYS.length) * 100) },
     exposure: {
-      ...(num(s.esaDose) !== undefined ? { esaDoseUnits: num(s.esaDose) } : {}),
+      ...opt('esaDoseUnits', num(s.esaDose)),
       maintenanceMeds: [...medCodes],
       phosphateBinders: [...medCodes].filter((c) => BINDERS.includes(c)),
       calcimimetics: [...medCodes].filter((c) => CALCIMIMETICS.includes(c)),
@@ -342,7 +351,7 @@ export function buildRenalCohort(inputs: RenalPatientInput[]): { patients: Renal
       sessions: totalSessions,
       patientsWithSessions: withSessions.length,
       avgSessionsPerPatient: patients.length ? Math.round((totalSessions / patients.length) * 10) / 10 : 0,
-      ...(avg(recirc) !== undefined ? { avgRecirculationPct: avg(recirc) } : {}),
+      ...opt('avgRecirculationPct', avg(recirc)),
       hypotensionRatePct: totalSessions ? Math.round((hypotensiveTotal / totalSessions) * 100) : 0,
       shortSessionRatePct: totalSessions ? Math.round((shortTotal / totalSessions) * 100) : 0,
       avgPanelCompletenessPct: patients.length ? Math.round(patients.reduce((a, p) => a + p.panel.completenessPct, 0) / patients.length) : 0,

@@ -634,18 +634,20 @@ export function evaluateProtocolHeads(rows: { regression: RegressionRow[]; class
     const winner: ClassificationHeadReport['winner'] = stateAu && baseAu
       ? (stateAu.auroc > baseAu.auroc ? 'state' : stateAu.auroc < baseAu.auroc ? 'baseline' : 'tie')
       : 'tie';
+    const stateEce = ece(stateScorePairs);
+    const baseEce = ece(baselinePairs);
     classificationHeads.push({
       protocol: 'infection', substate: 'SL', target, horizonDays, testRows: test.length,
       stateScoreMetrics: {
         ...(stateAu ? { auroc: stateAu.auroc } : {}),
         ...(stateBrier !== undefined ? { brier: stateBrier } : {}),
-        ...(ece(stateScorePairs) !== undefined ? { ece: ece(stateScorePairs) } : {}),
+        ...(stateEce !== undefined ? { ece: stateEce } : {}),
         positives: stateScorePairs.filter((p) => p.label === 1).length,
       },
       baselineMetrics: {
         ...(baseAu ? { auroc: baseAu.auroc } : {}),
         ...(baseBrier !== undefined ? { brier: baseBrier } : {}),
-        ...(ece(baselinePairs) !== undefined ? { ece: ece(baselinePairs) } : {}),
+        ...(baseEce !== undefined ? { ece: baseEce } : {}),
       },
       reliability: reliabilityBins(stateScorePairs, 5),
       winner,

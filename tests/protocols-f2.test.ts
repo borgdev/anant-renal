@@ -313,21 +313,22 @@ describe('F2/F3 protocol registry', () => {
     expect(infection.signals.some((s) => s.label === 'NHSN criteria' && s.value.includes('met'))).toBe(true);
 
     // a healthy patient is green
-    const healthy = {
-      ...facts,
+    const healthy: Record<string, unknown> = {
+      ...(facts as unknown as Record<string, unknown>),
       access: { type: 'avf', ageDays: 500, observations: 3, dysfunction: false },
       sessions: { count: 3, avgDeliveredMinutes: 220, avgUfAchievementPct: 98, avgAdherencePct: 99, minNadirSbp: 108, avgRecirculationPct: 4, avgIdwgKg: 1.6, stoppedEarlyCount: 0, complicationCount: 0, telemetryPoints: 3 },
       labs: { K: 4.4, HGB: 11.4, URR: 72, PHOS: 4.4, TSAT: 28, calcium: 9.2, pth: 240, albumin: 3.9, bicarb: 24, crp: 3, wbc: 6.5, procalcitonin: 0.1 },
       vitals: { hr: 74, spo2: 97, tempC: 36.6, bp: '126/78', systolic: 126 },
       exposure: { esaDoseUnits: 4000, maintenanceMeds: ['sevelamer'], phosphateBinders: ['sevelamer'], calcimimetics: [], vitaminD: [], ivIron: false },
       signals: { hypotensiveSessions: 0, shortSessions: 0, highRecirculation: false, hyperphosphatemia: false, hypercalcemia: false, hyperparathyroidism: false, lowAlbumin: false, inflammation: false, metabolicAcidosis: false, infectionRisk: false, accessRisk: false },
-    } as never;
-    for (const p of RENAL_PROTOCOLS) expect(evaluateProtocolForPatient(p.id, healthy).status).toBe('green');
+    };
+    for (const p of RENAL_PROTOCOLS) expect(evaluateProtocolForPatient(p.id, healthy as never).status).toBe('green');
   });
 
   it('rolls a cohort into cockpit rows and a fleet index', () => {
-    const s1 = { ...buildRenalCohort([{ id: 'p1', realmId: 'sim:renal-a', state: {}, medCodes: [] }]).patients[0]!, ...baseFacts() } as never;
-    const s2 = { ...s1, patientId: 'p2', realmId: 'sim:renal-b' } as never;
+    const base = buildRenalCohort([{ id: 'p1', realmId: 'sim:renal-a', state: {}, medCodes: [] }]).patients[0]! as unknown as Record<string, unknown>;
+    const s1 = { ...base, ...(baseFacts() as unknown as Record<string, unknown>) } as never;
+    const s2 = { ...(s1 as unknown as Record<string, unknown>), patientId: 'p2', realmId: 'sim:renal-b' } as never;
     const reports = assessProtocols([s1, s2]);
     expect(reports).toHaveLength(7);
     for (const r of reports) {

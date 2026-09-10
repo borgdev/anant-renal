@@ -206,6 +206,7 @@ export function compareForecasts(input: {
   const headVsBaselineImprovementPct = relativeImprovementPct(baseline?.mae, head.mae);
   const headVsPersistenceImprovementPct = relativeImprovementPct(persistence.mae, head.mae);
   const persistencePairs = input.persistencePredicted.slice(0, rows).map((p, i) => ({ predicted: p, observed: input.observed[i]! }));
+  const persistenceCorrelation = correlation(persistencePairs);
   const winner: ForecastComparison['winner'] = baseline && baseline.mae !== undefined && head.mae !== undefined && baseline.mae < head.mae
     ? 'baseline'
     : head.mae !== undefined && persistence.mae !== undefined && head.mae < persistence.mae ? 'head' : 'persistence';
@@ -217,7 +218,7 @@ export function compareForecasts(input: {
     head,
     ...(headVsBaselineImprovementPct !== undefined ? { headVsBaselineImprovementPct } : {}),
     ...(headVsPersistenceImprovementPct !== undefined ? { headVsPersistenceImprovementPct } : {}),
-    ...(correlation(persistencePairs) !== undefined ? { persistenceCorrelation: correlation(persistencePairs) } : {}),
+    ...(persistenceCorrelation !== undefined ? { persistenceCorrelation } : {}),
     winner,
   };
 }

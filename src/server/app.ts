@@ -76,6 +76,7 @@ import { registerPlatformRoutes } from './platform-routes.js';
 import { registerPayerRoutes } from './payer-routes.js';
 import { registerAnemiaRoutes } from './anemia-routes.js';
 import { registerRenalRoutes } from './renal-routes.js';
+import { registerProtocolRoutes } from './protocol-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
 import { registerAssuranceRoutes } from './assurance-routes.js';
 import { registerSubmissionRoutes } from './submission-routes.js';
@@ -419,6 +420,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // F1 — renal data model read surface (sessions, access, MBD/nutrition/infection
   // panel labs, maintenance exposures) derived from realm state + ledger.
   await registerRenalRoutes(app, {
+    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+  });
+
+  // F3 — protocol operations shell: registry-driven cockpit (green/amber/red
+  // across all seven renal protocols) + the F2 head-vs-baseline evaluation.
+  await registerProtocolRoutes(app, {
     ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
   });
 

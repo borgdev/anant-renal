@@ -191,13 +191,18 @@ export interface ForecastMetrics {
 
 /** Bundle of regression metrics for one forecast (protocol × horizon). */
 export function forecastMetrics(pairs: readonly ObservedPredicted[]): ForecastMetrics {
+  const m = mae(pairs);
+  const r = rmse(pairs);
+  const mp = mape(pairs);
+  const b = bias(pairs);
+  const c = correlation(pairs);
   return {
     n: pairs.length,
-    ...(mae(pairs) !== undefined ? { mae: mae(pairs) } : {}),
-    ...(rmse(pairs) !== undefined ? { rmse: rmse(pairs) } : {}),
-    ...(mape(pairs) !== undefined ? { mape: mape(pairs) } : {}),
-    ...(bias(pairs) !== undefined ? { bias: bias(pairs) } : {}),
-    ...(correlation(pairs) !== undefined ? { correlation: correlation(pairs) } : {}),
+    ...(m !== undefined ? { mae: m } : {}),
+    ...(r !== undefined ? { rmse: r } : {}),
+    ...(mp !== undefined ? { mape: mp } : {}),
+    ...(b !== undefined ? { bias: b } : {}),
+    ...(c !== undefined ? { correlation: c } : {}),
   };
 }
 
