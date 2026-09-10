@@ -225,6 +225,90 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
 
   /* ---------- the release gate ---------- */
 
+  /**
+   * Drive every pack's own red-team harness, then re-read the gate.
+   *
+   * This is the answer to "the gate says five packs have no red-team run": the
+   * packs each own that machinery, so the cross-pack action calls THEIR endpoint
+   * rather than reimplementing it. Nothing is duplicated, and the entry that
+   * lands in the ledger is the same one the pack's own page would have produced.
+   */
+  async function triggerPacks(
+    app: FastifyInstance,
+    cookie: string | undefined,
+    suffix: 'red-team' | 'drift',
+    ranBy: string,
+  ): Promise<Array<{ protocol: string; path: string; status: number; ok: boolean; detail: string }>> {
+    const triggered: Array<{ protocol: string; path: string; status: number; ok: boolean; detail: string }> = [];
+    for (const pack of PROTOCOL_PACKS) {
+      const path = `${pack.routes}/${suffix}`;
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: path,
+          ...(cookie ? { headers: { cookie } } : {}),
+          payload: { ranBy, metric: suffix === 'drift' ? 'cross-pack-ks' : undefined },
+        });
+        const ok = response.statusCode >= 200 && response.statusCode < 300;
+        let detail = ok ? `${suffix} recorded for ${pack.protocol}` : `HTTP ${response.statusCode}`;
+        if (!ok) {
+          try {
+            const body = response.json() as { error?: string; message?: string };
+            detail = body.error ?? body.message ?? detail;
+          } catch { /* non-JSON error body */ }
+        }
+        triggered.push({ protocol: pack.protocol, path, status: response.statusCode, ok, detail });
+      } catch (error) {
+        triggered.push({
+          protocol: pack.protocol,
+          path,
+          status: 0,
+          ok: false,
+          detail: error instanceof Error ? error.message : 'trigger failed',
+        });
+      }
+    }
+    return triggered;
+  }
+
+  app.post<{ Body: { ranBy?: string } }>('/admin/assurance/red-team/run-all', async (request) => {
+    const store = ws();
+    await hydrateModes(store);
+    const ranBy = request.body?.ranBy?.trim() || 'assurance-track';
+    const cookie = request.headers.cookie;
+    const triggered = await triggerPacks(app, cookie, 'red-team', ranBy);
+    const view = signals();
+    const gate = await assuranceReleaseGate(store, assuranceInputs(view));
+    return {
+      generatedAt: NOW(),
+      action: 'red-team/run-all',
+      ranBy,
+      triggered,
+      ran: triggered.filter((t) => t.ok).length,
+      failed: triggered.filter((t) => !t.ok).length,
+      gate,
+    };
+  });
+
+  app.post<{ Body: { ranBy?: string } }>('/admin/assurance/drift/snapshot-all', async (request) => {
+    const store = ws();
+    await hydrateModes(store);
+    const ranBy = request.body?.ranBy?.trim() || 'assurance-track';
+    const cookie = request.headers.cookie;
+    const triggered = await triggerPacks(app, cookie, 'drift', ranBy);
+    const view = signals();
+    const gate = await assuranceReleaseGate(store, assuranceInputs(view));
+    return {
+      generatedAt: NOW(),
+      action: 'drift/snapshot-all',
+      ranBy,
+      triggered,
+      ran: triggered.filter((t) => t.ok).length,
+      failed: triggered.filter((t) => !t.ok).length,
+      gate,
+    };
+  });
+
   app.get<{ Querystring: { activeOnly?: string } }>('/admin/assurance/gate', async (request) => {
     const store = ws();
     await hydrateModes(store);

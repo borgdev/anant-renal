@@ -248,6 +248,16 @@ export interface RulePacksView {
   packTable: Array<{ protocol: string; slice: string; modelId: string; routes: string; mdrKind: string }>;
 }
 
+export interface CrossPackAction {
+  generatedAt: string;
+  action: string;
+  ranBy: string;
+  triggered: Array<{ protocol: string; path: string; status: number; ok: boolean; detail: string }>;
+  ran: number;
+  failed: number;
+  gate: AssuranceGate;
+}
+
 async function get<T>(path: string): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin" });
   return responseOrThrow<T>(path, response);
@@ -279,6 +289,10 @@ export const assuranceApi = {
     post<ModeProbe>("/admin/assurance/mode-probe", { protocol, ...(patientId ? { patientId } : {}) }),
   rules: (protocol?: string) =>
     get<RulePacksView>(`/admin/assurance/rules${protocol ? `?protocol=${encodeURIComponent(protocol)}` : ""}`),
+  runAllRedTeams: (ranBy?: string) =>
+    post<CrossPackAction>("/admin/assurance/red-team/run-all", { ...(ranBy ? { ranBy } : {}) }),
+  snapshotAllDrift: (ranBy?: string) =>
+    post<CrossPackAction>("/admin/assurance/drift/snapshot-all", { ...(ranBy ? { ranBy } : {}) }),
   cohortRows: () =>
     get<{ patients: number; rows: unknown[]; alerts: unknown[] }>("/admin/assurance/cohort-rows"),
 };

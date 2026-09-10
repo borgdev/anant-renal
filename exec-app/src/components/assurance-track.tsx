@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Activity,
   BadgeCheck,
   Ban,
   ClipboardCheck,
@@ -129,13 +130,21 @@ function WiringTab({
   overview,
   gate,
   onNavigate,
+  onAction,
+  actionBusy,
+  actionNotice,
 }: {
   overview: AssuranceOverview;
   gate: AssuranceGate | null;
   onNavigate?: (id: NavigationId) => void;
+  onAction: (kind: "red-team" | "drift") => void;
+  actionBusy: boolean;
+  actionNotice: string | null;
 }) {
   const packs = usePaged(overview.protocols, 4, overview.generatedAt);
   const missingMdr = gate?.mdrFiles.filter((m) => !m.materialised) ?? [];
+  const redTeamCheck = gate?.checks.find((c) => c.id === "red-team");
+  const driftCheck = gate?.checks.find((c) => c.id === "drift");
 
   return (
     <div className="assurance-stack">
@@ -179,6 +188,30 @@ function WiringTab({
               <PanelExpand />
             </div>
           </header>
+
+          {/* The gate names warnings; these run the packs that own them. */}
+          <div className="assurance-mode-actions">
+            <button
+              className="assurance-button"
+              type="button"
+              disabled={actionBusy || redTeamCheck?.status === 'pass'}
+              onClick={() => onAction("red-team")}
+            >
+              <ShieldCheck size={14} /> Run every pack's red team
+            </button>
+            <button
+              className="assurance-button ghost"
+              type="button"
+              disabled={actionBusy || driftCheck?.status === 'pass'}
+              onClick={() => onAction("drift")}
+            >
+              <Activity size={14} /> Snapshot drift for every pack
+            </button>
+            {redTeamCheck?.status === 'pass' && driftCheck?.status === 'pass' ? (
+              <span className="assurance-note">Every pack has a passing red-team run and a fresh drift snapshot.</span>
+            ) : null}
+          </div>
+          {actionNotice ? <p className="assurance-note">{actionNotice}</p> : null}
           <div className="assurance-check-list">
             {gate.checks.map((check) => (
               <div className="assurance-check" key={check.id}>
@@ -715,6 +748,8 @@ export default function AssuranceTrack({ onNavigate }: Props) {
   const [modes, setModes] = useState<{ summary: ModeSummary; modes: ProtocolModeRecord[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -738,6 +773,32 @@ export default function AssuranceTrack({ onNavigate }: Props) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  /**
+   * The gate names the warnings; the packs own the machinery. This drives each
+   * pack's own endpoint and shows what the gate says afterwards.
+   */
+  const runCrossPackAction = useCallback(async (kind: "red-team" | "drift") => {
+    setActionBusy(true);
+    setActionNotice(null);
+    try {
+      const result = kind === "red-team"
+        ? await assuranceApi.runAllRedTeams("exec-console")
+        : await assuranceApi.snapshotAllDrift("exec-console");
+      setGate(result.gate);
+      const failures = result.triggered.filter((t) => !t.ok);
+      setActionNotice(
+        `${result.ran} of ${result.triggered.length} packs ${kind === "red-team" ? "replayed their red team" : "snapshotted drift"}`
+        + (failures.length > 0 ? ` · not recorded for: ${failures.map((f) => f.protocol).join(", ")}` : "")
+        + ` · gate is now ${result.gate.decision}`,
+      );
+      await load();
+    } catch (err) {
+      setActionNotice(err instanceof Error ? err.message : "cross-pack action failed");
+    } finally {
+      setActionBusy(false);
+    }
+  }, [load]);
 
   if (loading && !overview) {
     return (
@@ -804,7 +865,16 @@ export default function AssuranceTrack({ onNavigate }: Props) {
       </nav>
       <p className="assurance-tab-hint">{activeTab.hint}</p>
 
-      {tab === "wiring" ? <WiringTab overview={overview} gate={gate} onNavigate={onNavigate} /> : null}
+      {tab === "wiring" ? (
+        <WiringTab
+          overview={overview}
+          gate={gate}
+          onNavigate={onNavigate}
+          onAction={runCrossPackAction}
+          actionBusy={actionBusy}
+          actionNotice={actionNotice}
+        />
+      ) : null}
       {tab === "fairness" ? <FairnessTab report={overview.fairness} cohortN={overview.cohort.patients} /> : null}
       {tab === "burden" ? <BurdenTab report={overview.burden} /> : null}
       {tab === "rules" ? <RulesTab rules={rules} /> : null}

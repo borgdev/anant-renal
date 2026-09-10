@@ -554,6 +554,50 @@ export const RULE_PACKS: readonly RuleDefinition[] = [
     enforcement: 'surveillance', implementedIn: 'src/swarm/infection-prevention.ts',
     reference: { ...CDC_BSI_2017, statement: 'Hand-hygiene and access-care audits follow a cadence; a missing audit is overdue, never assumed done.' },
   },
+
+  /* ---------- the authority boundary, declared once per pack ----------
+   * Every pack states `autonomy: 'never-autonomous'` in its regulatory posture,
+   * and its advisor gate fails if the platform is ever handed machine, ordering
+   * or prescribing authority. These rules make that boundary auditable from the
+   * same table a reviewer reads the thresholds from — the drift test asserts the
+   * posture constant still says `never-autonomous`.
+   */
+  {
+    id: 'anant.anemia.authority', protocol: 'anemia', name: 'No autonomous ESA dose authority',
+    metric: 'Dose autonomy', unit: '', comparator: 'never', bounds: {},
+    enforcement: 'authority', implementedIn: 'src/swarm/anemia-governance.ts',
+    reference: { source: 'AnantHQ', edition: '2026', statement: 'The platform never changes an ESA dose on its own: every recommendation is a Class C proposal a nephrologist approves.' },
+  },
+  {
+    id: 'anant.adequacy.authority', protocol: 'adequacy', name: 'No machine-control authority',
+    metric: 'Machine control', unit: '', comparator: 'never', bounds: {},
+    enforcement: 'authority', implementedIn: 'src/swarm/adequacy-governance.ts',
+    reference: { source: 'AnantHQ', edition: '2026', statement: 'No machine parameter is written by the platform — the advisor gate fails outright if machine-control authority is ever granted.' },
+  },
+  {
+    id: 'anant.fluid.authority', protocol: 'fluid', name: 'No ultrafiltration authority',
+    metric: 'UF control', unit: '', comparator: 'never', bounds: {},
+    enforcement: 'authority', implementedIn: 'src/swarm/fluid-governance.ts',
+    reference: { source: 'AnantHQ', edition: '2026', statement: 'The platform sets no ultrafiltration rate and no machine parameter; it proposes and a clinician decides.' },
+  },
+  {
+    id: 'anant.mbd.authority', protocol: 'ckd-mbd', name: 'No prescribing authority',
+    metric: 'Prescribing', unit: '', comparator: 'never', bounds: {},
+    enforcement: 'authority', implementedIn: 'src/swarm/mbd-governance.ts',
+    reference: { source: 'AnantHQ', edition: '2026', statement: 'The platform never writes a therapy or orders a drug — binder and calcimimetic changes stay prescriber decisions.' },
+  },
+  {
+    id: 'anant.nutrition.authority', protocol: 'nutrition-electrolytes', name: 'No ordering authority',
+    metric: 'Ordering', unit: '', comparator: 'never', bounds: {},
+    enforcement: 'authority', implementedIn: 'src/swarm/nutrition-governance.ts',
+    reference: { source: 'AnantHQ', edition: '2026', statement: 'The platform orders no drug, supplement or transport, and a device ECG pattern can never stand alone as a potassium result.' },
+  },
+  {
+    id: 'anant.anemia.twin-drift', protocol: 'anemia', name: 'Forecast drift monitored against target',
+    metric: 'Twin MAPE vs target', unit: '%', comparator: 'lte', bounds: { value: 10 },
+    enforcement: 'surveillance', implementedIn: 'src/swarm/anemia-twin.ts',
+    reference: { source: 'AnantHQ', edition: '2026', statement: 'The patient twin is scored against its own forecast every week; drifting past the target is recorded for review, not actioned automatically.' },
+  },
 ];
 
 /* ======================================================================
@@ -566,6 +610,13 @@ export interface RuleBinding {
   constant: string;
   /** dotted path inside that constant (for nested bands) */
   path?: string;
+  /**
+   * For a boundary that is stated rather than measured (an authority posture, a
+   * boolean capability flag), the exact value the constant must still hold. The
+   * drift test asserts it verbatim, so `never-autonomous` cannot quietly become
+   * something else.
+   */
+  expectValue?: string | number | boolean;
 }
 
 export const RULE_PACK_BINDINGS: readonly RuleBinding[] = [
@@ -612,6 +663,12 @@ export const RULE_PACK_BINDINGS: readonly RuleBinding[] = [
   { ruleId: 'anant.uf-rate.safe', constant: 'UF_RATE_PER_KG_SAFE' },
   { ruleId: 'anant.uf-rate.high', constant: 'UF_RATE_PER_KG_HIGH' },
   { ruleId: 'anant.uf-rate.step', constant: 'UF_RATE_STEP' },
+  { ruleId: 'anant.anemia.authority', constant: 'ESA_REGULATORY_POSTURE', path: 'autonomy', expectValue: 'never-autonomous' },
+  { ruleId: 'anant.adequacy.authority', constant: 'ADEQUACY_REGULATORY_POSTURE', path: 'autonomy', expectValue: 'never-autonomous' },
+  { ruleId: 'anant.fluid.authority', constant: 'FLUID_REGULATORY_POSTURE', path: 'autonomy', expectValue: 'never-autonomous' },
+  { ruleId: 'anant.mbd.authority', constant: 'MBD_REGULATORY_POSTURE', path: 'autonomy', expectValue: 'never-autonomous' },
+  { ruleId: 'anant.nutrition.authority', constant: 'NUTRITION_REGULATORY_POSTURE', path: 'autonomy', expectValue: 'never-autonomous' },
+  { ruleId: 'anant.anemia.twin-drift', constant: 'ESA_TWIN_DRIFT_TARGET_MAPE_PCT' },
 ];
 /* ======================================================================
  * Queries + evaluation

@@ -16,9 +16,14 @@ import {
 import { HGB_TARGET } from '../src/swarm/anemia.js';
 import { KTV_TARGET, KTV_TARGET_FREQUENT, URR_FLOOR_PCT, IDWG_FLAG_KG, NADIR_SBP_FLOOR } from '../src/protocols/priors.js';
 import { MBD_REFERENCE } from '../src/swarm/mbd.js';
-import { ADEQUACY_COVERAGE_DEFAULTS } from '../src/swarm/adequacy-governance.js';
+import { ADEQUACY_COVERAGE_DEFAULTS, ADEQUACY_REGULATORY_POSTURE } from '../src/swarm/adequacy-governance.js';
 import { NUTRITION_REFERENCE } from '../src/swarm/nutrition.js';
-import { NUTRITION_COVERAGE_DEFAULTS } from '../src/swarm/nutrition-governance.js';
+import { NUTRITION_COVERAGE_DEFAULTS, NUTRITION_REGULATORY_POSTURE } from '../src/swarm/nutrition-governance.js';
+import { FLUID_REGULATORY_POSTURE } from '../src/swarm/fluid-governance.js';
+import { ACCESS_REGULATORY_POSTURE } from '../src/swarm/access-governance.js';
+import { MBD_REGULATORY_POSTURE } from '../src/swarm/mbd-governance.js';
+import { ESA_REGULATORY_POSTURE } from '../src/swarm/anemia-governance.js';
+import { ESA_TWIN_DRIFT_TARGET_MAPE_PCT } from '../src/swarm/anemia-twin.js';
 import { INFECTION_REFERENCE } from '../src/swarm/infection.js';
 import { ACCESS_REFERENCE } from '../src/swarm/access.js';
 import { UF_RATE_PER_KG_SAFE, UF_RATE_PER_KG_HIGH, UF_RATE_STEP } from '../src/swarm/fluid.js';
@@ -29,8 +34,18 @@ const CONSTANTS: Record<string, unknown> = {
   KTV_TARGET, KTV_TARGET_FREQUENT, URR_FLOOR_PCT, IDWG_FLAG_KG, NADIR_SBP_FLOOR,
   MBD_REFERENCE, NUTRITION_REFERENCE, INFECTION_REFERENCE, ACCESS_REFERENCE,
   ADEQUACY_COVERAGE_DEFAULTS, NUTRITION_COVERAGE_DEFAULTS,
+  ESA_REGULATORY_POSTURE, ADEQUACY_REGULATORY_POSTURE, FLUID_REGULATORY_POSTURE,
+  ACCESS_REGULATORY_POSTURE, MBD_REGULATORY_POSTURE, NUTRITION_REGULATORY_POSTURE,
+  ESA_TWIN_DRIFT_TARGET_MAPE_PCT,
   UF_RATE_PER_KG_SAFE, UF_RATE_PER_KG_HIGH, UF_RATE_STEP,
 };
+
+/** Raw constant resolution — the authority bindings hold strings, not numbers. */
+function resolveRaw(constant: string, path?: string): unknown {
+  let value: unknown = CONSTANTS[constant];
+  if (path) for (const seg of path.split('.')) value = (value as Record<string, unknown> | undefined)?.[seg];
+  return value;
+}
 
 function resolve(constant: string, path?: string): number | undefined {
   let value: unknown = CONSTANTS[constant];
@@ -87,10 +102,18 @@ describe('rule packs — the guideline thresholds are code', () => {
     for (const binding of RULE_PACK_BINDINGS) {
       const rule = ruleById(binding.ruleId);
       expect(rule, `binding for unknown rule ${binding.ruleId}`).toBeDefined();
+      const where = `${binding.ruleId}: ${binding.constant}${binding.path ? `.${binding.path}` : ''}`;
+      // a declared boundary (authority posture, capability flag) is asserted
+      // verbatim — `never-autonomous` cannot quietly become something else
+      if (binding.expectValue !== undefined) {
+        expect(resolveRaw(binding.constant, binding.path), `${where} has drifted from the rule pack`).toBe(binding.expectValue);
+        expect(rule!.enforcement, `${binding.ruleId} declares a boundary`).toBe('authority');
+        continue;
+      }
       const runtime = resolve(binding.constant, binding.path);
       const declared = declaredBound(rule!, binding.path);
-      expect(runtime, `${binding.ruleId}: ${binding.constant}${binding.path ? `.${binding.path}` : ''} not resolvable`).toBeDefined();
-      expect(runtime, `${binding.ruleId}: ${binding.constant}${binding.path ? `.${binding.path}` : ''} has drifted from the rule pack`).toBe(declared);
+      expect(runtime, `${where} not resolvable`).toBeDefined();
+      expect(runtime, `${where} has drifted from the rule pack`).toBe(declared);
     }
   });
 

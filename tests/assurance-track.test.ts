@@ -524,6 +524,58 @@ describe('assurance routes', () => {
     expect(probed.mode.mode).toBe('active');
   });
 
+  it('RUNS EVERY PACK — the cross-pack actions drive each pack\'s own harness', async () => {
+    const { app } = await build();
+
+    // the gate starts out naming the gap: no red-team run, no drift snapshot
+    const before = (await app.inject({ method: 'GET', url: '/admin/assurance/gate' })).json() as {
+      checks: Array<{ id: string; status: string; detail: string }>;
+    };
+    expect(before.checks.find((c) => c.id === 'red-team')!.detail).toMatch(/no red-team runs recorded/);
+    expect(before.checks.find((c) => c.id === 'drift')!.detail).toMatch(/no drift snapshot recorded/);
+
+    const redTeam = await app.inject({ method: 'POST', url: '/admin/assurance/red-team/run-all', payload: { ranBy: 'test' } });
+    expect(redTeam.statusCode).toBe(200);
+    const redBody = redTeam.json() as {
+      ran: number; failed: number;
+      triggered: Array<{ protocol: string; ok: boolean; detail: string }>;
+      gate: { checks: Array<{ id: string; status: string; detail: string }> };
+    };
+    // every protocol pack has a red-team endpoint, and all seven must have run
+    expect(redBody.triggered).toHaveLength(7);
+    expect(redBody.ran).toBe(7);
+    expect(redBody.failed).toBe(0);
+    expect(redBody.triggered.map((t) => t.protocol)).toEqual([...RULE_PROTOCOLS]);
+    // and the ledger the gate reads now has runs in it
+    const afterRed = redBody.gate.checks.find((c) => c.id === 'red-team')!;
+    expect(afterRed.detail).not.toMatch(/no red-team runs recorded/);
+
+    const drift = await app.inject({ method: 'POST', url: '/admin/assurance/drift/snapshot-all', payload: { ranBy: 'test' } });
+    expect(drift.statusCode).toBe(200);
+    const driftBody = drift.json() as {
+      ran: number; failed: number;
+      gate: { checks: Array<{ id: string; status: string; detail: string }> };
+    };
+    expect(driftBody.ran).toBe(7);
+    expect(driftBody.failed).toBe(0);
+    const afterDrift = driftBody.gate.checks.find((c) => c.id === 'drift')!;
+    expect(afterDrift.detail).not.toMatch(/no drift snapshot recorded/);
+  });
+
+  it('reports a pack that cannot be driven rather than pretending it ran', async () => {
+    const { app } = await build();
+    // a red-team run with no findings is a real result; the shape must always
+    // carry per-protocol outcomes so a failure is visible, not swallowed
+    const res = await app.inject({ method: 'POST', url: '/admin/assurance/red-team/run-all', payload: {} });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { ranBy: string; triggered: Array<{ protocol: string; path: string; status: number; ok: boolean }> };
+    expect(body.ranBy).toBe('assurance-track');
+    for (const entry of body.triggered) {
+      expect(entry.path).toBe(`/admin/swarm/${entry.protocol === 'ckd-mbd' ? 'mbd' : entry.protocol === 'nutrition-electrolytes' ? 'nutrition' : entry.protocol}/red-team`);
+      expect(typeof entry.ok).toBe('boolean');
+    }
+  });
+
   it('runs the cross-pack gate against the durable workspace', async () => {
     const store = new SwarmWorkspaceStore();
     const assurance = await crossPackAssurance(store, { fairnessRows: [], alerts: [], patients: 0 });

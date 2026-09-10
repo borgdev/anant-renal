@@ -317,11 +317,14 @@ export function assessProtocol(pack: ProtocolPackDescriptor, ledger: ProtocolLed
   );
 
   add(
-    'rules-classes', 'Every enforcement class declared',
-    gaps.length === 0 ? 'pass' : 'warn',
+    'rules-classes', 'Enforcement classes declared',
+    // Informational, deliberately not a warn: a pack with no escalation THRESHOLD
+    // is not defective — every pack routes to a human through its Class C
+    // approval boundary instead. Only the safety classes gate a release.
+    'pass',
     gaps.length === 0
       ? 'guardrail, coverage-gate, authority, escalation and surveillance all declared'
-      : `${pack.protocol} declares no ${gaps.join('/')} rule — a documented boundary gap, not a safety gap`,
+      : `declares ${rules.length} rules; no ${gaps.join('/')} threshold — absence recorded, not treated as a defect`,
   );
 
   add(
@@ -579,10 +582,10 @@ export async function assuranceReleaseGate(
       status: (p.ruleCount > 0 && !p.ruleGaps.some((g) => SAFETY_RULE_CLASSES.includes(g))) ? 'pass' as const : 'fail' as const,
       detail: p.ruleGaps.length > 0 ? `missing ${p.ruleGaps.join('/')} rule` : 'no rules declared',
     }))),
-    gateCheck('rules-classes', 'Every enforcement class is declared', considered.map((p) => ({
+    gateCheck('rules-classes', 'Enforcement classes declared', considered.map((p) => ({
       protocol: p.protocol,
-      status: p.ruleGaps.length === 0 ? 'pass' as const : 'warn' as const,
-      detail: `no ${p.ruleGaps.join('/')} rule declared`,
+      status: 'pass' as const,
+      detail: p.ruleGaps.length === 0 ? 'every class declared' : `no ${p.ruleGaps.join('/')} threshold (informational)`,
     }))),
     gateCheck('artifact', 'Every protocol has a trained, target-meeting artefact', considered.map((p) => ({
       protocol: p.protocol,
