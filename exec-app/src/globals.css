@@ -922,3 +922,34 @@ button.drillable-surface:not(:disabled):hover { border-color: rgba(152,174,192,.
   .adq-cand-head, .adq-cand-row { grid-template-columns: minmax(0,1.2fr) repeat(2, minmax(0,.6fr)) minmax(0,1fr); }
   .adq-feature { grid-template-columns: 120px minmax(0,1fr); }
 }
+
+/* ============ P2 — fluid / dry weight / IDH protocol pack ============ */
+.pc-select { padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.03); color: var(--text); font-size: 12px; }
+.pc-pre { max-height: 320px; overflow: auto; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(0,0,0,.25); font-size: 11px; line-height: 1.5; }
+.pc-status { margin: 0; padding: 8px 12px; border: 1px solid rgba(152,192,170,.3); border-radius: 11px; background: rgba(152,192,170,.08); color: var(--mint, #9fd7bb); font-size: 12px; }
+.pc-loading { display: flex; align-items: center; gap: 8px; padding: 14px; color: var(--faint); font-size: 12px; }
+/* fact strip shared by the advisor + artifact panels */
+.adq-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.adq-facts > span { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.014); }
+.adq-facts em { color: var(--faint); font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+.adq-facts strong { font-size: 13px; }
+.adq-facts strong.is-red, .adq-mono.is-red { color: var(--red, #ff9b9b); }
+.adq-facts strong.is-mint, .adq-mono.is-mint { color: var(--mint, #9fd7bb); }
+.adq-facts strong.is-amber, .adq-mono.is-amber { color: var(--amber, #ffce8a); }
+.adq-sym { color: var(--faint); font-style: normal; font-size: 11px; }
+/* per-horizon intra-session risk (15/30/60 min) */
+.fd-horizons { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.014); }
+.fd-horizons.is-compare { border-color: rgba(180,156,255,.35); background: rgba(180,156,255,.06); }
+.fd-horizons-label { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.fd-horizon { display: grid; gap: 1px; min-width: 62px; }
+.fd-horizon em { color: var(--faint); font-style: normal; font-size: 10px; }
+.fd-horizon strong { font-size: 14px; font-family: ui-monospace, SFMono-Regular, monospace; }
+.fd-horizon strong.is-mint { color: var(--mint, #9fd7bb); }
+.fd-horizon strong.is-amber { color: var(--amber, #ffce8a); }
+.fd-horizon strong.is-red { color: var(--red, #ff9b9b); }
+.fd-horizon strong.is-neutral { color: var(--muted); }
+.pc-bars { display: grid; gap: 5px; }
+.pc-bar-row { display: grid; grid-template-columns: 140px minmax(0,1fr) 56px; gap: 8px; align-items: center; font-size: 12px; }
+.pc-bar-label { color: var(--faint); }
+.pc-details { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.pc-details > summary { cursor: pointer; font-size: 12px; color: var(--muted); }

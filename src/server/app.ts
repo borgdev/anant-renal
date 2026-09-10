@@ -78,6 +78,7 @@ import { registerAnemiaRoutes } from './anemia-routes.js';
 import { registerRenalRoutes } from './renal-routes.js';
 import { registerProtocolRoutes } from './protocol-routes.js';
 import { registerAdequacyRoutes } from './adequacy-routes.js';
+import { registerFluidRoutes } from './fluid-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
 import { registerAssuranceRoutes } from './assurance-routes.js';
 import { registerSubmissionRoutes } from './submission-routes.js';
@@ -436,6 +437,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // P1 — dialysis adequacy protocol pack (engine · guardrails · what-if · twin ·
   // trained artifact · governance). CDSS: recommends, never touches a machine.
   await registerAdequacyRoutes(app, {
+    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+  });
+
+  // P2 — fluid / dry weight / IDH protocol pack (engine · guardrails · UF
+  // counterfactual simulator · twin over the real ledger · trained artifact ·
+  // governance). CDSS: advisory only, never an autonomous UF change.
+  await registerFluidRoutes(app, {
     ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
   });
 
