@@ -1301,8 +1301,21 @@ async function rawJson(method, path, body) {
   } catch (e) { return { error: String(e) }; }
 }
 async function checkAuth() {
-  const r = await rawJson('GET', '/auth/me');
-  return r && r.authenticated ? r.user : null;
+  // A 401 is a definitive "you are anonymous"; anything else (network refused,
+  // 5xx, a dev-server reload) is "cannot tell yet". Both consoles share one
+  // hh_session cookie, so treating a transient failure as anonymous made a
+  // reload look like the other console (/exec) had invalidated the login.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, attempt * 600));
+    try {
+      const res = await fetch('/auth/me', { cache: 'no-store', credentials: 'same-origin' });
+      if (res.status === 401) return null;
+      if (!res.ok) continue;
+      const payload = await res.json();
+      return payload && payload.authenticated ? payload.user : null;
+    } catch { /* unreachable — retry */ }
+  }
+  return null;
 }
 function renderLogin(msg) {
   document.body.classList.add('login-mode');

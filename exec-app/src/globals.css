@@ -535,6 +535,7 @@ button.drillable-surface:not(:disabled):hover { border-color: rgba(152,174,192,.
 .exec-login { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: radial-gradient(1200px 600px at 50% -10%, rgba(118,138,158,.16), transparent 60%), var(--bg-deep); padding: 24px; }
 .exec-login-card { width: 100%; max-width: 380px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 28px; box-shadow: var(--shadow); }
 .exec-login-card.exec-login-loading { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 13px; }
+.exec-login-hint { max-width: 340px; margin: 0; color: var(--faint); font-size: 12px; line-height: 1.5; text-align: center; }
 .exec-login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
 .exec-login-brand .brand-mark { width: 38px; height: 38px; border-radius: 12px; background: linear-gradient(135deg, #1d4d3d, #0e2a22); display: flex; align-items: center; justify-content: center; color: var(--mint); }
 .exec-login-brand strong { display: block; font-size: 16px; color: var(--text); }

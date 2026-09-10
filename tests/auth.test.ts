@@ -187,3 +187,73 @@ describe('console auth', () => {
     expect(s.count()).toBe(1);
   });
 });
+
+/**
+ * One login, two consoles.
+ *
+ * `/admin/ui` and `/exec` share the single `hh_session` cookie, so the session a
+ * user creates in one must resolve in the other — and must survive a process
+ * restart, because a `tsx watch` reload used to leave the in-memory map empty
+ * and made the console you opened second look like it had lost the first one's
+ * login.
+ */
+describe('shared console session durability', () => {
+  function memoryPersistence() {
+    const rows = new Map<string, { tokenHash: string; username: string; createdAt: string; expiresAt: number }>();
+    return {
+      rows,
+      list: async () => [...rows.values()],
+      save: async (row: { tokenHash: string; username: string; createdAt: string; expiresAt: number }) => { rows.set(row.tokenHash, row); },
+      remove: async (tokenHash: string) => { rows.delete(tokenHash); },
+      prune: async (nowEpochMs: number) => { for (const [k, v] of rows) if (v.expiresAt <= nowEpochMs) rows.delete(k); },
+    };
+  }
+
+  it('resolves the same token after a restart (new manager, same store)', async () => {
+    const persistence = memoryPersistence();
+
+    const first = new SessionManager();
+    first.attachPersistence(persistence);
+    const token = first.create('admin');
+    await new Promise((resolve) => setTimeout(resolve, 10)); // let the write-through settle
+    expect(persistence.rows.size).toBe(1);
+    // the raw token is never stored — only its hash
+    expect([...persistence.rows.keys()][0]).not.toBe(token);
+
+    // simulate the reloaded process
+    const second = new SessionManager();
+    second.attachPersistence(persistence);
+    expect(second.get(token)).toBeUndefined(); // empty until restored — the old race
+    expect(await second.restore()).toBe(1);
+    expect(second.get(token)?.username).toBe('admin');
+  });
+
+  it('does not resurrect an expired login on restore', async () => {
+    const persistence = memoryPersistence();
+    const first = new SessionManager(-1_000); // already expired at creation
+    first.attachPersistence(persistence);
+    const token = first.create('admin');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const second = new SessionManager();
+    second.attachPersistence(persistence);
+    expect(await second.restore()).toBe(0);
+    expect(second.get(token)).toBeUndefined();
+    expect(persistence.rows.size).toBe(0); // pruned from the store too
+  });
+
+  it('destroy removes the durable row so a logout is not restored', async () => {
+    const persistence = memoryPersistence();
+    const first = new SessionManager();
+    first.attachPersistence(persistence);
+    const token = first.create('admin');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    first.destroy(token);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const second = new SessionManager();
+    second.attachPersistence(persistence);
+    expect(await second.restore()).toBe(0);
+    expect(second.get(token)).toBeUndefined();
+  });
+});

@@ -56,6 +56,18 @@ export const MIGRATIONS: readonly string[] = [
      updated_at TEXT NOT NULL
    )`,
 
+  // Console sessions — the login for BOTH consoles (/admin/ui and /exec) is the
+  // same `hh_session` token. Persisted so a process restart does not silently
+  // log every console out (the in-memory SessionManager is the read path; this
+  // is the write-through + restore source). The raw token is never stored, only
+  // its SHA-256 hash.
+  `CREATE TABLE IF NOT EXISTS auth_sessions (
+     token_hash TEXT PRIMARY KEY,
+     username TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     expires_at INTEGER NOT NULL
+   )`,
+
   // Simulator fleet — the active demo scenario + its realm ids, so a running
   // fleet (and its controls) survive process restarts / reloads. realmIds are
   // restored via realm_specs/realm_snapshots; this row re-wires the controller.

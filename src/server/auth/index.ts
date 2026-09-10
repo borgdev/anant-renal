@@ -37,8 +37,8 @@
 
 export { LocalUserStore, seedDefaultUsers } from './users.js';
 export type { LocalUser, CreateLocalUserInput } from './users.js';
-export { SessionManager, SESSION_COOKIE, actorFromUser, sessionActorResolver } from './session.js';
-export type { Session } from './session.js';
+export { SessionManager, SESSION_COOKIE, actorFromUser, sessionActorResolver, sqlSessionPersistence } from './session.js';
+export type { Session, SessionPersistence } from './session.js';
 export { registerAuthRoutes } from './routes.js';
 export type { AuthRoutesDeps } from './routes.js';
 export { hashPassword, verifyPassword } from './password.js';

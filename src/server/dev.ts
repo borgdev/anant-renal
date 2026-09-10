@@ -65,7 +65,7 @@ import {
   registerKnowledgeSyncHandler, registerAgentTriggerHandler,
   registerRetentionPurgeHandler, registerAlertEvaluateHandler,
 } from './job-handlers.js';
-import { LocalUserStore, seedDefaultUsers, SessionManager, sessionActorResolver } from './auth/index.js';
+import { LocalUserStore, seedDefaultUsers, SessionManager, sessionActorResolver, sqlSessionPersistence } from './auth/index.js';
 import { getSimulatorController } from './simulator-routes.js';
 import { resumeSimulatorFleet } from './simulator-persistence.js';
 import type { PostgresEventStore } from './postgres-event-store.js';
@@ -139,7 +139,6 @@ export async function main(): Promise<void> {
   seedDefaultUsers(users);
   const sessions = new SessionManager();
   const resolveSessionActor = sessionActorResolver({ users, sessions });
-
   const telemetry = new Telemetry('healthcare-harness-dev', new StdoutSink(), config.telemetryLogLevel);
 
   // Phase 0 — EventBroker (publish + consume CanonicalEvents across drivers).
@@ -180,6 +179,17 @@ export async function main(): Promise<void> {
 
   // Phase 0 — durable outbox (SqlStore: SQLite file, or Postgres anant-health via HH_STORAGE).
   const sqlStore = await getSqlStore();
+  // Console sessions are durable: both consoles share ONE `hh_session` token, so
+  // without this a `tsx watch` reload logged every console out and whichever
+  // page you reloaded first looked like it had lost the other console's login.
+  sessions.attachPersistence(sqlSessionPersistence(sqlStore));
+  // AWAIT the restore — it is one small indexed read. Fire-and-forgetting it left
+  // a window where the in-memory session map was still empty, so the first
+  // request after a reload 401'd and whichever console you opened looked like it
+  // had lost the other console's login. Restoring before the app is built closes
+  // that window entirely.
+  const restoredSessions = await sessions.restore().catch(() => 0);
+  if (restoredSessions > 0) telemetry.log('info', `restored ${restoredSessions} console session(s)`);
   // Restore persisted realms (B3) so `tsx watch` reloads keep the worlds alive.
   // Deferred: rebuilding a large fleet snapshot can block the loop for seconds,
   // which used to exceed Fastify's plugin timeout and abort the whole boot.

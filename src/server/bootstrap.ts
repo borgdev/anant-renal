@@ -81,7 +81,7 @@ import { oncologyProviderPack } from '../../packs/oncology-provider/index.js';
 import { infusionProviderPack } from '../../packs/infusion-provider/index.js';
 import { careManagementPack } from '../../packs/care-management/index.js';
 import type { ActorContext } from './scoped-persistence.js';
-import { LocalUserStore, seedDefaultUsers, SessionManager, sessionActorResolver } from './auth/index.js';
+import { LocalUserStore, seedDefaultUsers, SessionManager, sessionActorResolver, sqlSessionPersistence } from './auth/index.js';
 import type { FastifyRequest } from 'fastify';
 
 export async function main(): Promise<void> {
@@ -172,6 +172,10 @@ export async function main(): Promise<void> {
   const users = new LocalUserStore();
   seedDefaultUsers(users);
   const sessions = new SessionManager();
+  // Console sessions are durable: both consoles share ONE `hh_session` token, so
+  // a restart would otherwise log every operator out of both consoles.
+  sessions.attachPersistence(sqlSessionPersistence(sqlStore));
+  await sessions.restore().catch(() => undefined);
   const resolveSessionActor = sessionActorResolver({ users, sessions });
 
   // Placeholder auth: production wires a JWT verifier. Development trusts a

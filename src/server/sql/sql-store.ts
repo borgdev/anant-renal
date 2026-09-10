@@ -391,6 +391,33 @@ export class SqlStore {
     await this.db.run(`DELETE FROM simulator_fleet WHERE id = 'default'`);
   }
 
+  // ---- Console sessions (durable login for both consoles) ----
+  async saveSession(row: { tokenHash: string; username: string; createdAt: string; expiresAt: number }): Promise<void> {
+    await this.db.run(
+      `INSERT INTO auth_sessions (token_hash, username, created_at, expires_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (token_hash) DO UPDATE SET
+         username = excluded.username, expires_at = excluded.expires_at`,
+      [row.tokenHash, row.username, row.createdAt, row.expiresAt],
+    );
+  }
+
+  async listSessions(): Promise<Array<{ tokenHash: string; username: string; createdAt: string; expiresAt: number }>> {
+    return this.db.all<{ tokenHash: string; username: string; createdAt: string; expiresAt: number }>(
+      `SELECT token_hash AS tokenHash, username, created_at AS createdAt, expires_at AS expiresAt
+       FROM auth_sessions`,
+    );
+  }
+
+  async deleteSession(tokenHash: string): Promise<void> {
+    await this.db.run(`DELETE FROM auth_sessions WHERE token_hash = ?`, [tokenHash]);
+  }
+
+  /** Drop every session that expired at or before `nowEpochMs`. */
+  async pruneSessions(nowEpochMs: number): Promise<void> {
+    await this.db.run(`DELETE FROM auth_sessions WHERE expires_at <= ?`, [nowEpochMs]);
+  }
+
   // ---- Billing ----
   async saveBilling(row: Omit<BillingRow, 'createdAt'> & { createdAt?: string }): Promise<void> {
     const createdAt = row.createdAt ?? new Date().toISOString();
