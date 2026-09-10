@@ -76,6 +76,8 @@ export interface EsaRecommendation {
   coverage?: EsaCoverageVerdict;
   /** Paper-A PK-informed cumulative / time-weighted exposure. */
   exposure?: EsaExposureReadout;
+  /** Paper-B ESA responsiveness phenotype. */
+  phenotype?: EsaPhenotypeReadout;
 }
 
 export interface EsaPatientWindow {
@@ -456,6 +458,7 @@ export interface EsaTwinBuildResult {
   whatIf: EsaWhatIfResult | null;
   drift: EsaTwinDriftScore;
   persisted: boolean;
+  phenotype: EsaPhenotypeReadout | null;
 }
 
 /** Build the patient twin from the real ledger/patient state + score drift. */
@@ -479,4 +482,46 @@ export function persistEsaTwinDrift(patientId: string): Promise<{ drift: EsaTwin
 /** Durable drift snapshots. */
 export function fetchEsaTwinDrift(patientId?: string): Promise<{ rows: Array<{ id: string; patientId: string; asOf: string; score: EsaTwinDriftScore; provenance: EsaTwinProvenance }> }> {
   return anemiaJson(`/admin/swarm/anemia/twin/drift${patientId ? `?patientId=${encodeURIComponent(patientId)}` : ""}`);
+}
+
+/* ======================================================================
+ * Slice 5 (Paper B) — ESA responsiveness phenotype
+ * ====================================================================== */
+
+export type EsaPhenotype =
+  | "responsive"
+  | "functional-iron-deficiency"
+  | "inflammatory-resistance"
+  | "refractory"
+  | "insufficient-data";
+
+export interface EsaPhenotypeMarkers {
+  functionalIronDeficiency: boolean;
+  ironPoor: boolean;
+  lowMcv: boolean;
+  inflammatory: boolean;
+  escalationWithoutResponse: boolean;
+  highDose: boolean;
+  ironAxis: number;
+  resistanceAxis: number;
+  doseIntensity: "none" | "low" | "moderate" | "high";
+}
+
+export interface EsaPhenotypeReadout {
+  phenotype: EsaPhenotype;
+  label: string;
+  confidence: "low" | "moderate" | "high";
+  markers: EsaPhenotypeMarkers;
+  reasons: string[];
+  workup: string[];
+  note: string;
+}
+
+/** Classify ESA responsiveness from routine labs + dose history (Paper B). */
+export function fetchEsaPhenotype(window: EsaPatientWindow): Promise<{ phenotype: EsaPhenotypeReadout; catalog: Array<{ id: EsaPhenotype; label: string; criterion: string; workup: string[] }> }> {
+  return anemiaJson("/admin/swarm/anemia/phenotype", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(window),
+  });
 }

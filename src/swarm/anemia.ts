@@ -26,6 +26,7 @@
 
 import type { CellManifest } from './cells.js';
 import type { EsaExposureReadout } from './anemia-exposure.js';
+import type { EsaPhenotypeReadout } from './anemia-phenotype.js';
 import { aggregateSwarmInsights, makeProposal, type CellProposal, type SwarmInsight } from './insight.js';
 import { attachInsightBelief, rankNextBestActions, type NbaCandidate, type NextBestAction } from './nba.js';
 import type { OutcomeEpisode } from './outcome-episode.js';
@@ -179,6 +180,8 @@ export interface EsaRecommendation {
   note: string;
   /** PK-informed cumulative / time-weighted exposure (Paper A) — route-enriched. */
   exposure?: EsaExposureReadout;
+  /** ESA responsiveness phenotype (Paper B) — route-enriched. */
+  phenotype?: EsaPhenotypeReadout;
 }
 
 export const ESA_ADVISOR_MODEL = { id: 'anemia.esa-dose-v0', version: '0.1.0', kind: 'reference-surrogate' as const };

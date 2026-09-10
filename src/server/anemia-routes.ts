@@ -18,6 +18,8 @@
  *                                          and ONLINE forecast-vs-observed drift
  *   POST /admin/swarm/anemia/twin/score  — persist the online drift snapshot
  *   GET  /admin/swarm/anemia/twin/drift  — durable drift snapshots
+ *   POST /admin/swarm/anemia/phenotype   — slice-5 (Paper B): ESA responsiveness
+ *                                          phenotype + recommended workup
  *   POST /admin/swarm/anemia/demo        — seed durable anemia episodes (Class C)
  *   POST /admin/swarm/anemia/reset       — remove only anemia episodes
  *   GET  /admin/swarm/anemia/assurance   — P1: coverage config + advisor gate +
@@ -51,6 +53,7 @@ import {
 import { esaRecommendTrained, loadEsaArtifact } from '../swarm/anemia-model.js';
 import { esaRecommendMpc, esaWhatIf } from '../swarm/anemia-forecast.js';
 import { esaExposure, ESA_EXPOSURE_CATALOG, type EsaExposureOptions } from '../swarm/anemia-exposure.js';
+import { esaResponsiveness, ESA_PHENOTYPE_CATALOG } from '../swarm/anemia-phenotype.js';
 import { esaSuggestionDst } from '../swarm/anemia-dst.js';
 import {
   buildEsaTwin, scoreEsaTwinDrift,
@@ -172,19 +175,30 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
     const window = buildWindow(body);
     // Paper-A PK-informed cumulative / time-weighted exposure (130 h decay).
     const exposure = esaExposure(window);
+    // Paper-B responsiveness phenotype (routine-lab surrogates for the panel).
+    const phenotype = esaResponsiveness(window);
     // DST-Q #3 — fuse the evidence this window actually carries into a Bel/Pl/K
     // readout for the Class-C suggestion (same D-S rule as My Work).
     const dst = esaSuggestionDst(window);
     if (body.model === 'mpc') {
       const { recommendation, whatIf } = esaRecommendMpc(window);
-      return { recommendation: { ...recommendation, exposure }, model: 'mpc', dst, whatIf };
+      return { recommendation: { ...recommendation, exposure, phenotype }, model: 'mpc', dst, whatIf };
     }
     if (body.model === 'trained') {
       const artifact = loadEsaArtifact();
       if (!artifact) return error(reply, 404, 'esa-trained-artifact-not-found');
-      return { recommendation: { ...esaRecommendTrained(window, artifact), exposure }, model: 'trained', dst };
+      return { recommendation: { ...esaRecommendTrained(window, artifact), exposure, phenotype }, model: 'trained', dst };
     }
-    return { recommendation: { ...esaRecommendCovered(window, { coverageGateEnabled: true }), exposure }, model: 'reference', dst };
+    return { recommendation: { ...esaRecommendCovered(window, { coverageGateEnabled: true }), exposure, phenotype }, model: 'reference', dst };
+  });
+
+  /** Slice 5 / Paper B — ESA responsiveness phenotype (functional iron
+   *  deficiency / inflammatory resistance / refractory / responsive) from the
+   *  routine-lab surrogates, plus the recommended workup. */
+  app.post<{ Body: Partial<EsaPatientWindow> }>('/admin/swarm/anemia/phenotype', async (req, reply) => {
+    const body = req.body ?? ({} as Partial<EsaPatientWindow>);
+    if (missingWindow(body)) return error(reply, 400, 'patientId, currentHgb and onESA are required');
+    return { phenotype: esaResponsiveness(buildWindow(body)), catalog: ESA_PHENOTYPE_CATALOG };
   });
 
   /** Slice 3 / Paper A — PK exposure features: 130 h-decayed cumulative and
@@ -224,7 +238,7 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
       : null;
     const drift = scoreEsaTwinDrift(twin);
     const persisted = body.persist ? await persistTwinDrift(body.patientId, twin, drift) : false;
-    return { twin, whatIf, drift, persisted };
+    return { twin, whatIf, drift, persisted, phenotype: twin.window ? esaResponsiveness(twin.window) : null };
   });
 
   /** Slice 4 — persist / refresh the online forecast-vs-observed drift snapshot. */

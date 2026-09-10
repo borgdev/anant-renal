@@ -312,6 +312,8 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
   const fcFocusCandidate = fcOpen ? (whatIf.candidates[fcFocus] ?? whatIf.candidates[whatIf.chosenIndex ?? 0]) : undefined;
   // Paper-A PK exposure — prefer the latest explicit readout, else the one on the recommendation.
   const pkView = exposure ?? rec?.exposure ?? null;
+  // Paper-B responsiveness phenotype — from the recommendation or the live twin.
+  const phenotypeView = rec?.phenotype ?? twin?.phenotype ?? null;
   // The dev server clears in-memory sessions on every src-file restart — a 401
   // here means the browser cookie is stale, not a product failure.
   const sessionExpired = [error, govError, p3Error].some((m) => (m ?? "").toLowerCase().includes("not-authenticated") || (m ?? "").toLowerCase().includes("session expired"));
@@ -403,6 +405,17 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
                 <div><small>IV iron 14 d</small><strong>{pkView.cumulativeIron14d.toLocaleString()} mg</strong><em>co-intervention</em></div>
               </div>
               <p className="esa-pk-note">Effective dose = ordered dose × decayed activity ÷ steady state — it falls when doses lapse or are held and builds as a new order accumulates. {pkView.daysSinceLastDose !== null ? `Last ESA ${pkView.daysSinceLastDose} day(s) ago.` : "No administration on record."}</p>
+            </div>
+          ) : null}
+
+          {phenotypeView ? (
+            <div className="esa-phenotype">
+              <div className="esa-pk-head">
+                <Eyebrow>ESA responsiveness · {phenotypeView.confidence} confidence</Eyebrow>
+                <Tag tone={phenotypeView.phenotype === "responsive" ? "mint" : phenotypeView.phenotype === "insufficient-data" ? "neutral" : phenotypeView.phenotype === "refractory" ? "red" : "amber"}>{phenotypeView.label}</Tag>
+              </div>
+              <ul className="esa-pheno-reasons">{phenotypeView.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul>
+              {phenotypeView.workup.length ? <div className="esa-pheno-workup">{phenotypeView.workup.map((step, i) => <span key={i} className="esa-chip">{step}</span>)}</div> : null}
             </div>
           ) : null}
 
