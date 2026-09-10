@@ -27,6 +27,28 @@ export const LONGITUDINAL_TRAJECTORIES: readonly LongitudinalTrajectory[] = [
 ];
 
 export interface LongitudinalLabs { K: number; HGB: number; URR: number; PHOS: number }
+
+/** F1 — CKD-MBD / nutrition / inflammation baseline panel (deterministic per trajectory). */
+export interface LongitudinalPanel {
+  calcium: number; pth: number; albumin: number; creatinine: number;
+  bicarb: number; crp: number; wbc: number; procalcitonin: number;
+}
+
+export function baselinePanelFor(trajectory: LongitudinalTrajectory): LongitudinalPanel {
+  const anemic = trajectory === 'anemic-worsening' || trajectory === 'anemic-recovering';
+  const inflamed = anemic || trajectory === 'decompensating';
+  const mbd = trajectory === 'hyperphosphatemia';
+  return {
+    calcium: mbd ? 9.7 : 9.0,
+    pth: mbd ? 640 : anemic ? 420 : 320,
+    albumin: anemic || trajectory === 'underdialyzed' ? 3.4 : 3.8,
+    creatinine: trajectory === 'decompensating' ? 7.1 : 8.6,
+    bicarb: trajectory === 'underdialyzed' ? 20 : 23,
+    crp: inflamed ? 14.5 : 6.2,
+    wbc: inflamed ? 8.9 : 7.1,
+    procalcitonin: inflamed ? 0.8 : 0.3,
+  };
+}
 export interface LongitudinalVitals { hr: number; bp: string; spo2: number }
 
 export interface DailyHistoryPoint {

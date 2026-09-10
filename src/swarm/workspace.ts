@@ -596,6 +596,9 @@ export function projectRealmEvents(entries: Array<{ realmId: string; eventId: st
     'record-vitals': 'vital.observed', 'record-assessment': 'assessment.response.v1', 'update-care-plan': 'care.plan.updated',
     'submit-claim': 'claim.submitted', 'request-prior-auth': 'prior-auth.requested', 'schedule-followup': 'followup.scheduled',
     'flag-safety-event': 'safety.flagged', 'notify-staff': 'staff.notified',
+    // F1 — dialysis session lifecycle + access observations.
+    'start-session': 'session.started.v1', 'record-session-telemetry': 'session.telemetry.v1',
+    'end-session': 'session.ended.v1', 'record-access': 'access.observed.v1',
   };
   return entries.map((e, i) => {
     // When a realm effect carries a patientId, scope the projection to that

@@ -68,16 +68,23 @@ const UNIVERSAL_EFFECTS: Array<WorldEffect['kind']> = [
 ];
 
 export const DEFAULT_AUTHORITY: EffectAuthorityMap = {
-  nurse: ['admit-patient', 'transfer-patient', 'administer-med', 'record-vitals', 'record-assessment', 'record-agent-thought', 'notify-staff', 'flag-safety-event', 'update-care-plan', 'result-lab'],
-  md: ['admit-patient', 'transfer-patient', 'discharge-patient', 'order-lab', 'order-med', 'hold-med', 'titrate-med', 'update-care-plan', 'schedule-followup', 'notify-staff', 'flag-safety-event', 'record-agent-thought', 'record-assessment', 'record-vitals', 'result-lab'],
+  nurse: ['admit-patient', 'transfer-patient', 'administer-med', 'record-vitals', 'record-assessment', 'record-agent-thought', 'notify-staff', 'flag-safety-event', 'update-care-plan', 'result-lab', 'start-session', 'record-session-telemetry', 'end-session', 'record-access'],
+  md: ['admit-patient', 'transfer-patient', 'discharge-patient', 'order-lab', 'order-med', 'hold-med', 'titrate-med', 'update-care-plan', 'schedule-followup', 'notify-staff', 'flag-safety-event', 'record-agent-thought', 'record-assessment', 'record-vitals', 'result-lab', 'start-session', 'record-session-telemetry', 'end-session', 'record-access'],
   pa: ['order-lab', 'order-med', 'titrate-med', 'update-care-plan', 'schedule-followup', 'notify-staff', 'record-agent-thought'],
   pharmacist: ['hold-med', 'titrate-med', 'notify-staff', 'flag-safety-event', 'record-agent-thought'],
-  tech: ['administer-med', 'record-vitals', 'record-agent-thought', 'notify-staff'],
+  tech: ['administer-med', 'record-vitals', 'record-agent-thought', 'notify-staff', 'start-session', 'record-session-telemetry', 'end-session'],
   coder: ['submit-claim', 'record-agent-thought'],
   ops: ['request-prior-auth', 'submit-claim', 'schedule-followup', 'notify-staff', 'record-agent-thought'],
   auditor: ['record-agent-thought', 'flag-safety-event', 'approve-effect'],
   admin: ['approve-effect', 'operator-directive'] as WorldEffect['kind'][],
 };
+
+/** Systolic value from a "128/78" blood-pressure string (undefined when unparseable). */
+function systolicOf(bp: string | undefined): number | undefined {
+  if (!bp) return undefined;
+  const first = Number.parseInt(bp.split('/')[0] ?? '', 10);
+  return Number.isFinite(first) ? first : undefined;
+}
 
 export interface HITLBridge {
   match(presence: AgentPresence, effect: WorldEffect): { id: string; reason: string } | undefined;
@@ -286,8 +293,102 @@ export class EffectReducer {
         results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
         return results;
       }
-      case 'record-assessment': {
+      case 'start-session': {
         const patientUrn = g.urnFor('patient', effect.patientId);
+        const sessionId = effect.sessionId ?? `${effect.patientId}-sess-${this.clock.seq}`;
+        const patch = {
+          currentSession: {
+            sessionId, startedAt: at, modality: effect.modality,
+            prescribedMinutes: effect.prescribedMinutes, targetUfL: effect.targetUfL,
+            ...(effect.dialyser ? { dialyser: effect.dialyser } : {}),
+            ...(effect.qbPrescribed !== undefined ? { qbPrescribed: effect.qbPrescribed } : {}),
+            ...(effect.qdPrescribed !== undefined ? { qdPrescribed: effect.qdPrescribed } : {}),
+            ...(effect.tempC !== undefined ? { tempC: effect.tempC } : {}),
+            telemetry: [] as unknown[],
+          },
+        };
+        if (g.get(patientUrn)) g.patch(patientUrn, patch, `effect:${effect.kind}`);
+        else g.create('patient', effect.patientId, patch);
+        results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
+        return results;
+      }
+      case 'record-session-telemetry': {
+        const patientUrn = g.urnFor('patient', effect.patientId);
+        const state = g.get(patientUrn)?.state as { currentSession?: { telemetry?: unknown[] } } | undefined;
+        const current = state?.currentSession;
+        if (!current) throw new Error(`session-missing: ${effect.patientId}`);
+        const telemetry = [...(current.telemetry ?? []), {
+          minute: effect.minute, at,
+          ...(effect.bp ? { bp: effect.bp } : {}),
+          ...(effect.hr !== undefined ? { hr: effect.hr } : {}),
+          ...(effect.qb !== undefined ? { qb: effect.qb } : {}),
+          ...(effect.qd !== undefined ? { qd: effect.qd } : {}),
+          ...(effect.venousPressure !== undefined ? { venousPressure: effect.venousPressure } : {}),
+          ...(effect.arterialPressure !== undefined ? { arterialPressure: effect.arterialPressure } : {}),
+          ...(effect.ufRateMlH !== undefined ? { ufRateMlH: effect.ufRateMlH } : {}),
+          ...(effect.ufVolumeL !== undefined ? { ufVolumeL: effect.ufVolumeL } : {}),
+          ...(effect.tempC !== undefined ? { tempC: effect.tempC } : {}),
+          ...(effect.symptoms?.length ? { symptoms: effect.symptoms } : {}),
+        }].slice(-24);
+        const patch = { currentSession: { ...current, telemetry } };
+        g.patch(patientUrn, patch, `effect:${effect.kind}`);
+        results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
+        return results;
+      }
+      case 'end-session': {
+        const patientUrn = g.urnFor('patient', effect.patientId);
+        const state = g.get(patientUrn)?.state as { currentSession?: Record<string, unknown>; sessions?: unknown[] } | undefined;
+        const current = state?.currentSession ?? {};
+        interface SessionTelemetryPoint { bp?: string; hr?: number; qb?: number; ufVolumeL?: number; symptoms?: string[] }
+        const telemetry = Array.isArray((current as { telemetry?: unknown[] }).telemetry)
+          ? ((current as { telemetry: SessionTelemetryPoint[] }).telemetry)
+          : [];
+        const sys = telemetry.map((t) => systolicOf(t.bp)).filter((v): v is number => v !== undefined);
+        const qbs = telemetry.map((t) => t.qb).filter((v): v is number => v !== undefined);
+        const ufs = telemetry.map((t) => t.ufVolumeL).filter((v): v is number => v !== undefined);
+        const symptoms = telemetry.flatMap((t) => t.symptoms ?? []);
+        const prescribedMinutes = typeof current.prescribedMinutes === 'number' ? current.prescribedMinutes : undefined;
+        const targetUfL = typeof current.targetUfL === 'number' ? current.targetUfL : undefined;
+        const session = {
+          sessionId: (current.sessionId as string | undefined) ?? `${effect.patientId}-sess-${this.clock.seq}`,
+          startedAt: (current.startedAt as string | undefined) ?? at,
+          endedAt: at,
+          modality: (current.modality as string | undefined) ?? 'hemodialysis',
+          deliveredMinutes: effect.deliveredMinutes,
+          ...(prescribedMinutes !== undefined ? { prescribedMinutes } : {}),
+          ufVolumeL: effect.ufVolumeL,
+          ...(targetUfL !== undefined ? { targetUfL } : {}),
+          ...(effect.qbAvg !== undefined ? { qbAvg: effect.qbAvg } : {}),
+          ...(qbs.length ? { qbSampleAvg: Math.round(qbs.reduce((a, b) => a + b, 0) / qbs.length) } : {}),
+          ...(ufs.length ? { ufTelemetryEndL: ufs[ufs.length - 1] } : {}),
+          ...(sys.length ? { nadirSbp: Math.min(...sys), meanSbp: Math.round(sys.reduce((a, b) => a + b, 0) / sys.length) } : {}),
+          ...(effect.recirculationPct !== undefined ? { recirculationPct: effect.recirculationPct } : {}),
+          ...(effect.preWeightKg !== undefined ? { preWeightKg: effect.preWeightKg } : {}),
+          ...(effect.postWeightKg !== undefined ? { postWeightKg: effect.postWeightKg } : {}),
+          stoppedEarly: effect.stoppedEarly === true,
+          ...(effect.complication ? { complication: effect.complication } : {}),
+          ...(symptoms.length ? { symptoms } : {}),
+          telemetryPoints: telemetry.length,
+          ...(prescribedMinutes ? { adherencePct: Math.round((effect.deliveredMinutes / prescribedMinutes) * 100) } : {}),
+        };
+        const priorSessions = Array.isArray(state?.sessions) ? (state?.sessions as unknown[]) : [];
+        const patch = { sessions: [...priorSessions, session].slice(-12), currentSession: null };
+        g.patch(patientUrn, patch, `effect:${effect.kind}`);
+        results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
+        return results;
+      }
+      case 'record-access': {
+        const patientUrn = g.urnFor('patient', effect.patientId);
+        const state = g.get(patientUrn)?.state as { accessObservations?: unknown[] } | undefined;
+        const observation = { at, event: effect.event, ...(effect.note ? { note: effect.note } : {}) };
+        const priorObservations = Array.isArray(state?.accessObservations) ? (state?.accessObservations as unknown[]) : [];
+        const patch = { accessObservations: [...priorObservations, observation].slice(-24) };
+        if (g.get(patientUrn)) g.patch(patientUrn, patch, `effect:${effect.kind}`);
+        else g.create('patient', effect.patientId, patch);
+        results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
+        return results;
+      }
+      case 'record-assessment': {        const patientUrn = g.urnFor('patient', effect.patientId);
         const patch = { lastAssessment: { id: effect.assessmentId, score: effect.score, band: effect.band, at } };
         if (g.get(patientUrn)) g.patch(patientUrn, patch, `effect:${effect.kind}`);
         else g.create('patient', effect.patientId, patch);

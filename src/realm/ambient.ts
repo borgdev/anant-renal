@@ -161,6 +161,39 @@ function draw(code: string, trajectory: string): { value: number; unit: string; 
       const v = Math.round(jitter(base, 7));
       return { value: v, unit: '%', ...(v < 20 ? { abnormal: 'L' as const } : {}) };
     }
+    // ---- F1: CKD-MBD / nutrition / inflammation / infection panel ----
+    case 'CALCIUM': {
+      const v = Number(jitter(trajectory === 'hyperphosphatemia' ? 9.7 : 9.0, 0.5).toFixed(1));
+      return { value: v, unit: 'mg/dL', ...(v > 10.2 ? { abnormal: 'H' as const } : v < 8.4 ? { abnormal: 'L' as const } : {}) };
+    }
+    case 'PTH': {
+      const v = Math.round(jitter(trajectory === 'hyperphosphatemia' ? 620 : 320, 180));
+      return { value: v, unit: 'pg/mL', ...(v > 600 ? { abnormal: 'H' as const } : {}) };
+    }
+    case 'ALBUMIN': {
+      const v = Number(jitter(trajectory === 'underdialyzed' ? 3.3 : 3.7, 0.3).toFixed(2));
+      return { value: v, unit: 'g/dL', ...(v < 3.5 ? { abnormal: 'L' as const } : {}) };
+    }
+    case 'CREATININE': {
+      const v = Number(jitter(8.5, 2).toFixed(1));
+      return { value: v, unit: 'mg/dL' };
+    }
+    case 'BICARB': {
+      const v = Math.round(jitter(22, 3));
+      return { value: v, unit: 'mmol/L', ...(v < 22 ? { abnormal: 'L' as const } : {}) };
+    }
+    case 'CRP': {
+      const v = Math.max(0.2, Number(jitter(8, 6).toFixed(1)));
+      return { value: v, unit: 'mg/L', ...(v > 10 ? { abnormal: 'H' as const } : {}) };
+    }
+    case 'WBC': {
+      const v = Number(jitter(7.2, 2).toFixed(1));
+      return { value: v, unit: '10^3/uL', ...(v > 11 ? { abnormal: 'H' as const } : {}) };
+    }
+    case 'PROCALCITONIN': {
+      const v = Math.max(0.05, Number(jitter(0.4, 0.3).toFixed(2)));
+      return { value: v, unit: 'ng/mL', ...(v > 0.5 ? { abnormal: 'H' as const } : {}) };
+    }
     default: {
       const v = Number(jitter(50, 20).toFixed(1));
       return { value: v, unit: 'unit' };

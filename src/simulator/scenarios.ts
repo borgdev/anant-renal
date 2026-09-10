@@ -14,12 +14,28 @@
 
 import type { ScriptEmitInput, SimScenario, SimScriptEntry } from './types.js';
 import type { WorldEffect } from '../realm/types.js';
+import type { Realm } from '../realm/realm.js';
 
 const LAB_CODES = ['K', 'HGB', 'URR', 'PHOS', 'FERRITIN', 'TSAT'] as const;
 const ASSESSMENTS = [
   { id: 'phq9', band: 'mild', lo: 2, hi: 6 },
   { id: 'phq9', band: 'moderate', lo: 7, hi: 12 },
   { id: 'ess', band: 'none', lo: 0, hi: 3 },
+] as const;
+
+// ---- F1 renal protocol foundations ----
+/** CKD-MBD / nutrition / inflammation / infection panel ordered on a periodic cadence. */
+export const PANEL_CODES = ['CALCIUM', 'PTH', 'ALBUMIN', 'CREATININE', 'BICARB', 'CRP', 'WBC', 'PROCALCITONIN'] as const;
+/** Sessions open every 48 realm-hours; telemetry/close are gated on their offset within that cycle. */
+const SESSION_CYCLE_HOURS = 48;
+const SESSION_TELEMETRY_OFFSET = 6;
+const SESSION_END_OFFSET = 12;
+const ACCESS_EVENTS = ['cannulation-difficulty', 'angioplasty', 'thrombosis', 'declot', 'infection'] as const;
+const MAINTENANCE_MEDS = [
+  { code: 'sevelamer', dose: '800 mg', route: 'PO', frequency: 'three times daily', indication: 'hyperphosphatemia' },
+  { code: 'calcium-acetate', dose: '667 mg', route: 'PO', frequency: 'three times daily', indication: 'hyperphosphatemia' },
+  { code: 'cinacalcet', dose: '30 mg', route: 'PO', frequency: 'daily', indication: 'secondary-hyperparathyroidism' },
+  { code: 'calcitriol', dose: '0.25 mcg', route: 'PO', frequency: 'daily', indication: 'vitamin-d-deficiency' },
 ] as const;
 
 const every = (id: string, hours: number, viaRole: SimScriptEntry['viaRole'], emit: (i: ScriptEmitInput) => WorldEffect[]): SimScriptEntry =>
@@ -46,11 +62,11 @@ function recordVitals({ patientIds, rng }: ScriptEmitInput): WorldEffect[] {
     hr: 72 + Math.round(rng() * 30),
     spo2: 93 + Math.round(rng() * 6),
     bp: '128/78',
+    temp: Number((36.2 + rng() * 0.7).toFixed(1)),
   }));
 }
 
-/** Record a screening assessment on a rotating ~40% subset. */
-function recordAssessments({ patientIds, rng }: ScriptEmitInput): WorldEffect[] {
+/** Record a screening assessment on a rotating ~40% subset. */function recordAssessments({ patientIds, rng }: ScriptEmitInput): WorldEffect[] {
   const a = ASSESSMENTS[Math.min(ASSESSMENTS.length - 1, Math.floor(rng() * ASSESSMENTS.length))] as (typeof ASSESSMENTS)[number];
   const pick = patientIds.filter(() => rng() < 0.4);
   return pick.map((pid) => ({
@@ -109,6 +125,124 @@ function criticalSafetyFlag({ patientIds, seq, rng }: ScriptEmitInput): WorldEff
   return [{ kind: 'flag-safety-event', patientId: pid, safetyKind: 'lab-critical', severity: 'critical' }];
 }
 
+/** Patient state lookup keyed by patient id (access type, open session, …). */
+function stateById(realm: Realm): Map<string, Record<string, unknown>> {
+  const out = new Map<string, Record<string, unknown>>();
+  for (const p of realm.graph.listKind('patient')) out.set(p.id, p.state as Record<string, unknown>);
+  return out;
+}
+
+/** F1 — open a dialysis session for every patient (fluid / adequacy protocols). */
+function sessionStarts({ patientIds, rng, realm }: ScriptEmitInput): WorldEffect[] {
+  const states = stateById(realm);
+  return patientIds.map((pid) => {
+    const catheter = (states.get(pid)?.access as { type?: string } | undefined)?.type === 'catheter';
+    const prescribedMinutes = catheter ? 195 + Math.round(rng() * 20) : 210 + Math.round(rng() * 30);
+    return {
+      kind: 'start-session' as const,
+      patientId: pid,
+      modality: (rng() < 0.15 ? 'hemodiafiltration' : 'hemodialysis') as 'hemodialysis' | 'hemodiafiltration',
+      prescribedMinutes,
+      targetUfL: Number((1.8 + rng() * 1.7).toFixed(1)),
+      dialyser: catheter ? 'FX80' : 'FX100',
+      qbPrescribed: catheter ? 300 : 350,
+      qdPrescribed: 500,
+      tempC: 36.5,
+    };
+  });
+}
+
+/** F1 — one mid-session telemetry point per open session. */
+function sessionTelemetry({ patientIds, rng, realm, elapsedHours }: ScriptEmitInput): WorldEffect[] {
+  if (elapsedHours % SESSION_CYCLE_HOURS !== SESSION_TELEMETRY_OFFSET) return [];
+  const states = stateById(realm);
+  const out: WorldEffect[] = [];
+  for (const pid of patientIds) {
+    const current = states.get(pid)?.currentSession as { prescribedMinutes?: number; targetUfL?: number } | undefined;
+    if (!current) continue;
+    const prescribed = current.prescribedMinutes ?? 210;
+    const target = current.targetUfL ?? 2.5;
+    const catheter = (states.get(pid)?.access as { type?: string } | undefined)?.type === 'catheter';
+    const roll = rng();
+    out.push({
+      kind: 'record-session-telemetry',
+      patientId: pid,
+      minute: Math.round(prescribed / 2),
+      bp: `${118 + Math.round(rng() * 14)}/${74 + Math.round(rng() * 8)}`,
+      hr: 76 + Math.round(rng() * 14),
+      qb: catheter ? 300 : 350,
+      qd: 500,
+      venousPressure: 150 + Math.round(rng() * 60),
+      arterialPressure: -140 - Math.round(rng() * 40),
+      ufRateMlH: Math.round(((target * 1000) / Math.max(1, prescribed)) * 10) / 10,
+      ufVolumeL: Number((target * 0.5).toFixed(2)),
+      tempC: 36.4,
+      ...(roll < 0.18 ? { symptoms: ['cramping'] } : roll < 0.26 ? { symptoms: ['hypotension'] } : {}),
+    });
+  }
+  return out;
+}
+
+/** F1 — close each open session with delivered dose, UF, recirculation and complications. */
+function sessionCloses({ patientIds, rng, realm, elapsedHours }: ScriptEmitInput): WorldEffect[] {
+  if (elapsedHours % SESSION_CYCLE_HOURS !== SESSION_END_OFFSET) return [];
+  const states = stateById(realm);
+  const out: WorldEffect[] = [];
+  for (const pid of patientIds) {
+    const state = states.get(pid) ?? {};
+    const current = state.currentSession as { prescribedMinutes?: number; targetUfL?: number } | undefined;
+    if (!current) continue;
+    const prescribed = current.prescribedMinutes ?? 210;
+    const target = current.targetUfL ?? 2.5;
+    const catheter = (state.access as { type?: string } | undefined)?.type === 'catheter';
+    const stoppedEarly = rng() < 0.12;
+    const ufVolumeL = Number((target * (stoppedEarly ? 0.7 : 0.85 + rng() * 0.15)).toFixed(2));
+    const preWeightKg = Number((68 + rng() * 32).toFixed(1));
+    out.push({
+      kind: 'end-session',
+      patientId: pid,
+      deliveredMinutes: stoppedEarly ? Math.round(prescribed * 0.72) : prescribed - Math.round(rng() * 8),
+      ufVolumeL,
+      qbAvg: catheter ? 298 : 348,
+      recirculationPct: Number((catheter ? 11 + rng() * 6 : 3.5 + rng() * 6).toFixed(1)),
+      preWeightKg,
+      postWeightKg: Number((preWeightKg - ufVolumeL).toFixed(1)),
+      stoppedEarly,
+      ...(stoppedEarly ? { complication: 'intradialytic-hypotension' } : {}),
+    });
+  }
+  return out;
+}
+
+/** F1 — CKD-MBD / nutrition / inflammation / infection panel for every patient. */
+function panelLabs({ patientIds }: ScriptEmitInput): WorldEffect[] {
+  const out: WorldEffect[] = [];
+  for (const pid of patientIds) {
+    for (const code of PANEL_CODES) out.push({ kind: 'order-lab', patientId: pid, code, priority: 'routine' });
+  }
+  return out;
+}
+
+/** F1 — access surveillance observation on one rotating patient. */
+function accessObservations({ patientIds, seq, rng }: ScriptEmitInput): WorldEffect[] {
+  const pid = patientIds[seq % Math.max(1, patientIds.length)];
+  if (!pid) return [];
+  if (rng() < 0.5) return [];
+  const event = ACCESS_EVENTS[Math.min(ACCESS_EVENTS.length - 1, Math.floor(rng() * ACCESS_EVENTS.length))] as (typeof ACCESS_EVENTS)[number];
+  return [{ kind: 'record-access', patientId: pid, event, note: 'access surveillance (cannulation pressures, recirculation)' }];
+}
+
+/** F1 — weekly maintenance exposures: phosphate binder, calcimimetic, vitamin D, IV iron. */
+function maintenanceMeds({ patientIds, rng }: ScriptEmitInput): WorldEffect[] {
+  const out: WorldEffect[] = [];
+  for (const pid of patientIds) {
+    const med = MAINTENANCE_MEDS[Math.min(MAINTENANCE_MEDS.length - 1, Math.floor(rng() * MAINTENANCE_MEDS.length))] as (typeof MAINTENANCE_MEDS)[number];
+    out.push({ kind: 'order-med', patientId: pid, code: med.code, dose: med.dose, route: med.route, frequency: med.frequency, indication: med.indication });
+    if (rng() < 0.4) out.push({ kind: 'order-med', patientId: pid, code: 'ferric-sucrose', dose: '125', route: 'IV', frequency: 'weekly', indication: 'iron-deficiency' });
+  }
+  return out;
+}
+
 function dialysisScript(): SimScriptEntry[] {
   return [
     every('labs', 3, 'md', orderLabs),
@@ -121,6 +255,15 @@ function dialysisScript(): SimScriptEntry[] {
     every('claims', 48, 'coder', submitClaims),
     every('safety', 18, 'nurse', safetyFlags),
     every('safety-critical', 72, 'nurse', criticalSafetyFlag),
+    // ---- F1 renal protocol foundations: sessions, access, MBD/nutrition/infection ----
+    every('session-start', 48, 'nurse', sessionStarts),
+    every('session-telemetry', 6, 'nurse', sessionTelemetry),
+    every('session-close', 6, 'nurse', sessionCloses),
+    at('panel-baseline', 5, 'md', panelLabs),
+    every('panel', 336, 'md', panelLabs),
+    at('access-baseline', 8, 'nurse', accessObservations),
+    every('access-surveillance', 96, 'nurse', accessObservations),
+    every('maintenance-meds', 168, 'md', maintenanceMeds),
   ];
 }
 
@@ -168,6 +311,11 @@ export const DIALYSIS_BASIC: SimScenario = {
           every('esa', 168, 'md', orderEsa),
           at('seed-assessment', 1, 'nurse', recordAssessments),
           every('claims', 48, 'coder', submitClaims),
+          // F1 — keep the basic script minimal but exercise the full session
+          // lifecycle so the reducer path is covered deterministically.
+          every('session-start', 48, 'nurse', sessionStarts),
+          every('session-telemetry', 6, 'nurse', sessionTelemetry),
+          every('session-close', 6, 'nurse', sessionCloses),
         ],
       },
     },

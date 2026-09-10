@@ -163,6 +163,11 @@ export type WorldEffect =
   | { kind: 'hold-med'; patientId: string; medOrderId: string; reason: string }
   | { kind: 'titrate-med'; medOrderId: string; delta: string; reason: string }
   | { kind: 'record-vitals'; patientId: string; hr?: number; bp?: string; spo2?: number; temp?: number; rr?: number }
+  // ---- F1 renal protocol foundations: dialysis sessions + access observations ----
+  | { kind: 'start-session'; patientId: string; sessionId?: string; modality: 'hemodialysis' | 'hemodiafiltration'; prescribedMinutes: number; targetUfL: number; dialyser?: string; qbPrescribed?: number; qdPrescribed?: number; tempC?: number }
+  | { kind: 'record-session-telemetry'; patientId: string; minute: number; bp?: string; hr?: number; qb?: number; qd?: number; venousPressure?: number; arterialPressure?: number; ufRateMlH?: number; ufVolumeL?: number; tempC?: number; symptoms?: string[] }
+  | { kind: 'end-session'; patientId: string; deliveredMinutes: number; ufVolumeL: number; qbAvg?: number; recirculationPct?: number; preWeightKg?: number; postWeightKg?: number; stoppedEarly?: boolean; complication?: string }
+  | { kind: 'record-access'; patientId: string; event: 'cannulation-difficulty' | 'angioplasty' | 'thrombosis' | 'infection' | 'declot' | 'catheter-placed' | 'avf-created'; note?: string }
   | { kind: 'record-assessment'; patientId: string; assessmentId: string; score: number; band?: string }
   | { kind: 'update-care-plan'; patientId: string; patch: Record<string, unknown> }
   | { kind: 'schedule-followup'; patientId: string; when: string; resource: string; followupKind: string }

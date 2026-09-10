@@ -75,6 +75,7 @@ import { registerSwarmRoutes, getSwarmWorkspace, resetSwarmRuntime } from './swa
 import { registerPlatformRoutes } from './platform-routes.js';
 import { registerPayerRoutes } from './payer-routes.js';
 import { registerAnemiaRoutes } from './anemia-routes.js';
+import { registerRenalRoutes } from './renal-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
 import { registerAssuranceRoutes } from './assurance-routes.js';
 import { registerSubmissionRoutes } from './submission-routes.js';
@@ -128,6 +129,8 @@ export interface AppDeps {
    *  Optional overrides for tests; the runtime defaults to RealmRegistry. */
   readonly anemiaEvents?: () => Array<{ realmId?: string; eventId?: string; kind: string; emittedAt: string; realmAt?: string; patientId?: string; payload: Record<string, unknown> }>;
   readonly anemiaPatients?: () => Array<{ realmId: string; patientId: string; state: Record<string, unknown> }>;
+  /** F1 renal data-model patient source — defaults to every patient in RealmRegistry. */
+  readonly renalPatients?: () => Array<{ id: string; realmId: string; state: Record<string, unknown>; medCodes?: readonly string[] }>;
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -411,6 +414,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
             r.graph.listKind('patient').map((p) => ({ realmId: r.id, patientId: p.id, state: p.state as Record<string, unknown> })),
           ),
         }),
+  });
+
+  // F1 — renal data model read surface (sessions, access, MBD/nutrition/infection
+  // panel labs, maintenance exposures) derived from realm state + ledger.
+  await registerRenalRoutes(app, {
+    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
   });
 
   // Agent Studio (Phase D) — one unified surface for authoring, triggers, topics,

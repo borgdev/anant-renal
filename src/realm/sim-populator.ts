@@ -45,11 +45,13 @@ export interface FacilitySeed {
   patientCount: number;
 }
 
-import { generateLongitudinalHistory } from '../simulator/longitudinal.js';
+import { generateLongitudinalHistory, baselinePanelFor } from '../simulator/longitudinal.js';
 
 const TRAJECTORIES = ['stable', 'decompensating', 'recovering', 'anemic-worsening', 'anemic-recovering', 'underdialyzed', 'hyperphosphatemia'] as const;
 const AGES = [45, 52, 58, 61, 64, 68, 71, 74, 77, 79];
 const SEXES: Array<'F' | 'M'> = ['F', 'M'];
+/** F1 — vascular access modalities, cycled deterministically per patient index. */
+const ACCESS_TYPES = ['avf', 'avf', 'avg', 'catheter'] as const;
 
 /** R1 — optional complete-data backfill: seed each patient's chart with a
  *  deterministic 90-day-consistent lab/vitals summary at creation. */
@@ -88,6 +90,15 @@ export function populateFacility(realm: Realm, seed: FacilitySeed, history?: Pop
       admittedAt: realm.clock.realmAt.toISOString(),
       problemList: problemsFor(seed.kind, trajectory),
       lastVitals: { hr: 72 + (i % 10), bp: '128/78', spo2: 97, at: realm.clock.realmAt.toISOString() },
+      // ---- F1 renal protocol foundations ----
+      access: {
+        type: ACCESS_TYPES[i % ACCESS_TYPES.length]!,
+        site: i % 3 === 0 ? 'left-forearm' : i % 3 === 1 ? 'right-forearm' : 'left-upper-arm',
+        ageDays: 120 + (i * 37) % 900,
+        events: [],
+      },
+      sessions: [],
+      accessObservations: [],
       ...(history
         ? (() => {
             const profile = generateLongitudinalHistory({ patientId: pid, facilityId: seed.facilityId, trajectory, days: history.days ?? 90, seed: history.seed ?? 1, asOf: new Date(realm.clock.realmAt) });
@@ -95,7 +106,7 @@ export function populateFacility(realm: Realm, seed: FacilitySeed, history?: Pop
             const latestEsa = esaPts.length ? esaPts[esaPts.length - 1]?.esaDose : undefined;
             const esaDosingHistory = esaPts.map((p) => ({ at: `${p.date}T07:00:00.000Z`, dose: p.esaDose as number }));
             return {
-              labs: profile.latest.labs,
+              labs: { ...profile.latest.labs, ...baselinePanelFor(trajectory) },
               lastVitals: { ...profile.latest.vitals, at: realm.clock.realmAt.toISOString() },
               ...(latestEsa !== undefined ? { esaDose: latestEsa } : {}),
               esaEscalationsLast90d: profile.latest.esaEscalationsLast90d,
