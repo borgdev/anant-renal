@@ -8,6 +8,8 @@ export type NavigationId =
   | "adequacy"
   | "fluid"
   | "vascular-access"
+  | "mbd"
+  | "nutrition"
   | "protocols"
   | "intelligence"
   | "assessments"

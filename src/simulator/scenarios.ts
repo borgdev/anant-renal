@@ -25,7 +25,7 @@ const ASSESSMENTS = [
 
 // ---- F1 renal protocol foundations ----
 /** CKD-MBD / nutrition / inflammation / infection panel ordered on a periodic cadence. */
-export const PANEL_CODES = ['CALCIUM', 'PTH', 'ALBUMIN', 'CREATININE', 'BICARB', 'CRP', 'WBC', 'PROCALCITONIN'] as const;
+export const PANEL_CODES = ['CALCIUM', 'PTH', 'ALBUMIN', 'CREATININE', 'BICARB', 'CRP', 'WBC', 'PROCALCITONIN', 'VITD', 'NONHDL'] as const;
 /** Sessions open every 48 realm-hours; telemetry/close are gated on their offset within that cycle. */
 const SESSION_CYCLE_HOURS = 48;
 const SESSION_TELEMETRY_OFFSET = 6;
@@ -337,6 +337,27 @@ function accessAcousticCaptures(input: ScriptEmitInput): WorldEffect[] {
   }];
 }
 
+/** P5 — handgrip strength (kg) recorded as an assessment: the PEW muscle-mass input. */
+function handgripAssessments({ patientIds, seq, rng, realm }: ScriptEmitInput): WorldEffect[] {
+  const pid = patientIds[seq % Math.max(1, patientIds.length)];
+  if (!pid) return [];
+  const underdialyzed = (stateById(realm).get(pid)?.trajectory) === 'underdialyzed';
+  const score = Math.round((underdialyzed ? 19 : 30) + (rng() - 0.5) * 8);
+  return [{ kind: 'record-assessment', patientId: pid, assessmentId: 'handgrip', score, band: score < 24 ? 'low' : 'normal' }];
+}
+
+/**
+ * P5 — a device-flagged ECG pattern (adjunct only). This is a DEVICE finding
+ * carried as a safety event; the protocol never actions hyperkalaemia on it
+ * without a confirmatory lab.
+ */
+function ecgPatternFlags({ patientIds, seq, rng }: ScriptEmitInput): WorldEffect[] {
+  if (rng() > 0.25) return [];
+  const pid = patientIds[seq % Math.max(1, patientIds.length)];
+  if (!pid) return [];
+  return [{ kind: 'flag-safety-event', patientId: pid, safetyKind: 'ecg-peaked-t-pattern', severity: 'moderate' }];
+}
+
 /** F1 — weekly maintenance exposures: phosphate binder, calcimimetic, vitamin D, IV iron. */
 function maintenanceMeds({ patientIds, rng }: ScriptEmitInput): WorldEffect[] {
   const out: WorldEffect[] = [];
@@ -370,6 +391,9 @@ function dialysisScript(): SimScriptEntry[] {
     every('access-surveillance', ACCESS_SURVEILLANCE_HOURS, 'nurse', accessSurveillance),
     every('access-acoustic', 192, 'nurse', accessAcousticCaptures),
     every('maintenance-meds', 168, 'md', maintenanceMeds),
+    // ---- P4/P5 protocol data: serial MBD/nutrition panel + handgrip + ECG adjunct ----
+    every('handgrip', 168, 'nurse', handgripAssessments),
+    every('ecg-pattern', 120, 'nurse', ecgPatternFlags),
   ];
 }
 

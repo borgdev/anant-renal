@@ -94,7 +94,15 @@ export type WorkspaceKind =
   | 'access-validation-report'
   | 'access-study-record'
   | 'access-mdr-file'
-  | 'access-twin-drift';
+  | 'access-twin-drift'
+  | 'mbd-validation-report'
+  | 'mbd-study-record'
+  | 'mbd-mdr-file'
+  | 'mbd-twin-drift'
+  | 'nutrition-validation-report'
+  | 'nutrition-study-record'
+  | 'nutrition-mdr-file'
+  | 'nutrition-twin-drift';
 
 export interface WorkspaceDoc {
   id: string;
@@ -2239,6 +2247,14 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'access-study-record',
   'access-mdr-file',
   'access-twin-drift',
+  'mbd-validation-report',
+  'mbd-study-record',
+  'mbd-mdr-file',
+  'mbd-twin-drift',
+  'nutrition-validation-report',
+  'nutrition-study-record',
+  'nutrition-mdr-file',
+  'nutrition-twin-drift',
 ];
 
 function slug(input: string): string {

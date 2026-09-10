@@ -80,6 +80,8 @@ import { registerProtocolRoutes } from './protocol-routes.js';
 import { registerAdequacyRoutes } from './adequacy-routes.js';
 import { registerFluidRoutes } from './fluid-routes.js';
 import { registerAccessRoutes } from './access-routes.js';
+import { registerMbdRoutes } from './mbd-routes.js';
+import { registerNutritionRoutes } from './nutrition-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
 import { registerAssuranceRoutes } from './assurance-routes.js';
 import { registerSubmissionRoutes } from './submission-routes.js';
@@ -135,6 +137,10 @@ export interface AppDeps {
   readonly anemiaPatients?: () => Array<{ realmId: string; patientId: string; state: Record<string, unknown> }>;
   /** F1 renal data-model patient source — defaults to every patient in RealmRegistry. */
   readonly renalPatients?: () => Array<{ id: string; realmId: string; state: Record<string, unknown>; medCodes?: readonly string[] }>;
+  /** P4/P5 twin data sources — real realm ledger events. Optional overrides for tests;
+   *  the runtime defaults to RealmRegistry's own ledger. */
+  readonly mbdEvents?: () => import('../swarm/mbd-twin.js').MbdTwinEventInput[];
+  readonly nutritionEvents?: () => import('../swarm/nutrition-twin.js').NutritionTwinEventInput[];
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
@@ -453,6 +459,22 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // the access team; the platform never books a procedure.
   await registerAccessRoutes(app, {
     ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+  });
+
+  // P4 — CKD-MBD pack (coupled [P, Ca, PTH] responder + KDIGO hard envelope +
+  // counterfactual over candidate therapies + twin + multi-output artifact +
+  // governance). CDSS: advisory only, never a prescribed dose.
+  await registerMbdRoutes(app, {
+    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+    ...(deps.mbdEvents ? { events: deps.mbdEvents } : {}),
+  });
+
+  // P5 — nutrition / electrolytes pack (five-pathway PEW decomposition +
+  // potassium forecast with the mandatory lab-confirmation contract + plan
+  // counterfactual + twin + artifact). CDSS: the ECG is an adjunct only.
+  await registerNutritionRoutes(app, {
+    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+    ...(deps.nutritionEvents ? { events: deps.nutritionEvents } : {}),
   });
 
   // Agent Studio (Phase D) — one unified surface for authoring, triggers, topics,

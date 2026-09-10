@@ -194,6 +194,17 @@ function draw(code: string, trajectory: string): { value: number; unit: string; 
       const v = Math.max(0.05, Number(jitter(0.4, 0.3).toFixed(2)));
       return { value: v, unit: 'ng/mL', ...(v > 0.5 ? { abnormal: 'H' as const } : {}) };
     }
+    // ---- P4/P5: 25-OH vitamin D (CKD-MBD) and non-HDL cholesterol (nutrition) ----
+    case 'VITD': {
+      // 25-OH vitamin D, ng/mL — deficient in most dialysis patients
+      const v = Math.round(jitter(trajectory === 'hyperphosphatemia' ? 14 : 19, 5));
+      return { value: v, unit: 'ng/mL', ...(v < 20 ? { abnormal: 'L' as const } : {}) };
+    }
+    case 'NONHDL': {
+      // non-HDL cholesterol, mg/dL — LOW is the adverse nutrition signal (PEW)
+      const v = Math.round(jitter(trajectory === 'underdialyzed' ? 92 : 118, 14));
+      return { value: v, unit: 'mg/dL', ...(v < 100 ? { abnormal: 'L' as const } : {}) };
+    }
     default: {
       const v = Number(jitter(50, 20).toFixed(1));
       return { value: v, unit: 'unit' };
