@@ -90,8 +90,17 @@ const IRON_DRUG = /iron|ferric|ferrous|ferumoxytol|sucrose|dextran/i;
 const MED_KINDS = new Set(['order-med', 'titrate-med', 'administer-med', 'hold-med']);
 const LAB_KINDS = new Set(['result-lab']);
 
-const num = (v: unknown): number | undefined =>
-  typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined;
+const num = (v: unknown): number | undefined => {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const direct = Number(v);
+    if (Number.isFinite(direct)) return direct;
+    // Tolerate unit-suffixed values (e.g. "8000 u", "100 mg").
+    const parsed = Number.parseFloat(v);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+};
 
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined;

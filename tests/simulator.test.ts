@@ -175,6 +175,22 @@ describe('SimulatorController lifecycle', () => {
     expect(sim.snapshot().eventCount).toBeGreaterThanOrEqual(8);
   });
 
+  it('emits weekly ESA orders so the anemia twin reads real dosing events', async () => {
+    await sim.start('dialysis-basic', { autoRun: false });
+    sim.step(168); // the ESA script entry fires at hour 168
+    const realm = RealmRegistry.get('sim:test-a')!;
+    const orders = realm.ledger.listAll().filter(
+      (e) => e.effect.kind === 'order-med' && (e.effect as { code?: string }).code === 'epoetin-alfa',
+    );
+    expect(orders.length).toBeGreaterThan(0);
+    for (const order of orders) {
+      const effect = order.effect as unknown as { dose?: string; indication?: string; patientId?: string };
+      expect(Number(effect.dose)).toBeGreaterThan(0); // dose string parses (Paper-A twin reads it)
+      expect(effect.indication).toBe('anemia');
+      expect(effect.patientId).toBeTruthy();
+    }
+  });
+
   it('pause freezes the clock and resume restarts it', async () => {
     await sim.start('dialysis-basic', { autoRun: false });
     sim.step(1);

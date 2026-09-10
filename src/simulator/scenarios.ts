@@ -62,6 +62,20 @@ function recordAssessments({ patientIds, rng }: ScriptEmitInput): WorldEffect[] 
   }));
 }
 
+/** Order each on-ESA patient's current weekly ESA dose (Paper-A dosing events). */
+function orderEsa({ realm }: ScriptEmitInput): WorldEffect[] {
+  const out: WorldEffect[] = [];
+  for (const p of realm.graph.listKind('patient')) {
+    const dose = Number((p.state as { esaDose?: unknown }).esaDose);
+    if (!Number.isFinite(dose) || dose <= 0) continue;
+    out.push({
+      kind: 'order-med', patientId: p.id, code: 'epoetin-alfa',
+      dose: String(Math.round(dose)), route: 'IV', frequency: 'weekly', indication: 'anemia',
+    });
+  }
+  return out;
+}
+
 /** Schedule a nephrology follow-up for one rotating patient. */
 function scheduleFollowups({ patientIds, seq, rng }: ScriptEmitInput): WorldEffect[] {
   const pid = patientIds[seq % patientIds.length];
@@ -98,6 +112,9 @@ function criticalSafetyFlag({ patientIds, seq, rng }: ScriptEmitInput): WorldEff
 function dialysisScript(): SimScriptEntry[] {
   return [
     every('labs', 3, 'md', orderLabs),
+    // Weekly ESA order for each on-ESA patient → REAL dosing events on the
+    // ledger (Paper-A event stream; the anemia patient twin reads these).
+    every('esa', 168, 'md', orderEsa),
     every('vitals', 2, 'nurse', recordVitals),
     every('assessment', 24, 'nurse', recordAssessments),
     every('followup', 6, 'md', scheduleFollowups),
@@ -148,6 +165,7 @@ export const DIALYSIS_BASIC: SimScenario = {
         entries: [
           every('labs', 3, 'md', orderLabs),
           every('vitals', 2, 'nurse', recordVitals),
+          every('esa', 168, 'md', orderEsa),
           at('seed-assessment', 1, 'nurse', recordAssessments),
           every('claims', 48, 'coder', submitClaims),
         ],
