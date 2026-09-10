@@ -19,7 +19,7 @@ import {
   ESA_DOSE_STEP, ESA_FEATURES, HGB_TARGET, esaRecommend, type EsaPatientWindow,
 } from '../src/swarm/anemia.js';
 import {
-  encodeLatent, esaRecommendTrained, loadEsaArtifact, predictEsaDoseUnits,
+  encodeLatent, esaRecommendTrained, loadEsaArtifact, predictEsaDoseUnits, predictEsaBand,
 } from '../src/swarm/anemia-model.js';
 import type { EsaTrainedArtifact } from '../src/swarm/anemia-model.js';
 import type { PostgresEventStore } from '../src/server/postgres-event-store.js';
@@ -117,7 +117,25 @@ describe('anemia trained model (catalog + artifact + serve)', () => {
     expect(a.synthetic).toBe(true);
     expect(a.metrics.testMae).toBeLessThan(2000);
     expect(a.metrics.pearson).toBeGreaterThan(0.9);
-    expect(a.relevance.find((r) => r.id === 'priorEpo')?.relevance).toBeGreaterThan(0.5);
+    // The band head keys on the decision variable. Under the old magnitude head
+    // `priorEpo` dominated because the model was mostly copying the dose on
+    // record — which is precisely why it could not beat the persistence
+    // baseline. hgb dominating is the head having learned the policy.
+    expect(a.relevance[0]?.id).toBe('hgb');
+    expect(a.relevance.find((r) => r.id === 'hgb')?.relevance).toBeGreaterThan(0.5);
+    expect(a.relevance.find((r) => r.id === 'priorEpo')?.relevance).toBeGreaterThan(0);
+  });
+
+  it('beats the persistence baseline and moves only where a clinician would', () => {
+    const a = artifact as EsaTrainedArtifact;
+    // persistence (hold the dose on record) IS the baseline, so beating it means
+    // the head changes the dose correctly more often than it errs
+    expect(a.architecture.head).toBe('band-classifier');
+    expect(a.metrics.maeGainVsBaseline).toBeGreaterThan(0);
+    expect(a.metrics.testMae).toBeLessThan(a.metrics.baselineMae);
+    expect(a.metrics.bandAccuracy).toBeGreaterThan(0.9);
+    expect(a.metrics.changeRecall).toBeGreaterThan(0.5);
+    expect(a.metrics.falseChangeRate).toBeLessThan(0.1);
   });
 
   it('TS forward is deterministic and reproduces the Python golden prediction', () => {
@@ -142,8 +160,22 @@ describe('anemia trained model (catalog + artifact + serve)', () => {
     expect(rec.direction).toBe('increase'); // learned the band logic, not a hold
     expect(rec.recommendedDose ?? 0).toBeGreaterThan(P_ESA_1.currentDose);
     expect(Math.abs((rec.recommendedDose ?? 0) - (ref.recommendedDose ?? 0))).toBeLessThanOrEqual(2000);
-    expect(rec.drivers[0]?.id).toBe('priorEpo');
+    // hgb is what the policy decides on, so it leads the drivers
+    expect(rec.drivers[0]?.id).toBe('hgb');
     expect(rec.synthetic).toBe(true);
+  });
+
+  it('the head chooses the protocol band, and the protocol supplies the step', () => {
+    const a = artifact as EsaTrainedArtifact;
+    const window = a.golden.window as unknown as EsaPatientWindow;
+    const band = predictEsaBand(a, window);
+    expect(band?.band).toBe('increase');
+    // below-band + 8000 u/wk → the protocol's own +25% step, not an invented dose
+    expect(predictEsaDoseUnits(a, window)).toBe(10000);
+    // and a hold band returns the dose on record untouched
+    const inBand = { ...window, currentHgb: 11.0 };
+    expect(predictEsaBand(a, inBand)?.band).toBe('hold');
+    expect(predictEsaDoseUnits(a, inBand)).toBe(window.currentDose);
   });
 
   it('the trained serve still honors the coverage + iron-first gates (P1 contract preserved)', () => {
@@ -175,7 +207,7 @@ describe('anemia trained model (routes)', () => {
     expect(body.registered).toBe(true);
     expect(body.model).toEqual({ id: 'anemia.esa-dose-v1', version: '1.0.0', kind: 'trained' });
     expect(body.metrics.testMae).toBeGreaterThan(0);
-    expect(body.relevance[0]?.id).toBe('priorEpo');
+    expect(body.relevance[0]?.id).toBe('hgb');
   });
 
   it('POST /advise defaults to the reference surrogate; ?model=trained serves the trained model', async () => {

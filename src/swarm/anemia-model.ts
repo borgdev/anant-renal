@@ -58,11 +58,44 @@ export interface EsaTrainedArtifact {
   };
   /** Top-level vector spec mirror (also embedded in featureCatalog). */
   vector: { inputDim: number; layout: EsaVectorLayoutEntry[] };
-  architecture: { encoder: number[]; decoder: number[]; regressor: number[]; activation: string; contractive: boolean };
+  architecture: {
+    encoder: number[];
+    decoder: number[];
+    regressor: number[];
+    activation: string;
+    contractive: boolean;
+    /** 'band-classifier' learns the protocol's band; absent means the legacy magnitude head. */
+    head?: 'band-classifier' | undefined;
+    bands?: readonly string[] | undefined;
+    bandFactors?: Record<string, number> | undefined;
+    regressorInput?: string | undefined;
+  };
   weights: { encoder: EsaLayerWeights[]; regressor: EsaLayerWeights[] };
   relevance: Array<{ id: string; relevance: number }>;
   golden: { window: Record<string, unknown>; vector: number[]; prediction: number };
-  metrics: { trainMae: number; testMae: number; baselineMae: number; pearson: number; nTrain: number; nTest: number; seed: number };
+  metrics: {
+    trainMae: number;
+    testMae: number;
+    baselineMae: number;
+    pearson: number;
+    nTrain: number;
+    nTest: number;
+    seed: number;
+    /** Dose MAE gained over the persistence baseline; positive means it beats it. */
+    maeGainVsBaseline?: number | undefined;
+    valMae?: number | undefined;
+    bestEpoch?: number | undefined;
+    holdMae?: number | undefined;
+    changeMae?: number | undefined;
+    directionAccuracy?: number | undefined;
+    /** share of clinician dose changes the head also moved on */
+    changeRecall?: number | undefined;
+    /** share of holds the head wrongly moved on — the costly failure mode */
+    falseChangeRate?: number | undefined;
+    bandAccuracy?: number | undefined;
+    nVal?: number | undefined;
+    patients?: number | undefined;
+  };
   synthetic: boolean;
 }
 
@@ -179,13 +212,84 @@ export function encodeLatent(artifact: EsaTrainedArtifact, vector: number[]): { 
   return { l1, l2, polarRadius: Math.hypot(l1, l2), polarAngleRad: Math.atan2(l2, l1) };
 }
 
-/** Dose prediction in units/wk: RN(z)*1000 clamped to [0, ESA_TRAINED_MAX_DOSE]. */
-export function predictEsaDoseUnits(artifact: EsaTrainedArtifact, window: EsaVectorWindow): number {
+/** The four dose bands the protocol defines, in head order. */
+export const ESA_BANDS = ['suspend', 'reduce', 'hold', 'increase'] as const;
+export type EsaBand = (typeof ESA_BANDS)[number];
+
+/** Protocol step applied to a chosen band (the model never invents a magnitude). */
+export const ESA_BAND_FACTORS: Record<EsaBand, number> = {
+  suspend: 0, reduce: 0.75, hold: 1, increase: 1.25,
+};
+/** not-on-ESA patients are initiated at a fixed start dose, not a factor of 0. */
+export const ESA_INITIATION_DOSE = 2000;
+
+/**
+ * Skip features for the residual band head: the decision variable (latest hgb),
+ * the dose on record and the on-ESA flag. Indices come from the artifact's own
+ * layout, so a retrained artifact cannot silently disagree with this reader.
+ */
+function bandHeadFeatures(artifact: EsaTrainedArtifact, vector: number[], window: EsaVectorWindow): number[] {
+  const layout = artifact.featureCatalog.vector.layout;
+  let hgbIndex = -1;
+  let priorIndex = -1;
+  let esaIndex = -1;
+  let offset = 0;
+  for (const entry of layout) {
+    const width = entry.kind === 'hgb-week' ? (entry.count ?? 12) : 1;
+    if (entry.kind === 'hgb-week') hgbIndex = offset + width - 1;
+    if (entry.kind === 'feature' && entry.id === 'priorEpo') priorIndex = offset;
+    if (entry.kind === 'indicator') esaIndex = offset;
+    offset += width;
+  }
+  return [
+    hgbIndex >= 0 ? (vector[hgbIndex] ?? 0) : 0,
+    priorIndex >= 0 ? (vector[priorIndex] ?? 0) : 0,
+    esaIndex >= 0 ? (vector[esaIndex] ?? (window.onESA ? 1 : 0)) : (window.onESA ? 1 : 0),
+  ];
+}
+
+/** Band logits from the trained head; null when the artifact predates the band head. */
+export function predictEsaBand(
+  artifact: EsaTrainedArtifact,
+  window: EsaVectorWindow,
+): { band: EsaBand; index: number; logits: number[] } | null {
+  if (artifact.architecture.head !== 'band-classifier') return null;
   const vector = buildEsaVector(window, artifact.featureCatalog);
   const zRaw = forwardLayers(artifact.weights.encoder, vector, true);
   const z = [Math.tanh(zRaw[0] ?? 0), Math.tanh(zRaw[1] ?? 0)];
-  const doseK = forwardLayers(artifact.weights.regressor, z, true)[0] ?? 0;
-  return clamp(doseK * 1000, 0, ESA_TRAINED_MAX_DOSE);
+  const logits = forwardLayers(artifact.weights.regressor, [...z, ...bandHeadFeatures(artifact, vector, window)], true);
+  let best = 0;
+  for (let i = 1; i < logits.length; i++) if ((logits[i] ?? -Infinity) > (logits[best] ?? -Infinity)) best = i;
+  return { band: ESA_BANDS[best] ?? 'hold', index: best, logits };
+}
+
+/**
+ * Dose prediction in units/wk.
+ *
+ * The band head chooses the protocol band and the step comes from the protocol,
+ * mirroring the trainer exactly. An artifact trained before the band head keeps
+ * serving the legacy magnitude path, so the old file still loads and says which
+ * contract it speaks.
+ */
+export function predictEsaDoseUnits(artifact: EsaTrainedArtifact, window: EsaVectorWindow): number {
+  const prior = Math.max(0, window.currentDose);
+  const step = artifact.featureCatalog.doseStep || ESA_DOSE_STEP;
+  const band = predictEsaBand(artifact, window);
+  if (!band) {
+    const vector = buildEsaVector(window, artifact.featureCatalog);
+    const zRaw = forwardLayers(artifact.weights.encoder, vector, true);
+    const z = [Math.tanh(zRaw[0] ?? 0), Math.tanh(zRaw[1] ?? 0)];
+    const doseK = forwardLayers(artifact.weights.regressor, z, true)[0] ?? 0;
+    return clamp(doseK * 1000, 0, ESA_TRAINED_MAX_DOSE);
+  }
+  const stepRound = (value: number): number => Math.max(0, Math.round(value / step) * step);
+  if (band.band === 'suspend') return 0;
+  if (band.band === 'reduce') return clamp(stepRound(prior * ESA_BAND_FACTORS.reduce), 0, ESA_TRAINED_MAX_DOSE);
+  if (band.band === 'increase') {
+    if (!window.onESA) return ESA_INITIATION_DOSE;
+    return clamp(stepRound(prior * ESA_BAND_FACTORS.increase), 0, ESA_TRAINED_MAX_DOSE);
+  }
+  return clamp(prior, 0, ESA_TRAINED_MAX_DOSE);
 }
 
 export const roundEsaStep = (dose: number): number => Math.max(0, Math.round(dose / ESA_DOSE_STEP) * ESA_DOSE_STEP);
