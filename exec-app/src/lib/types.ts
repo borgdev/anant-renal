@@ -5,6 +5,7 @@ export type NavigationId =
   | "command"
   | "patient"
   | "anemia"
+  | "adequacy"
   | "protocols"
   | "intelligence"
   | "assessments"

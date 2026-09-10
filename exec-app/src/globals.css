@@ -859,3 +859,66 @@ button.drillable-surface:not(:disabled):hover { border-color: rgba(152,174,192,.
   .pc-table-head, .pc-table-row { grid-template-columns: minmax(0,1fr) 90px; }
   .pc-signals, .pc-driver-cell { display: none; }
 }
+
+/* ============ P1 — Dialysis adequacy protocol pack ============ */
+.adq-console { display: grid; gap: 10px; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); align-items: end; }
+.adq-console label { display: grid; gap: 4px; font-size: 12px; }
+.adq-console label > span { color: var(--faint); text-transform: uppercase; font-size: 11px; letter-spacing: .05em; }
+.adq-console select { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.03); color: var(--text); font-size: 12px; }
+.adq-console-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.adq-message { padding: 9px 12px; border: 1px solid rgba(152,174,192,.3); border-radius: 11px; background: rgba(152,174,192,.07); font-size: 12px; color: var(--muted); }
+.adq-recommendation { display: grid; gap: 10px; padding: 12px 13px; border: 1px solid var(--line); border-radius: 12px; background: rgba(152,174,192,.045); }
+.adq-rec-head { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.adq-rec-note { margin: 0; font-size: 12px; line-height: 1.6; color: var(--text); }
+.adq-rec-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.adq-rec-grid > div { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.014); }
+.adq-rec-grid small { color: var(--faint); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+.adq-rec-grid strong { font-size: 14px; }
+.adq-guards { display: flex; gap: 6px; flex-wrap: wrap; }
+.adq-block-reason { margin: 0; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 10px; background: rgba(255,128,128,.1); border: 1px solid rgba(255,128,128,.3); font-size: 12px; }
+.adq-note { margin: 0; font-size: 12px; line-height: 1.55; color: var(--muted); }
+.adq-muted { color: var(--muted); font-size: 12px; }
+.adq-mono { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; }
+.adq-band { display: grid; gap: 6px; }
+.adq-band-track { position: relative; height: 26px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.02); }
+.adq-band-target { position: absolute; top: 0; bottom: 0; background: rgba(152,192,170,.18); border-left: 1px dashed rgba(152,192,170,.5); border-right: 1px dashed rgba(152,192,170,.5); }
+.adq-band-mark { position: absolute; top: 3px; width: 3px; height: 18px; border-radius: 2px; }
+.adq-band-mark.is-current { background: var(--mint); }
+.adq-band-mark.is-expected { background: var(--violet, #b49cff); }
+.adq-band-legend { display: flex; gap: 12px; flex-wrap: wrap; color: var(--faint); font-size: 11px; }
+.adq-band-legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+.adq-band-legend i.is-current { background: var(--mint); }
+.adq-band-legend i.is-expected { background: var(--violet, #b49cff); }
+.adq-candidates { border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
+.adq-cand-head, .adq-cand-row { display: grid; grid-template-columns: minmax(0,1.4fr) repeat(3, minmax(0,.7fr)) minmax(0,.6fr) minmax(0,1.1fr); gap: 8px; align-items: center; padding: 8px 11px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.adq-cand-head { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; background: rgba(255,255,255,.02); }
+.adq-cand-row.is-blocked { opacity: .6; }
+.adq-cand-row.is-picked { background: rgba(152,192,170,.1); border-left: 3px solid var(--mint); }
+.adq-cand-label { display: grid; gap: 1px; }
+.adq-cand-label em { color: var(--faint); font-style: normal; font-size: 11px; }
+.adq-twin { display: grid; gap: 10px; }
+.adq-twin-facts { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.adq-twin-facts > span { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.014); }
+.adq-twin-facts small { color: var(--faint); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+.adq-twin-facts strong { font-size: 13px; }
+.adq-twin-drift { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.adq-drift-rows { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.adq-drift-head, .adq-drift-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.adq-drift-head { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; background: rgba(255,255,255,.02); }
+.adq-drift-row .is-close { color: var(--mint); }
+.adq-drift-row .is-wide { color: var(--amber); }
+.adq-rt { display: grid; gap: 6px; }
+.adq-rt-row { display: grid; grid-template-columns: 60px minmax(0,1fr) 100px; gap: 8px; align-items: center; font-size: 12px; }
+.adq-attribution, .adq-criteria { display: grid; gap: 6px; }
+.adq-attr-row { display: grid; grid-template-columns: 130px minmax(0,1fr) 60px; gap: 8px; align-items: center; font-size: 12px; }
+.adq-criteria-row { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,.9fr) 90px; gap: 8px; align-items: center; font-size: 12px; }
+.adq-signals { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.adq-features { display: grid; gap: 5px; }
+.adq-feature { display: grid; grid-template-columns: 150px minmax(0,1fr) 160px 70px; gap: 8px; align-items: center; padding: 6px 9px; border: 1px solid var(--line); border-radius: 9px; font-size: 12px; }
+.adq-safety { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 1100px) {
+  .adq-console { grid-template-columns: 1fr; }
+  .adq-rec-grid, .adq-twin-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .adq-cand-head, .adq-cand-row { grid-template-columns: minmax(0,1.2fr) repeat(2, minmax(0,.6fr)) minmax(0,1fr); }
+  .adq-feature { grid-template-columns: 120px minmax(0,1fr); }
+}

@@ -82,7 +82,15 @@ export type WorkspaceKind =
   | 'esa-validation-report'
   | 'esa-study-record'
   | 'esa-mdr-file'
-  | 'esa-twin-drift';
+  | 'esa-twin-drift'
+  | 'adequacy-validation-report'
+  | 'adequacy-study-record'
+  | 'adequacy-mdr-file'
+  | 'adequacy-twin-drift'
+  | 'fluid-validation-report'
+  | 'fluid-study-record'
+  | 'fluid-mdr-file'
+  | 'fluid-twin-drift';
 
 export interface WorkspaceDoc {
   id: string;
@@ -2213,6 +2221,14 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'esa-study-record',
   'esa-mdr-file',
   'esa-twin-drift',
+  'adequacy-validation-report',
+  'adequacy-study-record',
+  'adequacy-mdr-file',
+  'adequacy-twin-drift',
+  'fluid-validation-report',
+  'fluid-study-record',
+  'fluid-mdr-file',
+  'fluid-twin-drift',
 ];
 
 function slug(input: string): string {

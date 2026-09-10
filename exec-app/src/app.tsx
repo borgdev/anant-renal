@@ -42,6 +42,7 @@ import FacilityTwin from "./components/facility-twin";
 import CmsControl from "./components/cms-control";
 import AnemiaCds from "./components/anemia-cds";
 import ProtocolCockpit from "./components/protocol-cockpit";
+import AdequacyCds from "./components/adequacy-cds";
 import AssuranceCenter from "./components/assurance-center";
 import AdminConsole from "./components/admin-console";
 import ConfigurationStudio from "./components/configuration-studio";
@@ -73,6 +74,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { id: "patient", label: "Patient intelligence", icon: UserRound },
       { id: "anemia", label: "Anemia & ESA", icon: HeartPulse, badge: "CDSS" },
       { id: "protocols", label: "Protocol cockpit", icon: FlaskConical, badge: "7" },
+      { id: "adequacy", label: "Adequacy & Kt/V", icon: Gauge, badge: "P1" },
       { id: "facility", label: "Facility operations", icon: Box },
       { id: "assessments", label: "Assessment intelligence", icon: BookOpenText },
     ],
@@ -273,6 +275,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
       case "patient": return <PatientIntelligence onOpenDetail={openWorkflowDetail} />;
       case "anemia": return <AnemiaCds onNavigate={selectNav} />;
       case "protocols": return <ProtocolCockpit onNavigate={selectNav} />;
+      case "adequacy": return <AdequacyCds onNavigate={selectNav} />;
       case "assessments": return <AssessmentIntelligence onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "intelligence": return <IntelligenceWorkspace onOpenDetail={openWorkflowDetail} />;
       case "facility": return <FacilityTwin onOpenDetail={openWorkflowDetail} />;

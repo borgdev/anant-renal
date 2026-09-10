@@ -211,3 +211,27 @@ export function relativeImprovementPct(baselineMae: number | undefined, candidat
   if (baselineMae === undefined || candidateMae === undefined || baselineMae === 0) return undefined;
   return round(((baselineMae - candidateMae) / baselineMae) * 100, 2);
 }
+
+/**
+ * Two-sample Kolmogorov–Smirnov statistic (max ECDF gap), 0..1 — the standard
+ * distribution-shift test used by every protocol's drift monitor. Deterministic.
+ * Returns 1 when either sample is empty (no reference ⇒ treated as drifted).
+ */
+export function twoSampleKs(a: readonly number[], b: readonly number[]): number {
+  if (!a.length || !b.length) return 1;
+  const x = [...a].sort((p, q) => p - q);
+  const y = [...b].sort((p, q) => p - q);
+  const n = x.length;
+  const m = y.length;
+  let i = 0;
+  let j = 0;
+  let d = 0;
+  while (i < n || j < m) {
+    const xv = i < n ? x[i]! : Number.POSITIVE_INFINITY;
+    const yv = j < m ? y[j]! : Number.POSITIVE_INFINITY;
+    if (xv <= yv) i += 1;
+    if (yv <= xv) j += 1;
+    d = Math.max(d, Math.abs(i / n - j / m));
+  }
+  return round(d, 4);
+}
