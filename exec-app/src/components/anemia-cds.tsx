@@ -53,7 +53,7 @@ import {
   type EsaValidationView,
 } from "../lib/anemia";
 import type { NavigationId } from "../lib/types";
-import { EvidenceTag, Eyebrow, Metric, PanelExpand, Tag } from "./ui";
+import { EvidenceTag, Eyebrow, LoadMore, Metric, PanelExpand, Tag, usePaged } from "./ui";
 
 /** Panel review epoch — deterministic so iron-freshness checks behave like the tests. */
 const REVIEW_AT = "2026-09-01T00:00:00Z";
@@ -113,6 +113,8 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
   const [onESA, setOnESA] = useState(true);
 
   const episodes = state?.episodes ?? [];
+  // Durable ESA episodes are tall cards — page them 6 at a time in a scroll region.
+  const episodePager = usePaged(episodes, 6);
   const kpis = state?.kpis;
   const maxRelevance = useMemo(() => {
     if (!features?.features.length) return 0.4;
@@ -417,8 +419,9 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
         {episodes.length === 0 ? (
           <div className="esa-empty"><Beaker size={22} /><span><strong>No anemia episodes yet</strong><small>Run “Seed demo” to open an AwaitingApproval (Class C) episode for My Work and replay the full approve → titrate → verify loop.</small></span><button className="button button-secondary" type="button" disabled={busy !== null} onClick={() => void runDemo()}><CloudDownload size={14} /> Seed demo</button></div>
         ) : (
-          <div className="esa-episode-list">
-            {episodes.map((ep) => {
+          <>
+          <div className="esa-episode-list list-scroll list-scroll-tall">
+            {episodePager.visible.map((ep) => {
               const title = episodeTitle(ep.kind, ep.subject);
               const classC = ep.proposal?.approvalClass ?? ep.approval?.approvalClass;
               const measure = ep.measureResult;
@@ -442,8 +445,8 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
                 </div>
               );
             })}
-          </div>
-        )}
+          </div>          <LoadMore shown={episodePager.visible.length} total={episodes.length} onMore={episodePager.showMore} label="episode(s)" />
+          </>        )}
       </section>
 
       {/* ---- P1 · Advisor governance & coverage gate ---- */}
