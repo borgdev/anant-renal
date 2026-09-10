@@ -99,7 +99,9 @@ export class Realm {
   readonly policy: PolicyRuntime;
   readonly operatorSeat: OperatorSeat;
   readonly orgQuery: OrgGraphQuery;
-  readonly hypergraph: RealmHypergraph | undefined;
+  /** Live hypergraph projection. Mutable so a realm can be populated first and
+   *  projected once (see Realm.attachHypergraph). */
+  hypergraph: RealmHypergraph | undefined;
   private clockSub: (() => void) | undefined;
   private effectSub: (() => void) | undefined;
   // Intent → plan bookkeeping (planId -> PlanGraph)
@@ -228,8 +230,20 @@ export class Realm {
     return this.perception.subscribe(presenceId, cb);
   }
 
-  start(): void { this.clock.start(); }
-  stop(): void { this.clock.stop(); if (this.clockSub) { this.clockSub(); this.clockSub = undefined; } if (this.effectSub) { this.effectSub(); this.effectSub = undefined; } }
+  start(): void { this.clock.start(); }  stop(): void { this.clock.stop(); if (this.clockSub) { this.clockSub(); this.clockSub = undefined; } if (this.effectSub) { this.effectSub(); this.effectSub = undefined; } }
+
+  /**
+   * Attach the live hypergraph projection and bring the EXISTING entity graph
+   * into it. Realm creation populates patients, replays their longitudinal
+   * history, and only then attaches the projection: projecting every historical
+   * effect is ~140x the cost of syncing the finished graph once, and the
+   * projection is a materialised view either way.
+   */
+  attachHypergraph(hypergraph: RealmHypergraph): { nodes: number; edges: number } {
+    this.hypergraph = hypergraph;
+    this.reducer.attachHypergraph(hypergraph);
+    return hypergraph.syncEntityGraph(this.graph);
+  }
 
   snapshot() {
     return {

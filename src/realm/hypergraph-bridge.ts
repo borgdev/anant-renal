@@ -131,6 +131,27 @@ export class RealmHypergraph {
     }
   }
 
+  /**
+   * Bring an already-populated entity graph into this projection.
+   *
+   * The bridge is a MATERIALISED VIEW of realm state, so a realm that was
+   * populated (and given a history) before the projection existed can be synced
+   * once instead of paying a per-effect write during bulk load. Used by realm
+   * creation, where replaying a longitudinal history through a live projection
+   * costs ~140x more than syncing the final graph.
+   */
+  syncEntityGraph(graph: { snapshot(): { entities: EntityRecord[] } }): { nodes: number; edges: number } {
+    let nodes = 0;
+    let edges = 0;
+    for (const rec of graph.snapshot().entities) {
+      const before = this.nodes.size;
+      this.upsertEntity(rec);
+      if (this.nodes.size > before) nodes += 1;
+      edges += 1 + Object.values(rec.relations).reduce((n, targets) => n + targets.length, 0);
+    }
+    return { nodes, edges };
+  }
+
   /** Project an emitted effect: effect + presence + agent-run nodes and the attribution edge. */
   upsertEffect(emitted: EmittedEffect, presence: AgentPresence, opts: BridgeWriteOpts = {}): void {
     const { at } = this.w(opts);

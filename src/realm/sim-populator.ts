@@ -87,6 +87,9 @@ export function populateFacility(realm: Realm, seed: FacilitySeed, history?: Pop
       age,
       sex,
       trajectory,
+      // dialysis vintage — a real slice dimension for fairness reporting, and
+      // the infection triage's vintage driver
+      dialysisVintageYears: Math.round((0.5 + ((i * 1.7) % 13)) * 10) / 10,
       admittedAt: realm.clock.realmAt.toISOString(),
       problemList: problemsFor(seed.kind, trajectory),
       lastVitals: { hr: 72 + (i % 10), bp: '128/78', spo2: 97, at: realm.clock.realmAt.toISOString() },

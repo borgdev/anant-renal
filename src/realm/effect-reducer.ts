@@ -103,9 +103,8 @@ export interface ReducerOpts {
   /** Optional HITL bridge — checked before authority; matching gates suspend the effect. */
   hitl?: HITLBridge;
   /** Optional live hypergraph bridge (Phase 1b) — projects mutations + effects into typed nodes/edges. */
-  hypergraph?: RealmHypergraph;
+  hypergraph?: RealmHypergraph | undefined;
 }
-
 export class EffectReducer {
   constructor(
     private readonly graph: EntityGraph,
@@ -114,6 +113,18 @@ export class EffectReducer {
     private readonly clock: Clock,
     private readonly opts: ReducerOpts,
   ) {}
+
+  /**
+   * Bind (or replace) the live hypergraph projection after construction.
+   *
+   * Realm creation needs this: a realm is populated and given a longitudinal
+   * history BEFORE its projection exists, because projecting every historical
+   * effect costs ~140x more than syncing the finished graph once. Effects
+   * emitted after this call are projected normally.
+   */
+  attachHypergraph(hypergraph: RealmHypergraph | undefined): void {
+    this.opts.hypergraph = hypergraph;
+  }
 
   emit(presence: AgentPresence, effect: WorldEffect): EmittedEffect {
     // HITL gate check first — suspends before authority so approval flow captures intent.

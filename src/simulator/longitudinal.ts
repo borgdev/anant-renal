@@ -49,7 +49,7 @@ export function baselinePanelFor(trajectory: LongitudinalTrajectory): Longitudin
     procalcitonin: inflamed ? 0.8 : 0.3,
   };
 }
-export interface LongitudinalVitals { hr: number; bp: string; spo2: number }
+export interface LongitudinalVitals { hr: number; bp: string; spo2: number; tempC: number }
 
 export interface DailyHistoryPoint {
   /** ISO date of this point (dayOffset 0 = the `asOf` date). */
@@ -132,14 +132,16 @@ function dialysisDay(date: Date): boolean {
   return weekday === 1 || weekday === 3 || weekday === 5;
 }
 
-const VITALS_MEAN: Record<LongitudinalTrajectory, { hr: number; spo2: number; sys: number; dia: number }> = {
-  stable: { hr: 76, spo2: 97, sys: 130, dia: 78 },
-  decompensating: { hr: 102, spo2: 90, sys: 96, dia: 60 },
-  recovering: { hr: 80, spo2: 96, sys: 124, dia: 76 },
-  'anemic-worsening': { hr: 94, spo2: 94, sys: 118, dia: 72 },
-  'anemic-recovering': { hr: 84, spo2: 96, sys: 122, dia: 74 },
-  underdialyzed: { hr: 88, spo2: 95, sys: 126, dia: 76 },
-  hyperphosphatemia: { hr: 84, spo2: 96, sys: 132, dia: 80 },
+const VITALS_MEAN: Record<LongitudinalTrajectory, { hr: number; spo2: number; sys: number; dia: number; temp: number }> = {
+  stable: { hr: 76, spo2: 97, sys: 130, dia: 78, temp: 36.7 },
+  // a decompensating patient is the inflamed one — the P6 triage needs a real
+  // febrile signal, not a decorative one
+  decompensating: { hr: 102, spo2: 90, sys: 96, dia: 60, temp: 38.3 },
+  recovering: { hr: 80, spo2: 96, sys: 124, dia: 76, temp: 37.0 },
+  'anemic-worsening': { hr: 94, spo2: 94, sys: 118, dia: 72, temp: 37.1 },
+  'anemic-recovering': { hr: 84, spo2: 96, sys: 122, dia: 74, temp: 36.9 },
+  underdialyzed: { hr: 88, spo2: 95, sys: 126, dia: 76, temp: 36.9 },
+  hyperphosphatemia: { hr: 84, spo2: 96, sys: 132, dia: 80, temp: 36.8 },
 };
 
 export interface LongitudinalOptions {
@@ -190,7 +192,10 @@ export function generateLongitudinalHistory(opts: LongitudinalOptions): PatientL
     const spo2 = Math.round(Math.max(82, Math.min(100, mean.spo2 + (rng() - 0.5) * 2 - drift * 6)));
     const sys = Math.round(mean.sys + (rng() - 0.5) * 6);
     const dia = Math.round(mean.dia + (rng() - 0.5) * 5);
-    const vitals: LongitudinalVitals = { hr, bp: `${sys}/${dia}`, spo2 };
+    // temperature: the trajectory's baseline plus a real low-grade/ febrile
+    // swing, so a serial series carries a triage signal (P6) and a trend (fluid)
+    const tempC = round1(Math.max(35.8, Math.min(39.6, mean.temp + (rng() - 0.5) * 0.6 + drift * (38.6 - mean.temp) * 0.35)));
+    const vitals: LongitudinalVitals = { hr, bp: `${sys}/${dia}`, spo2, tempC };
 
     // Dialysis on Mon/Wed/Fri.
     const isDialysis = dialysisDay(date);

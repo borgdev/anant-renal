@@ -50,6 +50,8 @@ import { PHQ9, GAD7, AUDIT_C, BRADEN, MORSE, KDQOL_36_SUMMARY, MNA_SF, CAM_DELIR
 import { LIFECYCLE_STAGES } from '../lifecycle/index.js';
 import { AgentAuthoringService } from './agent-authoring.js';
 import { RealmRegistry, populateFacility, Federation, invoicePreview, usageCsv, DEFAULT_BILLING_PLAN, runCounterfactual, type RealmMode, type WorldEffect, type TimelineEntry, type Intervention } from '../realm/index.js';
+import { AcceleratedClock } from '../realm/clock.js';
+import { backfillAnchorMs, backfillRealmHistory, type BackfillResult } from '../simulator/backfill.js';
 import { listDirectives, listPlanAdvances, directivesByTarget } from '../realm/governance.js';
 import { NotificationHub, attachBus } from '../realm/notifications.js';
 import { LLMRegistry } from '../realm/llm-registry.js';
@@ -480,17 +482,31 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
     return { patients: r.graph.listKind('patient').map((p) => ({ id: p.id, urn: p.urn, state: p.state })) };
   });
 
-  app.post<{ Body: { id: string; mode: RealmMode; trajectoryEngine?: 'legacy' | 'liquid'; seed?: { facilityId: string; kind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital'; name: string; units: string[]; patientCount: number } } }>('/admin/realms', async (req, reply) => {
+  app.post<{ Body: { id: string; mode: RealmMode; trajectoryEngine?: 'legacy' | 'liquid'; historyDays?: number; seed?: { facilityId: string; kind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital'; name: string; units: string[]; patientCount: number } } }>('/admin/realms', async (req, reply) => {
     try {
-      const { id, mode, seed, trajectoryEngine } = req.body ?? {} as { id: string; mode: RealmMode; trajectoryEngine?: 'legacy' | 'liquid'; seed?: Parameters<typeof populateFacility>[1] };
+      const { id, mode, seed, trajectoryEngine, historyDays } = req.body ?? {} as { id: string; mode: RealmMode; trajectoryEngine?: 'legacy' | 'liquid'; historyDays?: number; seed?: Parameters<typeof populateFacility>[1] };
       if (!id || !mode) return reply.code(400).send({ error: 'id-and-mode-required' });
+      // R1 — a realm is BORN with a monitoring history. The clock is anchored
+      // `historyDays` in the past, the longitudinal record is replayed through
+      // the real clock into the ledger, and the clock then lands back on now.
+      // Without this a console-created realm had state but an empty ledger, so
+      // every protocol's coverage gate blocked its patients forever.
+      const backfillDays = Math.max(7, Math.min(365, historyDays ?? 90));
+      const anchoredAt = new Date(Date.now() - backfillAnchorMs(backfillDays));
       const realm = RealmRegistry.create({
         id, mode,
+        ...(seed ? { clock: new AcceleratedClock({ startAt: anchoredAt, msPerTick: 1000, realmMsPerTick: 3_600_000 }) } : {}),
         ...(trajectoryEngine ? { trajectoryEngine } : {}),
-        // Phase 1b — live typed hypergraph, auto-populated by every emitted effect.
-        hypergraph: new RealmHypergraph(buildHealthcareHypergraphSchema(), id),
       });
-      if (seed) populateFacility(realm, seed);
+      let backfill: BackfillResult | undefined;
+      if (seed) {
+        populateFacility(realm, seed, { seed: 1, days: backfillDays });
+        backfill = backfillRealmHistory(realm, { days: backfillDays, seed: 1 });
+      }
+      // Phase 1b — attach the typed hypergraph now and sync the graph once.
+      // The projection is a materialised view of state, so this is equivalent to
+      // projecting every effect but avoids paying that cost during bulk load.
+      realm.attachHypergraph(new RealmHypergraph(buildHealthcareHypergraphSchema(), id));
       realm.start();
       // Phase 3 — stream this realm's effects to the event broker.
       if (opts.realmEventBridge) opts.realmEventBridge.attach(realm);
@@ -531,7 +547,7 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
           }
         }
       } catch { /* storage is best-effort; the realm still runs */ }
-      return realm.snapshot();
+      return { ...realm.snapshot(), ...(backfill ? { history: backfill } : {}) };
     } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
 
