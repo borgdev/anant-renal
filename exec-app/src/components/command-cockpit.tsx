@@ -18,7 +18,7 @@ import { outcomeEpisodes, patientTimeline, agentManifests } from "../lib/catalog
 import { startLiveRuntime, fetchRuntimeSnapshot, mutateRuntime, type RuntimeActionRow, type RuntimeSnapshot } from "../lib/harness";
 import type { NavigationId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
-import { Eyebrow, Metric, PanelExpand, ProgressBar, Tag } from "./ui";
+import { Eyebrow, LoadMore, Metric, PanelExpand, ProgressBar, Tag, usePaged } from "./ui";
 
 /** A live outcome episode as projected by the durable coordinator. */
 type LiveEpisode = {
@@ -145,6 +145,8 @@ export default function CommandCockpit({
     }
     return items;
   }, [runtime]);
+  // Resolution queue is capped at ~20 rows by the memo; page 10 at a time + scroll.
+  const queuePager = usePaged(queue, 10);
 
   const selected = useMemo(() => queue.find((item) => item.id === selectedId) ?? queue[0], [queue, selectedId]);
   const selectedAction = useMemo<RuntimeActionRow | undefined>(() => {
@@ -430,9 +432,10 @@ export default function CommandCockpit({
             <div><Eyebrow>Resolution queue</Eyebrow><h2>Outcome episodes &amp; next-best actions</h2></div>
             <span className="live-label"><span /> {runtime ? `D1 runtime · ${queue.length} items` : "Loading runtime"}</span>
           </div>
-          <div className="episode-list">
-            {queue.map((item) => <QueueRow key={item.id} item={item} selected={item.id === selected.id} onSelect={() => onSelect(item.id)} />)}
+          <div className="episode-list list-scroll list-scroll-tall">
+            {queuePager.visible.map((item) => <QueueRow key={item.id} item={item} selected={item.id === selected.id} onSelect={() => onSelect(item.id)} />)}
           </div>
+          <LoadMore shown={queuePager.visible.length} total={queue.length} onMore={queuePager.showMore} label="item(s)" />
         </article>
 
         <article className="panel event-panel">

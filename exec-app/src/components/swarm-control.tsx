@@ -22,7 +22,7 @@ import { agentManifests, ecosystemDemo, operatingModel } from "../lib/catalogs";
 import { startLiveFeed, startLiveRuntime, autofillRegionAssignments, fetchRegionOps, fetchRuntimeSnapshot, fetchSimulatorScenarios, fetchSimulatorStatus, mutateRuntime, pauseSimulator, resumeSimulator, startSimulator, stopSimulator, type LiveFeedView, type PolicySimulation, type RegionCensus, type RegionDeterioration, type RegionOpsView, type RuntimeInsightRow, type RuntimeSnapshot, type SimScenarioMeta, type SimulatorStatusView } from "../lib/harness";
 import type { NavigationId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
-import { Eyebrow, PanelExpand, ProgressBar, Tag } from "./ui";
+import { Eyebrow, LoadMore, PanelExpand, ProgressBar, Tag, usePaged } from "./ui";
 
 type RoleId = "evp" | "dvp" | "rod" | "fa" | "medical" | "quality" | "finance" | "biomed";
 type ScopeLevel = "enterprise" | "division" | "region" | "market" | "facility";
@@ -196,6 +196,16 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
       .sort((left, right) => Number(right.audience.includes(roleId)) - Number(left.audience.includes(roleId)) || left.rank - right.rank)
       .slice(0, 5);
   }, [roleId, runtime]);
+
+  // Unbounded live lists are paged + scroll-contained so cards can't grow forever.
+  const liveInsights = runtime?.insights ?? [];
+  const insightPager = usePaged(liveInsights, 6);
+  const regionRows: Array<RegionCensus & Partial<RegionDeterioration>> = regionOps ? (
+    regionOps.deterioration.length
+      ? (regionOps.deterioration as Array<RegionCensus & Partial<RegionDeterioration>>)
+      : (regionOps.census as Array<RegionCensus & Partial<RegionDeterioration>>)
+  ) : [];
+  const regionPager = usePaged(regionRows, 12);
 
   const visibleMessages = useMemo(() => {
     // R0 — prefer the broker-fed live tail when the server wires a live feed;
@@ -584,7 +594,8 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
 
       <section className="swarm-insight-strip panel">
         <div className="insight-strip-title"><span className="context-icon"><Network size={17} /></span><div><Eyebrow>Cross-facility swarm intelligence</Eyebrow><strong>{runtime?.counts.insights ?? 0} persisted insights · {runtime?.health.conflicts ?? 0} retained conflicts · no autonomous action</strong></div></div>
-        {(runtime?.insights.length ? runtime.insights : ecosystemDemo.swarmInsights.slice(0, 3).map((insight) => ({ insightId: insight.id, title: insight.title, summary: insight.summary, confidenceBasisPoints: Math.round(insight.confidence * 10000), scopeId: insight.scope, state: insight.state, agentIds: insight.agentIds, conflicts: [] }))).map((insight) => <button className="swarm-insight-card drillable-surface" type="button" onClick={() => openInsightDetail(insight)} key={insight.insightId}><div><Tag tone={insight.conflicts.length ? "amber" : "mint"}>{Math.round(insight.confidenceBasisPoints / 100)}%</Tag><small>{insight.scopeId}</small></div><strong>{insight.title}</strong><p>{insight.summary}</p><span>{insight.agentIds.length} cells · {insight.conflicts.length ? `${insight.conflicts.length} conflict` : insight.state}{typeof insight.belief === "number" ? ` · Bel ${Math.round(insight.belief * 100)}% · Pl ${Math.round((insight.plausibility ?? 0) * 100)}% · K ${(insight.conflictMass ?? 0).toFixed(2)}` : ""}</span></button>)}
+        {(liveInsights.length ? insightPager.visible : ecosystemDemo.swarmInsights.slice(0, 3).map((insight) => ({ insightId: insight.id, title: insight.title, summary: insight.summary, confidenceBasisPoints: Math.round(insight.confidence * 10000), scopeId: insight.scope, state: insight.state, agentIds: insight.agentIds, conflicts: [] }))).map((insight) => <button className="swarm-insight-card drillable-surface" type="button" onClick={() => openInsightDetail(insight)} key={insight.insightId}><div><Tag tone={insight.conflicts.length ? "amber" : "mint"}>{Math.round(insight.confidenceBasisPoints / 100)}%</Tag><small>{insight.scopeId}</small></div><strong>{insight.title}</strong><p>{insight.summary}</p><span>{insight.agentIds.length} cells · {insight.conflicts.length ? `${insight.conflicts.length} conflict` : insight.state}{typeof insight.belief === "number" ? ` · Bel ${Math.round(insight.belief * 100)}% · Pl ${Math.round((insight.plausibility ?? 0) * 100)}% · K ${(insight.conflictMass ?? 0).toFixed(2)}` : ""}</span></button>)}
+        <LoadMore shown={insightPager.visible.length} total={liveInsights.length} onMore={insightPager.showMore} label="insight(s)" />
       </section>
 
       {regionOps ? (
@@ -598,8 +609,8 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
               <Tag tone={(regionOps.enterprise.alerts ?? 0) > 0 ? "red" : "mint"}><Network size={11} /> {(regionOps.enterprise.alerts ?? 0)} alert(s) across {regionOps.enterprise.patients ?? 0} watched patients</Tag>
             </div>
           </div>
-          <div className="region-grid">
-            {(regionOps.deterioration.length ? regionOps.deterioration : regionOps.census).length ? (regionOps.deterioration.length ? regionOps.deterioration : regionOps.census).map((raw) => {
+          <div className="region-grid list-scroll list-scroll-tall">
+            {regionRows.length ? regionPager.visible.map((raw) => {
               const r = raw as RegionCensus & Partial<RegionDeterioration>;
               const alerts = r.alerts ?? 0;
               return (
@@ -625,6 +636,7 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
               <p className="ew-copy">No regions with live realms yet — start a scenario (e.g. <code>HH_DEMO_SIM_SCENARIO=dialysis-enterprise</code>) to populate the regional board.</p>
             )}
           </div>
+          <LoadMore shown={regionPager.visible.length} total={regionRows.length} onMore={regionPager.showMore} label="region(s)" />
         </section>
       ) : null}
     </div>

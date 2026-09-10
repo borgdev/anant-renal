@@ -16,7 +16,7 @@ import { graphEdges, graphNodes, operatingModel } from "../lib/catalogs";
 import { startLiveRuntime, createKnowledgeComment, createKnowledgeNote, fetchKnowledgeNotes, type KnowledgeNote, type RuntimeSnapshot } from "../lib/harness";
 import type { GraphEdge, GraphNode, NavigationId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
-import { Eyebrow, PanelExpand, Tag } from "./ui";
+import { Eyebrow, LoadMore, PanelExpand, Tag, usePaged } from "./ui";
 
 const nodeTone: Record<(typeof graphNodes)[number]["type"], "mint" | "violet" | "blue" | "amber" | "red" | "neutral"> = {
   enterprise: "mint",
@@ -129,6 +129,8 @@ export default function IntelligenceWorkspace({ onOpenDetail }: { onOpenDetail: 
     () => visibleEdges.filter((edge) => edge.source === selectedNode.id || edge.target === selectedNode.id),
     [selectedNode.id, visibleEdges],
   );
+  // A hub node can link to many relations — page them + scroll rather than growing the card.
+  const connectedPager = usePaged(connected, 12, selectedNode.id);
   const searchMatches = useMemo(() => searchQuery.trim() ? allNodes.filter((node) => `${node.label} ${node.type} ${node.id}`.toLowerCase().includes(searchQuery.trim().toLowerCase())).slice(0, 8) : [], [allNodes, searchQuery]);
 
   useEffect(() => {
@@ -246,14 +248,15 @@ export default function IntelligenceWorkspace({ onOpenDetail }: { onOpenDetail: 
 
           <article className="panel relation-panel">
             <div className="panel-title-row"><div><Eyebrow>Typed relations</Eyebrow><h2>Connected evidence</h2></div><span className="mini-count">{connected.length}</span></div>
-            <div className="relation-list">
-              {connected.length ? connected.map((edge) => {
+            <div className="relation-list list-scroll list-scroll-tall">
+              {connectedPager.visible.length ? connectedPager.visible.map((edge) => {
                 const outbound = edge.source === selectedId;
                 const otherId = outbound ? edge.target : edge.source;
                 const other = visibleNodes.find((node) => node.id === otherId);
                 return <button type="button" key={`${edge.source}-${edge.target}`} onClick={() => setSelectedId(otherId)}><span>{outbound ? "→" : "←"}</span><div><small>{edge.relation}</small><strong>{other?.label}</strong></div></button>;
               }) : <p className="no-relations">No relations in this filtered perspective.</p>}
             </div>
+            <LoadMore shown={connectedPager.visible.length} total={connected.length} onMore={connectedPager.showMore} label="relation(s)" />
           </article>
 
           <article className="panel knowledge-panel">

@@ -47,7 +47,7 @@ import type {
   RuntimePolicyConfiguration,
 } from "../lib/contracts";
 import type { NavigationId } from "../lib/types";
-import { Eyebrow, ProgressBar, Tag } from "./ui";
+import { Eyebrow, LoadMore, ProgressBar, Tag, usePaged } from "./ui";
 
 const stepIcons: Record<OnboardingStepId, typeof Building2> = {
   organization: Building2,
@@ -162,6 +162,9 @@ export default function AdminConsole({ onNavigate }: { onNavigate: (id: Navigati
     () => snapshot?.validations.filter((validation) => validation.releaseId === (workingRelease?.releaseId ?? activeRelease?.releaseId)) ?? [],
     [activeRelease?.releaseId, snapshot?.validations, workingRelease?.releaseId],
   );
+  // The release ledger grows per save/validate/activate — page it + scroll.
+  const releaseLedger = snapshot?.releases ?? [];
+  const releasePager = usePaged(releaseLedger, 8);
 
   async function saveOrganization() {
     const result = await run("save-organization", organization, "Organization boundary saved. Workspace identity and scoped roles are now attached.");
@@ -371,7 +374,8 @@ export default function AdminConsole({ onNavigate }: { onNavigate: (id: Navigati
                 <div><Eyebrow>Zero-redeploy control plane</Eyebrow><h3>{validatedRelease?.version ?? activeRelease?.version ?? snapshot?.activeConfigurationVersion ?? BASE_FALLBACK}</h3><p>Agent manifests, policy thresholds, topic mappings, workflows and measure packs are runtime objects—not frontend code.</p></div>
                 <div className="activation-facts"><span><small>Runtime effect</small><strong>Hot load</strong></span><span><small>Rollback</small><strong>{validatedRelease?.version ? "Pinned" : activeRelease ? "Available" : "Base"}</strong></span><span><small>External writes</small><strong>Disabled</strong></span></div>
               </div>
-              <div className="release-ledger"><div className="release-ledger-head"><span>Release</span><span>Objects</span><span>Created by</span><span>State</span></div>{(snapshot?.releases ?? []).map((release) => <div key={release.releaseId}><span><strong>{release.version}</strong><small>{release.changeSummary}</small></span><span>{release.objectCount}</span><span>{release.createdBy}</span><Tag tone={statusTone(release.status)}>{release.status}</Tag></div>)}</div>
+              <div className="release-ledger list-scroll list-scroll-tall"><div className="release-ledger-head"><span>Release</span><span>Objects</span><span>Created by</span><span>State</span></div>{releasePager.visible.map((release) => <div key={release.releaseId}><span><strong>{release.version}</strong><small>{release.changeSummary}</small></span><span>{release.objectCount}</span><span>{release.createdBy}</span><Tag tone={statusTone(release.status)}>{release.status}</Tag></div>)}</div>
+              <LoadMore shown={releasePager.visible.length} total={releaseLedger.length} onMore={releasePager.showMore} label="release(s)" />
               <div className="production-gate-note"><ShieldCheck size={18} /><div><strong>Production remains deliberately gated.</strong><p>{snapshot?.activation.productionGate}</p></div></div>
               <div className="admin-stage-footer"><div><CloudCog size={15} /><span>Activation changes new server executions immediately; the application bundle is untouched.</span></div><span className="admin-footer-actions"><button className="button button-secondary" type="button" onClick={() => onNavigate("agents")}>Inspect Agent Operations</button><button className="button button-primary" disabled={Boolean(busy) || !validatedRelease} type="button" onClick={() => void activate()}>{busy === "activate-release" ? <LoaderCircle className="is-spinning" size={15} /> : <Rocket size={15} />} Activate release</button></span></div>
             </>
