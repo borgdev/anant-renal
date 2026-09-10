@@ -7,6 +7,7 @@ export type NavigationId =
   | "anemia"
   | "adequacy"
   | "fluid"
+  | "vascular-access"
   | "protocols"
   | "intelligence"
   | "assessments"

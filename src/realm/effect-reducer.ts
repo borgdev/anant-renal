@@ -68,11 +68,11 @@ const UNIVERSAL_EFFECTS: Array<WorldEffect['kind']> = [
 ];
 
 export const DEFAULT_AUTHORITY: EffectAuthorityMap = {
-  nurse: ['admit-patient', 'transfer-patient', 'administer-med', 'record-vitals', 'record-assessment', 'record-agent-thought', 'notify-staff', 'flag-safety-event', 'update-care-plan', 'result-lab', 'start-session', 'record-session-telemetry', 'end-session', 'record-access'],
-  md: ['admit-patient', 'transfer-patient', 'discharge-patient', 'order-lab', 'order-med', 'hold-med', 'titrate-med', 'update-care-plan', 'schedule-followup', 'notify-staff', 'flag-safety-event', 'record-agent-thought', 'record-assessment', 'record-vitals', 'result-lab', 'start-session', 'record-session-telemetry', 'end-session', 'record-access'],
+  nurse: ['admit-patient', 'transfer-patient', 'administer-med', 'record-vitals', 'record-assessment', 'record-agent-thought', 'notify-staff', 'flag-safety-event', 'update-care-plan', 'result-lab', 'start-session', 'record-session-telemetry', 'end-session', 'record-access', 'record-access-acoustic'],
+  md: ['admit-patient', 'transfer-patient', 'discharge-patient', 'order-lab', 'order-med', 'hold-med', 'titrate-med', 'update-care-plan', 'schedule-followup', 'notify-staff', 'flag-safety-event', 'record-agent-thought', 'record-assessment', 'record-vitals', 'result-lab', 'start-session', 'record-session-telemetry', 'end-session', 'record-access', 'record-access-acoustic'],
   pa: ['order-lab', 'order-med', 'titrate-med', 'update-care-plan', 'schedule-followup', 'notify-staff', 'record-agent-thought'],
   pharmacist: ['hold-med', 'titrate-med', 'notify-staff', 'flag-safety-event', 'record-agent-thought'],
-  tech: ['administer-med', 'record-vitals', 'record-agent-thought', 'notify-staff', 'start-session', 'record-session-telemetry', 'end-session'],
+  tech: ['administer-med', 'record-vitals', 'record-agent-thought', 'notify-staff', 'start-session', 'record-session-telemetry', 'end-session', 'record-access', 'record-access-acoustic'],
   coder: ['submit-claim', 'record-agent-thought'],
   ops: ['request-prior-auth', 'submit-claim', 'schedule-followup', 'notify-staff', 'record-agent-thought'],
   auditor: ['record-agent-thought', 'flag-safety-event', 'approve-effect'],
@@ -379,10 +379,63 @@ export class EffectReducer {
       }
       case 'record-access': {
         const patientUrn = g.urnFor('patient', effect.patientId);
-        const state = g.get(patientUrn)?.state as { accessObservations?: unknown[] } | undefined;
-        const observation = { at, event: effect.event, ...(effect.note ? { note: effect.note } : {}) };
+        const state = g.get(patientUrn)?.state as { accessObservations?: unknown[]; access?: { type?: string; events?: unknown[]; ageDays?: number } } | undefined;
+        const observation = {
+          at,
+          event: effect.event,
+          ...(effect.note ? { note: effect.note } : {}),
+          // P3 — longitudinal measurements (all optional; older effects carry none)
+          ...(effect.venousPressureMmHg !== undefined ? { venousPressureMmHg: effect.venousPressureMmHg } : {}),
+          ...(effect.arterialPressureMmHg !== undefined ? { arterialPressureMmHg: effect.arterialPressureMmHg } : {}),
+          ...(effect.measuredAtQb !== undefined ? { measuredAtQb: effect.measuredAtQb } : {}),
+          ...(effect.bloodFlowMlMin !== undefined ? { bloodFlowMlMin: effect.bloodFlowMlMin } : {}),
+          ...(effect.accessFlowMlMin !== undefined ? { accessFlowMlMin: effect.accessFlowMlMin } : {}),
+          ...(effect.recirculationPct !== undefined ? { recirculationPct: effect.recirculationPct } : {}),
+          ...(effect.deliveredClearancePct !== undefined ? { deliveredClearancePct: effect.deliveredClearancePct } : {}),
+          ...(effect.cannulationDifficulty !== undefined ? { cannulationDifficulty: effect.cannulationDifficulty } : {}),
+        };
         const priorObservations = Array.isArray(state?.accessObservations) ? (state?.accessObservations as unknown[]) : [];
-        const patch = { accessObservations: [...priorObservations, observation].slice(-24) };
+        const isEvent = effect.event !== 'surveillance';
+        const priorEvents = Array.isArray(state?.access?.events) ? (state.access?.events as unknown[]) : [];
+        const typeFromEvent = effect.event === 'catheter-placed' ? 'catheter' : effect.event === 'avf-created' ? 'avf' : undefined;
+        const access = (isEvent || typeFromEvent !== undefined || effect.accessAgeDays !== undefined)
+          ? {
+            ...(state?.access ?? {}),
+            ...(isEvent ? { events: [...priorEvents, { at, event: effect.event, ...(effect.note ? { note: effect.note } : {}) }].slice(-12) } : {}),
+            ...(typeFromEvent !== undefined ? { type: typeFromEvent } : {}),
+            ...(effect.accessAgeDays !== undefined ? { ageDays: effect.accessAgeDays } : {}),
+          }
+          : state?.access;
+        const patch = {
+          accessObservations: [...priorObservations, observation].slice(-24),
+          ...(access ? { access } : {}),
+        };
+        if (g.get(patientUrn)) g.patch(patientUrn, patch, `effect:${effect.kind}`);
+        else g.create('patient', effect.patientId, patch);
+        results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
+        return results;
+      }
+      case 'record-access-acoustic': {
+        const patientUrn = g.urnFor('patient', effect.patientId);
+        const state = g.get(patientUrn)?.state as { accessAcoustic?: unknown[] } | undefined;
+        // Provenance is mandatory and the payload is a synthetic feature vector —
+        // raw audio is never stored. Two distinct guards, both enforced here.
+        if (!effect.provenance) throw new Error('access-acoustic-provenance-missing');
+        if (effect.synthetic !== true || !Array.isArray(effect.features) || effect.features.length === 0) {
+          throw new Error('access-acoustic-must-be-labelled-synthetic-feature-vector');
+        }
+        const capture = {
+          at,
+          captureId: effect.captureId,
+          features: effect.features.slice(0, 32),
+          featureKind: effect.featureKind ?? 'mel-band-energies',
+          baseline: effect.baseline,
+          provenance: effect.provenance,
+          synthetic: true as const,
+          ...(effect.note ? { note: effect.note } : {}),
+        };
+        const prior = Array.isArray(state?.accessAcoustic) ? (state?.accessAcoustic as unknown[]) : [];
+        const patch = { accessAcoustic: [...prior, capture].slice(-12) };
         if (g.get(patientUrn)) g.patch(patientUrn, patch, `effect:${effect.kind}`);
         else g.create('patient', effect.patientId, patch);
         results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });

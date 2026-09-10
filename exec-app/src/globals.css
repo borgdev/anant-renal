@@ -953,3 +953,19 @@ button.drillable-surface:not(:disabled):hover { border-color: rgba(152,174,192,.
 .pc-bar-label { color: var(--faint); }
 .pc-details { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
 .pc-details > summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+
+/* ============ P3 — vascular access protocol pack ============ */
+.ax-trend { display: grid; grid-template-columns: minmax(0,1fr) 58px; gap: 8px; align-items: center; }
+.ax-probability { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.014); }
+.ax-probability-label { display: inline-flex; align-items: center; gap: 6px; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.ax-probability > strong { font-size: 26px; font-family: ui-monospace, SFMono-Regular, monospace; }
+.ax-probability > strong.is-mint { color: var(--mint, #9fd7bb); }
+.ax-probability > strong.is-amber { color: var(--amber, #ffce8a); }
+.ax-probability > strong.is-red { color: var(--red, #ff9b9b); }
+.ax-probability > strong.is-neutral { color: var(--muted); }
+.ax-probability-bars { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ax-probability-bars > span { display: grid; grid-template-columns: minmax(0,1fr) 46px; gap: 6px; align-items: center; }
+.ax-probability-bars em { grid-column: 1 / -1; color: var(--faint); font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+.ax-probability-bars b { font-size: 11px; }
+.ax-audio { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid rgba(152,192,170,.28); border-radius: 12px; background: rgba(152,192,170,.05); }
+.ax-audio-gates { margin: 0; padding-left: 18px; display: grid; gap: 3px; color: var(--muted); font-size: 11px; line-height: 1.5; }

@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Sparkles,
+  Stethoscope,
   TrendingUp,
   UserRound,
   X,
@@ -45,6 +46,7 @@ import AnemiaCds from "./components/anemia-cds";
 import ProtocolCockpit from "./components/protocol-cockpit";
 import AdequacyCds from "./components/adequacy-cds";
 import FluidCds from "./components/fluid-cds";
+import AccessCds from "./components/access-cds";
 import AssuranceCenter from "./components/assurance-center";
 import AdminConsole from "./components/admin-console";
 import ConfigurationStudio from "./components/configuration-studio";
@@ -78,6 +80,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { id: "protocols", label: "Protocol cockpit", icon: FlaskConical, badge: "7" },
       { id: "adequacy", label: "Adequacy & Kt/V", icon: Gauge, badge: "P1" },
       { id: "fluid", label: "Fluid & IDH", icon: Droplets, badge: "P2" },
+      { id: "vascular-access", label: "Vascular access", icon: Stethoscope, badge: "P3" },
       { id: "facility", label: "Facility operations", icon: Box },
       { id: "assessments", label: "Assessment intelligence", icon: BookOpenText },
     ],
@@ -280,6 +283,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
       case "protocols": return <ProtocolCockpit onNavigate={selectNav} />;
       case "adequacy": return <AdequacyCds onNavigate={selectNav} />;
       case "fluid": return <FluidCds onNavigate={selectNav} />;
+      case "vascular-access": return <AccessCds onNavigate={selectNav} />;
       case "assessments": return <AssessmentIntelligence onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "intelligence": return <IntelligenceWorkspace onOpenDetail={openWorkflowDetail} />;
       case "facility": return <FacilityTwin onOpenDetail={openWorkflowDetail} />;

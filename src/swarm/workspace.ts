@@ -90,7 +90,11 @@ export type WorkspaceKind =
   | 'fluid-validation-report'
   | 'fluid-study-record'
   | 'fluid-mdr-file'
-  | 'fluid-twin-drift';
+  | 'fluid-twin-drift'
+  | 'access-validation-report'
+  | 'access-study-record'
+  | 'access-mdr-file'
+  | 'access-twin-drift';
 
 export interface WorkspaceDoc {
   id: string;
@@ -607,6 +611,8 @@ export function projectRealmEvents(entries: Array<{ realmId: string; eventId: st
     // F1 — dialysis session lifecycle + access observations.
     'start-session': 'session.started.v1', 'record-session-telemetry': 'session.telemetry.v1',
     'end-session': 'session.ended.v1', 'record-access': 'access.observed.v1',
+    // P3 — access acoustic captures (synthetic feature vectors, gated ingestion).
+    'record-access-acoustic': 'access.acoustic.v1',
   };
   return entries.map((e, i) => {
     // When a realm effect carries a patientId, scope the projection to that
@@ -2229,6 +2235,10 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'fluid-study-record',
   'fluid-mdr-file',
   'fluid-twin-drift',
+  'access-validation-report',
+  'access-study-record',
+  'access-mdr-file',
+  'access-twin-drift',
 ];
 
 function slug(input: string): string {

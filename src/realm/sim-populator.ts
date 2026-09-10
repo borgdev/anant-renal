@@ -99,6 +99,7 @@ export function populateFacility(realm: Realm, seed: FacilitySeed, history?: Pop
       },
       sessions: [],
       accessObservations: [],
+      accessAcoustic: [],
       ...(history
         ? (() => {
             const profile = generateLongitudinalHistory({ patientId: pid, facilityId: seed.facilityId, trajectory, days: history.days ?? 90, seed: history.seed ?? 1, asOf: new Date(realm.clock.realmAt) });

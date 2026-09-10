@@ -30,7 +30,6 @@ export const PANEL_CODES = ['CALCIUM', 'PTH', 'ALBUMIN', 'CREATININE', 'BICARB',
 const SESSION_CYCLE_HOURS = 48;
 const SESSION_TELEMETRY_OFFSET = 6;
 const SESSION_END_OFFSET = 12;
-const ACCESS_EVENTS = ['cannulation-difficulty', 'angioplasty', 'thrombosis', 'declot', 'infection'] as const;
 const MAINTENANCE_MEDS = [
   { code: 'sevelamer', dose: '800 mg', route: 'PO', frequency: 'three times daily', indication: 'hyperphosphatemia' },
   { code: 'calcium-acetate', dose: '667 mg', route: 'PO', frequency: 'three times daily', indication: 'hyperphosphatemia' },
@@ -223,13 +222,119 @@ function panelLabs({ patientIds }: ScriptEmitInput): WorldEffect[] {
   return out;
 }
 
-/** F1 — access surveillance observation on one rotating patient. */
-function accessObservations({ patientIds, seq, rng }: ScriptEmitInput): WorldEffect[] {
+/**
+ * P3 — vascular access surveillance with a real longitudinal signal.
+ *
+ * One in four accesses progressively stenoses (venous pressure up, recirculation
+ * up, access flow and delivered clearance down). An angioplasty resets the
+ * trajectory; a stenosis-prone access that is never intervened on eventually
+ * thromboses. Every value is a deterministic function of realm time and the
+ * patient's recorded interventions, so the trajectory is reproducible and the
+ * twin sees a genuine rise-then-reset or rise-then-thrombosis story.
+ */
+const ACCESS_SURVEILLANCE_HOURS = 96;
+const ACCESS_PROGRESSION_HOURS = 1_440; // full progression over ~60 realm-days
+
+function accessProgress(
+  events: Array<{ at?: string; event?: string }>,
+  realmAt: Date,
+  elapsedHours: number,
+): { progress: number; sinceInterventionHours: number | undefined } {
+  const interventions = events.filter((e) => e.event === 'angioplasty' || e.event === 'declot' || e.event === 'thrombosis');
+  const last = interventions
+    .map((e) => (e.at ? Date.parse(e.at) : Number.NaN))
+    .filter((t) => Number.isFinite(t))
+    .sort((a, b) => b - a)[0];
+  const sinceInterventionHours = last !== undefined ? (realmAt.getTime() - last) / 3_600_000 : undefined;
+  const baselineHours = sinceInterventionHours !== undefined ? Math.max(0, sinceInterventionHours) : elapsedHours;
+  const progress = Math.max(0, Math.min(1, baselineHours / ACCESS_PROGRESSION_HOURS));
+  return { progress, sinceInterventionHours };
+}
+
+function accessSurveillance(input: ScriptEmitInput): WorldEffect[] {
+  const { patientIds, seq, rng, realm, realmAt, elapsedHours } = input;
   const pid = patientIds[seq % Math.max(1, patientIds.length)];
   if (!pid) return [];
-  if (rng() < 0.5) return [];
-  const event = ACCESS_EVENTS[Math.min(ACCESS_EVENTS.length - 1, Math.floor(rng() * ACCESS_EVENTS.length))] as (typeof ACCESS_EVENTS)[number];
-  return [{ kind: 'record-access', patientId: pid, event, note: 'access surveillance (cannulation pressures, recirculation)' }];
+  const states = stateById(realm);
+  const state = states.get(pid) ?? {};
+  const access = (state.access ?? {}) as { type?: string; ageDays?: number; events?: Array<{ at?: string; event?: string }> };
+  const index = patientIds.indexOf(pid);
+  const catheter = access.type === 'catheter';
+  const stenosisProne = !catheter && index % 4 === 0;
+  const { progress, sinceInterventionHours } = accessProgress(access.events ?? [], realmAt, elapsedHours);
+
+  // Stable accesses: baseline measurements with small variation.
+  const base = 118 + (index % 5) * 6;
+  const p = stenosisProne ? progress : 0;
+  const venousPressureMmHg = Math.round(base * (1 + 0.45 * p) + (stenosisProne ? 0 : rng() * 10 - 5));
+  const recirculationPct = Number(((catheter ? 12 : 3.5) + (stenosisProne ? 14 * p : rng() * 2)).toFixed(1));
+  const accessFlowMlMin = Math.round(950 - 380 * p - (catheter ? 180 : 0));
+  const bloodFlowMlMin = catheter ? 300 : Math.round(380 - 60 * p);
+  const deliveredClearancePct = Math.round(100 - 22 * p);
+  const cannulationDifficulty: 'easy' | 'moderate' | 'difficult' = p < 0.3 ? 'easy' : p < 0.65 ? 'moderate' : 'difficult';
+
+  const measured = {
+    venousPressureMmHg,
+    arterialPressureMmHg: -(140 + Math.round(40 * p)),
+    measuredAtQb: bloodFlowMlMin,
+    bloodFlowMlMin,
+    accessFlowMlMin,
+    recirculationPct,
+    deliveredClearancePct,
+    cannulationDifficulty,
+    ...(access.ageDays !== undefined ? { accessAgeDays: access.ageDays + Math.round(elapsedHours / 24) } : {}),
+  };
+
+  // Intervention / outcome decisions on the stenosing arm.
+  if (stenosisProne && p >= 0.9 && (sinceInterventionHours === undefined || sinceInterventionHours > 720)) {
+    return [{ kind: 'record-access', patientId: pid, event: 'thrombosis', note: 'access thrombosed — no intervention on a progressive stenosis', ...measured }];
+  }
+  if (stenosisProne && p >= 0.62 && (sinceInterventionHours === undefined || sinceInterventionHours > 336)) {
+    return [{ kind: 'record-access', patientId: pid, event: 'angioplasty', note: 'fistulogram + angioplasty for a progressive venous stenosis', ...measured }];
+  }
+  if (cannulationDifficulty === 'difficult' && rng() < 0.35) {
+    return [{ kind: 'record-access', patientId: pid, event: 'cannulation-difficulty', note: 'cannulation required multiple attempts', ...measured }];
+  }
+  return [{ kind: 'record-access', patientId: pid, event: 'surveillance', note: 'access surveillance (pressures, recirculation, access flow)', ...measured }];
+}
+
+/**
+ * P3 — synthetic acoustic capture (mel-band energies). Never raw audio: the
+ * payload is a small feature vector, always labelled synthetic, always carrying
+ * provenance. The engine ignores it unless ACCESS_ACOUSTIC_ENABLED is set.
+ */
+function accessAcousticCaptures(input: ScriptEmitInput): WorldEffect[] {
+  const { patientIds, seq, realm, realmAt, elapsedHours, rng } = input;
+  const pid = patientIds[seq % Math.max(1, patientIds.length)];
+  if (!pid) return [];
+  const states = stateById(realm);
+  const access = (states.get(pid)?.access ?? {}) as { type?: string; events?: Array<{ at?: string; event?: string }> };
+  const priorCaptures = states.get(pid)?.accessAcoustic;
+  const hasBaseline = Array.isArray(priorCaptures) && priorCaptures.length > 0;
+  const index = patientIds.indexOf(pid);
+  const catheter = access.type === 'catheter';
+  const stenosisProne = !catheter && index % 4 === 0;
+  const { progress } = accessProgress(access.events ?? [], realmAt, elapsedHours);
+  const p = stenosisProne ? progress : 0;
+  // Band energies: the low-frequency bruit band rises with stenosis, the
+  // high-frequency content falls — a documented, monotone synthetic signature.
+  const features = Array.from({ length: 8 }, (_, band) => {
+    const tilt = (band - 3.5) / 3.5; // -1 (low band) … +1 (high band)
+    const value = 1 + 0.55 * p * (1 - tilt) - 0.25 * p * (1 + tilt) + (rng() - 0.5) * 0.04;
+    return Number(value.toFixed(4));
+  });
+  return [{
+    kind: 'record-access-acoustic',
+    patientId: pid,
+    captureId: `acoustic-${pid}-${Math.round(elapsedHours)}`,
+    features,
+    // the first capture IS the patient baseline the change detector compares to
+    baseline: !hasBaseline || progress < 0.05,
+    provenance: 'simulator:access-acoustic-v1',
+    synthetic: true,
+    featureKind: 'mel-band-energies',
+    note: 'synthetic feature vector — not recorded patient audio',
+  }];
 }
 
 /** F1 — weekly maintenance exposures: phosphate binder, calcimimetic, vitamin D, IV iron. */
@@ -261,8 +366,9 @@ function dialysisScript(): SimScriptEntry[] {
     every('session-close', 6, 'nurse', sessionCloses),
     at('panel-baseline', 5, 'md', panelLabs),
     every('panel', 336, 'md', panelLabs),
-    at('access-baseline', 8, 'nurse', accessObservations),
-    every('access-surveillance', 96, 'nurse', accessObservations),
+    at('access-baseline', 8, 'nurse', accessSurveillance),
+    every('access-surveillance', ACCESS_SURVEILLANCE_HOURS, 'nurse', accessSurveillance),
+    every('access-acoustic', 192, 'nurse', accessAcousticCaptures),
     every('maintenance-meds', 168, 'md', maintenanceMeds),
   ];
 }

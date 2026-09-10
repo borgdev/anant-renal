@@ -68,6 +68,19 @@ export interface RenalSessionFacts {
   telemetryPoints: number;
 }
 
+export interface RenalAccessObservation {
+  at: string;
+  event: string;
+  venousPressureMmHg?: number;
+  arterialPressureMmHg?: number;
+  measuredAtQb?: number;
+  bloodFlowMlMin?: number;
+  accessFlowMlMin?: number;
+  recirculationPct?: number;
+  deliveredClearancePct?: number;
+  cannulationDifficulty?: 'easy' | 'moderate' | 'difficult';
+}
+
 export interface RenalAccessFacts {
   type?: string;
   site?: string;
@@ -77,6 +90,12 @@ export interface RenalAccessFacts {
   lastEventAt?: string;
   /** true when the access shows a dysfunction pattern (thrombosis / declot / angioplasty / cannulation difficulty) */
   dysfunction: boolean;
+  /** P3 — chronological surveillance series (measurements + events), oldest first */
+  series: RenalAccessObservation[];
+  /** P3 — recorded interventions on this access (angioplasty / declot / thrombosis / catheter-placed / avf-created) */
+  interventions: Array<{ at: string; event: string }>;
+  /** P3 — synthetic acoustic captures seen on this access (feature vectors, never audio) */
+  acousticCaptures: number;
 }
 
 export interface RenalPatientFacts {
@@ -346,6 +365,22 @@ export function renalPatientFacts(input: RenalPatientInput): RenalPatientFacts {
   const shortSessions = sessions.filter((x) => (x.adherencePct ?? 100) < 90).length;
   const accessRisk = Boolean(lastObservation && ['thrombosis', 'declot', 'angioplasty', 'cannulation-difficulty', 'infection'].includes(str(lastObservation.event) ?? ''));
   const avgRecirculationPct = avg(recirc);
+  // P3 — the surveillance series (measurements are only present on observations
+  // recorded after the P3 data-model extension; older ones carry the event only).
+  const accessSeries: RenalAccessObservation[] = observations.map((o) => ({
+    at: str(o.at) ?? '',
+    event: str(o.event) ?? 'surveillance',
+    ...opt('venousPressureMmHg', num(o.venousPressureMmHg)),
+    ...opt('arterialPressureMmHg', num(o.arterialPressureMmHg)),
+    ...opt('measuredAtQb', num(o.measuredAtQb)),
+    ...opt('bloodFlowMlMin', num(o.bloodFlowMlMin)),
+    ...opt('accessFlowMlMin', num(o.accessFlowMlMin)),
+    ...opt('recirculationPct', num(o.recirculationPct)),
+    ...opt('deliveredClearancePct', num(o.deliveredClearancePct)),
+    ...opt('cannulationDifficulty', str(o.cannulationDifficulty) as RenalAccessObservation['cannulationDifficulty']),
+  }));
+  const accessEvents = Array.isArray(accessRaw.events) ? (accessRaw.events as Array<Record<string, unknown>>) : [];
+  const acousticCaptures = Array.isArray(s.accessAcoustic) ? (s.accessAcoustic as unknown[]).length : 0;
 
   const calcium = labs.calcium;
   const pth = labs.pth;
@@ -375,6 +410,11 @@ export function renalPatientFacts(input: RenalPatientInput): RenalPatientFacts {
       ...opt('lastEvent', lastObservation ? str(lastObservation.event) : undefined),
       ...opt('lastEventAt', lastObservation ? str(lastObservation.at) : undefined),
       dysfunction: accessRisk,
+      series: accessSeries,
+      interventions: accessEvents
+        .filter((e) => ['angioplasty', 'declot', 'thrombosis', 'catheter-placed', 'avf-created'].includes(str(e.event) ?? ''))
+        .map((e) => ({ at: str(e.at) ?? '', event: str(e.event) ?? '' })),
+      acousticCaptures,
     },
     sessions: {
       count: sessions.length,

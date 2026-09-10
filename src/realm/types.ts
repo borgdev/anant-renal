@@ -167,7 +167,11 @@ export type WorldEffect =
   | { kind: 'start-session'; patientId: string; sessionId?: string; modality: 'hemodialysis' | 'hemodiafiltration'; prescribedMinutes: number; targetUfL: number; dialyser?: string; qbPrescribed?: number; qdPrescribed?: number; tempC?: number }
   | { kind: 'record-session-telemetry'; patientId: string; minute: number; bp?: string; hr?: number; qb?: number; qd?: number; venousPressure?: number; arterialPressure?: number; ufRateMlH?: number; ufVolumeL?: number; tempC?: number; symptoms?: string[] }
   | { kind: 'end-session'; patientId: string; deliveredMinutes: number; ufVolumeL: number; qbAvg?: number; recirculationPct?: number; preWeightKg?: number; postWeightKg?: number; stoppedEarly?: boolean; complication?: string }
-  | { kind: 'record-access'; patientId: string; event: 'cannulation-difficulty' | 'angioplasty' | 'thrombosis' | 'infection' | 'declot' | 'catheter-placed' | 'avf-created'; note?: string }
+  | { kind: 'record-access'; patientId: string; event: 'surveillance' | 'cannulation-difficulty' | 'angioplasty' | 'thrombosis' | 'infection' | 'declot' | 'catheter-placed' | 'avf-created'; note?: string; venousPressureMmHg?: number; arterialPressureMmHg?: number; measuredAtQb?: number; bloodFlowMlMin?: number; accessFlowMlMin?: number; recirculationPct?: number; deliveredClearancePct?: number; cannulationDifficulty?: 'easy' | 'moderate' | 'difficult'; accessAgeDays?: number }
+  // P3 — vascular access acoustic capture. SYNTHETIC ONLY: the payload is a small
+  // feature vector (mel-band energies), never raw audio, and every capture carries
+  // its provenance. Ingestion is gated by ACCESS_ACOUSTIC_ENABLED in the engine.
+  | { kind: 'record-access-acoustic'; patientId: string; captureId: string; features: number[]; baseline: boolean; provenance: string; synthetic: true; featureKind?: 'mel-band-energies'; note?: string }
   | { kind: 'record-assessment'; patientId: string; assessmentId: string; score: number; band?: string }
   | { kind: 'update-care-plan'; patientId: string; patch: Record<string, unknown> }
   | { kind: 'schedule-followup'; patientId: string; when: string; resource: string; followupKind: string }

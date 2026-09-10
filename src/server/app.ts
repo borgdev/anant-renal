@@ -79,6 +79,7 @@ import { registerRenalRoutes } from './renal-routes.js';
 import { registerProtocolRoutes } from './protocol-routes.js';
 import { registerAdequacyRoutes } from './adequacy-routes.js';
 import { registerFluidRoutes } from './fluid-routes.js';
+import { registerAccessRoutes } from './access-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
 import { registerAssuranceRoutes } from './assurance-routes.js';
 import { registerSubmissionRoutes } from './submission-routes.js';
@@ -444,6 +445,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // counterfactual simulator · twin over the real ledger · trained artifact ·
   // governance). CDSS: advisory only, never an autonomous UF change.
   await registerFluidRoutes(app, {
+    ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
+  });
+
+  // P3 — vascular access pack (longitudinal pressure/flow observer + gated
+  // acoustic contract + referral proposal). CDSS: referrals are proposals for
+  // the access team; the platform never books a procedure.
+  await registerAccessRoutes(app, {
     ...(deps.renalPatients ? { patients: deps.renalPatients } : {}),
   });
 
