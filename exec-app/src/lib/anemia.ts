@@ -303,3 +303,65 @@ export function recordAnemiaStudy(payload: {
 export function fetchAnemiaMdr(): Promise<{ file: EsaMdrFileView }> {
   return anemiaJson<{ file: EsaMdrFileView }>("/admin/swarm/anemia/mdr");
 }
+
+/* ======================================================================
+ * Slice 1/2 — dose what-if trajectory forecast + MPC controller
+ * ====================================================================== */
+
+export interface EsaForecastPoint { week: number; hgb: number; inBand: boolean }
+
+export type EsaCandidateRelation = "suspend" | "reduce" | "hold" | "increase" | "initiate" | "none";
+
+export interface EsaCandidateForecast {
+  dose: number;
+  label: string;
+  relation: EsaCandidateRelation;
+  series: EsaForecastPoint[];
+  weeksBelow: number;
+  weeksInBand: number;
+  weeksAbove: number;
+  weeksOutOfBand: number;
+  pctInBand: number;
+  endHgb: number;
+  peakHgb: number;
+  troughHgb: number;
+  variabilityGd: number;
+  maxWeeklyRise: number;
+  projectedCostUsd: number;
+  overshoot: boolean;
+  rapidRise: boolean;
+  score: number;
+}
+
+export interface EsaMpcController {
+  horizonWeeks: number;
+  weights: { outOfBand: number; overshoot: number; rapidRise: number; doseCost: number };
+  constraints: { targetBand: { min: number; max: number }; maxWeeklyRiseGd: number; overshootHgb: number; unitCostUsd: number };
+  chosenIndex: number;
+  expected: { weeksInBand: number; pctInBand: number; projectedCostUsd: number; endHgb: number; peakHgb: number };
+}
+
+export interface EsaWhatIfResult {
+  patientId: string;
+  asOf: string;
+  currentHgb: number;
+  currentDose: number;
+  onESA: boolean;
+  horizonWeeks: number;
+  guardrails: { flags: string[]; blocked: boolean; blockReason: string | null };
+  blocked: boolean;
+  blockReason: string | null;
+  candidates: EsaCandidateForecast[];
+  chosenIndex: number | null;
+  controller: EsaMpcController | null;
+  note: string;
+}
+
+/** Project the 12-week Hb path under each candidate dose + the MPC choice. */
+export function forecastEsa(window: EsaPatientWindow, horizonWeeks?: number): Promise<{ whatIf: EsaWhatIfResult }> {
+  return anemiaJson<{ whatIf: EsaWhatIfResult }>("/admin/swarm/anemia/what-if", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...window, ...(horizonWeeks !== undefined ? { horizonWeeks } : {}) }),
+  });
+}

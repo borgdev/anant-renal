@@ -6,7 +6,11 @@
  *   GET  /admin/swarm/anemia/state       — reference boundary + live episodes
  *   POST /admin/swarm/anemia/advise      — CDSS: recommend an ESA dose for a
  *                                          patient window (coverage-gated; the
- *                                          surrogate is deterministic)
+ *                                          surrogate is deterministic). Body
+ *                                          model: 'reference' | 'trained' | 'mpc'
+ *                                          ('mpc' = slice-2 dose optimizer)
+ *   POST /admin/swarm/anemia/what-if     — slice-1/2: project the 12-week Hb path
+ *                                          under each candidate dose + MPC choice
  *   POST /admin/swarm/anemia/demo        — seed durable anemia episodes (Class C)
  *   POST /admin/swarm/anemia/reset       — remove only anemia episodes
  *   GET  /admin/swarm/anemia/assurance   — P1: coverage config + advisor gate +
@@ -38,6 +42,7 @@ import {
   esaRedTeamProbe, isEsaFinding, recordEsaDrift,
 } from '../swarm/anemia-governance.js';
 import { esaRecommendTrained, loadEsaArtifact } from '../swarm/anemia-model.js';
+import { esaRecommendMpc, esaWhatIf } from '../swarm/anemia-forecast.js';
 import { esaSuggestionDst } from '../swarm/anemia-dst.js';
 import {
   ensureEsaMdrFile, esaAcceptanceStats, getEsaMdrFile, getEsaValidationReport,
@@ -92,8 +97,8 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
    *  recommendation + latent position + drivers + guardrail verdicts. The body
    *  may select `model: 'reference'` (default surrogate) or `'trained'` (the P2
    *  exported latent model, served under the SAME contract + gates). */
-  app.post<{ Body: EsaPatientWindow & { model?: 'reference' | 'trained' } }>('/admin/swarm/anemia/advise', async (req, reply) => {
-    const body = req.body ?? ({} as Partial<EsaPatientWindow & { model?: 'reference' | 'trained' }>);
+  app.post<{ Body: EsaPatientWindow & { model?: 'reference' | 'trained' | 'mpc' } }>('/admin/swarm/anemia/advise', async (req, reply) => {
+    const body = req.body ?? ({} as Partial<EsaPatientWindow & { model?: 'reference' | 'trained' | 'mpc' }>);
     if (!body.patientId || body.currentHgb === undefined || body.onESA === undefined) {
       return error(reply, 400, 'patientId, currentHgb and onESA are required');
     }
@@ -117,12 +122,45 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
     // DST-Q #3 — fuse the evidence this window actually carries into a Bel/Pl/K
     // readout for the Class-C suggestion (same D-S rule as My Work).
     const dst = esaSuggestionDst(window);
+    if (body.model === 'mpc') {
+      const { recommendation, whatIf } = esaRecommendMpc(window);
+      return { recommendation, model: 'mpc', dst, whatIf };
+    }
     if (body.model === 'trained') {
       const artifact = loadEsaArtifact();
       if (!artifact) return error(reply, 404, 'esa-trained-artifact-not-found');
       return { recommendation: esaRecommendTrained(window, artifact), model: 'trained', dst };
     }
     return { recommendation: esaRecommendCovered(window, { coverageGateEnabled: true }), model: 'reference', dst };
+  });
+
+  /** Slice 1/2 — dose what-if: project the weekly Hb path under each candidate
+   *  dose (suspend / 50 / 75 / hold / 125 / 150%) and let the MPC objective pick
+   *  the dose that keeps the patient in the 10–12 band with the least
+   *  intervention. Advisory only — iron-first guardrails still apply. */
+  app.post<{ Body: Partial<EsaPatientWindow> & { horizonWeeks?: number } }>('/admin/swarm/anemia/what-if', async (req, reply) => {
+    const body = req.body ?? ({} as Partial<EsaPatientWindow> & { horizonWeeks?: number });
+    if (!body.patientId || body.currentHgb === undefined || body.onESA === undefined) {
+      return error(reply, 400, 'patientId, currentHgb and onESA are required');
+    }
+    const window: EsaPatientWindow = {
+      patientId: body.patientId,
+      ...(body.facilityId ? { facilityId: body.facilityId } : {}),
+      currentHgb: body.currentHgb,
+      ...(body.mcv !== undefined ? { mcv: body.mcv } : {}),
+      ...(body.ferritin !== undefined ? { ferritin: body.ferritin } : {}),
+      ...(body.transferrinSat !== undefined ? { transferrinSat: body.transferrinSat } : {}),
+      ...(body.crp !== undefined ? { crp: body.crp } : {}),
+      ...(body.calcium !== undefined ? { calcium: body.calcium } : {}),
+      ...(body.pth !== undefined ? { pth: body.pth } : {}),
+      onESA: body.onESA,
+      currentDose: body.currentDose ?? 0,
+      hgbTrendLast90d: body.hgbTrendLast90d ?? [],
+      esaEscalationsLast90d: body.esaEscalationsLast90d ?? 0,
+      ...(body.lastIronPanelAt ? { lastIronPanelAt: body.lastIronPanelAt } : {}),
+      asOf: body.asOf ?? new Date().toISOString(),
+    };
+    return { whatIf: esaWhatIf(window, { ...(body.horizonWeeks !== undefined ? { horizonWeeks: body.horizonWeeks } : {}) }) };
   });
 
   app.post('/admin/swarm/anemia/demo', async () => {

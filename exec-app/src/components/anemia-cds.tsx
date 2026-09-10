@@ -15,6 +15,7 @@ import {
   HeartPulse,
   Info,
   Layers,
+  LineChart,
   LockKeyhole,
   Radar,
   RefreshCw,
@@ -36,6 +37,7 @@ import {
   fetchAnemiaState,
   fetchAnemiaStudy,
   fetchAnemiaValidation,
+  forecastEsa,
   recordAnemiaStudy,
   resetAnemiaDemo,
   runAnemiaRedTeam,
@@ -51,12 +53,18 @@ import {
   type EsaSuggestionDst,
   type EsaStudyView,
   type EsaValidationView,
+  type EsaWhatIfResult,
 } from "../lib/anemia";
 import type { NavigationId } from "../lib/types";
 import { EvidenceTag, Eyebrow, LoadMore, Metric, PanelExpand, Tag, usePaged } from "./ui";
 
 /** Panel review epoch — deterministic so iron-freshness checks behave like the tests. */
 const REVIEW_AT = "2026-09-01T00:00:00Z";
+
+/** Hb→chart mapping for the dose what-if (6–13.5 g/dL over the plot box). */
+const FC_RANGE = 7.5;
+const fcBarHeight = (hgb: number): number => Math.max(3, Math.min(100, ((hgb - 6) / FC_RANGE) * 100));
+const fcLineTop = (hgb: number): number => Math.max(0, Math.min(100, ((13.5 - hgb) / FC_RANGE) * 100));
 
 const DIRECTION_META: Record<EsaDirection, { label: string; tone: "mint" | "amber" | "blue" | "red" | "neutral" }> = {
   hold: { label: "Hold dose", tone: "mint" },
@@ -97,6 +105,10 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
   const [mdr, setMdr] = useState<EsaMdrFileView | null>(null);
   const [p3Busy, setP3Busy] = useState<"validation" | "study" | null>(null);
   const [p3Error, setP3Error] = useState<string | null>(null);
+  const [whatIf, setWhatIf] = useState<EsaWhatIfResult | null>(null);
+  const [fcFocus, setFcFocus] = useState(0);
+  const [fcBusy, setFcBusy] = useState(false);
+  const [fcError, setFcError] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     patientId: "p-esa-1",
@@ -183,37 +195,56 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
 
   const numOr = (raw: string): number | undefined => (raw.trim() === "" ? undefined : Number(raw));
 
+  /** The advisor / what-if share one patient-window builder from the form. */
+  const windowFromForm = () => {
+    const currentHgb = Number(form.currentHgb);
+    const currentDose = Number(form.currentDose);
+    const base = currentHgb - 0.4;
+    const trend = [0, 1, 2, 3, 4].map((i) => Number((base + i * 0.1).toFixed(1)));
+    return {
+      patientId: form.patientId.trim(),
+      currentHgb,
+      currentDose,
+      onESA,
+      ...(numOr(form.mcv) !== undefined ? { mcv: Number(form.mcv) } : {}),
+      ...(numOr(form.ferritin) !== undefined ? { ferritin: Number(form.ferritin) } : {}),
+      ...(numOr(form.transferrinSat) !== undefined ? { transferrinSat: Number(form.transferrinSat) } : {}),
+      ...(numOr(form.crp) !== undefined ? { crp: Number(form.crp) } : {}),
+      ...(numOr(form.calcium) !== undefined ? { calcium: Number(form.calcium) } : {}),
+      ...(numOr(form.pth) !== undefined ? { pth: Number(form.pth) } : {}),
+      hgbTrendLast90d: trend,
+      esaEscalationsLast90d: 0,
+      ...(form.lastIronPanelAt ? { lastIronPanelAt: `${form.lastIronPanelAt}T00:00:00Z` } : {}),
+      asOf: REVIEW_AT,
+    };
+  };
+
   const runAdvise = async () => {
     if (form.patientId.trim() === "" || form.currentHgb.trim() === "" || form.currentDose.trim() === "") {
       setError("patientId, currentHgb and currentDose are required before advising.");
       return;
     }
-    const currentHgb = Number(form.currentHgb);
-    const currentDose = Number(form.currentDose);
-    const base = currentHgb - 0.4;
-    const trend = [0, 1, 2, 3, 4].map((i) => Number((base + i * 0.1).toFixed(1)));
     setBusy("advise"); setError(null);
     try {
-      const { recommendation, dst: suggestionDst } = await adviseEsa({
-        patientId: form.patientId.trim(),
-        currentHgb,
-        currentDose,
-        onESA,
-        ...(numOr(form.mcv) !== undefined ? { mcv: Number(form.mcv) } : {}),
-        ...(numOr(form.ferritin) !== undefined ? { ferritin: Number(form.ferritin) } : {}),
-        ...(numOr(form.transferrinSat) !== undefined ? { transferrinSat: Number(form.transferrinSat) } : {}),
-        ...(numOr(form.crp) !== undefined ? { crp: Number(form.crp) } : {}),
-        ...(numOr(form.calcium) !== undefined ? { calcium: Number(form.calcium) } : {}),
-        ...(numOr(form.pth) !== undefined ? { pth: Number(form.pth) } : {}),
-        hgbTrendLast90d: trend,
-        esaEscalationsLast90d: 0,
-        ...(form.lastIronPanelAt ? { lastIronPanelAt: `${form.lastIronPanelAt}T00:00:00Z` } : {}),
-        asOf: REVIEW_AT,
-      });
+      const { recommendation, dst: suggestionDst } = await adviseEsa(windowFromForm());
       setRec(recommendation);
       setDst(suggestionDst ?? null);
     } catch (err) { setError(err instanceof Error ? err.message : "advise failed"); }
     finally { setBusy(null); }
+  };
+
+  const runWhatIf = async () => {
+    if (form.patientId.trim() === "" || form.currentHgb.trim() === "") {
+      setFcError("patientId and currentHgb are required to project dose response.");
+      return;
+    }
+    setFcBusy(true); setFcError(null);
+    try {
+      const { whatIf: result } = await forecastEsa(windowFromForm());
+      setWhatIf(result);
+      setFcFocus(result.chosenIndex ?? 0);
+    } catch (err) { setFcError(err instanceof Error ? err.message : "dose what-if failed"); }
+    finally { setFcBusy(false); }
   };
 
   const runDemo = async () => {
@@ -225,7 +256,7 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
 
   const runReset = async () => {
     setBusy("reset"); setError(null);
-    try { const r = await resetAnemiaDemo(); setRec(null); setDst(null); await reloadState(); if (r.removed) { setRec(null); setDst(null); } }
+    try { const r = await resetAnemiaDemo(); setRec(null); setDst(null); setWhatIf(null); setFcFocus(0); await reloadState(); if (r.removed) { setRec(null); setDst(null); } }
     catch (err) { setError(err instanceof Error ? err.message : "reset failed"); }
     finally { setBusy(null); }
   };
@@ -234,6 +265,9 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
 
   const directionMeta = rec ? DIRECTION_META[rec.direction] : null;
   const hasFlags = (rec?.guardrails.flags.length ?? 0) > 0;
+  const fcOpen = whatIf !== null && !whatIf.blocked;
+  const fcChosen = fcOpen ? whatIf.candidates[whatIf.chosenIndex ?? 0] : undefined;
+  const fcFocusCandidate = fcOpen ? (whatIf.candidates[fcFocus] ?? whatIf.candidates[whatIf.chosenIndex ?? 0]) : undefined;
   // The dev server clears in-memory sessions on every src-file restart — a 401
   // here means the browser cookie is stale, not a product failure.
   const sessionExpired = [error, govError, p3Error].some((m) => (m ?? "").toLowerCase().includes("not-authenticated") || (m ?? "").toLowerCase().includes("session expired"));
@@ -405,6 +439,61 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
           </div>
           <p className="esa-catalog-note">Prior EPO dominates (40%), then MCV (16%) — the same ordering the paper&apos;s permutation analysis reports. In the P2 trained model these weights become learned.</p>
         </article>
+      </section>
+
+      {/* ---- Slice 1/2 · dose what-if trajectory + MPC controller ---- */}
+      <section className="panel esa-forecast">
+        <div className="panel-title-row">
+          <div><Eyebrow>Dose what-if · trajectory + MPC controller</Eyebrow><h2>Project the Hb path under each candidate dose</h2></div>
+          <div className="esa-fc-actions">
+            <Tag tone="violet">reference physiology · 12-week horizon</Tag>
+            <button className="button button-secondary" type="button" disabled={fcBusy} onClick={() => void runWhatIf()}>{fcBusy ? <RefreshCw size={14} className="spin" /> : <LineChart size={14} />} Run dose what-if</button>
+          </div>
+        </div>
+        <p className="esa-fc-hint">Reference responder — 1-week erythropoiesis lag + ~10-week first-order settling toward the dose set-point (≈ 14-wk RBC lifespan), modulated by the iron-substrate / ESA-resistance latent. The MPC optimizer picks the dose that maximizes weeks in the 10–12 band with the least intervention. Advisory only — Class C review still applies.</p>
+        {fcError ? <div className="admin-notice is-error"><AlertTriangle size={15} /><span>{fcError}</span></div> : null}
+        {!whatIf ? (
+          <div className="esa-fc-empty"><LineChart size={20} /><span><strong>No projection yet</strong><small>Set the patient window above, then run the dose what-if to compare suspend / reduce / hold / increase trajectories.</small></span></div>
+        ) : whatIf.blocked ? (
+          <div className="esa-block-banner"><ShieldAlert size={15} /><span>{whatIf.blockReason ?? "Blocked by an iron-first guardrail."}</span></div>
+        ) : (
+          <>
+            <div className="esa-fc-grid">
+              {whatIf.candidates.map((c, i) => (
+                <button type="button" key={c.dose} className={`esa-fc-option ${i === fcFocus ? "is-focus" : ""} ${i === whatIf.chosenIndex ? "is-chosen" : ""}`} onClick={() => setFcFocus(i)}>
+                  <span className="esa-fc-option-head"><strong>{c.label}</strong>{i === whatIf.chosenIndex ? <Tag tone="mint">MPC</Tag> : null}</span>
+                  <span className="esa-fc-stats"><em>{c.pctInBand}% in band</em><em>end {c.endHgb.toFixed(1)} g/dL</em><em>${Math.round(c.projectedCostUsd).toLocaleString()}</em><em>±{c.variabilityGd.toFixed(2)}</em></span>
+                  <div className="esa-fc-mini">{c.series.map((p) => (<i key={p.week} className={p.inBand ? "is-band" : p.hgb < 10 ? "is-low" : "is-high"} style={{ height: `${fcBarHeight(p.hgb)}%` }} />))}</div>
+                </button>
+              ))}
+            </div>
+            {fcFocusCandidate ? (
+              <div className="esa-fc-chart-card">
+                <div className="esa-fc-chart-head">
+                  <Eyebrow>{fcFocusCandidate.label} · projected weekly Hb</Eyebrow>
+                  <span className="esa-fc-chart-facts">{fcFocusCandidate.weeksInBand}/{whatIf.horizonWeeks} weeks in band · peak {fcFocusCandidate.peakHgb.toFixed(1)} · trough {fcFocusCandidate.troughHgb.toFixed(1)} · max rise {fcFocusCandidate.maxWeeklyRise.toFixed(2)} g/dL/wk</span>
+                </div>
+                <div className="esa-fc-chart" role="img" aria-label={`Projected hemoglobin under ${fcFocusCandidate.label}`}>
+                  <div className="esa-fc-band" style={{ top: `${fcLineTop(12)}%`, height: `${fcLineTop(10) - fcLineTop(12)}%` }} />
+                  <div className="esa-fc-guide" style={{ top: `${fcLineTop(12)}%` }} />
+                  <div className="esa-fc-guide" style={{ top: `${fcLineTop(10)}%` }} />
+                  {fcFocusCandidate.series.map((p) => (
+                    <div className="esa-fc-col" key={p.week}><div className={`esa-fc-bar ${p.inBand ? "is-band" : p.hgb < 10 ? "is-low" : "is-high"}`} style={{ height: `${fcBarHeight(p.hgb)}%` }} title={`week ${p.week}: ${p.hgb.toFixed(2)} g/dL`} /></div>
+                  ))}
+                </div>
+                <div className="esa-fc-axis">{fcFocusCandidate.series.map((p) => <span key={p.week}>w{p.week}</span>)}</div>
+                <div className="esa-fc-legend"><span className="is-band">in band 10–12</span><span className="is-low">below band</span><span className="is-high">above band</span><span>guide lines = KDIGO band edges</span></div>
+                <div className="esa-fc-summary">
+                  <div><small>MPC choice</small><strong>{fcChosen?.label ?? "—"}</strong></div>
+                  <div><small>Weeks in band</small><strong>{whatIf.controller ? `${whatIf.controller.expected.weeksInBand}/${whatIf.controller.horizonWeeks}` : "—"}</strong></div>
+                  <div><small>Projected cost</small><strong>{whatIf.controller ? `$${Math.round(whatIf.controller.expected.projectedCostUsd).toLocaleString()}` : "—"}</strong></div>
+                  <div><small>Rate cap</small><strong>{whatIf.controller ? `${whatIf.controller.constraints.maxWeeklyRiseGd} g/dL/wk` : "—"}</strong></div>
+                </div>
+                <p className="esa-fc-note">{whatIf.note}</p>
+              </div>
+            ) : null}
+          </>
+        )}
       </section>
 
       {/* ---- Durable episodes ---- */}
