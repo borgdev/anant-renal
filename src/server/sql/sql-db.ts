@@ -115,6 +115,45 @@ export class SqliteSqlDb implements SqlDb {
 
 import { Pool } from 'pg';
 
+/**
+ * Column aliases named in a statement (`AS someAlias`).
+ *
+ * Postgres folds UNQUOTED identifiers to lower case, so `entity_json AS entityJson`
+ * comes back as `entityjson`. The store is written in camelCase aliases
+ * throughout, so on Postgres every such read produced `undefined` — and because
+ * the workspace hydrator treats a `JSON.parse` failure as a corrupt row and skips
+ * it, a fully populated table hydrated to nothing, silently. SQLite preserves the
+ * alias case, which is why the whole project looked healthy while running on the
+ * SQLite default.
+ */
+export function aliasNames(sql: string): string[] {
+  const out: string[] = [];
+  const re = /\bas\s+"?([A-Za-z_][A-Za-z0-9_]*)"?/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sql)) !== null) out.push(m[1] as string);
+  return out;
+}
+
+/**
+ * Re-key a Postgres row so camelCase aliases are readable under the name the SQL
+ * (and therefore the caller's type) promises. Only aliases that actually differ in
+ * case from the returned key are mapped, and the original lower-case key is left
+ * in place so either spelling keeps working.
+ */
+export function restoreAliasCase<T extends Record<string, unknown>>(row: T, sql: string): T {
+  const aliases = aliasNames(sql);
+  if (aliases.length === 0) return row;
+  let out: Record<string, unknown> | null = null;
+  for (const alias of aliases) {
+    if (alias in row) continue;
+    const lowered = alias.toLowerCase();
+    if (lowered === alias || !(lowered in row)) continue;
+    out ??= { ...row };
+    out[alias] = row[lowered];
+  }
+  return (out ?? row) as T;
+}
+
 export class PostgresSqlDb implements SqlDb {
   readonly dialect = 'postgres' as const;
   private readonly pool: Pool;
@@ -134,7 +173,9 @@ export class PostgresSqlDb implements SqlDb {
 
   async all<T>(sql: string, params: readonly unknown[] = []): Promise<T[]> {
     const r = await this.pool.query(this.rewrite(sql), params as unknown[]);
-    return r.rows as unknown as T[];
+    // See restoreAliasCase: Postgres lower-cases unquoted aliases, so the rows are
+    // re-keyed to the alias spelling the SQL promised.
+    return r.rows.map((row) => restoreAliasCase(row as Record<string, unknown>, sql)) as unknown as T[];
   }
 
   async exec(sql: string): Promise<void> {

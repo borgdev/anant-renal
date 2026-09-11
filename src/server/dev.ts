@@ -34,12 +34,16 @@
 // Development bootstrap — the "dev profile".
 //
 // Runs the full Fastify control-plane (admin routes at /admin/*, knowledge
-// routes, health, events, ledger) with zero external dependencies so it can be
-// started on a laptop with just `npm run dev`:
-//   • In-memory event/ledger/audit store   — no Postgres
-//   • InProcessJobBus                      — no Redis / Kafka
+// routes, health, events, ledger) with only Postgres as an external dependency:
+//   • Durable Postgres store             — events, ledger, audit, workspace
+//   • InProcessJobBus                    — no Redis / Kafka
 //   • Stdout telemetry
 //   • Dev auth: trusts the `x-actor` header, or falls back to a power-user
+//
+// A non-durable in-memory store is available via HH_STORAGE=memory, and is also
+// the last-resort fallback when Postgres cannot be reached — in that case the boot
+// log says so at `error` level and /health reports `db: false`, because silently
+// running without durability is how state disappears unnoticed.
 //
 // This file is only executed by the `dev` npm script; tests never import it.
 
@@ -57,6 +61,7 @@ import { AlertService } from './alerts.js';
 import { RetentionService } from './retention.js';
 import { AuditingSecretsProvider, InMemorySecretsProvider } from '../control-plane/secrets.js';
 import { getSqlStore } from './sql/index.js';
+import { openDurableStore, postgresReachable, type DurableStore } from './postgres-bootstrap.js';
 import { restoreRealmsFromSpecs } from './realm-restore.js';
 import { decodeCanonicalEvent } from './event-broker.js';
 import { LiveEventFeed } from './live-event-feed.js';
@@ -65,7 +70,7 @@ import {
   registerKnowledgeSyncHandler, registerAgentTriggerHandler,
   registerRetentionPurgeHandler, registerAlertEvaluateHandler,
 } from './job-handlers.js';
-import { LocalUserStore, seedDefaultUsers, SessionManager, sessionActorResolver, sqlSessionPersistence } from './auth/index.js';
+import { LocalUserStore, seedDefaultUsers, SessionManager, sessionActorResolver, sqlSessionPersistence, sqlUserPersistence } from './auth/index.js';
 import { getSimulatorController } from './simulator-routes.js';
 import { resumeSimulatorFleet } from './simulator-persistence.js';
 import type { PostgresEventStore } from './postgres-event-store.js';
@@ -136,7 +141,6 @@ export async function main(): Promise<void> {
   // authenticate() below resolves an `hh_session` cookie so the console runs
   // under the logged-in identity.
   const users = new LocalUserStore();
-  seedDefaultUsers(users);
   const sessions = new SessionManager();
   const resolveSessionActor = sessionActorResolver({ users, sessions });
   const telemetry = new Telemetry('healthcare-harness-dev', new StdoutSink(), config.telemetryLogLevel);
@@ -178,6 +182,36 @@ export async function main(): Promise<void> {
   );
 
   // Phase 0 — durable outbox (SqlStore: SQLite file, or Postgres anant-health via HH_STORAGE).
+  //
+  // The store below is the app's event/ledger/audit store AND the backing store of
+  // the swarm workspace (cohort definitions + memberships, outcome episodes,
+  // evidence reviews, releases, NBA decisions). An in-memory stand-in therefore
+  // discarded every one of those on restart while all endpoints kept answering
+  // 200 — the failure was invisible precisely because nothing errored.
+  const storageMode = (process.env.HH_STORAGE ?? '').toLowerCase();
+  let durable: DurableStore | null = null;
+  if (storageMode === 'memory') {
+    telemetry.log('warn', 'HH_STORAGE=memory — state will NOT survive a restart (explicit choice)', {});
+  } else {
+    try {
+      durable = await openDurableStore({ databaseUrl: config.databaseUrl, schema: config.databaseSchema });
+      telemetry.log('info', `durable store ready: postgres ${durable.database} (schema ${durable.schema})`, {});
+      // One durable backend rather than two: SqlStore (sessions, realms, outbox,
+      // nudges, simulator fleet) joins the workspace store on Postgres unless the
+      // operator explicitly chose a dialect.
+      if (!process.env.HH_STORAGE) process.env.HH_STORAGE = 'postgres';
+    } catch (err) {
+      telemetry.log('error', 'DURABLE STORE UNAVAILABLE — falling back to in-memory: nothing recorded this session will survive a restart', {
+        attributes: {
+          error: err instanceof Error ? err.message : String(err),
+          databaseUrl: config.databaseUrl,
+          remedy: 'start Postgres (docker compose up -d postgres) or set HH_STORAGE=memory to accept non-durable state',
+        },
+      });
+    }
+  }
+  const store = durable?.store ?? inMemoryStore();
+
   const sqlStore = await getSqlStore();
   // Console sessions are durable: both consoles share ONE `hh_session` token, so
   // without this a `tsx watch` reload logged every console out and whichever
@@ -190,6 +224,17 @@ export async function main(): Promise<void> {
   // that window entirely.
   const restoredSessions = await sessions.restore().catch(() => 0);
   if (restoredSessions > 0) telemetry.log('info', `restored ${restoredSessions} console session(s)`);
+  // Console users are durable too: a user an operator created, or a password they
+  // reset, must not vanish on the next reload. Restore FIRST, then seed, so a
+  // restored account always wins over the shipped default of the same name.
+  users.attachPersistence(sqlUserPersistence(sqlStore));
+  const restoredUsers = await users.restore().catch(() => 0);
+  seedDefaultUsers(users);
+  if (restoredUsers > 0) telemetry.log('info', `restored ${restoredUsers} console user(s)`);
+  // A session can outlive the account it names (removed user, wiped table): drop
+  // those so `hh_session` can never authenticate a principal that no longer exists.
+  const orphaned = sessions.pruneUnknownUsers(new Set(users.list().map((u) => u.username)));
+  if (orphaned > 0) telemetry.log('warn', `dropped ${orphaned} session(s) whose account no longer exists`, {});
   // Restore persisted realms (B3) so `tsx watch` reloads keep the worlds alive.
   // Deferred: rebuilding a large fleet snapshot can block the loop for seconds,
   // which used to exceed Fastify's plugin timeout and abort the whole boot.
@@ -239,7 +284,7 @@ export async function main(): Promise<void> {
   await bus.enqueue('system.heartbeat', { at: new Date().toISOString() }, { idempotencyKey: `hb-${Date.now()}` });
 
   const app = await buildApp({
-    store: inMemoryStore(),
+    store,
     telemetry,
     packs: [
       healthcareCorePack, dialysisProviderPack, payerPack, ckdNavigationPack, cmsUniversePack,
@@ -258,8 +303,15 @@ export async function main(): Promise<void> {
       if (viaSession) return viaSession;
       return DEV_ACTOR;
     },
-    // In-memory mode needs no external infra, so readiness is always green.
-    checkHealth: async () => ({ db: true, redis: true }),
+    // Readiness must reflect durable-storage truth. `db: false` here means the
+    // store is in memory and nothing will survive a restart — previously this was
+    // hardcoded true, so a non-durable harness reported itself perfectly healthy.
+    checkHealth: async () => ({
+      db: durable ? await postgresReachable(durable.pool) : false,
+      // This profile runs the in-process job bus, so Redis is genuinely unused;
+      // `db` is the field that carries durable-storage truth.
+      redis: true,
+    }),
     // Phase 0 — write path: append → outbox → broker.
     onEvent: async (event) => { await outbox.enqueue(event); await outbox.flush(broker); await webhookDeliverer.onEvent(event); },
     eventBroker: broker,
@@ -305,7 +357,7 @@ export async function main(): Promise<void> {
   // (reloads/restarts bring the sim back with its realms + controls intact).
   await resumeSimulatorFleet(getSimulatorController(), sqlStore);
 
-  telemetry.log('info', `in-memory store + ${bus.driverName()} job bus + ${broker.driver} event broker (${config.eventBrokerTopic})`, {});
+  telemetry.log('info', `${durable ? `durable postgres store (${durable.database}/${durable.schema})` : 'IN-MEMORY store (not durable)'} + ${bus.driverName()} job bus + ${broker.driver} event broker (${config.eventBrokerTopic})`, {});
   telemetry.log('info', 'admin UI routes: /admin/*  ·  health: /health  ·  packs: /packs', {});
 
   const shutdown = async (signal: string): Promise<void> => {
@@ -314,6 +366,8 @@ export async function main(): Promise<void> {
     outboxPublisher.stop();
     await broker.stop();
     await bus.stop();
+    // Release the pool so a `tsx watch` reload cannot leak connections.
+    await durable?.pool.end().catch(() => undefined);
     process.exit(0);
   };
   process.on('SIGINT', () => { void shutdown('SIGINT'); });

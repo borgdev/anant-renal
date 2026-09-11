@@ -36,7 +36,37 @@
 // swapping SQLite → Postgres is constructing a different `SqlDb`, nothing else changes.
 
 import type { SqlDb } from './sql-db.js';
-import { MIGRATIONS } from './schema.js';
+import { MIGRATIONS, WIDEN_TO_BIGINT } from './schema.js';
+import type { LocalUser } from '../auth/users.js';
+
+/** Row shape for `local_users` (JSON array columns arrive as TEXT). */
+interface LocalUserRow {
+  username: string;
+  displayName: string;
+  passwordHash: string;
+  role: string;
+  clearance: string;
+  purposeOfUse: string;
+  orgId: string;
+  scopeIds: string;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+/**
+ * Parse a JSON array column without letting one malformed row abort a list read.
+ * A missing/unparseable value becomes `[]`, which is the documented meaning of an
+ * empty list rather than an error.
+ */
+function parseJsonArray(value: unknown): unknown[] {
+  if (typeof value !== 'string' || value.length === 0) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 export interface RealmSnapshotRow {
   realmId: string;
@@ -280,6 +310,16 @@ export class SqlStore {
 
   async applyMigrations(): Promise<void> {
     for (const stmt of MIGRATIONS) await this.db.exec(stmt);
+    // Widen ms/epoch columns on databases created before they were BIGINT. A
+    // missing table is not an error — the widening is best-effort by design, and
+    // failing the boot over an already-correct column would be worse.
+    if (this.db.dialect === 'postgres') {
+      for (const stmt of WIDEN_TO_BIGINT) {
+        try {
+          await this.db.exec(stmt);
+        } catch { /* already widened, or table absent */ }
+      }
+    }
   }
 
   // ---- Realms ----
@@ -416,6 +456,54 @@ export class SqlStore {
   /** Drop every session that expired at or before `nowEpochMs`. */
   async pruneSessions(nowEpochMs: number): Promise<void> {
     await this.db.run(`DELETE FROM auth_sessions WHERE expires_at <= ?`, [nowEpochMs]);
+  }
+
+  // ---- Console users ----
+  async saveLocalUser(user: LocalUser): Promise<void> {
+    const updatedAt = new Date().toISOString();
+    await this.db.run(
+      `INSERT INTO local_users
+         (username, display_name, password_hash, role, clearance, purpose_of_use, org_id, scope_ids, created_at, last_login_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (username) DO UPDATE SET
+         display_name = excluded.display_name, password_hash = excluded.password_hash,
+         role = excluded.role, clearance = excluded.clearance,
+         purpose_of_use = excluded.purpose_of_use, org_id = excluded.org_id,
+         scope_ids = excluded.scope_ids, last_login_at = excluded.last_login_at,
+         updated_at = excluded.updated_at`,
+      [
+        user.username, user.displayName, user.passwordHash, user.role, user.clearance,
+        JSON.stringify(user.purposeOfUse ?? []), user.orgId, JSON.stringify(user.scopeIds ?? []),
+        user.createdAt, user.lastLoginAt ?? null, updatedAt,
+      ],
+    );
+  }
+
+  async listLocalUsers(): Promise<LocalUser[]> {
+    const rows = await this.db.all<LocalUserRow>(
+      `SELECT username, display_name AS displayName, password_hash AS passwordHash,
+              role, clearance, purpose_of_use AS purposeOfUse, org_id AS orgId,
+              scope_ids AS scopeIds, created_at AS createdAt, last_login_at AS lastLoginAt
+       FROM local_users ORDER BY username`);
+    return rows.map((r) => {
+      const user: LocalUser = {
+        username: r.username,
+        displayName: r.displayName,
+        passwordHash: r.passwordHash,
+        role: r.role as LocalUser['role'],
+        clearance: r.clearance as LocalUser['clearance'],
+        purposeOfUse: parseJsonArray(r.purposeOfUse) as LocalUser['purposeOfUse'],
+        orgId: r.orgId,
+        scopeIds: parseJsonArray(r.scopeIds) as string[],
+        createdAt: r.createdAt,
+      };
+      if (r.lastLoginAt) user.lastLoginAt = r.lastLoginAt;
+      return user;
+    });
+  }
+
+  async deleteLocalUser(username: string): Promise<void> {
+    await this.db.run(`DELETE FROM local_users WHERE username = ?`, [username]);
   }
 
   // ---- Billing ----

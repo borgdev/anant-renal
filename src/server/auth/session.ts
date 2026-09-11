@@ -146,6 +146,24 @@ export class SessionManager {
     for (const [t, s] of this.sessions) if (s.expiresAt <= now) this.sessions.delete(t);
     void this.persistence?.prune(now).catch(() => undefined);
   }
+
+  /**
+   * Drop sessions whose account is gone.
+   *
+   * A session is durable and a user is durable, but nothing tied them together:
+   * removing a user left their live session valid until it expired, so a deleted
+   * account could keep authenticating. Called at boot, after both are restored.
+   */
+  pruneUnknownUsers(knownUsernames: ReadonlySet<string>): number {
+    let dropped = 0;
+    for (const [tokenHash, s] of this.sessions) {
+      if (knownUsernames.has(s.username)) continue;
+      this.sessions.delete(tokenHash);
+      void this.persistence?.remove(tokenHash).catch(() => undefined);
+      dropped += 1;
+    }
+    return dropped;
+  }
 }
 
 /** Parse a single cookie value from a raw Cookie header (no dep on @fastify/cookie). */

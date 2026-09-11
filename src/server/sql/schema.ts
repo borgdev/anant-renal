@@ -36,8 +36,7 @@
 // — all ids are UUIDs/strings), JSON columns as TEXT, timestamps as TEXT (ISO), REAL for
 // numbers. Runs identically on SQLite and Postgres.
 
-export const MIGRATIONS: readonly string[] = [
-  `CREATE TABLE IF NOT EXISTS realm_snapshots (
+export const MIGRATIONS: readonly string[] = [  `CREATE TABLE IF NOT EXISTS realm_snapshots (
      realm_id TEXT PRIMARY KEY,
      mode TEXT NOT NULL,
      created_at TEXT NOT NULL,
@@ -65,7 +64,27 @@ export const MIGRATIONS: readonly string[] = [
      token_hash TEXT PRIMARY KEY,
      username TEXT NOT NULL,
      created_at TEXT NOT NULL,
-     expires_at INTEGER NOT NULL
+     -- Epoch MILLISECONDS (~1.8e12) — must be 64-bit. As INTEGER this overflowed
+     -- on Postgres and made every login fail with 22003, while SQLite (untyped)
+     -- accepted it happily. See WIDEN_TO_BIGINT below.
+     expires_at BIGINT NOT NULL
+   )`,
+
+  // Console users — durable so an operator-created user, a password reset or a
+  // role change is not silently discarded on the next restart while the seeded
+  // defaults reappear. purpose_of_use/scope_ids are JSON arrays stored as TEXT.
+  `CREATE TABLE IF NOT EXISTS local_users (
+     username TEXT PRIMARY KEY,
+     display_name TEXT NOT NULL,
+     password_hash TEXT NOT NULL,
+     role TEXT NOT NULL,
+     clearance TEXT NOT NULL,
+     purpose_of_use TEXT NOT NULL,
+     org_id TEXT NOT NULL,
+     scope_ids TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     last_login_at TEXT,
+     updated_at TEXT NOT NULL
    )`,
 
   // Simulator fleet — the active demo scenario + its realm ids, so a running
@@ -283,7 +302,9 @@ export const MIGRATIONS: readonly string[] = [
      id TEXT PRIMARY KEY,
      entity TEXT NOT NULL,
      scope_id TEXT,
-     max_age_ms INTEGER NOT NULL,
+     -- Retention age in milliseconds: a 30-day policy is 2.592e9, which exceeds
+     -- INT4's 2.147e9 ceiling. 64-bit keeps every horizon expressible.
+     max_age_ms BIGINT NOT NULL,
      enabled INTEGER NOT NULL DEFAULT 1
    )`,
 
@@ -307,8 +328,7 @@ export const MIGRATIONS: readonly string[] = [
      partition_key TEXT NOT NULL,
      idempotency_key TEXT NOT NULL,
      published_at TEXT NOT NULL,
-     ack_offset INTEGER,
-     state TEXT NOT NULL,
+     ack_offset INTEGER,     state TEXT NOT NULL,
      incident TEXT
    )`,
 
@@ -348,4 +368,24 @@ export const MIGRATIONS: readonly string[] = [
    )`,
 
   `CREATE INDEX IF NOT EXISTS idx_swarm_workspace_kind ON swarm_workspace (kind, updated_at DESC)`,
+];
+
+/**
+ * Widen millisecond-valued columns on databases created before they were declared
+ * BIGINT.
+ *
+ * `CREATE TABLE IF NOT EXISTS` cannot change an existing column, so a database
+ * that predates this fix would keep INT4 and keep failing with 22003 — the SQLite
+ * default hid the problem for the entire life of the project, because SQLite
+ * ignores declared types. Widening INT4 → BIGINT is lossless and idempotent in
+ * Postgres, so it is safe to run on every boot.
+ *
+ * Postgres-only: SQLite does not support ALTER COLUMN and does not need it.
+ */
+export const WIDEN_TO_BIGINT: readonly string[] = [
+  `ALTER TABLE retention_policies ALTER COLUMN max_age_ms TYPE BIGINT`,
+  `ALTER TABLE auth_sessions ALTER COLUMN expires_at TYPE BIGINT`,
+  // Kafka offsets are int64; a topic that ever passes 2.1e9 would otherwise
+  // silently break lease bookkeeping.
+  `ALTER TABLE bridge_leases ALTER COLUMN ack_offset TYPE BIGINT`,
 ];

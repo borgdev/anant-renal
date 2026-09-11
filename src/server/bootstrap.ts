@@ -81,7 +81,7 @@ import { oncologyProviderPack } from '../../packs/oncology-provider/index.js';
 import { infusionProviderPack } from '../../packs/infusion-provider/index.js';
 import { careManagementPack } from '../../packs/care-management/index.js';
 import type { ActorContext } from './scoped-persistence.js';
-import { LocalUserStore, seedDefaultUsers, SessionManager, sessionActorResolver, sqlSessionPersistence } from './auth/index.js';
+import { LocalUserStore, seedDefaultUsers, SessionManager, sessionActorResolver, sqlSessionPersistence, sqlUserPersistence } from './auth/index.js';
 import type { FastifyRequest } from 'fastify';
 
 export async function main(): Promise<void> {
@@ -170,12 +170,22 @@ export async function main(): Promise<void> {
   // Console auth — seeded local users + in-memory sessions (swap for a real
   // IdP / Redis-backed sessions in production SSO setups).
   const users = new LocalUserStore();
-  seedDefaultUsers(users);
   const sessions = new SessionManager();
   // Console sessions are durable: both consoles share ONE `hh_session` token, so
   // a restart would otherwise log every operator out of both consoles.
   sessions.attachPersistence(sqlSessionPersistence(sqlStore));
   await sessions.restore().catch(() => undefined);
+  // Console USERS are durable too. They were in-memory here even in production, so
+  // an operator-created account or a password reset was discarded on restart while
+  // the seeded defaults reappeared — the change simply never happened.
+  users.attachPersistence(sqlUserPersistence(sqlStore));
+  await users.restore().catch(() => undefined);
+  // Restore first, then seed: a durable account always wins over a shipped default
+  // of the same name, so a rotated password is never silently reset.
+  seedDefaultUsers(users);
+  // A session can outlive the account it names (user removed, table reset): drop
+  // those, so a deleted principal cannot keep authenticating until expiry.
+  sessions.pruneUnknownUsers(new Set(users.list().map((u) => u.username)));
   const resolveSessionActor = sessionActorResolver({ users, sessions });
 
   // Placeholder auth: production wires a JWT verifier. Development trusts a

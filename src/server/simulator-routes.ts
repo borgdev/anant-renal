@@ -49,12 +49,25 @@ function idleSnapshot() {
 export async function registerSimulatorRoutes(app: FastifyInstance, opts: SimulatorRouteOptions = {}): Promise<void> {
   bridge = opts.realmEventBridge;
   const persistence = opts.persistence;
+  // Persistence here is best-effort ON THE HOT PATH (a tick must not block on a
+  // write), but a failure must never be silent: discarding the error entirely
+  // meant a fleet that was never saved looked identical to one that was, until a
+  // restart came back with no worlds. Failures are logged once per signal so a
+  // broken store does not flood the log either.
+  const warnOnce = (() => {
+    const seen = new Set<string>();
+    return (what: string, err: unknown) => {
+      if (seen.has(what)) return;
+      seen.add(what);
+      app.log.warn(`[simulator] ${what} failed and will not survive a restart: ${err instanceof Error ? err.message : String(err)}`);
+    };
+  })();
   controller = new SimulatorController({
     onRealmCreated: (realm, def) => {
       if (bridge) bridge.attach(realm);
-      if (persistence) void persistence.persistRealm(realm, def).catch(() => undefined);
+      if (persistence) void persistence.persistRealm(realm, def).catch((err: unknown) => warnOnce('persistRealm', err));
     },
-    persistFleet: (state) => { if (persistence) void persistence.saveFleet(state).catch(() => undefined); },
+    persistFleet: (state) => { if (persistence) void persistence.saveFleet(state).catch((err: unknown) => warnOnce('saveFleet', err)); },
   });
 
   // Periodic full-fleet snapshot while running, so a process restart / reload

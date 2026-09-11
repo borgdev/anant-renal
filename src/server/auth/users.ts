@@ -68,8 +68,72 @@ const DEFAULT_ROLE: IdentityRole = 'nurse';
 const DEFAULT_CLEARANCE: Clearance = 'phi';
 const DEFAULT_POU: PurposeOfUse[] = ['treatment', 'operations'];
 
+/**
+ * Durable backing for console users.
+ *
+ * The in-memory map stays the synchronous read path (`verify()` runs on every
+ * login); this is write-through for create/reset/remove, plus a boot-time restore
+ * source. Without it every operator-created user and every password change was
+ * discarded on restart, silently — the seeded defaults reappeared and it looked as
+ * though nothing had ever been saved.
+ */
+export interface UserPersistence {
+  list(): Promise<LocalUser[]>;
+  save(user: LocalUser): Promise<void>;
+  remove(username: string): Promise<void>;
+}
+
 export class LocalUserStore {
   private byUsername = new Map<string, LocalUser>();
+  private persistence: UserPersistence | undefined;
+
+  /** Attach durable backing (write-through + restore source). */
+  attachPersistence(persistence: UserPersistence): void {
+    this.persistence = persistence;
+  }
+
+  /** Load users written by a previous process. Durable rows win over seeds. */
+  async restore(): Promise<number> {
+    if (!this.persistence) return 0;
+    const rows = await this.persistence.list();
+    for (const row of rows) {
+      const user: LocalUser = { ...row, username: row.username.trim().toLowerCase() };
+      this.byUsername.set(user.username, user);
+      this.mirror(user);
+    }
+    return rows.length;
+  }
+
+  /**
+   * Persist without ever making a login fail because the store is unavailable:
+   * the user is already in memory and authenticated, so the write is reported
+   * rather than thrown.
+   */
+  private async persist(user: LocalUser): Promise<void> {
+    if (!this.persistence) return;
+    try {
+      await this.persistence.save(user);
+    } catch (err) {
+      console.warn(`[users] could not persist "${user.username}": ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** Mirror into IdentityRegistry so identity/governance views include console users. */
+  private mirror(user: LocalUser): void {
+    try {
+      IdentityRegistry.upsertPrincipal({
+        subjectId: `local:${user.username}`,
+        email: `${user.username}@anant.local`,
+        displayName: user.displayName,
+        role: user.role,
+        clearance: user.clearance,
+        purposeOfUse: user.purposeOfUse,
+        orgId: user.orgId,
+        source: 'local',
+        ...(user.scopeIds && user.scopeIds.length ? { metadata: { scopeIds: user.scopeIds.join(',') } } : {}),
+      });
+    } catch { /* identity registry is best-effort */ }
+  }
 
   create(input: CreateLocalUserInput): LocalUser {
     const username = input.username.trim().toLowerCase();
@@ -88,20 +152,8 @@ export class LocalUserStore {
       createdAt: new Date().toISOString(),
     };
     this.byUsername.set(username, user);
-    // Mirror into IdentityRegistry so identity/governance views include console users.
-    try {
-      IdentityRegistry.upsertPrincipal({
-        subjectId: `local:${username}`,
-        email: `${username}@anant.local`,
-        displayName: user.displayName,
-        role: user.role,
-        clearance: user.clearance,
-        purposeOfUse: user.purposeOfUse,
-        orgId: user.orgId,
-        source: 'local',
-        ...(user.scopeIds && user.scopeIds.length ? { metadata: { scopeIds: user.scopeIds.join(',') } } : {}),
-      });
-    } catch { /* identity registry is best-effort */ }
+    this.mirror(user);
+    void this.persist(user);
     return user;
   }
 
@@ -111,6 +163,7 @@ export class LocalUserStore {
     if (!user) return null;
     if (!verifyPassword(password, user.passwordHash)) return null;
     user.lastLoginAt = new Date().toISOString();
+    void this.persist(user);
     return user;
   }
 
@@ -119,15 +172,34 @@ export class LocalUserStore {
   remove(username: string): boolean {
     const key = username.trim().toLowerCase();
     const ok = this.byUsername.delete(key);
-    if (ok) { try { IdentityRegistry.deprovision(`local:${key}`); } catch { /* best-effort */ } }
+    if (ok) {
+      try { IdentityRegistry.deprovision(`local:${key}`); } catch { /* best-effort */ }
+      if (this.persistence) void this.persistence.remove(key).catch((err: unknown) => {
+        console.warn(`[users] could not remove "${key}" durably: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
     return ok;
   }
   resetPassword(username: string, password: string): boolean {
     const user = this.get(username);
     if (!user) return false;
     user.passwordHash = hashPassword(password);
+    void this.persist(user);
     return true;
   }
+}
+
+/** Adapt a SqlStore to the user persistence contract. */
+export function sqlUserPersistence(store: {
+  saveLocalUser(user: LocalUser): Promise<void>;
+  listLocalUsers(): Promise<LocalUser[]>;
+  deleteLocalUser(username: string): Promise<void>;
+}): UserPersistence {
+  return {
+    list: () => store.listLocalUsers(),
+    save: (user) => store.saveLocalUser(user),
+    remove: (username) => store.deleteLocalUser(username),
+  };
 }
 
 /** Developer-friendly seeded users for local/demo login. */
