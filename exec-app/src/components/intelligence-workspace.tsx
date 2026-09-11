@@ -36,13 +36,17 @@ const nodeTone: Record<(typeof graphNodes)[number]["type"], "mint" | "violet" | 
   source: "neutral",
 };
 
+// Fill by token, not by literal: these were the pre-AnantState slate-era hexes,
+// so the graph kept its own palette while everything around it changed — and it
+// could not follow the theme at all. SVG `fill` accepts a var(), so the graph is
+// now drawn from the same tokens as the rest of the console.
 const toneFill: Record<string, string> = {
-  mint: "#63e6be",
-  violet: "#b49cff",
-  blue: "#75a8ff",
-  amber: "#efbd68",
-  red: "#f27987",
-  neutral: "#9fb6ad",
+  mint: "var(--mint)",
+  violet: "var(--violet)",
+  blue: "var(--blue)",
+  amber: "var(--amber)",
+  red: "var(--rose)",
+  neutral: "var(--faint)",
 };
 
 // Node details are derived from the live topology projection (real facilities,
@@ -218,7 +222,7 @@ export default function IntelligenceWorkspace({ onOpenDetail }: { onOpenDetail: 
               {visibleNodes.map((node) => {
                 const p = svgPoints(node);
                 const active = node.id === selectedNode.id;
-                const fill = toneFill[nodeTone[node.type]] ?? "#9fb6ad";
+                const fill = toneFill[nodeTone[node.type]] ?? "var(--faint)";
                 const r = node.type === "enterprise" ? 13 : node.type === "facility" || node.type === "patient" ? 10 : 8;
                 return (
                   <g key={node.id} className="graph-node-g" onClick={() => setSelectedId(node.id)}>

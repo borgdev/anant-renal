@@ -13,10 +13,10 @@
 @theme {
   /*
    * These are var() references to the tokens declared in globals.css `:root`.
-   * The `data-palette` scope there re-points those tokens, so Tailwind utilities
-   * follow the ACTIVE palette instead of duplicating the literals in this file
+   * The `data-theme` scope there re-points those tokens, so Tailwind utilities
+   * follow the ACTIVE theme instead of duplicating the literals in this file
    * (which is what the old "keep in sync with admin-ui" comment asked a human to
-   * do by hand). One source of truth, two palettes.
+   * do by hand). One source of truth, two themes.
    */
 
   /* Surfaces */
