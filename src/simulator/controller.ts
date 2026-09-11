@@ -51,6 +51,14 @@ export class SimulatorController {
   private realmIds: string[] = [];
   /** Per-realm unsubscribe fns so reset() can detach counters cleanly. */
   private readonly subs = new Map<string, { clock: () => void; ledger: () => void }>();
+  /**
+   * Wall cadence actually in force, including any start() override.
+   *
+   * Reported and used as the governor's baseline: reading the scenario default
+   * instead meant a fleet started with `wallMsPerTick: 50` reported 250 and would
+   * have been "released" to a pace the operator never asked for.
+   */
+  private effectivePace: SimPace | null = null;
   private readonly opts: SimulatorControllerOptions;
 
   constructor(opts: SimulatorControllerOptions = {}) {
@@ -74,6 +82,7 @@ export class SimulatorController {
       wallMsPerTick: startOpts.pace?.wallMsPerTick ?? sc.pace.wallMsPerTick,
     };
     const autoRun = startOpts.autoRun ?? true;
+    this.effectivePace = { ...pace };
 
     for (const def of sc.realms) {
       const realm = RealmRegistry.create({
@@ -139,6 +148,9 @@ export class SimulatorController {
     this.startedAt = state.startedAt;
     this.tickCount = state.tickCount;
     this.eventCount = state.eventCount;
+    // Restored fleets run at the scenario's configured pace; the persisted state
+    // carries counts, not the cadence.
+    this.effectivePace = { ...sc.pace };
 
     for (const id of state.realmIds) {
       const realm = RealmRegistry.get(id);
@@ -159,8 +171,17 @@ export class SimulatorController {
     }
 
     this.status = state.status === 'running' ? 'running' : 'paused';
-    if (this.status === 'running') {
-      for (const id of this.realmIds) RealmRegistry.get(id)?.start();
+    // Make the clocks match the status we are about to report.
+    //
+    // Realm restore starts every restored realm's clock, and this only ever STARTED
+    // them for a running fleet — so a fleet restored as `paused` reported paused
+    // while its clocks kept ticking, producing events forever. That is a status
+    // that lies: the operator saw a stopped fleet, the governor respected the pause
+    // and declined to intervene, and the process stayed pinned at one core.
+    for (const id of this.realmIds) {
+      const realm = RealmRegistry.get(id);
+      if (this.status === 'running') realm?.start();
+      else realm?.stop();
     }
     this.opts.persistFleet?.(this.fleetState());
     return this.snapshot();
@@ -182,6 +203,23 @@ export class SimulatorController {
     this.status = 'running';
     this.opts.persistFleet?.(this.fleetState());
     return this.snapshot();
+  }
+
+  /**
+   * Retune the wall cadence of every realm clock.
+   *
+   * Slower ticks mean fewer effects per wall second, which is how the fleet is
+   * held to what downstream can consume (see FleetGovernor). Realm-time-per-tick
+   * is untouched, so a slower fleet shows the same clinical picture, just less of
+   * it per second.
+   */
+  setTickInterval(msPerTick: number): void {
+    for (const id of this.realmIds) RealmRegistry.get(id)?.clock.setTickInterval?.(msPerTick);
+  }
+
+  /** The configured wall cadence for the running scenario (governor baseline). */
+  baseTickIntervalMs(): number {
+    return this.effectivePace?.wallMsPerTick ?? this.scenario?.pace.wallMsPerTick ?? 250;
   }
 
   /** Advance every realm by `ticks` realm-hours deterministically (no clocks needed). */
@@ -245,7 +283,7 @@ export class SimulatorController {
       status: this.status,
       scenario: this.scenario?.id ?? null,
       scenarioLabel: this.scenario?.label ?? null,
-      pace: this.scenario ? { realmHoursPerTick: this.scenario.pace.realmHoursPerTick, wallMsPerTick: this.scenario.pace.wallMsPerTick } : null,
+      pace: this.effectivePace,
       startedAt: this.startedAt,
       tickCount: this.tickCount,
       eventCount: this.eventCount,

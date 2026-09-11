@@ -47,6 +47,12 @@ export interface Clock {
   start(): void;
   stop(): void;
   advanceBy(deltaMs: number): ClockTick; // manual tick, used by tests and sim
+  /**
+   * Retune the wall cadence at runtime (how long between ticks). Realm time per
+   * tick is unaffected. Optional: a clock that cannot be retuned simply omits it,
+   * so a caller must not assume throttling is available.
+   */
+  setTickInterval?(msPerTick: number): void;
 }
 
 export class WallClock implements Clock {
@@ -75,6 +81,17 @@ export class WallClock implements Clock {
     this.handle = setInterval(() => this.advanceBy(this.intervalMs), this.intervalMs);
   }
   stop(): void { if (this.handle) { clearInterval(this.handle); this.handle = null; } }
+
+  /** See Clock.setTickInterval: same retuning, one wall second per tick by default. */
+  setTickInterval(msPerTick: number): void {
+    const next = Math.max(1, Math.round(msPerTick));
+    if (next === this.intervalMs) return;
+    this.intervalMs = next;
+    if (this.handle) {
+      clearInterval(this.handle);
+      this.handle = setInterval(() => this.advanceBy(this.intervalMs), this.intervalMs);
+    }
+  }
 
   advanceBy(deltaMs: number): ClockTick {
     this._seq += 1;
@@ -117,6 +134,27 @@ export class AcceleratedClock implements Clock {
     this.handle = setInterval(() => this.advanceBy(this.realmMsPerTick), this.msPerTick);
   }
   stop(): void { if (this.handle) { clearInterval(this.handle); this.handle = null; } }
+
+  /**
+   * Retune how fast WALL time advances between ticks, leaving realm-time-per-tick
+   * untouched.
+   *
+   * Slowing the wall interval is how a running fleet is throttled to match what
+   * downstream can actually consume: fewer ticks per wall second means fewer
+   * effects, without changing what one tick means clinically. Takes effect on the
+   * next interval, so a running clock is restarted.
+   */
+  setTickInterval(msPerTick: number): void {
+    const next = Math.max(1, Math.round(msPerTick));
+    if (next === this.msPerTick) return;
+    this.msPerTick = next;
+    if (this.handle) {
+      clearInterval(this.handle);
+      this.handle = setInterval(() => this.advanceBy(this.realmMsPerTick), this.msPerTick);
+    }
+  }
+
+  get tickIntervalMs(): number { return this.msPerTick; }
 
   advanceBy(deltaMs: number): ClockTick {
     this._seq += 1;

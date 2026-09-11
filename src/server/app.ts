@@ -544,6 +544,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await registerSimulatorRoutes(app, {
     ...(deps.realmEventBridge ? { realmEventBridge: deps.realmEventBridge } : {}),
     persistence: sqlSimulatorPersistence(sqlForWebhooks),
+    // The outbox is the queue the fleet feeds, so its depth is the signal that
+    // tells generation to slow down.
+    readBacklog: async () => (await sqlForWebhooks.outboxCounts()).pending,
   });
 
   // Demo cleanup — one-shot "clean up the demo": stop the sim + drop sim realms,

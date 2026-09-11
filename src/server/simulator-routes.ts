@@ -11,6 +11,7 @@
 import type { FastifyInstance } from 'fastify';
 import { SimulatorController } from '../simulator/controller.js';
 import { listScenarios } from '../simulator/scenarios.js';
+import { FleetGovernor, type GovernorThresholds } from '../simulator/governor.js';
 import type { FleetPersistState, SimRealmDef } from '../simulator/types.js';
 import type { Realm } from '../realm/index.js';
 import type { RealmEventBridge } from './realm-event-bridge.js';
@@ -40,6 +41,13 @@ export interface SimulatorRouteOptions {
   realmEventBridge?: RealmEventBridge;
   /** Durable fleet persistence (SqlStore-backed in dev/prod; absent in tests). */
   persistence?: SimulatorPersistence;
+  /**
+   * Undelivered backlog (outbox pending), used to hold generation to what the rest
+   * of the system can consume. Absent → the fleet runs at its configured pace.
+   */
+  readBacklog?: () => Promise<number>;
+  /** Governor thresholds/behaviour override (tests use this). */
+  governor?: Partial<GovernorThresholds>;
 }
 
 function idleSnapshot() {
@@ -76,11 +84,44 @@ export async function registerSimulatorRoutes(app: FastifyInstance, opts: Simula
     if (!controller || !persistence || controller.snapshot().status !== 'running') return;
     void persistence.snapshotRealms(controller.fleetRealmIds()).catch(() => undefined);
   }, persistence?.snapshotIntervalMs ?? 0);
-  app.addHook('onClose', async () => { clearInterval(snapshotTimer); });
+
+  // Cadence coupling: hold generation to what downstream consumes. Without this
+  // the fleet is an unbounded producer — measured at ~74 events/s produced against
+  // ~59/s delivered, one core pinned, backlog growing indefinitely. The governor
+  // slows the clocks (and pauses them if the backlog keeps climbing) instead of
+  // leaving the consumer to lose the race.
+  let governor: FleetGovernor | null = null;
+  let governorTimer: ReturnType<typeof setInterval> | undefined;
+  if (opts.readBacklog && controller) {
+    const control = controller;
+    governor = new FleetGovernor({
+      readBacklog: opts.readBacklog,
+      isRunning: () => control.snapshot().status === 'running',
+      setTickInterval: (ms) => control.setTickInterval(ms),
+      stopClocks: () => { try { control.pause(); } catch { /* not started */ } },
+      startClocks: () => { try { control.resume(); } catch { /* not started */ } },
+      baseTickIntervalMs: control.baseTickIntervalMs(),
+      ...(opts.governor ? { thresholds: opts.governor } : {}),
+      onDecision: (report) => app.log.warn(`[simulator] governor ${report.state}: ${report.lastReason}`),
+    });
+    // 2s: fast enough to react before the backlog compounds, slow enough to stay
+    // off the hot path. Each step is one count query.
+    governorTimer = setInterval(() => { void governor?.step().catch(() => undefined); }, 2000);
+    governorTimer.unref?.();
+  }
+  app.addHook('onClose', async () => {
+    clearInterval(snapshotTimer);
+    if (governorTimer) clearInterval(governorTimer);
+  });
 
   app.get('/admin/simulator/scenarios', async () => ({ scenarios: listScenarios() }));
 
-  app.get('/admin/simulator/status', async () => ({ simulator: controller ? controller.snapshot() : idleSnapshot() }));
+  app.get('/admin/simulator/status', async () => ({
+    simulator: controller ? controller.snapshot() : idleSnapshot(),
+    // Visible on purpose: a fleet that slows itself without saying so is its own
+    // kind of silent failure.
+    governor: governor ? governor.report() : null,
+  }));
 
   app.post<{ Body: { scenario?: string; autoRun?: boolean; realmHoursPerTick?: number; wallMsPerTick?: number } }>(
     '/admin/simulator/start',
