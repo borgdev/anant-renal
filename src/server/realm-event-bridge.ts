@@ -100,6 +100,9 @@ export interface RealmEventBridgeOptions {
 export interface RealmEventBridgeStats {
   readonly attached: number;
   readonly projected: number;
+  /** Enqueued to the durable outbox (delivery is the publisher's job). */
+  readonly queued: number;
+  /** Published on the broker directly (only when no outbox is attached). */
   readonly published: number;
   readonly failed: number;
 }
@@ -111,7 +114,7 @@ export class RealmEventBridge {
   private readonly skipRejected: boolean;
   private readonly onEvent: ((event: CanonicalEvent) => void) | undefined;
   private readonly attached = new Map<string, () => void>();
-  private stats: RealmEventBridgeStats = { attached: 0, projected: 0, published: 0, failed: 0 };
+  private stats: RealmEventBridgeStats = { attached: 0, projected: 0, queued: 0, published: 0, failed: 0 };
 
   constructor(opts: RealmEventBridgeOptions) {
     this.broker = opts.broker;
@@ -145,12 +148,18 @@ export class RealmEventBridge {
     this.stats = { ...this.stats, projected: this.stats.projected + 1 };
     try {
       if (this.outbox) {
+        // Enqueue ONLY. The write path used to flush here (one bounded drain per
+        // effect), which meant every effect swept the outbox in addition to the
+        // publisher's own interval — store work multiplied by the event rate until
+        // the pool saturated and the process stalled. The row is durable the moment
+        // it is written, so delivery is the publisher's job; worst case an event is
+        // delivered one publisher interval later.
         await this.outbox.enqueue(event, { topic: this.topic, scopeId: realmId });
-        await this.outbox.flush(this.broker, { limit: 20 });
+        this.stats = { ...this.stats, queued: this.stats.queued + 1 };
       } else {
         await this.broker.publish({ topic: this.topic, event, headers: { 'x-event-id': event.id, 'x-realm': realmId } }, { partitionKey: realmId });
+        this.stats = { ...this.stats, published: this.stats.published + 1 };
       }
-      this.stats = { ...this.stats, published: this.stats.published + 1 };
       this.onEvent?.(event);
     } catch {
       this.stats = { ...this.stats, failed: this.stats.failed + 1 };

@@ -791,12 +791,15 @@ export class SqlStore {
     return rows[0];
   }
   async outboxCounts(): Promise<{ pending: number; delivered: number; dead: number }> {
-    const rows = await this.db.all<{ status: string; n: number }>(`SELECT status, COUNT(*) AS n FROM event_outbox GROUP BY status`);
+    const rows = await this.db.all<{ status: string; n: number | string }>(`SELECT status, COUNT(*) AS n FROM event_outbox GROUP BY status`);
     const c = { pending: 0, delivered: 0, dead: 0 };
     for (const r of rows) {
-      if (r.status === 'pending') c.pending = r.n;
-      else if (r.status === 'delivered') c.delivered = r.n;
-      else if (r.status === 'dead') c.dead = r.n;
+      // Postgres returns bigint as a STRING (SQLite returns a number), so an
+      // uncoerced count leaks `"30792"` into /health and into any arithmetic.
+      const n = Number(r.n);
+      if (r.status === 'pending') c.pending = n;
+      else if (r.status === 'delivered') c.delivered = n;
+      else if (r.status === 'dead') c.dead = n;
     }
     return c;
   }
@@ -1041,12 +1044,14 @@ export class SqlStore {
     return status;
   }
   async webhookDeliveryCounts(): Promise<{ pending: number; delivered: number; dead: number }> {
-    const rows = await this.db.all<{ status: string; n: number }>(`SELECT status, COUNT(*) AS n FROM webhook_deliveries GROUP BY status`);
+    const rows = await this.db.all<{ status: string; n: number | string }>(`SELECT status, COUNT(*) AS n FROM webhook_deliveries GROUP BY status`);
     const c = { pending: 0, delivered: 0, dead: 0 };
     for (const r of rows) {
-      if (r.status === 'pending') c.pending = r.n;
-      else if (r.status === 'delivered') c.delivered = r.n;
-      else if (r.status === 'dead') c.dead = r.n;
+      // See outboxCounts: bigint arrives as a string on Postgres.
+      const n = Number(r.n);
+      if (r.status === 'pending') c.pending = n;
+      else if (r.status === 'delivered') c.delivered = n;
+      else if (r.status === 'dead') c.dead = n;
     }
     return c;
   }

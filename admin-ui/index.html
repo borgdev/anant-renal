@@ -1622,7 +1622,7 @@ async function renderSummary() {
             <div class="mini-stat"><strong>${realmList.length}</strong><small>Realms</small></div>
             <div class="mini-stat"><strong>${totalPresences}</strong><small>Presences</small></div>
             <div class="mini-stat"><strong>${totalEffects}</strong><small>Effects</small></div>
-            <div class="mini-stat"><strong>${br.published ?? 0}</strong><small>Effects published</small></div>
+            <div class="mini-stat"><strong>${(br.queued ?? 0) + (br.published ?? 0)}</strong><small>Effects queued</small></div>
             <div class="mini-stat"><strong>${ob.pending ?? 0}</strong><small>Outbox pending</small></div>
             <div class="mini-stat"><strong>${auditRows.length > 0 ? 'live' : '—'}</strong><small>Audit stream</small></div>
           </div>
@@ -4239,7 +4239,7 @@ async function renderBrokerPanel() {
   const drivers = await api('GET', '/admin/broker/drivers').catch(() => ({ drivers: [], current: 'none' }));
   const h = b?.health ?? { ok: false, driver: 'none' };
   const ob = b?.outbox ?? { pending: 0, delivered: 0, dead: 0 };
-  const br = b?.bridge ?? { attached: 0, projected: 0, published: 0, failed: 0 };
+  const br = b?.bridge ?? { attached: 0, projected: 0, queued: 0, published: 0, failed: 0 };
   const driverPills = (drivers.drivers || []).map((d) => `<span class="pill ${d === drivers.current ? 'brand' : 'muted'}">${esc(d)}${d === drivers.current ? ' · active' : ''}</span>`).join(' ');
   main.innerHTML = `
     <div class="page-header"><div><h2 class="page-title">Event broker fabric</h2>
@@ -4248,7 +4248,7 @@ async function renderBrokerPanel() {
       <div class="stat-card"><div class="num">${esc(h.driver)}</div><div class="lbl">Driver ${h.ok ? '· online' : '· offline'}</div></div>
       <div class="stat-card"><div class="num" id="br-dlq">${b ? b.deadLetter : '—'}</div><div class="lbl">Dead-letter depth</div></div>
       <div class="stat-card"><div class="num">${ob.pending}</div><div class="lbl">Outbox pending</div></div>
-      <div class="stat-card"><div class="num">${br.published}</div><div class="lbl">Realm effects published</div></div>
+      <div class="stat-card"><div class="num">${(br.queued ?? 0) + (br.published ?? 0)}</div><div class="lbl">Realm effects accepted for delivery</div></div>
     </div>
     <div class="detail">
       <h3 style="margin-top:0;">Driver matrix</h3>
@@ -4260,7 +4260,7 @@ async function renderBrokerPanel() {
       <div class="kv" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
         <div><div class="k">Realms attached</div><div class="v" style="font-weight:600;">${br.attached}</div></div>
         <div><div class="k">Effects projected</div><div class="v" style="font-weight:600;">${br.projected}</div></div>
-        <div><div class="k">Published</div><div class="v" style="font-weight:600;color:var(--good);">${br.published}</div></div>
+        <div><div class="k">Queued (durable)</div><div class="v" style="font-weight:600;color:var(--good);">${br.queued ?? 0}</div></div>
         <div><div class="k">Failed</div><div class="v" style="font-weight:600;color:${br.failed ? 'var(--bad)' : 'var(--good)'};">${br.failed}</div></div>
       </div>
       <p style="font-size:12px;color:var(--muted);margin-top:10px;">Every realm created via <em>Realm</em> attaches its effect ledger to the broker — each <code>EmittedEffect</code> becomes a <code>CanonicalEvent</code> and is published (durably via the outbox).</p>

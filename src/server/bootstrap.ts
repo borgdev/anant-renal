@@ -128,7 +128,14 @@ export async function main(): Promise<void> {
     },
   );
   const outbox = new SqlEventOutbox(await getSqlStore(), cfg.eventBrokerTopic);
-  const outboxPublisher = new OutboxPublisher(outbox, broker, { flushIntervalMs: 1000 });
+  const outboxPublisher = new OutboxPublisher(outbox, broker, {
+    flushIntervalMs: 1000,
+    // A failed flush retains the events (they are retried), but it must be
+    // visible: a silent publisher looks exactly like an idle broker.
+    onError: (err) => telemetry.log('warn', 'outbox flush failed — events are retained and will retry', {
+      attributes: { error: err instanceof Error ? err.message : String(err) },
+    }),
+  });
   outboxPublisher.start();
   const realmBridge = new RealmEventBridge({ broker, outbox });
 

@@ -578,7 +578,7 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
       opts.eventBroker ? opts.eventBroker.health() : Promise.resolve({ ok: false, driver: 'none' }),
       opts.eventBroker ? opts.eventBroker.deadLetterSize() : Promise.resolve(0),
       opts.eventOutbox ? opts.eventOutbox.counts() : Promise.resolve({ pending: 0, delivered: 0, dead: 0 }),
-      opts.realmEventBridge ? opts.realmEventBridge.snapshot() : Promise.resolve({ attached: 0, projected: 0, published: 0, failed: 0 }),
+      opts.realmEventBridge ? opts.realmEventBridge.snapshot() : Promise.resolve({ attached: 0, projected: 0, queued: 0, published: 0, failed: 0 }),
     ]);
     return { health, deadLetter, outbox, bridge, configured: Boolean(opts.eventBroker) };
   });

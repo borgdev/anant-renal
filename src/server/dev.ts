@@ -53,6 +53,8 @@ import { Telemetry, StdoutSink } from './telemetry.js';
 import { InProcessJobBus } from './inprocess-job-bus.js';
 import { loadConfig } from './config.js';
 import { createEventBroker } from './event-broker-factory.js';
+import { Redis } from 'ioredis';
+import type { EventBrokerDriver } from './event-broker.js';
 import { withEventBrokerTelemetry } from './broker-telemetry.js';
 import { SqlEventOutbox, OutboxPublisher } from './event-outbox.js';
 import { RealmEventBridge } from './realm-event-bridge.js';
@@ -132,6 +134,41 @@ const DEV_ACTOR: ActorContext = {
   clearance: 'restricted-phi',
 };
 
+/**
+ * Pick the event broker transport for the dev profile.
+ *
+ * An explicit `HH_EVENTBROKER_DRIVER` is always honoured. Otherwise Redis Streams
+ * is preferred when Redis actually answers, because publishing from the process
+ * makes transport compete with HTTP for the same core. Falling back to the
+ * in-process broker is fine — but it is announced, never silent, since the two
+ * behave very differently under load.
+ */
+async function chooseBrokerDriver(
+  configured: EventBrokerDriver,
+  redisUrl: string,
+  telemetry: Telemetry,
+): Promise<EventBrokerDriver> {
+  if (process.env.HH_EVENTBROKER_DRIVER) return configured;
+  if (configured !== 'inprocess') return configured;
+  const probe = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1, connectTimeout: 1500 });
+  try {
+    await probe.connect();
+    await probe.ping();
+    telemetry.log('info', `event broker: redis-streams (redis reachable at ${redisUrl})`, {});
+    return 'redis-streams';
+  } catch (err) {
+    telemetry.log('warn', 'event broker: inprocess — Redis unreachable, so transport shares this process with HTTP', {
+      attributes: {
+        error: err instanceof Error ? err.message : String(err),
+        remedy: `start Redis or set HH_EVENTBROKER_DRIVER explicitly (redisUrl=${redisUrl})`,
+      },
+    });
+    return 'inprocess';
+  } finally {
+    probe.disconnect();
+  }
+}
+
 export async function main(): Promise<void> {
   const port = Number(process.env.HH_HTTP_PORT ?? 3000);
   const host = process.env.HH_HTTP_HOST ?? '127.0.0.1';
@@ -149,8 +186,16 @@ export async function main(): Promise<void> {
   // quiet: the demo simulator publishes thousands of events/sec; per-event spans
   // + metrics + recv logs saturated stdout and starved HTTP routes (~8s for a 4KB
   // patients response). Keep the read path but drop per-event emission in dev.
+  //
+  // TRANSPORT CHOICE: with a fleet running, publishing straight from the process
+  // makes the transport compete with HTTP for the same single core (measured:
+  // ~100% of one core for ~29 events/s, delivering ~23/s). Redis Streams moves the
+  // fan-out off that hot path. The durable outbox stays in Postgres either way —
+  // Redis is transport, not the write-ahead record — so a Redis restart cannot
+  // lose an event that the ledger already recorded.
+  const brokerDriver = await chooseBrokerDriver(config.eventBrokerDriver, config.redisUrl, telemetry);
   const broker = withEventBrokerTelemetry(createEventBroker({
-    driver: config.eventBrokerDriver,
+    driver: brokerDriver,
     kafka: { brokers: config.kafkaBrokers, clientId: config.kafkaClientId, groupId: config.kafkaGroupId },
     redisUrl: config.redisUrl,
     streamGroup: config.eventBrokerTopic,
@@ -245,7 +290,13 @@ export async function main(): Promise<void> {
   const outbox = new SqlEventOutbox(sqlStore, config.eventBrokerTopic);
 
   // Phase 3 — periodic outbox flusher + realm → broker bridge.
-  const outboxPublisher = new OutboxPublisher(outbox, broker, { flushIntervalMs: 500, onFlush: (n) => telemetry.log('debug', `outbox flushed ${n}`, {}) });
+  const outboxPublisher = new OutboxPublisher(outbox, broker, {
+    flushIntervalMs: 500,
+    onFlush: (n) => telemetry.log('debug', `outbox flushed ${n}`, {}),
+    onError: (err) => telemetry.log('warn', 'outbox flush failed — events are retained and will retry', {
+      attributes: { error: err instanceof Error ? err.message : String(err) },
+    }),
+  });
   outboxPublisher.start();
   const realmBridge = new RealmEventBridge({ broker, outbox });
 
@@ -313,7 +364,13 @@ export async function main(): Promise<void> {
       redis: true,
     }),
     // Phase 0 — write path: append → outbox → broker.
-    onEvent: async (event) => { await outbox.enqueue(event); await outbox.flush(broker); await webhookDeliverer.onEvent(event); },
+    onEvent: async (event) => {
+      // Enqueue only: the durable row IS the delivery guarantee, and OutboxPublisher
+      // drains it on its interval. Flushing here as well meant every event swept the
+      // outbox in parallel with the publisher's own drain.
+      await outbox.enqueue(event);
+      await webhookDeliverer.onEvent(event);
+    },
     eventBroker: broker,
     liveEventFeed: liveFeed,
     // Phase 3 — admin broker panel + realm→broker streaming.

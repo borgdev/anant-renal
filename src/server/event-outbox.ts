@@ -51,6 +51,18 @@ export interface EventOutbox {
 }
 
 export class SqlEventOutbox implements EventOutbox {
+  /**
+   * Collapse concurrent drains into one.
+   *
+   * `flush` is called from TWO places — the publisher's interval and the write
+   * path's per-event hook — so at any real event rate the calls overlap and every
+   * one of them sweeps the SAME oldest rows, multiplying store work by the event
+   * rate until the connection pool is exhausted and the process saturates (observed
+   * as 103% CPU, /health timing out, and zero delivery progress). Whichever caller
+   * arrives while a drain is running joins it and gets its result.
+   */
+  private inFlight: Promise<number> | undefined;
+
   constructor(private readonly store: SqlStore, private readonly topic: string = EVENT_TOPIC_EVENTS) {}
 
   async enqueue(event: CanonicalEvent, opts?: { topic?: string; scopeId?: string }): Promise<void> {
@@ -62,9 +74,27 @@ export class SqlEventOutbox implements EventOutbox {
     });
   }
 
-  async flush(broker: EventBroker, opts?: { limit?: number; maxAttempts?: number }): Promise<number> {
+  async flush(broker: EventBroker, opts?: { limit?: number; maxAttempts?: number; maxTotal?: number }): Promise<number> {
+    if (this.inFlight) return this.inFlight;
+    const run = this.drain(broker, opts);
+    this.inFlight = run;
+    try {
+      return await run;
+    } finally {
+      this.inFlight = undefined;
+    }
+  }
+
+  private async drain(broker: EventBroker, opts?: { limit?: number; maxAttempts?: number; maxTotal?: number }): Promise<number> {
     const limit = opts?.limit ?? 50;
     const maxAttempts = opts?.maxAttempts ?? 3;
+    // `limit` is the BATCH size, so without a total cap one call keeps looping
+    // until the queue is empty — measured at 35,754 rows / 52s against the
+    // fastest possible broker, while producers kept adding faster than that. A
+    // drain attempt that outlives its own trigger interval cannot catch up, and
+    // it also means a single request/interval tick can monopolise the store.
+    // Work is now bounded per call; the publisher's next tick continues.
+    const maxTotal = opts?.maxTotal ?? 500;
     let delivered = 0;
     for (;;) {
       const rows = await this.store.pendingOutboxEvents(limit);
@@ -83,6 +113,7 @@ export class SqlEventOutbox implements EventOutbox {
         }
       }
       if (rows.length < limit) break;
+      if (delivered >= maxTotal) break;
     }
     return delivered;
   }
@@ -120,20 +151,23 @@ export interface OutboxPublisherOptions {
 export class OutboxPublisher {
   private timer: NodeJS.Timeout | undefined;
   private running = false;
+  private inFlight = false;
   private readonly flushIntervalMs: number;
   private readonly limit: number;
   private readonly maxAttempts: number;
   private readonly onFlush: ((delivered: number) => void) | undefined;
+  private readonly onError: ((err: unknown) => void) | undefined;
 
   constructor(
     private readonly outbox: EventOutbox,
     private readonly broker: EventBroker,
-    opts: OutboxPublisherOptions & { onFlush?: (delivered: number) => void } = {},
+    opts: OutboxPublisherOptions & { onFlush?: (delivered: number) => void; onError?: (err: unknown) => void } = {},
   ) {
     this.flushIntervalMs = opts.flushIntervalMs ?? 1000;
     this.limit = opts.limit ?? 50;
     this.maxAttempts = opts.maxAttempts ?? 3;
     this.onFlush = opts.onFlush;
+    this.onError = opts.onError;
   }
 
   start(): void {
@@ -151,9 +185,26 @@ export class OutboxPublisher {
 
   async flush(): Promise<number> {
     if (!this.running) return 0;
-    const delivered = await this.outbox.flush(this.broker, { limit: this.limit, maxAttempts: this.maxAttempts });
-    if (delivered > 0) this.onFlush?.(delivered);
-    return delivered;
+    // One flush at a time. `setInterval` does not wait for an async callback, so
+    // a slow drain previously stacked overlapping calls that all walked the SAME
+    // oldest rows: duplicated publish attempts, and each tick's progress measured
+    // against a queue the other ticks were still holding. A tick that arrives
+    // while the previous one is running is simply skipped — bounded work per tick
+    // (see EventOutbox.flush) means the next one makes progress.
+    if (this.inFlight) return 0;
+    this.inFlight = true;
+    try {
+      const delivered = await this.outbox.flush(this.broker, { limit: this.limit, maxAttempts: this.maxAttempts });
+      if (delivered > 0) this.onFlush?.(delivered);
+      return delivered;
+    } catch (err) {
+      // Never let a store failure become an unhandled rejection: the publisher is
+      // fire-and-forget, so silence here would look like an idle broker.
+      this.onError?.(err);
+      return 0;
+    } finally {
+      this.inFlight = false;
+    }
   }
 
   async counts(): Promise<{ pending: number; delivered: number; dead: number }> {
