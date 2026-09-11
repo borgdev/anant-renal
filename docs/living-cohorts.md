@@ -12,6 +12,9 @@ Membership is **always a suggestion**. `evaluatePatient` says whether a patient
 currently satisfies the proposition; it never acts. Acting goes through the
 existing proposal → approval → episode path, and a qualifying patient appears in
 the **one** work queue (`kind: 'cohort'`) rather than opening a second inbox.
+Suggestions are reached through **My Work** — see
+[Where cohorts surface](#where-cohorts-surface--authoring-is-not-deciding) for
+which console owns them.
 
 Three rules make this a system rather than 25 alert streams:
 
@@ -86,6 +89,65 @@ computes it, and validates before the request leaves the browser.
 Authoring is validated server-side and the server is the gate: an unknown metric,
 a bad comparator, a missing numeric value, a missing `exit`, `mayNever` or
 `guard` are all rejected with a named error.
+
+## Where cohorts surface — authoring is not deciding
+
+There are two surfaces and one rule: **each console renders the items it owns.**
+The queue is one endpoint (`GET /api/work`); every item carries the `console` that
+owns it, and a console shows only its own.
+
+| surface | console | what it is for |
+|---|---|---|
+| Platform → **Living cohorts** (admin-ui) | operator | authoring definitions, coverage verdicts, decline analysis |
+| **My Work** (admin-ui) | operator | deciding the `console: 'ops'` items — cohort suggestions and release validation |
+| **My Work** (exec-app) | executive | deciding the `console: 'exec'` items — release approval/activation, outcome episodes |
+
+A cohort suggestion is **operator-owned**: phrasing a criterion and evaluating it
+is a nursing, quality or coding activity, and the critiquing thread (a decline and
+its reason) is only meaningful next to the definition that produced it, which
+lives in the admin console. Declining from the executive console worked, but it
+detached the reason from the surface where the criterion is edited.
+
+The executive console therefore stays honest about the split rather than hiding
+it: when the queue it reads contains operator items, My Work says so and offers a
+link.
+
+```
+[ 69 item(s) in this queue belong to the Operator console and are worked there. ]  [ Open operator console → ]
+```
+
+### Who reaches which console
+
+`src/server/console-gate.ts` is the single source for this, and `cohort.review`
+is deliberately granted to **both** consoles — the separation is about where the
+work is done, not about who is permitted.
+
+| role | consoles | cohort suggestions land in |
+|---|---|---|
+| `admin` | both | admin-ui **My Work** (uses its operator console) |
+| `nurse`, `pharmacist`, `coder`, `auditor`, `facilities-tech` | operator | admin-ui **My Work** |
+| `md`, `safety` | executive | exec **My Work** — the fallback, as they cannot enter the operator console |
+
+For `md` and `safety` the executive queue is the only reachable surface, so exec
+My Work is *not* filtered down to nothing: it renders its own items and discloses
+the operator count. Roles that can reach both should review cohorts in the admin
+console, because that is where the definition, the coverage verdict and the
+declines are.
+
+### The queue requires a session
+
+`GET /api/work`, `GET /api/work/:id` and `POST /api/work/:id/actions` all answer
+**401 `not-authenticated`** without a valid session cookie. This was not always
+true, and it mattered: the queue returned patient ids, the clinical reason and the
+owner role to any caller, and "role-scoped" means nothing when there is no
+principal to scope to. The detail route is gated for the same reason as the
+action route — it explains a named patient's membership.
+
+`GET /api/context` answers anonymously, because a login screen has to be able to
+ask "who am I?" — but it reports `consoles: []`, `capabilities: []` and
+`navigation: []` for an unauthenticated caller. Advertising both consoles to an
+unknown caller was a role claim that no session backed, and it is the same list
+the console switcher reads.
 
 ## Versioning and declines
 

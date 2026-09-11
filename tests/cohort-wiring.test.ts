@@ -189,6 +189,18 @@ describe('living cohorts reach the queue on the default patient source', () => {
     expect(typeof detail.why).toBe('string');
     expect(String(detail.why).length).toBeGreaterThan(0);
 
+    // The drawer must not report an identity that does not resolve. `detail.id`
+    // and the replay link are what a client acts on and what an auditor follows,
+    // and both once carried `cohort:<cohortId>:<patientId>` — no realm, wrong
+    // separator — so a client that trusted the drawer got `cohort-suggestion-
+    // not-found` (404) and the replay link was dead.
+    expect(detail.id).toBe(item!.id);
+    expect(String((detail.assurance as Record<string, unknown>).replay)).toBe(`/api/work/${item!.id}`);
+    const viaAdvertisedId = await app.inject({ method: 'GET', url: `/api/work/${String(detail.id)}`, headers: { cookie } });
+    expect(viaAdvertisedId.statusCode, 'the drawer advertises an id nothing can resolve').toBe(200);
+    const viaReplay = await app.inject({ method: 'GET', url: String((detail.assurance as Record<string, unknown>).replay), headers: { cookie } });
+    expect(viaReplay.statusCode, 'the replay link 404s').toBe(200);
+
     // the allowed actions are the whole contract: a human reviews or declines.
     // acting on a patient stays a separate proposal -> approval -> episode.
     expect(detail.decision).toEqual({ allowed: ['review', 'decline'], reasonRequiredFor: ['decline'] });
@@ -302,7 +314,10 @@ describe('living cohorts reach the queue on the default patient source', () => {
 
     const after = await app.inject({ method: 'GET', url: '/api/work', headers: { cookie } });
     const body = after.json() as { items: Array<{ id: string }> };
-    expect(body.items.filter((i) => i.id.startsWith('cohort:infection-risk-catheter:'))).toHaveLength(0);
+    // The reference is `cohort:<realm>~<cohort>~<patient>`, so the cohort is the
+    // MIDDLE part. This assertion used to look for a `cohort:<id>:` prefix, which
+    // no work item has ever had — it passed without testing anything.
+    expect(body.items.filter((i) => i.id.includes('~infection-risk-catheter~'))).toHaveLength(0);
 
     // restore so the catalog is left as found
     const on = await app.inject({

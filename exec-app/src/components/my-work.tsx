@@ -59,7 +59,10 @@ const ACTION_LABEL: Record<string, string> = {
   approve: "Approve", reject: "Reject", escalate: "Escalate", validate: "Validate",
   activate: "Activate", rollback: "Rollback", acknowledge: "Acknowledge", "request-approval": "Request approval",
   canary: "Canary", promote: "Promote", fail: "Fail",
-  review: "Review", decline: "Decline",
+  // NOT "Review": this action records a decision (the activity entry reads
+  // suggested → reviewed); it does not open the item — the row title does. See
+  // the same note in admin-ui. For md/safety, whose cohort items land here.
+  review: "Mark reviewed", decline: "Decline",
 };
 
 function toneFor(item: PlatformWorkItem): "neutral" | "mint" | "amber" | "red" | "blue" | "violet" {
@@ -121,6 +124,8 @@ function detailToDrawer(item: PlatformWorkItem, detail?: PlatformWorkDetail): Wo
 
 export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: NavigationId) => void; onOpenDetail: OpenWorkflowDetail }) {
   const [items, setItems] = useState<PlatformWorkItem[]>([]);
+  /** Items the server returned that belong to the OPERATOR console instead. */
+  const [elsewhere, setElsewhere] = useState(0);
   const [filter, setFilter] = useState<"all" | PlatformUrgency>("all");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -135,7 +140,14 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
     try {
       const list = await fetchMyWork();
       if (!mounted.current) return;
-      setItems(list);
+      // An item's `console` is the console that OWNS its capability, and the queue
+      // spans every console the role can open. This console renders only its own:
+      // cohort review is nursing work owned by the operator console, so rendering
+      // it here claimed ownership on behalf of the wrong surface — and left the
+      // console that actually owns it with no queue at all. The remainder is
+      // reported rather than dropped, so an empty queue is never ambiguous.
+      setItems(list.filter((i) => i.console === "exec"));
+      setElsewhere(list.filter((i) => i.console !== "exec").length);
       setError(null);
       setLoaded(true);
     } catch (e) {
@@ -235,6 +247,16 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
 
       {notice ? <div className="mywork-notice">{notice}</div> : null}
 
+      {elsewhere > 0 ? (
+        <div className="mywork-elsewhere">
+          <Inbox size={13} />
+          <span>
+            {elsewhere} item(s) in this queue belong to the <b>Operator console</b> and are worked there.
+          </span>
+          <a className="button button-ghost" href="/admin/ui/">Open operator console <ArrowRight size={13} /></a>
+        </div>
+      ) : null}
+
       {!loaded ? (
         <div className="module-loading"><div className="module-loading-orbit" /><p>Resolving your work queue…</p></div>
       ) : error ? (
@@ -244,7 +266,9 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
           <Inbox size={26} style={{ color: "var(--faint)" }} />
           <strong>{filter === "all" ? "Nothing currently requires you" : `No ${filter}-priority work`}</strong>
           <p>The server derives this queue from real episodes, reviews, releases and DLQ incidents at your role&apos;s scope. New signals appear here the moment the harness retains them.</p>
-          <button className="button button-primary" onClick={() => onNavigate("command")} type="button">Open Outcome Command <ArrowRight size={14} /></button>
+          {elsewhere > 0
+            ? <a className="button button-primary" href="/admin/ui/">Open operator console <ArrowRight size={14} /></a>
+            : <button className="button button-primary" onClick={() => onNavigate("command")} type="button">Open Outcome Command <ArrowRight size={14} /></button>}
         </div>
       ) : (
         <>

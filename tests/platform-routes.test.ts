@@ -243,9 +243,15 @@ describe('public experience APIs (/api/context, /api/work, /api/graph, /api/canv
     const res = await app.inject({ method: 'GET', url: '/api/context' });
     expect(res.statusCode).toBe(200);
     expect(res.json().authenticated).toBe(false);
-    expect(res.json().consoles).toContain('exec');
-    expect(res.json().navigation.length).toBeGreaterThan(0);
-    expect(Array.isArray(res.json().capabilities)).toBe(true);
+    // NO consoles for a caller with no session: answering here is what tells a
+    // client who it is, and advertising both consoles was a role claim nothing
+    // backed (the switcher reads this list). Navigation is per-console, so it
+    // is empty too.
+    expect(res.json().consoles).toEqual([]);
+    expect(res.json().capabilities).toEqual([]);
+    expect(res.json().navigation).toEqual([]);
+    // the pack/lens is not role-scoped, so the route still reports it
+    expect(res.json().pack.id).toBeTruthy();
     expect(typeof res.json().aggregates).toBe('object');
   });
 
@@ -284,6 +290,35 @@ describe('public experience APIs (/api/context, /api/work, /api/graph, /api/canv
 
     const nurseWork = await app.inject({ method: 'GET', url: '/api/work', headers: { cookie: cookie(nurse) } });
     expect(nurseWork.json().items.some((i: { id: string }) => i.id === `release:${rel.id}`)).toBe(false);
+  });
+
+  it('refuses the work queue without a session', async () => {
+    // The queue is ROLE-SCOPED, so it is meaningless without a principal — and while
+    // it was readable anonymously it returned every patient-scoped suggestion
+    // (patient ids, the clinical reason, the owner role) to anyone who asked.
+    for (const url of ['/api/work', '/api/work/episode:nope']) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.statusCode, `${url} answered an anonymous caller`).toBe(401);
+      expect(res.json()).toMatchObject({ error: 'not-authenticated' });
+    }
+    const act = await app.inject({
+      method: 'POST', url: '/api/work/episode:nope/actions',
+      payload: { action: 'approve' },
+    });
+    // a decision is attributed to a person; there is no anonymous decider
+    expect(act.statusCode).toBe(401);
+  });
+
+  it('advertises no consoles to an unauthenticated caller', async () => {
+    // an empty list, not both: the console switcher reads this, and claiming a
+    // console no session backs is a role claim nothing supports
+    const res = await app.inject({ method: 'GET', url: '/api/context' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().authenticated).toBe(false);
+    expect(res.json().consoles).toEqual([]);
+    // and the role-scoped alternative still works for a real session
+    const nurseCtx = await app.inject({ method: 'GET', url: '/api/context', headers: { cookie: cookie(nurse) } });
+    expect(nurseCtx.json().consoles).toEqual(['ops']);
   });
 
   it('/api/work/:id returns a universal detail for an episode', async () => {

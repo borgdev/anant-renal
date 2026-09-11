@@ -329,6 +329,41 @@ export async function declinedSuppression(
     declined.get(`${cohortId}\u0001${realmId}\u0001${patientId}\u0001${criterionVersion}`) ?? null;
 }
 
+/**
+ * The canonical reference for one suggestion: `cohort:<realmId>~<cohortId>~<patientId>`.
+ *
+ * The realm is part of the reference because a patient id is only unique within
+ * one facility, and resolving the wrong one would make the drawer explain a
+ * suggestion the clinician never saw.
+ *
+ * `~` is the separator rather than `:` because a realm id CONTAINS colons
+ * (`sim:renal-a`, `realm:b3`), so a colon-delimited reference is ambiguous. Note
+ * that percent-encoding does not help here: Fastify decodes the path parameter
+ * before the handler runs, so an encoded `%3A` arrives as a plain `:`.
+ *
+ * The builder and the parser live together in ONE module on purpose. Both were
+ * once written twice — this one here emitted `cohort:<cohortId>:<patientId>`
+ * (no realm, wrong separator) while the work queue emitted the form below, so
+ * the detail drawer advertised an `id`, and a replay URL built from it, that
+ * both answered `cohort-suggestion-not-found`. Two spellings of one key is the
+ * whole defect; a shared builder is the fix.
+ */
+export const COHORT_REF_SEP = '~';
+
+export function cohortWorkId(realmId: string, cohortId: string, patientId: string): string {
+  return `cohort:${realmId}${COHORT_REF_SEP}${cohortId}${COHORT_REF_SEP}${patientId}`;
+}
+
+export function parseCohortRef(rest: string): { realmId: string; cohortId: string; patientId: string } | null {
+  const parts = rest.split(COHORT_REF_SEP);
+  if (parts.length !== 3) return null;
+  const [realmId, cohortId, patientId] = parts;
+  if (!realmId || !cohortId || !patientId) return null;
+  // A reference that is not exactly three unambiguous parts resolves nothing
+  // rather than resolving the wrong patient.
+  return { realmId, cohortId, patientId };
+}
+
 export async function registerCohortRoutes(app: FastifyInstance, opts: CohortRouteOptions = {}): Promise<void> {
   const patientSource = opts.patients ?? (() => renalPatientInputs(RealmRegistry.list()));
 
@@ -552,7 +587,7 @@ export async function registerCohortRoutes(app: FastifyInstance, opts: CohortRou
       .sort((a, b) => b.opportunity - a.opportunity || a.patientId.localeCompare(b.patientId))
       .slice(0, limit)
       .map((r) => ({
-        id: `cohort:${r.cohortId}:${r.patientId}`,
+        id: cohortWorkId(r.realmId, r.cohortId, r.patientId),
         cohortId: r.cohortId,
         cohortLabel: r.label,
         patientId: r.patientId,

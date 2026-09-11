@@ -35,6 +35,9 @@ import type { LocalUser, LocalUserStore } from './auth/users.js';
 import type { SessionManager } from './auth/session.js';
 import { SESSION_COOKIE, readCookieValue } from './auth/session.js';
 import { consolesForRole, type ConsoleId } from './console-gate.js';
+// The cohort reference builder/parser live in the cohort module so the queue and
+// every drawer cannot spell the same key two different ways.
+import { cohortWorkId, parseCohortRef } from './cohort-routes.js';
 import { getSwarmWorkspace, getSwarmCoordinator, swarmWhatIf, projectTopology, type ProjectedEdge, type ProjectedNode } from './swarm-routes.js';
 import type { SwarmWorkspaceStore, WorkspaceDoc, PlatformOrganization, PlatformTopicPlan, PlatformCanvas, ConfigRelease, EvidenceReview, DlqRemediation } from '../swarm/workspace.js';
 import type { PersistentOutcomeCoordinator } from '../swarm/durable-coordinator.js';
@@ -746,7 +749,10 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
     const w = ws();
     const user = sessionUser(req);
     const role = user?.role;
-    const consoles = role ? consolesForRole(role) : (['exec', 'ops'] as ConsoleId[]);
+    // An unauthenticated caller has NO consoles. Advertising both was a role claim
+    // that no session backs — the console switcher reads this list, so it must be
+    // empty until there is a real principal.
+    const consoles = role ? consolesForRole(role) : ([] as ConsoleId[]);
     let pack: { id: string; lens: string } = { id: 'healthcare.renal-enterprise', lens: 'provider' };
     let aggregates: Record<string, number> = {};
     try {
@@ -776,6 +782,10 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
   });
 
   app.get('/api/work', async (req, reply) => {
+    // The queue is ROLE-SCOPED, so it is meaningless without a session — and while
+    // it was readable anonymously it returned every patient-scoped suggestion
+    // (patient ids, the clinical reason, the owner role) to anyone who asked.
+    if (!sessionUser(req)) return reply.code(401).send({ error: 'not-authenticated' });
     const w = ws();
     try {
       const items = await buildWorkQueue(w, coord(), opts, sessionRole(req));
@@ -786,6 +796,8 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
   });
 
   app.get<{ Params: { id: string } }>('/api/work/:id', async (req, reply) => {
+    // the detail explains a specific patient's membership, so it is session-gated too
+    if (!sessionUser(req)) return reply.code(401).send({ error: 'not-authenticated' });
     const w = ws();
     const id = req.params.id;
     const [kind, rest] = splitWorkId(id);
@@ -819,6 +831,8 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
   app.post<{ Params: { id: string }; Body: { action?: string; reason?: string; approver?: string; idempotencyKey?: string } }>(
     '/api/work/:id/actions',
     async (req, reply) => {
+      // A decision is attributed to a person; there is no anonymous decider.
+      if (!sessionUser(req)) return reply.code(401).send({ error: 'not-authenticated' });
       const id = req.params.id;
       const action = req.body?.action;
       const idempotencyKey = req.body?.idempotencyKey;
@@ -1078,34 +1092,6 @@ function splitWorkId(id: string): [string, string] {
   return [id.slice(0, i), id.slice(i + 1)];
 }
 
-/**
- * `cohort:<realmId>~<cohortId>~<patientId>`
- *
- * The realm is part of the reference because a patient id is only unique within
- * one facility, and resolving the wrong one would make the drawer explain a
- * suggestion the clinician never saw.
- *
- * `~` is the separator rather than `:` because a realm id CONTAINS colons
- * (`sim:renal-a`, `realm:b3`), so a colon-delimited reference is ambiguous. Note
- * that percent-encoding does not help here: Fastify decodes the path parameter
- * before the handler runs, so an encoded `%3A` arrives as a plain `:`.
- */
-const COHORT_REF_SEP = '~';
-
-function cohortWorkId(realmId: string, cohortId: string, patientId: string): string {
-  return `cohort:${realmId}${COHORT_REF_SEP}${cohortId}${COHORT_REF_SEP}${patientId}`;
-}
-
-function parseCohortRef(rest: string): { realmId: string; cohortId: string; patientId: string } | null {
-  const parts = rest.split(COHORT_REF_SEP);
-  if (parts.length !== 3) return null;
-  const [realmId, cohortId, patientId] = parts;
-  if (!realmId || !cohortId || !patientId) return null;
-  // A reference that is not exactly three unambiguous parts resolves nothing
-  // rather than resolving the wrong patient.
-  return { realmId, cohortId, patientId };
-}
-
 interface CohortSuggestion {
   cohortId: string;
   patientId: string;
@@ -1200,7 +1186,13 @@ async function cohortDetail(
     rows.map((c) => ({ metric: c.metric, comparator: c.comparator, expected: c.expected, observed: c.observed ?? null, outcome: c.outcome, note: c.note ?? null }));
 
   return {
-    id: `cohort:${s.cohortId}:${s.patientId}`,
+    // The canonical work id, the SAME value the queue emits. It used to be
+    // `cohort:${cohortId}:${patientId}` here, which dropped the realm and used
+    // the wrong separator: the detail advertised an id, and a replay URL built
+    // from it, that both answered `cohort-suggestion-not-found` (404). A drawer
+    // that cannot be acted on by the id it reports about itself is a dead end,
+    // and the realm is not optional — the same patient id exists in many realms.
+    id: cohortWorkId(s.realmId, s.cohortId, s.patientId),
     kind: 'cohort',
     title: `${s.label} · ${s.patientId}`,
     state: 'suggested',
@@ -1240,7 +1232,7 @@ async function cohortDetail(
     },
     assurance: {
       criterionVersion: s.criterionVersion,
-      replay: `/api/work/cohort:${s.cohortId}:${s.patientId}`,
+      replay: `/api/work/${cohortWorkId(s.realmId, s.cohortId, s.patientId)}`,
       whyPatientIsHere: `/admin/cohorts/patients/${s.patientId}`,
     },
   };

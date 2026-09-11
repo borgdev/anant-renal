@@ -194,6 +194,9 @@ a { color: inherit; }
 .mywork-filters { display: flex; gap: 6px; margin-top: 14px; flex-wrap: wrap; }
 .mywork-filter { padding: 5px 12px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }.mywork-filter span { color: var(--faint); }.mywork-filter.is-active { color: var(--text); border-color: var(--mint); background: rgba(152,174,192,.08); }
 .mywork-notice { margin-top: 10px; padding: 8px 12px; border: 1px solid rgba(152,174,192,.18); border-radius: 8px; background: rgba(152,174,192,.06); color: var(--text); font-size: 12px; }
+.mywork-elsewhere { margin-top: 10px; padding: 8px 12px; border: 1px solid rgba(152,174,192,.22); border-radius: 8px; background: rgba(152,174,192,.05); color: var(--muted); font-size: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.mywork-elsewhere b { color: var(--text); }
+.mywork-elsewhere a { margin-left: auto; }
 .mywork-list { margin-top: 8px; }
 .mywork-row { grid-template-columns: auto minmax(0,1fr) auto auto; cursor: default; }
 .mywork-main { display: grid; gap: 3px; text-align: left; background: transparent; border: 0; color: inherit; padding: 0; cursor: pointer; min-width: 0; }.mywork-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }.mywork-main small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.mywork-meta { color: var(--faint); font-size: 12px; }.mywork-dst { display: inline-flex; align-items: center; gap: 6px; color: #93a7b7; font-size: 11px; }.mywork-dst b { color: var(--mint); font-weight: 700; }

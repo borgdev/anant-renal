@@ -97,8 +97,9 @@ describe('Phase F — end-to-end closed loop + audit/replay package', () => {
     expect(Array.isArray(demo.opened)).toBe(true);
     expect(demo.opened.length).toBe(2);
 
-    // 4. User cockpit — My Work surfaces the payer episodes.
-    const work = await (await app.inject({ method: 'GET', url: '/api/work' })).json();
+    // 4. User cockpit — My Work surfaces the payer episodes. It is role-scoped,
+    // so it needs the session: this read used to be anonymous.
+    const work = await (await app.inject({ method: 'GET', url: '/api/work', headers })).json();
     const careGap = work.items.find((i: { title: string }) => i.title.startsWith('care gap closure'));
     const authz = work.items.find((i: { title: string }) => i.title.startsWith('authorization review'));
     expect(careGap).toBeTruthy();
