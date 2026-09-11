@@ -9,12 +9,23 @@
 // Idempotent: rows are inserted with ON CONFLICT DO NOTHING, so re-running is safe
 // and never clobbers a newer Postgres row.
 //
-//   node scripts/migrate-sqlite-to-postgres.mjs --dry-run
-//   node scripts/migrate-sqlite-to-postgres.mjs
-//   node scripts/migrate-sqlite-to-postgres.mjs --include-outbox
+//   npm run storage:migrate -- --dry-run
+//   npm run storage:migrate
+//   npm run storage:migrate -- --include-outbox
+//
+// Switching backends is a two-step procedure, and the second step matters:
+//
+//   1. npm run storage:migrate        (move the state)
+//   2. npm run storage:verify         (prove every table is present in Postgres)
+//
+// Only delete the SQLite file (~1.5 GB with its WAL) once `storage:verify`
+// reports every state table present. Do not infer it from the app working: a
+// harness running on Postgres happily serves a system whose old state sat in a
+// file nobody ever read again.
 //
 // `event_outbox` is skipped by default: it is a transport log (1M+ delivered rows,
 // ~1.3 GB) rather than state, and re-sending historical events is not desired.
+// `auth_sessions` rows are migrated but are ephemeral — they expire or get pruned.
 
 import { DatabaseSync } from 'node:sqlite';
 import pg from 'pg';

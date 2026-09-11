@@ -15,6 +15,8 @@
     "measures:seed": "node scripts/seed-measure-store.mjs",
     "demo:replay": "tsx examples/dialysis-replay.ts",
     "demo:cleanup": "node scripts/cleanup-demo.mjs",
+    "storage:migrate": "node scripts/migrate-sqlite-to-postgres.mjs",
+    "storage:verify": "node scripts/compare-sqlite-postgres.mjs",
     "docker:build": "docker compose build",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down",
