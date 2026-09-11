@@ -150,8 +150,14 @@ describe('living cohorts reach the queue on the default patient source', () => {
 
     const res = await app.inject({ method: 'GET', url: '/api/work', headers: { cookie } });
     const body = res.json() as { items: Array<{ id: string; kind: string; capability?: string; actions?: string[]; summary?: string }> };
-    const coherent = body.items.filter((i) => i.id.startsWith('cohort:wiring-probe:'));
+    // The reference is `cohort:<realm>~<cohort>~<patient>`: `~` because a realm id
+    // itself contains colons (`realm:cohort-wiring`) and Fastify decodes the path
+    // before the handler sees it, so percent-encoding does not survive.
+    const coherent = body.items.filter((i) => i.kind === 'cohort' && i.id.includes('~wiring-probe~'));
     expect(coherent.length).toBeGreaterThan(0);
+    // the realm must be part of the reference, or the drawer can resolve the wrong
+    // patient in a facility that reuses the same local identifier
+    expect(coherent[0]!.id.startsWith('cohort:realm:cohort-wiring~')).toBe(true);
 
     const first = coherent[0]!;
     expect(first.kind).toBe('cohort');
@@ -160,6 +166,11 @@ describe('living cohorts reach the queue on the default patient source', () => {
     expect(first.actions).toEqual(['review', 'decline']);
     // the summary carries WHY, which is the whole product claim of a cohort
     expect(first.summary).toMatch(/age\.years/);
+
+    // and the reference must round-trip through the detail route, colon-bearing
+    // realm id and all — otherwise the queue shows an item nothing can open
+    const detail = await app.inject({ method: 'GET', url: `/api/work/${first.id}`, headers: { cookie } });
+    expect(detail.statusCode).toBe(200);
 
     await app.inject({ method: 'DELETE', url: '/admin/cohorts/wiring-probe', headers: { cookie } });
   }, 120_000);
@@ -247,7 +258,7 @@ describe('living cohorts reach the queue on the default patient source', () => {
     const queued = async (): Promise<string[]> => {
       const res = await app.inject({ method: 'GET', url: '/api/work', headers: { cookie } });
       return (res.json() as { items: Array<{ id: string }> }).items
-        .map((i) => i.id).filter((id) => id.startsWith('cohort:decline-probe:'));
+        .map((i) => i.id).filter((id) => id.includes('~decline-probe~'));
     };
     const before = await queued();
     expect(before.length).toBeGreaterThan(0);

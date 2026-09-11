@@ -475,6 +475,12 @@ export interface CohortState {
   minN: number;
   /** members whose suggested action is actionable by a human right now */
   actionable: number;
+  /**
+   * Why this cohort has the members it has — per-criterion resolution and, when
+   * it is empty, the specific reason. A bare `members: 0` cannot distinguish a
+   * healthy empty cohort from one whose data never arrives.
+   */
+  coverage: CohortCoverage;
 }
 
 export function cohortStateOf(
@@ -503,6 +509,320 @@ export function cohortStateOf(
       : Math.round((members.reduce((a, e) => a + e.confidence, 0) / members.length) * 10_000) / 10_000,
     minN: def.minN,
     actionable: members.filter((e) => actionableIds.has(e.patientId)).length,
+    coverage: cohortCoverageOf(def, evaluations),
+  };
+}
+
+/* ======================================================================
+ * Coverage — WHY a cohort has the members it has
+ *
+ * "0 members" is not an answer. It is three different facts wearing one number:
+ *
+ *   • the cohort is fine and nobody qualifies today (criteria-too-strict);
+ *   • NOBODY HAS THE MEASUREMENT (data-gap) — the cohort is silently decorative;
+ *   • the measurement exists but never resolves (insufficient-coverage).
+ *
+ * Before this, an operator saw `members: 0` and could not tell a healthy empty
+ * cohort from a dead one. `mdb-worsening` sat at zero for exactly this reason:
+ * the fleet carries no serial PTH, so the criterion could never resolve, and
+ * nothing anywhere said so. Coverage says so, per criterion, with the module
+ * that would have to supply the data.
+ * ====================================================================== */
+
+export interface CriterionCoverage {
+  metric: string;
+  expected: string;
+  /** patients for whom this criterion resolved and held */
+  met: number;
+  /** patients for whom it resolved and did not hold */
+  notMet: number;
+  /** patients for whom the underlying measurement is absent */
+  unresolved: number;
+  /** met / evaluated — the share of the population this criterion selected */
+  metPct: number;
+  /** (met + notMet) / evaluated — the share the data could actually decide */
+  resolvedPct: number;
+  /** observed numeric range across resolved patients, for calibrating a threshold */
+  observedMin?: number | undefined;
+  observedMax?: number | undefined;
+  unit: string;
+  /** the module that computes it — what someone would have to fix */
+  source: string;
+}
+
+export type CohortDiagnosis =
+  /** some patients qualify */
+  | 'members'
+  /** nobody has the measurement — the cohort cannot be assessed at all */
+  | 'data-gap'
+  /** the measurement exists and nobody reaches the threshold */
+  | 'criteria-too-strict'
+  /** every criterion is individually satisfiable, but no patient satisfies them together */
+  | 'no-joint-overlap'
+  /** nothing was evaluated, so there is nothing to conclude */
+  | 'insufficient-coverage';
+
+export interface CohortCoverage {
+  evaluated: number;
+  members: number;
+  entryMode: 'all' | 'any';
+  /** one row per entry criterion, in declaration order */
+  criteria: CriterionCoverage[];
+  /** criteria no patient satisfied AND no patient could resolve — a data gap */
+  dataBlocked: string[];
+  /** criteria that resolved but which nobody satisfied — a threshold problem */
+  neverMet: string[];
+  /**
+   * The criteria named by `verdict` as the reason there are no members: the
+   * unmeasurable ones, the unsurpassed ones, or — when every criterion is
+   * individually satisfiable — the criterion that admits the fewest patients.
+   */
+  blockers: string[];
+  diagnosis: CohortDiagnosis;
+  /** one sentence an operator can act on, naming the metric and its source */
+  verdict: string;
+}
+
+const pct = (n: number, d: number): number => (d === 0 ? 0 : Math.round((n / d) * 1000) / 10);
+
+/** Per-criterion coverage for one cohort over the evaluated population. */
+export function cohortCoverageOf(def: CohortDefinition, evaluations: readonly CohortEvaluation[]): CohortCoverage {
+  const evaluated = evaluations.length;
+  const members = evaluations.filter((e) => e.state === 'member').length;
+  const entryMode = def.entryMode ?? 'all';
+
+  const buckets = new Map<string, CriterionCoverage>();
+  for (const c of def.entry) {
+    if (buckets.has(c.metric)) continue;
+    const spec = cohortMetric(c.metric);
+    buckets.set(c.metric, {
+      metric: c.metric,
+      expected: describeCriterion(c),
+      met: 0,
+      notMet: 0,
+      unresolved: 0,
+      metPct: 0,
+      resolvedPct: 0,
+      unit: spec?.unit ?? '',
+      source: spec?.source ?? 'unknown — not in the metric vocabulary',
+    });
+  }
+
+  for (const ev of evaluations) {
+    for (const r of ev.entry) {
+      const b = buckets.get(r.metric);
+      if (!b) continue;
+      if (r.outcome === 'met') b.met += 1;
+      else if (r.outcome === 'not-met') b.notMet += 1;
+      else b.unresolved += 1;
+      if (typeof r.observed === 'number') {
+        b.observedMin = b.observedMin === undefined ? r.observed : Math.min(b.observedMin, r.observed);
+        b.observedMax = b.observedMax === undefined ? r.observed : Math.max(b.observedMax, r.observed);
+      }
+    }
+  }
+
+  const criteria = [...buckets.values()].map((b) => ({
+    ...b,
+    metPct: pct(b.met, evaluated),
+    resolvedPct: pct(b.met + b.notMet, evaluated),
+  }));
+
+  // In BOTH modes, "no members" means no criterion held — in `all` mode every
+  // criterion must hold, in `any` mode at least one must. So a criterion that no
+  // patient satisfied is decisive on its own, and when every criterion IS
+  // individually satisfied the emptiness must come from their intersection.
+  const unmeasurable = criteria.filter((c) => c.met === 0 && c.notMet === 0);
+  const unsurpassed = criteria.filter((c) => c.met === 0 && c.notMet > 0);
+  const binding = criteria.length === 0
+    ? undefined
+    : [...criteria].sort((a, b) => a.met - b.met || a.metric.localeCompare(b.metric))[0];
+
+  const dataBlocked = unmeasurable.map((c) => c.metric);
+  const neverMet = unsurpassed.map((c) => c.metric);
+
+  let diagnosis: CohortDiagnosis = 'members';
+  let blockers: string[] = [];
+  let verdict = `${members} of ${evaluated} evaluated patients satisfy this cohort.`;
+
+  if (members === 0 && evaluated === 0) {
+    diagnosis = 'insufficient-coverage';
+    verdict = 'no patients were evaluated at all — the patient source returned nothing, so this cohort has not been assessed.';
+  } else if (members === 0 && unmeasurable.length > 0) {
+    // Nothing can be decided while the input is missing, whatever else is true.
+    const gap = unmeasurable[0]!;
+    diagnosis = 'data-gap';
+    blockers = dataBlocked;
+    const alsoUnsurpassed = unsurpassed[0];
+    verdict = `no members: '${gap.metric}' could not be resolved for any of ${evaluated} evaluated patients — nothing in the data supplies it (source: ${gap.source}). This cohort cannot be assessed on the current data, so its zero is not evidence that nobody is at risk.`
+      + (alsoUnsurpassed ? ` '${alsoUnsurpassed.metric}' is also never satisfied${range(alsoUnsurpassed)}.` : '');
+  } else if (members === 0 && unsurpassed.length > 0) {
+    const strict = unsurpassed.sort((a, b) => (a.notMet - b.notMet) || a.metric.localeCompare(b.metric))[0]!;
+    diagnosis = 'criteria-too-strict';
+    blockers = neverMet;
+    verdict = `no members: the data resolved '${strict.metric}' for ${strict.notMet} patients and none met ${strict.expected}${range(strict)}. The criterion is decidable and the threshold sits outside the observed population.`;
+  } else if (members === 0 && binding) {
+    // Every criterion is individually satisfiable, so the emptiness is the
+    // INTERSECTION — e.g. an adequacy flag that only fires for the patients who
+    // have no sessions, paired with a criterion requiring a session. Nothing is
+    // missing and nothing is mis-thresholded; the cohort is unsatisfiable as
+    // written, and saying "insufficient coverage" here would send an operator
+    // looking for data that is not the problem.
+    diagnosis = 'no-joint-overlap';
+    blockers = [binding.metric];
+    const others = criteria.filter((c) => c.metric !== binding.metric)
+      .map((c) => `'${c.metric}' holds for ${c.met}`)
+      .join(', ');
+    verdict = `no members: every entry criterion is individually satisfiable, but no patient satisfies them together${entryMode === 'all' ? '' : ' — which cannot happen in any mode'}. The binding criterion is '${binding.metric}' (${binding.expected}), satisfied by only ${binding.met} of ${evaluated} patients${range(binding)}${others ? `; ${others}` : ''}. As written this cohort cannot admit anyone.`;
+  } else if (members === 0) {
+    diagnosis = 'insufficient-coverage';
+    verdict = `no members: this cohort declares no entry criteria, so nothing can admit a patient.`;
+  }
+
+  return {
+    evaluated,
+    members,
+    entryMode,
+    criteria,
+    dataBlocked,
+    neverMet,
+    blockers,
+    diagnosis,
+    verdict,
+  };
+}
+
+function range(c: CriterionCoverage): string {
+  if (c.observedMin === undefined || c.observedMax === undefined) return '';
+  // Only append the unit when it is a unit. Vocabulary entries carry ranges
+  // ('0..1') and enum sets ('green|amber|red|unknown') in the same field, and
+  // "observed range 0.03–0.04 0..1" is unreadable.
+  const isUnit = Boolean(c.unit) && c.unit.length <= 8 && !c.unit.includes('|') && !c.unit.includes('..');
+  const unit = isUnit ? ` ${c.unit}` : '';
+  const lo = Math.round(c.observedMin * 100) / 100;
+  const hi = Math.round(c.observedMax * 100) / 100;
+  return lo === hi ? ` (observed ${lo}${unit})` : ` (observed range ${lo}–${hi}${unit})`;
+}
+
+/* ======================================================================
+ * Decline analysis — what a rejected suggestion is evidence OF
+ *
+ * A decline is the only signal in the system that a clinician disagreed with a
+ * criterion. It is recorded durably and attributed to the criterion version it
+ * was made against, so a cohort that was wrong once cannot be condemned forever
+ * by the verdict a previous criterion earned.
+ *
+ * Nothing here edits a cohort. It produces evidence an operator can act on —
+ * the tuning step stays a human edit through the same API a human uses.
+ * ====================================================================== */
+
+export interface CohortDeclineAnalysis {
+  cohortId: string;
+  label: string;
+  owner: string;
+  enabled: boolean;
+  /** the definition version in force right now */
+  criterionVersion: string;
+  /** declines recorded against the CURRENT version only */
+  declines: number;
+  /** suggestions accepted at review against the current version */
+  acceptances: number;
+  /** declines / decisions, or null when no human has decided anything yet */
+  declineRate: number | null;
+  /** reasons given, grouped, most common first */
+  reasons: Array<{ reason: string; count: number }>;
+  /** versions the cohort has been judged under, newest first */
+  byVersion: Array<{ criterionVersion: string; declines: number; acceptances: number; stale: boolean }>;
+  /** true when declines under this version are dominated by one reason */
+  clustered: boolean;
+  /** the criterion to look at first, and why — evidence, never an edit */
+  recommendation: string;
+  /** every suggestion declined and none accepted, over the sample floor */
+  retireCandidate: boolean;
+}
+
+/** A tuning recommendation is only made once this many decisions exist. */
+export const DECLINE_SAMPLE_FLOOR = 3;
+
+export interface CohortDecisionLike {
+  cohortId: string;
+  action: 'review' | 'decline';
+  reason: string;
+  criterionVersion: string;
+}
+
+export function analyseCohortDeclines(
+  def: CohortDefinition,
+  decisions: readonly CohortDecisionLike[],
+): CohortDeclineAnalysis {
+  const mine = decisions.filter((d) => d.cohortId === def.id);
+  const current = mine.filter((d) => d.criterionVersion === def.criterionVersion);
+  const declines = current.filter((d) => d.action === 'decline');
+  const acceptances = current.filter((d) => d.action === 'review');
+
+  const counts = new Map<string, number>();
+  for (const d of declines) {
+    const reason = d.reason.trim() || '(no reason given)';
+    counts.set(reason, (counts.get(reason) ?? 0) + 1);
+  }
+  const reasons = [...counts.entries()]
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason));
+
+  const versions = [...new Set(mine.map((d) => d.criterionVersion))].sort((a, b) => b.localeCompare(a));
+  const byVersion = versions.map((v) => ({
+    criterionVersion: v,
+    declines: mine.filter((d) => d.criterionVersion === v && d.action === 'decline').length,
+    acceptances: mine.filter((d) => d.criterionVersion === v && d.action === 'review').length,
+    // a judgement made against an older criterion says nothing about this one
+    stale: v !== def.criterionVersion,
+  }));
+
+  const decided = declines.length + acceptances.length;
+  const declineRate = decided === 0 ? null : Math.round((declines.length / decided) * 1000) / 10;
+
+  const top = reasons[0];
+  // Concentration is a property of the declines themselves, independent of the
+  // acceptances: "the declines we have all say the same thing". It needs TWO
+  // declines before it is a pattern at all — one rejection is one person's
+  // opinion, and flagging it as a cluster would turn a single click into a
+  // tuning recommendation.
+  const clustered = top !== undefined && declines.length >= 2 && top.count / declines.length >= 0.6;
+
+  let recommendation: string;
+  if (decided === 0) {
+    recommendation = `No decisions have been recorded against version ${def.criterionVersion} yet, so there is nothing to learn from.`;
+  } else if (decided < DECLINE_SAMPLE_FLOOR) {
+    // Below the floor we report the signal as an OBSERVATION with its sample
+    // size, rather than withholding it or dressing it up as a recommendation.
+    const lead = top
+      ? ` The emerging signal is "${top.reason}" (${top.count} of ${declines.length} decline(s)); ${DECLINE_SAMPLE_FLOOR} decisions are the floor before that is worth acting on.`
+      : '';
+    recommendation = `Not enough human decisions to judge this cohort yet (${declines.length} declined, ${acceptances.length} accepted on version ${def.criterionVersion}).${lead}`;
+  } else if (clustered && top) {
+    const criterion = def.entry[0] ? describeCriterion(def.entry[0]) : 'its entry criterion';
+    recommendation = `${top.count} of ${declines.length} declines on version ${def.criterionVersion} share one reason: "${top.reason}". Review the criterion '${criterion}' against that reason — editing the definition (and bumping criterionVersion) is what clears the suppression, so declining again today would change nothing.`;
+  } else if (declineRate !== null && declineRate >= 80) {
+    recommendation = `${declines.length} of ${decided} suggestions were declined on version ${def.criterionVersion} (${declineRate}%). Compare the entry thresholds against the observed population before trusting this cohort's output.`;
+  } else {
+    const share = top ? `; the most common covers ${top.count} of ${declines.length}` : '';
+    recommendation = `Declines are spread across ${reasons.length} distinct reason(s) on version ${def.criterionVersion}${share} — no single criterion is implicated by the sample yet.`;
+  }
+
+  return {
+    cohortId: def.id,
+    label: def.label,
+    owner: def.owner,
+    enabled: def.enabled,
+    criterionVersion: def.criterionVersion,
+    declines: declines.length,
+    acceptances: acceptances.length,
+    declineRate,
+    reasons,
+    byVersion,
+    clustered,
+    recommendation,
+    retireCandidate: def.enabled && declines.length >= DECLINE_SAMPLE_FLOOR && acceptances.length === 0,
   };
 }
 

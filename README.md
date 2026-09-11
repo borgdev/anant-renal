@@ -104,9 +104,11 @@ packs/
   dialysis-provider/  provider-side ops
   cms-universe/       CMS programs as executable metadata
 
-hh-admin-ui/          single-page admin (Knowledge, Learn, Realm, Measures,
-                      Agents, Drafts, Governance, Counterfactuals, Billing)
-tests/                vitest suites — 263 tests across 42 files
+admin-ui/             single-page operator console (Knowledge, Learn, Realm,
+                      Measures, Agents, Drafts, Governance, Living cohorts)
+docs/                 deployment, realm architecture, master data, product spec,
+                      living-cohorts.md (cohort authoring, coverage, declines)
+tests/                vitest suites — 1137 tests across 126 files
 .harness/             local store: knowledge/, measures/, secrets/, snapshots/
 ```
 

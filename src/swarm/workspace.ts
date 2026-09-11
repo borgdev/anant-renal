@@ -503,6 +503,22 @@ export interface CohortDefinitionDoc extends WorkspaceDoc {
   enabled: boolean;
 }
 
+/**
+ * The durable key for a (cohort, patient) pair.
+ *
+ * A patient id is only unique WITHIN a realm. Two facilities can legitimately
+ * carry the same local identifier — the reference fleet has `f1-pt-0001` in both
+ * `realm:b3` and `realm:c2` — so keying on `cohortId::patientId` merged two
+ * different patients into ONE explainability record. One realm's membership
+ * silently overwrote the other's reason, `enteredAt` and history, and because the
+ * two rows then differed on every pass, the record was rewritten on every poll
+ * forever. The realm is part of the identity of the patient, so it is part of the
+ * key.
+ */
+export function cohortMembershipId(cohortId: string, realmId: string, patientId: string): string {
+  return `${cohortId}::${realmId}::${patientId}`;
+}
+
 /** One (cohort, patient) pair with entry/exit history — the explainability record. */
 export interface CohortMembershipDoc extends WorkspaceDoc {
   cohortId: string;
@@ -522,6 +538,44 @@ export interface CohortMembershipDoc extends WorkspaceDoc {
   metrics?: Record<string, unknown> | undefined;
 }
 
+/** Everything an evaluation can assert about one (cohort, patient) pair. */
+export interface CohortMembershipInput {
+  cohortId: string;
+  patientId: string;
+  realmId: string;
+  member: boolean;
+  reason: string;
+  confidence: number;
+  criterionVersion: string;
+  risk: number;
+  suggestedAction: string;
+  protocol: string;
+  unresolved: string[];
+  metrics?: Record<string, unknown> | undefined;
+}
+
+/**
+ * Did anything a human would read change?
+ *
+ * Deliberately excludes `updatedAt`/`lastEvaluatedAt`: those are bookkeeping, and
+ * treating them as change would re-write every row on every poll — the exact cost
+ * this exists to remove.
+ */
+function membershipChanged(existing: CohortMembershipDoc, next: CohortMembershipDoc): boolean {
+  return (
+    existing.member !== next.member
+    || existing.reason !== next.reason
+    || existing.confidence !== next.confidence
+    || existing.criterionVersion !== next.criterionVersion
+    || existing.risk !== next.risk
+    || existing.suggestedAction !== next.suggestedAction
+    || existing.protocol !== next.protocol
+    || existing.realmId !== next.realmId
+    || existing.history.length !== next.history.length
+    || existing.unresolved.join('\u0001') !== next.unresolved.join('\u0001')
+  );
+}
+
 /**
  * A durable human decision on a cohort suggestion.
  *
@@ -532,6 +586,8 @@ export interface CohortMembershipDoc extends WorkspaceDoc {
 export interface CohortDecisionDoc extends WorkspaceDoc {
   cohortId: string;
   patientId: string;
+  /** the realm the patient belongs to — a patient id is only unique within one */
+  realmId: string;
   action: 'review' | 'decline';
   reason: string;
   actor: string;
@@ -1694,58 +1750,104 @@ export class SwarmWorkspaceStore {
    * than by re-running today's predicate — which would silently rewrite history
    * every time a criterion is edited.
    */
-  async recordCohortMembership(input: {
-    cohortId: string;
-    patientId: string;
-    realmId: string;
-    member: boolean;
-    reason: string;
-    confidence: number;
-    criterionVersion: string;
-    risk: number;
-    suggestedAction: string;
-    protocol: string;
-    unresolved: string[];
-    metrics?: Record<string, unknown>;
-  }): Promise<CohortMembershipDoc> {
-    const id = `${input.cohortId}::${input.patientId}`;
-    const existing = await this.get<CohortMembershipDoc>('cohort-membership', id);
+  async recordCohortMembership(input: CohortMembershipInput): Promise<CohortMembershipDoc> {
+    const { docs } = await this.recordCohortMemberships([input]);
+    const [doc] = docs;
+    if (!doc) throw new Error('cohort-membership-not-written');
+    return doc;
+  }
+
+  /**
+   * Record a whole evaluation's memberships in ONE call.
+   *
+   * An evaluation produces `cohorts × patients` rows — 464 on a 58-patient fleet,
+   * and tens of thousands on a real one. Writing each row unconditionally meant a
+   * database round trip per row per poll, on the same event loop that answers the
+   * nurse's work queue, every time the queue was refreshed.
+   *
+   * The rows are therefore DIFFED against what is already recorded and only the
+   * rows whose clinical content actually changed are persisted. An unchanged row
+   * needs no write: its `member`, `reason`, `confidence`, `risk`, `unresolved[*]`
+   * and `history` are byte-identical to what is already durable, so rewriting it
+   * would add latency and no information. This is also what keeps entry/exit
+   * history stable under repeated polling.
+   *
+   * `lastEvaluatedAt` therefore means "the last evaluation that CHANGED this
+   * record", not "the last poll". The run instant is reported by the evaluation
+   * itself, so nothing has to infer freshness from this field.
+   */
+  async recordCohortMemberships(inputs: readonly CohortMembershipInput[]): Promise<{
+    docs: CohortMembershipDoc[];
+    written: number;
+    unchanged: number;
+  }> {
+    await this.hydrate();
     const at = this.now();
-    const history = existing?.history ? [...existing.history] : [];
-    const wasMember = existing?.member ?? false;
-    if (input.member !== wasMember) {
-      history.push({
-        at,
-        event: input.member ? 'entered' : 'exited',
+
+    const existingById = new Map<string, CohortMembershipDoc>();
+    for (const row of this.map('cohort-membership').values()) {
+      existingById.set(row.id, row as unknown as CohortMembershipDoc);
+    }
+
+    const out: CohortMembershipDoc[] = [];
+    const toWrite: number[] = [];
+    for (const input of inputs) {
+      const id = cohortMembershipId(input.cohortId, input.realmId, input.patientId);
+      const existing = existingById.get(id);
+      const history = existing?.history ? [...existing.history] : [];
+      const wasMember = existing?.member ?? false;
+      if (input.member !== wasMember) {
+        history.push({
+          at,
+          event: input.member ? 'entered' : 'exited',
+          reason: input.reason,
+          criterionVersion: input.criterionVersion,
+        });
+      }
+      const doc: CohortMembershipDoc = {
+        id,
+        createdAt: existing?.createdAt ?? at,
+        updatedAt: existing?.updatedAt ?? at,
+        cohortId: input.cohortId,
+        patientId: input.patientId,
+        realmId: input.realmId,
+        member: input.member,
         reason: input.reason,
+        confidence: input.confidence,
         criterionVersion: input.criterionVersion,
-      });
+        risk: input.risk,
+        suggestedAction: input.suggestedAction,
+        protocol: input.protocol,
+        unresolved: input.unresolved,
+        enteredAt: input.member ? (existing?.member ? existing.enteredAt : at) : existing?.enteredAt,
+        lastEvaluatedAt: existing?.lastEvaluatedAt ?? at,
+        history,
+        ...(input.metrics ? { metrics: input.metrics } : {}),
+      };
+      out.push(doc);
+      if (!existing || membershipChanged(existing, doc)) toWrite.push(out.length - 1);
     }
-    const doc: CohortMembershipDoc = {
-      id,
-      createdAt: existing?.createdAt ?? at,
-      updatedAt: at,
-      cohortId: input.cohortId,
-      patientId: input.patientId,
-      realmId: input.realmId,
-      member: input.member,
-      reason: input.reason,
-      confidence: input.confidence,
-      criterionVersion: input.criterionVersion,
-      risk: input.risk,
-      suggestedAction: input.suggestedAction,
-      protocol: input.protocol,
-      unresolved: input.unresolved,
-      enteredAt: input.member ? (existing?.member ? existing.enteredAt : at) : existing?.enteredAt,
-      lastEvaluatedAt: at,
-      history,
-      ...(input.metrics ? { metrics: input.metrics } : {}),
-    };
-    if (existing) {
-      const updated = await this.update<CohortMembershipDoc>('cohort-membership', id, doc);
-      return updated ?? doc;
+
+    // Rows written before the key was realm-scoped are `cohortId::patientId` and
+    // merged two facilities into one record. They are derived data, so they are
+    // retired here as the correctly-keyed row for the same patient is written —
+    // otherwise an upgrade leaves a duplicate that inflates every history count.
+    const legacyIds = new Set<string>();
+    for (const input of inputs) {
+      const legacy = existingById.get(`${input.cohortId}::${input.patientId}`);
+      // only retire it against the realm it actually recorded
+      if (legacy && legacy.realmId === input.realmId) legacyIds.add(legacy.id);
     }
-    return this.create<CohortMembershipDoc>('cohort-membership', id, doc);
+    for (const id of legacyIds) await this.remove('cohort-membership', id);
+
+    for (const index of toWrite) {
+      const current = out[index]!;
+      const next: CohortMembershipDoc = { ...current, updatedAt: at, lastEvaluatedAt: at };
+      out[index] = next;
+      this.map('cohort-membership').set(next.id, next as unknown as AnyDoc);
+      await this.persist('cohort-membership', next.id, next as unknown as AnyDoc);
+    }
+    return { docs: out, written: toWrite.length, unchanged: out.length - toWrite.length };
   }
 
   /** Membership rows for one cohort, newest evaluation first. */
@@ -1766,6 +1868,7 @@ export class SwarmWorkspaceStore {
   async recordCohortDecision(input: {
     cohortId: string;
     patientId: string;
+    realmId: string;
     action: 'review' | 'decline';
     reason: string;
     actor: string;
@@ -1774,7 +1877,7 @@ export class SwarmWorkspaceStore {
     confidence: number;
     risk: number;
   }): Promise<CohortDecisionDoc> {
-    const id = `${input.cohortId}::${input.patientId}::${input.action}`;
+    const id = cohortMembershipId(input.cohortId, input.realmId, input.patientId) + `::${input.action}`;
     const existing = await this.get<CohortDecisionDoc>('cohort-decision', id);
     const at = this.now();
     const doc: CohortDecisionDoc = {
@@ -1783,6 +1886,7 @@ export class SwarmWorkspaceStore {
       updatedAt: at,
       cohortId: input.cohortId,
       patientId: input.patientId,
+      realmId: input.realmId,
       action: input.action,
       reason: input.reason,
       actor: input.actor,
@@ -1796,6 +1900,8 @@ export class SwarmWorkspaceStore {
       const updated = await this.update<CohortDecisionDoc>('cohort-decision', id, doc);
       return updated ?? doc;
     }
+    // retire a decision written under the pre-realm-scoped key
+    await this.remove('cohort-decision', `${input.cohortId}::${input.patientId}::${input.action}`);
     return this.create<CohortDecisionDoc>('cohort-decision', id, doc);
   }
 
@@ -1803,11 +1909,19 @@ export class SwarmWorkspaceStore {
     return this.list<CohortDecisionDoc>('cohort-decision');
   }
 
-  /** Decisions for one (cohort, patient) pair, newest first. */
-  async cohortDecisions(cohortId: string, patientId?: string): Promise<CohortDecisionDoc[]> {
+  /**
+   * Decisions for one cohort, optionally narrowed to one patient.
+   *
+   * `patientId` alone is ambiguous — the same local identifier can exist in two
+   * realms — so a caller that knows the realm must pass it, or a decline
+   * recorded in one facility will suppress a suggestion in another.
+   */
+  async cohortDecisions(cohortId: string, patientId?: string, realmId?: string): Promise<CohortDecisionDoc[]> {
     const rows = await this.listCohortDecisions();
     return rows
-      .filter((r) => r.cohortId === cohortId && (!patientId || r.patientId === patientId))
+      .filter((r) => r.cohortId === cohortId
+        && (!patientId || r.patientId === patientId)
+        && (!realmId || r.realmId === realmId))
       .sort((a, b) => b.at.localeCompare(a.at));
   }
 

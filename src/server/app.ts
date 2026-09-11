@@ -154,6 +154,31 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // pack registry, realm restore). Fastify's 10s default aborts plugin
   // registration mid-boot, leaving a listening socket that never answers.
   const app = Fastify({ logger: false, trustProxy: true, pluginTimeout: 120_000 });
+  // An empty JSON body is not malformed JSON.
+  //
+  // Fastify's default parser rejects `content-type: application/json` with a
+  // zero-length body as FST_ERR_CTP_EMPTY_JSON_BODY (400). That is a common and
+  // correct client behaviour for a bodyless DELETE — axios and fetch wrappers
+  // set the header unconditionally — so `DELETE /admin/cohorts/:id` answered 400
+  // to a perfectly well-formed request. The field survived only because the
+  // console had never called it.
+  //
+  // `{}` keeps every route that requires a body honest: they validate and answer
+  // with their own specific error ('body-required') instead of a parser message.
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    const raw = typeof body === 'string' ? body.trim() : '';
+    if (raw === '') return done(null, {});
+    try {
+      done(null, JSON.parse(raw));
+    } catch (err) {
+      // Malformed JSON is still the CLIENT's error. Without an explicit status
+      // Fastify reports an unmarked parser error as 500, which turns a bad
+      // request into a page for the on-call engineer.
+      const failure = err instanceof Error ? err : new Error(String(err));
+      (failure as Error & { statusCode?: number }).statusCode = 400;
+      done(failure, undefined);
+    }
+  });
   // Per-origin CORS: allowlist from deps (HH_CORS_ORIGINS), else allow all.
   const origins = deps.corsOrigins?.length ? [...deps.corsOrigins] : true;
   await app.register(cors, {

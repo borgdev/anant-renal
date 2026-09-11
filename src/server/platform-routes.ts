@@ -310,9 +310,9 @@ async function buildWorkQueue(ws: SwarmWorkspaceStore, coord: PersistentOutcomeC
         const suppressed = await declinedSuppression(ws);
         for (const row of rows) {
           if (row.state !== 'member' || row.kind !== 'suggested') continue;
-          if (suppressed(row.cohortId, row.patientId, row.criterionVersion) !== null) continue;
+          if (suppressed(row.cohortId, row.realmId, row.patientId, row.criterionVersion) !== null) continue;
           items.push({
-            id: `cohort:${row.cohortId}:${row.patientId}`,
+            id: cohortWorkId(row.realmId, row.cohortId, row.patientId),
             kind: 'cohort',
             title: `${row.label} · ${row.patientId}`,
             // the reason is the product: why is this patient in this cohort
@@ -889,6 +889,7 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
         const decision = await ws().recordCohortDecision({
           cohortId: suggestion.cohortId,
           patientId: suggestion.patientId,
+          realmId: suggestion.realmId,
           action,
           reason: req.body?.reason?.trim() || 'reviewed and accepted',
           actor: req.body?.approver?.trim() || sessionRole(req) || 'operator',
@@ -1077,11 +1078,32 @@ function splitWorkId(id: string): [string, string] {
   return [id.slice(0, i), id.slice(i + 1)];
 }
 
-/** `cohort:<cohortId>:<patientId>` — both halves are colon-free slugs. */
-function parseCohortRef(rest: string): [string, string] | null {
-  const i = rest.indexOf(':');
-  if (i <= 0 || i === rest.length - 1) return null;
-  return [rest.slice(0, i), rest.slice(i + 1)];
+/**
+ * `cohort:<realmId>~<cohortId>~<patientId>`
+ *
+ * The realm is part of the reference because a patient id is only unique within
+ * one facility, and resolving the wrong one would make the drawer explain a
+ * suggestion the clinician never saw.
+ *
+ * `~` is the separator rather than `:` because a realm id CONTAINS colons
+ * (`sim:renal-a`, `realm:b3`), so a colon-delimited reference is ambiguous. Note
+ * that percent-encoding does not help here: Fastify decodes the path parameter
+ * before the handler runs, so an encoded `%3A` arrives as a plain `:`.
+ */
+const COHORT_REF_SEP = '~';
+
+function cohortWorkId(realmId: string, cohortId: string, patientId: string): string {
+  return `cohort:${realmId}${COHORT_REF_SEP}${cohortId}${COHORT_REF_SEP}${patientId}`;
+}
+
+function parseCohortRef(rest: string): { realmId: string; cohortId: string; patientId: string } | null {
+  const parts = rest.split(COHORT_REF_SEP);
+  if (parts.length !== 3) return null;
+  const [realmId, cohortId, patientId] = parts;
+  if (!realmId || !cohortId || !patientId) return null;
+  // A reference that is not exactly three unambiguous parts resolves nothing
+  // rather than resolving the wrong patient.
+  return { realmId, cohortId, patientId };
 }
 
 interface CohortSuggestion {
@@ -1120,7 +1142,7 @@ async function cohortSuggestion(
 ): Promise<CohortSuggestion | null> {
   const ref = parseCohortRef(rest);
   if (!ref || !patients) return null;
-  const [cohortId, patientId] = ref;
+  const { realmId, cohortId, patientId } = ref;
   const doc = await ws.getCohortDefinition(cohortId);
   if (!doc) return null;
   const { evaluateCohorts, toCohortDefinition, cachedLedgerSeries } = await import('./cohort-routes.js');
@@ -1128,7 +1150,9 @@ async function cohortSuggestion(
   const { rows } = evaluateCohorts([toCohortDefinition(doc)], live, {
     series: cachedLedgerSeries(live), at: new Date().toISOString(), intervalDays: 2,
   });
-  const row = rows.find((r) => r.patientId === patientId && r.state === 'member');
+  // match the REALM as well: the same identifier exists in other facilities, and
+  // resolving the wrong one would explain a suggestion the clinician never saw
+  const row = rows.find((r) => r.patientId === patientId && r.realmId === realmId && r.state === 'member');
   if (!row) return null;
   return {
     cohortId, patientId,
@@ -1165,8 +1189,8 @@ async function cohortDetail(
 ): Promise<Record<string, unknown> | null> {
   const s = await cohortSuggestion(ws, rest, patients);
   if (!s) return null;
-  const membership = await ws.get<import('../swarm/workspace.js').CohortMembershipDoc>('cohort-membership', `${s.cohortId}::${s.patientId}`);
-  const decisions = await ws.cohortDecisions(s.cohortId, s.patientId);
+  const membership = await ws.get<import('../swarm/workspace.js').CohortMembershipDoc>('cohort-membership', `${s.cohortId}::${s.realmId}::${s.patientId}`);
+  const decisions = await ws.cohortDecisions(s.cohortId, s.patientId, s.realmId);
   const activity = [
     ...(membership?.history ?? []).map((h) => ({ at: h.at, from: '—', to: h.event, by: 'cohort engine', note: `${h.reason} (criteria ${h.criterionVersion})` })),
     ...decisions.map((d) => ({ at: d.at, from: 'suggested', to: d.action === 'decline' ? 'declined' : 'reviewed', by: d.actor, note: d.reason })),

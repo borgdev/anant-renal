@@ -25,8 +25,8 @@ import { RENAL_PROTOCOLS, evaluateProtocolForPatient } from '../protocols/regist
 import { getSwarmWorkspace } from './swarm-routes.js';
 import type { CohortDefinitionDoc, CohortMembershipDoc, SwarmWorkspaceStore } from '../swarm/workspace.js';
 import {
-  COHORT_METRICS, SEED_COHORT_DEFINITIONS, canonicalLabCode, cohortMetric, cohortStateOf,
-  evaluatePatient, shouldExit,
+  COHORT_METRICS, DECLINE_SAMPLE_FLOOR, SEED_COHORT_DEFINITIONS, analyseCohortDeclines, canonicalLabCode,
+  cohortMetric, cohortStateOf, evaluatePatient,
   type CohortCriterion, type CohortDefinition, type CohortEvaluation, type LabPoint,
 } from '../swarm/cohort.js';
 
@@ -93,18 +93,28 @@ function defaultSeries(patients: readonly RenalPatientInput[]): (patientId: stri
 
 /**
  * Scanning every realm ledger is far too expensive to repeat on a work-queue poll,
- * so the derived series is cached for a short window. The data is append-only lab
- * history, so a stale read costs at most one new result in a trend of many.
+ * so the derived series is cached. The data is append-only lab history, so a stale
+ * read costs at most one new result in a trend of many.
+ *
+ * The cache is keyed by the patient set it was built from: a fleet that gains or
+ * loses a patient must not keep resolving order-ids against the old roster, and
+ * two realms being evaluated in one process must not share a provider.
  */
-let cachedSeries: { at: number; provider: (patientId: string, code: string) => readonly LabPoint[] } | undefined;
+let cachedSeries: { key: string; at: number; provider: (patientId: string, code: string) => readonly LabPoint[] } | undefined;
 const SERIES_TTL_MS = 30_000;
 
 export function cachedLedgerSeries(patients: readonly RenalPatientInput[]): (patientId: string, code: string) => readonly LabPoint[] {
+  const key = patients.map((p) => p.id).join(',');
   const now = Date.now();
-  if (cachedSeries && now - cachedSeries.at < SERIES_TTL_MS) return cachedSeries.provider;
+  if (cachedSeries && cachedSeries.key === key && now - cachedSeries.at < SERIES_TTL_MS) return cachedSeries.provider;
   const provider = defaultSeries(patients);
-  cachedSeries = { at: now, provider };
+  cachedSeries = { key, at: now, provider };
   return provider;
+}
+
+/** Test seam: drop the derived-series cache. */
+export function resetLedgerSeriesCache(): void {
+  cachedSeries = undefined;
 }
 
 /** Definition doc → the engine's pure shape. */
@@ -301,23 +311,42 @@ export function evaluateCohorts(
  * records the criterion version it was made against, so editing the definition
  * (and bumping the version) legitimately re-opens the question — a new criterion
  * has not been judged yet, and must not inherit the old verdict.
+ *
+ * The realm is part of the key. Without it, a decline recorded for `f1-pt-0001`
+ * in one facility suppressed the suggestion for the same local identifier in
+ * another, where nobody had judged anything.
  */
 export async function declinedSuppression(
   store: SwarmWorkspaceStore,
-): Promise<(cohortId: string, patientId: string, criterionVersion: string) => string | null> {
+): Promise<(cohortId: string, realmId: string, patientId: string, criterionVersion: string) => string | null> {
   const decisions = await store.listCohortDecisions();
   const declined = new Map<string, string>();
   for (const d of decisions) {
     if (d.action !== 'decline') continue;
-    declined.set(`${d.cohortId}\u0001${d.patientId}\u0001${d.criterionVersion}`, d.reason);
+    declined.set(`${d.cohortId}\u0001${d.realmId}\u0001${d.patientId}\u0001${d.criterionVersion}`, d.reason);
   }
-  return (cohortId, patientId, criterionVersion) =>
-    declined.get(`${cohortId}\u0001${patientId}\u0001${criterionVersion}`) ?? null;
+  return (cohortId, realmId, patientId, criterionVersion) =>
+    declined.get(`${cohortId}\u0001${realmId}\u0001${patientId}\u0001${criterionVersion}`) ?? null;
 }
 
 export async function registerCohortRoutes(app: FastifyInstance, opts: CohortRouteOptions = {}): Promise<void> {
-  const patients = opts.patients ?? (() => renalPatientInputs(RealmRegistry.list()));
-  const series = opts.series ?? ((patientId: string, code: string) => cachedLedgerSeries(patients())(patientId, code));
+  const patientSource = opts.patients ?? (() => renalPatientInputs(RealmRegistry.list()));
+
+  /**
+   * The lab-series provider for ONE patient snapshot.
+   *
+   * This used to be `(pid, code) => cachedLedgerSeries(patients())(pid, code)` —
+   * i.e. `patients()` ran as the argument to EVERY lookup. `patients()` is a scan
+   * of the whole realm ledger (49,901 effects here, ~80ms), and a single 8-cohort
+   * evaluation over 58 patients makes ~465 series lookups. So one evaluation did
+   * 465 full ledger scans and took ~42s to produce a 13ms answer. Measured:
+   * 32,952ms → 97ms, 465 scans → 1, identical membership.
+   *
+   * The fix is not a cache: it is that the snapshot must be taken ONCE per
+   * evaluation and shared by the evaluation and the provider built from it.
+   */
+  const seriesFor = (live: readonly RenalPatientInput[]): ((patientId: string, code: string) => readonly LabPoint[]) =>
+    opts.series ?? cachedLedgerSeries(live);
 
   const ws = (): SwarmWorkspaceStore => {
     const w = getSwarmWorkspace();
@@ -336,26 +365,29 @@ export async function registerCohortRoutes(app: FastifyInstance, opts: CohortRou
     rows: CohortEvaluationRow[];
     states: ReturnType<typeof cohortStateOf>[];
     persisted: number;
+    unchanged: number;
   }> {
+    const at = NOW();
     const docs = await ensureDefinitions(store);
     const defs = docs.map(toCohortDefinition);
-    const at = NOW();
-    const live = patients();
+    // ONE ledger scan, shared by the evaluation and the lab-series provider.
+    const live = patientSource();
+    const series = seriesFor(live);
     const { rows, states } = evaluateCohorts(defs, live, { series, at, intervalDays: 2 });
 
     let persisted = 0;
+    let unchanged = 0;
     if (persist) {
-      const defsById = new Map(defs.map((d) => [d.id, d]));
-      for (const row of rows) {
-        const def = defsById.get(row.cohortId);
-        if (!def) continue;
-        const isMember = row.state === 'member';
-        const currentlyMember = isMember || (row.state === 'not-member' && !shouldExit(row) ? false : false);
-        await store.recordCohortMembership({
+      const known = new Set(defs.map((d) => d.id));
+      const batch = rows
+        .filter((row) => known.has(row.cohortId))
+        .map((row) => ({
           cohortId: row.cohortId,
           patientId: row.patientId,
           realmId: row.realmId,
-          member: currentlyMember,
+          // Membership is `member` and nothing else: the previous expression here
+          // was `isMember || (... ? false : false)`, which is just `isMember`.
+          member: row.state === 'member',
           reason: row.reason,
           confidence: row.confidence,
           criterionVersion: row.criterionVersion,
@@ -363,11 +395,12 @@ export async function registerCohortRoutes(app: FastifyInstance, opts: CohortRou
           suggestedAction: row.suggestedAction,
           protocol: row.protocol,
           unresolved: row.unresolved,
-        });
-        persisted += 1;
-      }
+        }));
+      const result = await store.recordCohortMemberships(batch);
+      persisted = result.written;
+      unchanged = result.unchanged;
     }
-    return { at, rows, states, persisted };
+    return { at, rows, states, persisted, unchanged };
   }
 
   /* ---------- configuration (operator-editable data) ---------- */
@@ -440,10 +473,11 @@ export async function registerCohortRoutes(app: FastifyInstance, opts: CohortRou
     return {
       generatedAt: result.at,
       persisted: result.persisted,
+      unchanged: result.unchanged,
       cohorts: result.states,
       memberships: result.rows.filter((r) => r.state === 'member').length,
       unresolved: result.rows.filter((r) => r.state === 'unresolved').length,
-      note: 'unresolved is reported as a coverage number: a missing measurement is never treated as a healthy patient.',
+      note: 'unresolved is reported as a coverage number: a missing measurement is never treated as a healthy patient. `persisted` counts membership rows whose recorded state changed — an unchanged row is not rewritten, so `unchanged` rows keep their earlier lastEvaluatedAt.',
     };
   });
 
@@ -463,6 +497,31 @@ export async function registerCohortRoutes(app: FastifyInstance, opts: CohortRou
     };
   });
 
+  /* ---------- what a rejected suggestion is evidence of ---------- */
+
+  /**
+   * Decline analysis — the only feedback loop the cohort layer has.
+   *
+   * A decline is recorded against the criterion version it was made against, so a
+   * verdict a previous criterion earned is never carried forward to the current
+   * one. Nothing here edits a cohort: it reports evidence, and the tuning step
+   * remains a human edit through the same API a human already uses.
+   */
+  app.get('/admin/cohorts/declines', async () => {
+    const store = ws();
+    const docs = await ensureDefinitions(store);
+    const decisions = await store.listCohortDecisions();
+    const analyses = docs.map((doc) => analyseCohortDeclines(toCohortDefinition(doc), decisions));
+    return {
+      generatedAt: NOW(),
+      decisions: decisions.length,
+      sampleFloor: DECLINE_SAMPLE_FLOOR,
+      cohorts: analyses,
+      retireCandidates: analyses.filter((a) => a.retireCandidate).map((a) => a.cohortId),
+      note: 'Declines are attributed to the criterionVersion they were made against, so editing a definition (and bumping the version) legitimately re-opens the question. Nothing here changes a cohort.',
+    };
+  });
+
   /* ---------- the nurse-facing suggested queue ---------- */
 
   app.get<{ Querystring: { limit?: string; kind?: string } }>('/admin/cohorts/suggestions', async (request) => {
@@ -474,8 +533,9 @@ export async function registerCohortRoutes(app: FastifyInstance, opts: CohortRou
     const suppressed = await declinedSuppression(store);
     const queue = result.rows
       .filter((r) => r.state === 'member' && r.kind === 'suggested')
-      // a decline removes the suggestion until the criteria change
-      .filter((r) => suppressed(r.cohortId, r.patientId, r.criterionVersion) === null)
+      // a decline removes the suggestion until the criteria change — in the realm
+      // it was declined in, not in every realm that reuses the identifier
+      .filter((r) => suppressed(r.cohortId, r.realmId, r.patientId, r.criterionVersion) === null)
       .filter((r) => (kind ? r.protocol === kind : true))
       .sort((a, b) => b.opportunity - a.opportunity || a.patientId.localeCompare(b.patientId))
       .slice(0, limit)
@@ -516,7 +576,8 @@ export async function registerCohortRoutes(app: FastifyInstance, opts: CohortRou
     const rows = result.rows.filter((r) => r.patientId === request.params.patientId);
     if (rows.length === 0) return error(reply, 404, `patient-not-in-cohort-scope: ${request.params.patientId}`);
     const memberships = (await store.listCohortMemberships()).filter((m) => m.patientId === request.params.patientId);
-    const byCohort = new Map(memberships.map((m) => [m.cohortId, m]));
+    // keyed by realm AND patient: the same local identifier can exist in two realms
+    const byCohort = new Map(memberships.map((m) => [`${m.realmId}::${m.cohortId}`, m]));
     return {
       generatedAt: result.at,
       patientId: request.params.patientId,
@@ -532,8 +593,8 @@ export async function registerCohortRoutes(app: FastifyInstance, opts: CohortRou
         approvalClass: r.approvalClass,
         mayNever: r.mayNever,
         entry: r.entry,
-        enteredAt: byCohort.get(r.cohortId)?.enteredAt ?? null,
-        history: byCohort.get(r.cohortId)?.history ?? [],
+        enteredAt: byCohort.get(`${r.realmId}::${r.cohortId}`)?.enteredAt ?? null,
+        history: byCohort.get(`${r.realmId}::${r.cohortId}`)?.history ?? [],
       })),
       notMember: rows.filter((r) => r.state !== 'member').map((r) => ({ cohortId: r.cohortId, state: r.state, reason: r.reason })),
     };
