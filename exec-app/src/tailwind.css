@@ -11,31 +11,44 @@
 @import "tailwindcss";
 
 @theme {
+  /*
+   * These are var() references to the tokens declared in globals.css `:root`.
+   * The `data-palette` scope there re-points those tokens, so Tailwind utilities
+   * follow the ACTIVE palette instead of duplicating the literals in this file
+   * (which is what the old "keep in sync with admin-ui" comment asked a human to
+   * do by hand). One source of truth, two palettes.
+   */
+
   /* Surfaces */
-  --color-bg: #0c1117;
-  --color-bg-deep: #080c11;
-  --color-surface: #11161d;
-  --color-surface-2: #161c24;
-  --color-surface-3: #1c232d;
+  --color-bg: var(--bg);
+  --color-bg-deep: var(--bg-deep);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
 
   /* Lines */
-  --color-line: rgba(152, 174, 192, 0.14);
-  --color-line-strong: rgba(152, 174, 192, 0.24);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
 
   /* Text */
-  --color-text: #eef2f6;
-  --color-muted: #a4b3c2;
-  --color-faint: #7b8c9d;
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
 
   /* Accents */
-  --color-mint: #98aec0;
-  --color-mint-strong: #b6c8d8;
-  --color-cyan: #63c2e6;
-  --color-amber: #efbd68;
-  --color-rose: #f27987;
-  --color-blue: #75a8ff;
-  --color-violet: #b49cff;
+  --color-mint: var(--mint);
+  --color-mint-strong: var(--mint-strong);
+  --color-cyan: var(--cyan);
+  --color-amber: var(--amber);
+  --color-rose: var(--rose);
+  --color-blue: var(--blue);
+  --color-violet: var(--violet);
+
+  /* Type — `font-sans` / `font-mono` utilities resolve to the same stacks the
+     stylesheet uses, so a utility and a hand-written rule cannot diverge. */
+  --font-sans: var(--sans);
+  --font-mono: var(--mono);
 
   /* Shadows */
-  --shadow-card: 0 22px 60px rgba(0, 0, 0, 0.28);
+  --shadow-card: var(--shadow);
 }

@@ -23,6 +23,7 @@ import {
   Menu,
   MonitorUp,
   Network,
+  Palette,
   Settings2,
   ShieldCheck,
   ShieldAlert,
@@ -61,6 +62,7 @@ import { Tag } from "./components/ui";
 import { demoContext, outcomeEpisodes } from "./lib/catalogs";
 import { fetchWorkItemContext, fetchRuntimeSnapshot } from "./lib/harness";
 import { onSessionExpired } from "./lib/session";
+import { applyPalette, otherPalette, PALETTE_LABEL, readPalette, type PaletteName } from "./lib/palette";
 import { fetchContext } from "./lib/work";
 import type { MeUser } from "./lib/auth";
 import type { NavigationId } from "./lib/types";
@@ -164,6 +166,14 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
   const [demoStep, setDemoStep] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem("hh-exec-sidebar") === "collapsed"; } catch { return false; } });
+  // Palette — the attribute is applied by lib/palette at module load; this state
+  // only exists so the button can render a label for the OTHER palette.
+  const [palette, setPalette] = useState<PaletteName>(() => readPalette());
+  const togglePalette = () => {
+    const next = otherPalette(palette);
+    applyPalette(next);
+    setPalette(next);
+  };
   const [workflowDetail, setWorkflowDetail] = useState<WorkflowDetail | null>(null);
   const [canSwitchToOps, setCanSwitchToOps] = useState(false);
   const [lens, setLens] = useState<"provider" | "payer" | "hybrid">("provider");
@@ -375,6 +385,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
             ) : null}
             <button className="icon-button notification-button" aria-label="Open workflow inbox" type="button" onClick={() => void openInbox()}><Bell size={18} /><span /></button>
             <button className="profile-button" aria-label="Open operator profile and decision rights" type="button" onClick={() => openWorkflowDetail({ id: `PROFILE-${user?.username ?? "operator"}`, kind: "Operator profile", title: user?.displayName || user?.username || "Operator", summary: "Session identity, role, clearance and purpose-of-use scoping for this console. Authority is enforced server-side on every request.", status: "Session active", tone: "mint", owner: user?.displayName || user?.username || "Operator", scope: ROLE_LABELS[user?.role ?? ""] ?? (user?.role ?? "Operator"), metrics: [{ label: "Username", value: user?.username ?? "—" }, { label: "Role", value: user?.role ?? "—" }, { label: "Clearance", value: user?.clearance ?? "—" }, { label: "Purpose of use", value: (user?.purposeOfUse ?? []).join(", ") || "—" }], evidence: [{ label: "Session", value: user?.username ?? "operator", source: "Server-issued hh_session cookie" }], steps: [{ label: "Authenticate", detail: "Session resolved from hh_session", state: "done" }, { label: "Authorize", detail: "Role and scope evaluated server-side", state: "done" }, { label: "Use", detail: "Purpose-of-use scoped evidence only", state: "current" }], control: "The browser never grants authority. Each /admin/* request re-verifies the session, role and console scope.", primary: { label: "Inspect configuration", target: "configuration" } })}><span>{userInitials(user)}</span><div><strong>{user?.displayName || user?.username || "Operator"}</strong><small>{ROLE_LABELS[user?.role ?? ""] ?? (user?.role ?? "Operator")}</small></div></button>
+            <button className="icon-button" aria-label={`Palette: ${PALETTE_LABEL[palette]} — switch to ${PALETTE_LABEL[otherPalette(palette)]}`} title={`Palette: ${PALETTE_LABEL[palette]} — switch to ${PALETTE_LABEL[otherPalette(palette)]}`} type="button" onClick={togglePalette}><Palette size={18} /></button>
             <button className="icon-button signout-button" aria-label="Sign out" title="Sign out" type="button" onClick={() => onLogout?.()}><LogOut size={17} /></button>
           </div>
         </header>

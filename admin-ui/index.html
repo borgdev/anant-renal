@@ -40,7 +40,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AnantHealth — Operator Console</title>
   <script>
-    // Theme bootstrap — apply the saved / system theme before first paint (avoids FOUC).
+    // Theme + palette bootstrap — applied before first paint (avoids FOUC).
     (function () {
       try {
         // Both consoles share one (dark, governed) visual identity — :root is
@@ -48,6 +48,14 @@
         // the system preference or a previously saved 'light' choice.
         var t = localStorage.getItem('hh-theme');
         if (t !== 'light') document.documentElement.classList.add('dark');
+        // Palette. `data-palette` selects which token set is in force; the same
+        // values live in exec-app's :root so the two consoles stay identical.
+        // Flip DEFAULT_PALETTE to 'slate' to ship the original colours again.
+        var DEFAULT_PALETTE = 'anantstate';
+        window.HH_PALETTE_DEFAULT = DEFAULT_PALETTE;
+        var p = localStorage.getItem('hh-palette');
+        document.documentElement.dataset.palette =
+          p === 'slate' || p === 'anantstate' ? p : DEFAULT_PALETTE;
       } catch (e) {}
     })();
   </script>
@@ -71,22 +79,79 @@
       --card-foreground: #eef2f6; --popover: #11161d; --popover-foreground: #eef2f6;
       --ring: #63c2e6; --input: rgba(152,174,192,0.22); --radius: 0.5rem;
       --shadow: 0 22px 60px rgba(0,0,0,0.28);
+      /* The embedded Renal Swarm Intelligence panel carries its own accent; it
+         follows the palette rather than being the last green left in a slate UI. */
+      --partner-accent: #63e6be; --partner-accent-soft: #a8f0d8;
+      /* Type — `--mono` is the engineered readout face (data, state keys, metrics),
+         `--sans` is for prose. Plain stacks: no webfont request, no FOUT. */
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      --mono: 'JetBrains Mono', 'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
     }
     /* Dark is identical to :root — the operator console matches the exec console. */
     .dark { color-scheme: dark; }
+
+    /* ===================================================================
+     * PALETTE — `data-palette` on <html> selects the token set in force.
+     * The token names are identical in both sets, so every var(--x) in this
+     * file (and in exec-app, which declares the same names) follows at once.
+     *
+     *   anantstate   Deep Obsidian + Electric Teal (default)
+     *   slate        the original Anant shared tokens declared in :root above
+     *
+     * Reverting is one attribute — the button in the top bar, persisted in
+     * localStorage `hh-palette`. No reload, no second stylesheet.
+     * =================================================================== */
+    :root[data-palette="anantstate"] {
+      --fg: #F9FAFB; --muted: #9CA3AF; --faint: #6B7280;
+      --bg: #0A0D12; --bg-deep: #06080B;
+      --card: #131822; --surface: #131822; --surface-2: #182029; --surface-3: #1E2632;
+      --border: #1F2937; --line-strong: #2B3546;
+      --brand: #00F2FE; --brand-2: #7C3AED; --accent: #7C3AED;
+      --good: #10B981; --warn: #F59E0B; --bad: #EF4444;
+      --mint: #00F2FE; --mint-strong: #7DF9FF; --cyan: #00F2FE;
+      --amber: #F59E0B; --rose: #EF4444; --blue: #38BDF8; --violet: #7C3AED;
+      --code-bg: #0E131B; --code-fg: #CFFAFE;
+      --primary-foreground: #0A0D12; --secondary: #182029; --secondary-foreground: #F9FAFB;
+      --accent-foreground: #F9FAFB; --destructive-foreground: #FFFFFF;
+      --card-foreground: #F9FAFB; --popover: #131822; --popover-foreground: #F9FAFB;
+      --ring: #00F2FE; --input: #2B3546; --radius: 0.25rem;
+      --shadow: 0 18px 44px rgba(0,0,0,0.5);
+      --partner-accent: #00F2FE; --partner-accent-soft: #A5F3FC;
+    }
+    /* Solid, noise-free foundation: the base radial/linear washes are flattened
+       so the surface reads as engineered rather than pillowy. */
+    :root[data-palette="anantstate"] body { background-image: none; background-color: var(--bg); }
+    :root[data-palette="anantstate"] .brand-mark {
+      background: var(--brand);
+      box-shadow: 0 0 22px color-mix(in srgb, var(--brand) 40%, transparent);
+    }
+    /* Monospace accent — metrics, counts, state keys and table headers, never
+       prose (a sentence in monospace reads as broken, not engineered). */
+    :root[data-palette="anantstate"] code,
+    :root[data-palette="anantstate"] .num,
+    :root[data-palette="anantstate"] .count,
+    :root[data-palette="anantstate"] .kv .k,
+    :root[data-palette="anantstate"] .kv-row .k,
+    :root[data-palette="anantstate"] .catalog-count,
+    :root[data-palette="anantstate"] .activity-time,
+    :root[data-palette="anantstate"] th {
+      font-family: var(--mono);
+      font-variant-numeric: tabular-nums;
+    }
+    :root[data-palette="anantstate"] th { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
     * { box-sizing: border-box; border-color: var(--border); }
     html, body { margin: 0; padding: 0; }
     body {
       background-color: var(--bg);
-      background-image: radial-gradient(circle at 76% -20%, rgba(152,174,192,0.12), transparent 36rem), linear-gradient(180deg, #081512 0%, var(--bg-deep) 100%);
+      background-image: radial-gradient(circle at 76% -20%, color-mix(in srgb, var(--mint) 12%, transparent), transparent 36rem), linear-gradient(180deg, #081512 0%, var(--bg-deep) 100%);
       background-attachment: fixed;
       color: var(--fg);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      font-family: var(--sans);
       font-size: 13px; line-height: 1.5; -webkit-font-smoothing: antialiased;
     }
     a { color: var(--brand); text-decoration: none; }
     button, input, select, textarea { font: inherit; color: inherit; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 1px 6px; background: color-mix(in srgb, var(--brand) 10%, transparent); border-radius: 4px; }
+    code { font-family: "JetBrains Mono", "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 1px 6px; background: color-mix(in srgb, var(--brand) 10%, transparent); border-radius: 4px; }
     /* Shell layout — plain CSS so it renders even if the Tailwind CDN is slow/blocked. */
     .app { display: flex; width: 100%; min-height: 100vh; }
     .sidebar { width: 240px; flex: 0 0 240px; position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 12px 10px; }
@@ -463,7 +528,7 @@
       .detail { @apply bg-card border border-border rounded-xl p-4 mt-3; }
       .kv { display: grid; grid-template-columns: 160px 1fr; gap: 8px 16px; margin-bottom: 12px; font-size: 13px; }
       .kv .k { @apply text-muted; }
-      pre.yaml { background: var(--code-bg); color: var(--code-fg); border-radius: 8px; padding: 14px; overflow: auto; font-size: 12px; line-height: 1.5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      pre.yaml { background: var(--code-bg); color: var(--code-fg); border-radius: 8px; padding: 14px; overflow: auto; font-size: 12px; line-height: 1.5; font-family: "JetBrains Mono", "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
 
       .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 18px; border-radius: 8px; font-size: 13px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); animation: slide 0.2s ease-out; background: var(--fg); color: var(--card); }
       .toast.err { background: var(--bad); color: white; }
@@ -492,7 +557,7 @@
         <span class="status-pill">
           <i data-lucide="activity" style="color:var(--good);"></i> system online
         </span>
-        <span id="synthetic-badge" class="status-pill" style="display:none;border-color:rgba(239,189,104,.4);color:#e8cf9a;" title="This organization is running on synthetic demonstration data — no real patient, facility or claims records are used.">synthetic demonstration data</span>
+        <span id="synthetic-badge" class="status-pill" style="display:none;border-color:color-mix(in srgb, var(--amber) 40%, transparent);color:#e8cf9a;" title="This organization is running on synthetic demonstration data — no real patient, facility or claims records are used.">synthetic demonstration data</span>
       </div>
       <div class="global-search">
         <i data-lucide="search"></i>
@@ -504,6 +569,7 @@
         <a id="exec-switch" href="/exec/" class="admin-btn" style="display:none;" title="Open the executive console (server-authorized)"><i data-lucide="monitor-up"></i> Executive</a>
         <button class="admin-btn" id="refresh-view" title="Refresh current view"><i data-lucide="refresh-cw"></i> Refresh</button>
         <button class="admin-btn" id="admin-settings-btn" onclick="goTo('settings')" title="Admin · Settings"><i data-lucide="settings"></i> Admin</button>
+        <button id="palette-toggle" class="theme-btn" title="Switch palette" aria-label="Switch palette"></button>
         <button id="theme-toggle" class="theme-btn" title="Toggle theme" aria-label="Toggle theme"></button>
       </div>
     </header>
@@ -1065,6 +1131,32 @@ function initTheme() {
   const btn = document.getElementById('theme-toggle');
   if (btn) btn.addEventListener('click', () => applyTheme(document.documentElement.classList.contains('dark') ? 'light' : 'dark'));
 }
+
+// ---------- Palette (persisted; identical mechanism in exec-app) ----------
+// `data-palette` on <html> selects which token set is in force. Both sets
+// declare the same variable names, so switching is an attribute write: no
+// reload, no second stylesheet, and the previous palette is always one click
+// away. The button names the palette it will switch TO.
+const PALETTE_LABEL = { anantstate: 'AnantState', slate: 'Anant Slate' };
+function paletteName(p) { return PALETTE_LABEL[p] || p; }
+function applyPalette(p) {
+  const next = p === 'slate' ? 'slate' : 'anantstate';
+  document.documentElement.dataset.palette = next;
+  try { localStorage.setItem('hh-palette', next); } catch (_) {}
+  const btn = document.getElementById('palette-toggle');
+  if (btn) {
+    const other = next === 'anantstate' ? 'slate' : 'anantstate';
+    btn.title = `Palette: ${paletteName(next)} — switch to ${paletteName(other)}`;
+    btn.setAttribute('aria-label', btn.title);
+    btn.innerHTML = '<i data-lucide="palette" style="width:16px;height:16px;"></i>';
+    if (window.lucide) window.lucide.createIcons();
+  }
+}
+function initPalette() {
+  applyPalette(document.documentElement.dataset.palette || window.HH_PALETTE_DEFAULT || 'anantstate');
+  const btn = document.getElementById('palette-toggle');
+  if (btn) btn.addEventListener('click', () => applyPalette(document.documentElement.dataset.palette === 'anantstate' ? 'slate' : 'anantstate'));
+}
 function hydrateIcons() { if (window.lucide) window.lucide.createIcons(); }
 
 // Reusable data grid — TanStack (window.__dataGrid) with a plain fallback so the app
@@ -1441,6 +1533,7 @@ async function enterConsole() {
 }
 async function initApp() {
   initTheme();
+  initPalette();
   const user = await checkAuth();
   if (user) { sessionUser = user; await enterConsole(); }
   else { await renderLogin(); }
@@ -2725,7 +2818,7 @@ async function loadRealmDetail(id) {
         <div class="field"><label>Effect kind</label><select id="rm-eff-kind">${(dom.effectKinds || []).map((k) => `<option>${esc(k)}</option>`).join('')}</select></div>
         <div class="field"><label>Patient</label><select id="rm-eff-patient">${(patients.patients || []).map((p) => `<option value="${esc(p.id)}">${esc(p.id)}</option>`).join('') || '<option value="">no patients</option>'}</select></div>
       </div>
-      <div class="field" style="margin-top:8px;"><label>Effect JSON (kind + patientId are overridden by the selects)</label><textarea id="rm-eff-json" rows="5" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;"></textarea></div>
+      <div class="field" style="margin-top:8px;"><label>Effect JSON (kind + patientId are overridden by the selects)</label><textarea id="rm-eff-json" rows="5" style="font-family:"JetBrains Mono", "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;"></textarea></div>
       <div class="field-row" style="margin-top:8px;">
         <button class="btn btn-primary" id="rm-emit"><i data-lucide="send"></i> Emit effect</button>
       </div>
@@ -4018,7 +4111,7 @@ async function renderCounterfactual() {
         <div class="field"><label>Advance ticks</label><input id="cf-ticks" type="number" value="${esc(dom.counterfactualDefault.advanceTicks)}" min="0" style="width:80px"></div>
         <div class="field"><label>Label</label><input id="cf-label" placeholder="dietitian nudge v2" style="width:160px"></div>
       </div>
-      <div class="field" style="margin-top:8px;"><label>Interventions (JSON)</label><textarea id="cf-interventions" rows="3" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;">${esc(JSON.stringify(dom.counterfactualDefault.interventions))}</textarea></div>
+      <div class="field" style="margin-top:8px;"><label>Interventions (JSON)</label><textarea id="cf-interventions" rows="3" style="font-family:"JetBrains Mono", "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;">${esc(JSON.stringify(dom.counterfactualDefault.interventions))}</textarea></div>
       <div class="field-row" style="margin-top:8px;align-items:center;">
         <button class="btn btn-primary" id="cf-run"><i data-lucide="flask-conical"></i> Run rehearsal</button>
         <span class="muted" id="cf-status" style="font-size:12px;"></span>
@@ -5459,7 +5552,7 @@ function wqRender() {
 
   const rows = visible.map((item) => {
     const declining = wqState.declining && wqState.declining.id === item.id;
-    return `<div style="padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:${wqState.selected === item.id ? 'rgba(152,174,192,.07)' : 'rgba(255,255,255,.02)'};">
+    return `<div style="padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:${wqState.selected === item.id ? 'color-mix(in srgb, var(--mint) 7%, transparent)' : 'rgba(255,255,255,.02)'};">
       <div style="display:flex;gap:10px;align-items:flex-start;">
         <span style="flex:0 0 auto;width:26px;height:26px;border-radius:6px;display:grid;place-items:center;background:color-mix(in srgb, ${WQ_TONE[item.urgency] ?? 'var(--muted)'} 15%, transparent);color:${WQ_TONE[item.urgency] ?? 'var(--muted)'};"><i data-lucide="${WQ_KIND_ICON[item.kind] ?? 'circle-dot'}"></i></span>
         <div style="flex:1;min-width:0;">
@@ -6729,16 +6822,16 @@ function renderRsiDeepLink(screen, label) {
         <p class="page-sub">This view lives in <strong>Renal Swarm Intelligence</strong> — the governed clinical product. It is role-aware and context-sensitive; open RSI to see it with the full operational context.</p>
       </div>
     </div>
-    <div class="state-card" style="padding:24px;max-width:560px;border-color:rgba(99,230,190,.18);background:linear-gradient(110deg,rgba(99,230,190,.04),rgba(117,168,255,.02));">
+    <div class="state-card" style="padding:24px;max-width:560px;border-color:color-mix(in srgb, var(--partner-accent) 18%, transparent);background:linear-gradient(110deg,color-mix(in srgb, var(--partner-accent) 4%, transparent),color-mix(in srgb, var(--blue) 2%, transparent));">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
-        <span style="width:40px;height:40px;display:grid;place-items:center;border-radius:12px;color:#63e6be;background:rgba(99,230,190,.1);border:1px solid rgba(99,230,190,.18);font-size:18px;">⬡</span>
+        <span style="width:40px;height:40px;display:grid;place-items:center;border-radius:12px;color:var(--partner-accent);background:color-mix(in srgb, var(--partner-accent) 10%, transparent);border:1px solid color-mix(in srgb, var(--partner-accent) 18%, transparent);font-size:18px;">⬡</span>
         <div>
           <div style="font-weight:700;font-size:14px;margin-bottom:3px;">${esc(label)}</div>
           <div class="muted" style="font-size:12px;">Owned by Renal Swarm Intelligence</div>
         </div>
       </div>
       <p style="font-size:12px;color:var(--muted);line-height:1.65;margin:0 0 18px;">This screen is authoritative in RSI where it is rendered with live role context, org scope, and integrated navigation. Opening RSI will land you on this view if your role has it as a primary screen.</p>
-      <a href="${url}" target="_blank" rel="noreferrer" style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border:1px solid rgba(99,230,190,.25);border-radius:9px;background:rgba(99,230,190,.09);color:#a8f0d8;font-size:13px;font-weight:700;text-decoration:none;">
+      <a href="${url}" target="_blank" rel="noreferrer" style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border:1px solid color-mix(in srgb, var(--partner-accent) 25%, transparent);border-radius:9px;background:color-mix(in srgb, var(--partner-accent) 9%, transparent);color:var(--partner-accent-soft);font-size:13px;font-weight:700;text-decoration:none;">
         Open RSI
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
       </a>
@@ -6755,14 +6848,14 @@ function renderRsiApp() {
         <p class="page-sub">The governed clinical and operational product for renal care. Clinical screens, outcome command, patient intelligence and regulatory workflows live in this application.</p>
       </div>
     </div>
-    <div class="state-card" style="padding:28px 24px;max-width:700px;border-color:rgba(99,230,190,.18);background:linear-gradient(110deg,rgba(99,230,190,.05),rgba(117,168,255,.025));">
+    <div class="state-card" style="padding:28px 24px;max-width:700px;border-color:color-mix(in srgb, var(--partner-accent) 18%, transparent);background:linear-gradient(110deg,color-mix(in srgb, var(--partner-accent) 5%, transparent),color-mix(in srgb, var(--blue) 2.5%, transparent));">
       <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
-        <span style="width:48px;height:48px;display:grid;place-items:center;border-radius:14px;color:#63e6be;background:rgba(99,230,190,.1);border:1px solid rgba(99,230,190,.2);font-size:22px;">⬡</span>
+        <span style="width:48px;height:48px;display:grid;place-items:center;border-radius:14px;color:var(--partner-accent);background:color-mix(in srgb, var(--partner-accent) 10%, transparent);border:1px solid color-mix(in srgb, var(--partner-accent) 20%, transparent);font-size:22px;">⬡</span>
         <div>
           <div class="state-title" style="margin:0 0 4px;">Renal Swarm Intelligence</div>
           <div class="state-sub" style="margin:0;font-size:12px;">Governed agentic outcome harness · v0.9.0</div>
         </div>
-        <a href="${RSI_URL}" target="_blank" rel="noreferrer" style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:1px solid rgba(99,230,190,.25);border-radius:9px;background:rgba(99,230,190,.09);color:#a8f0d8;font-size:12px;font-weight:700;text-decoration:none;" onclick="window.open('${RSI_URL}','_blank');return false;">
+        <a href="${RSI_URL}" target="_blank" rel="noreferrer" style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:1px solid color-mix(in srgb, var(--partner-accent) 25%, transparent);border-radius:9px;background:color-mix(in srgb, var(--partner-accent) 9%, transparent);color:var(--partner-accent-soft);font-size:12px;font-weight:700;text-decoration:none;" onclick="window.open('${RSI_URL}','_blank');return false;">
           Open app <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
         </a>
       </div>
@@ -6777,17 +6870,17 @@ function renderRsiApp() {
         </div>
         <div style="padding:11px;border:1px solid var(--border);border-radius:8px;">
           <div class="muted" style="font-size:11px;margin-bottom:4px;">Runtime</div>
-          <strong style="color:#63e6be;">12 agents active</strong><br><span class="muted" style="font-size:11px;">14 policies · 8 sources</span>
+          <strong style="color:var(--partner-accent);">12 agents active</strong><br><span class="muted" style="font-size:11px;">14 policies · 8 sources</span>
         </div>
       </div>
       <div style="padding:13px;border:1px solid var(--border);border-radius:9px;background:rgba(255,255,255,.02);margin-bottom:14px;">
         <div style="font-weight:700;font-size:12px;margin-bottom:8px;">What lives in RSI</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px 12px;">
-          ${['Outcome command (FA daily worklist)','Patient intelligence','Assessment intelligence','Facility operations & capacity','Swarm control (enterprise monitoring)','Agent operations','Shared intelligence graph','Executive outcomes','CMS operations','AI assurance & red-teaming','Configuration studio','Platform admin / onboarding'].map(s=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;padding:3px 0;"><span style="width:5px;height:5px;border-radius:50%;background:#63e6be;flex:0 0 auto;"></span>${esc(s)}</div>`).join('')}
+          ${['Outcome command (FA daily worklist)','Patient intelligence','Assessment intelligence','Facility operations & capacity','Swarm control (enterprise monitoring)','Agent operations','Shared intelligence graph','Executive outcomes','CMS operations','AI assurance & red-teaming','Configuration studio','Platform admin / onboarding'].map(s=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;padding:3px 0;"><span style="width:5px;height:5px;border-radius:50%;background:var(--partner-accent);flex:0 0 auto;"></span>${esc(s)}</div>`).join('')}
         </div>
       </div>
-      <div style="padding:11px;border:1px solid rgba(239,189,104,.2);border-radius:9px;background:rgba(239,189,104,.05);display:flex;gap:10px;align-items:flex-start;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#efbd68" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto;margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <div style="padding:11px;border:1px solid color-mix(in srgb, var(--amber) 20%, transparent);border-radius:9px;background:color-mix(in srgb, var(--amber) 5%, transparent);display:flex;gap:10px;align-items:flex-start;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto;margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         <span style="font-size:12px;color:#c8a85a;">To connect a live organization, complete the <strong>Platform setup</strong> steps under <strong>Platform → Onboarding</strong> in this console. RSI will display a live-data banner once the release is activated.</span>
       </div>
     </div>
