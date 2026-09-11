@@ -197,7 +197,7 @@ describe('ops-scoped setup surface (/admin/platform/*)', () => {
     expect(badProtocol.json().error).toBe('invalid-security-protocol');
   });
 
-  it('exec-only roles are denied the ops setup surface (setup is an ops activity)', async () => {
+  it('exec-only roles may READ the configuration but may not write it', async () => {
     const app = await build();
     const adminCookie = await login(app, 'admin', 'admin123');
     await app.inject({
@@ -209,9 +209,48 @@ describe('ops-scoped setup surface (/admin/platform/*)', () => {
     const swarm = await app.inject({ method: 'GET', url: '/admin/swarm/cells', headers: { cookie: mdCookie } });
     expect(swarm.statusCode).toBe(200);
 
-    const setup = await app.inject({ method: 'GET', url: '/admin/platform/policy', headers: { cookie: mdCookie } });
-    expect(setup.statusCode).toBe(403);
-    expect(setup.json().console).toBe('ops');
+    // Read: allowed. The executive console shows a read-only view of the SAME
+    // documents the operator console writes, rather than a second spelling of them.
+    const read = await app.inject({ method: 'GET', url: '/admin/platform/policy', headers: { cookie: mdCookie } });
+    expect(read.statusCode).toBe(200);
+    expect(read.json().policy.defaultDecision).toBeDefined();
+
+    // Write: refused, because setup is an operations activity.
+    const write = await app.inject({
+      method: 'PUT', url: '/admin/platform/policy', headers: { cookie: mdCookie },
+      payload: { escalationThresholdBasisPoints: 6000 },
+    });
+    expect(write.statusCode).toBe(403);
+    expect(write.json().console).toBe('ops');
+  });
+
+  it('a read-only role can read the configuration and is refused every write', async () => {
+    const app = await build();
+    const cookie = await login(app, 'auditor', 'audit123');
+
+    // Read: the compliance role's whole purpose is to see what the platform is set to do.
+    for (const url of ['/admin/platform/policy', '/admin/platform/config-objects', '/admin/platform/releases', '/admin/platform/release-gate']) {
+      const res = await app.inject({ method: 'GET', url, headers: { cookie } });
+      expect(res.statusCode, url).toBe(200);
+    }
+
+    // Write: refused, on the setup surface, with a message that says why.
+    const writes: Array<{ method: 'PUT' | 'POST' | 'DELETE'; url: string; payload?: unknown }> = [
+      { method: 'PUT', url: '/admin/platform/policy', payload: { escalationThresholdBasisPoints: 6000 } },
+      { method: 'PUT', url: '/admin/platform/organization', payload: { displayName: 'Renamed by an auditor' } },
+      { method: 'PUT', url: '/admin/platform/topics', payload: { entries: [] } },
+      { method: 'POST', url: '/admin/platform/packs/deactivate' },
+      { method: 'POST', url: '/admin/platform/releases', payload: { version: 'auditor-draft' } },
+    ];
+    for (const w of writes) {
+      const res = await app.inject({ method: w.method, url: w.url, headers: { cookie }, ...(w.payload ? { payload: w.payload } : {}) });
+      expect(res.statusCode, `${w.method} ${w.url}`).toBe(403);
+      expect(res.json().error, `${w.method} ${w.url}`).toBe('read-only-role');
+    }
+
+    // …but the role's compliance WORKFLOW is not the configuration, so it stays open.
+    const dlq = await app.inject({ method: 'GET', url: '/admin/platform/dlq', headers: { cookie } });
+    expect(dlq.statusCode).toBe(200);
   });
 
   it('release gate serves the real verdict, not a hardcoded gate strip', async () => {

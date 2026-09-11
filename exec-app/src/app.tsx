@@ -56,8 +56,7 @@ import NutritionCds from "./components/nutrition-cds";
 import InfectionCds from "./components/infection-cds";
 import AssuranceTrack from "./components/assurance-track";
 import AssuranceCenter from "./components/assurance-center";
-import AdminConsole from "./components/admin-console";
-import ConfigurationStudio from "./components/configuration-studio";
+import PlatformReview from "./components/platform-review";
 import WorkflowDetailDrawer from "./components/workflow-detail-drawer";
 import { Tag } from "./components/ui";
 import { demoContext, outcomeEpisodes } from "./lib/catalogs";
@@ -123,8 +122,9 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       { id: "cms", label: "CMS operations", icon: ClipboardCheck },
       { id: "assurance", label: "AI assurance", icon: ShieldCheck },
-      { id: "admin", label: "Platform admin", icon: CloudCog, badge: "SETUP" },
-      { id: "configuration", label: "Configuration studio", icon: Settings2 },
+      // Setup lives in the operator console (charter §1). This is the read-only
+      // view of that configuration plus a link to go and change it.
+      { id: "platform", label: "Platform & configuration", icon: Settings2 },
     ],
   },
 ];
@@ -135,7 +135,7 @@ const demoSteps: { nav: NavigationId; eyebrow: string; title: string; body: stri
   { nav: "command", eyebrow: "3 · Detect the break", title: "A discharge event opens an outcome loop.", body: "The harness joins a synthetic discharge, a missing chair confirmation and a transportation barrier into one reviewable continuity episode." },
   { nav: "executive", eyebrow: "4 · Prove enterprise value", title: "Every authorized action rolls into clinical, operational, regulatory and economic outcomes.", body: "Executives see portfolio performance without losing role boundaries, valid time, denominator detail or source lineage." },
   { nav: "assurance", eyebrow: "5 · Prove before release", title: "Green and red teams gate every change.", body: "Contract tests, groundedness, isolation and adversarial scenarios must pass before a model, prompt, policy or measure pack can be promoted." },
-  { nav: "configuration", eyebrow: "6 · Adapt without rebuilding", title: "The harness is configured for change through 2039.", body: "FHIR and Kafka mappings, agent permissions, action classes, source versions and measure logic can evolve independently under approval." },
+  { nav: "platform", eyebrow: "6 · Adapt without rebuilding", title: "Configuration is authored in Admin and decided here.", body: "The setup journey — organization, integrations, packs, policy — lives in the operator console. This console reads it, sees the real release gate, and acts on the outcome." },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
@@ -332,8 +332,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
       case "cms": return <CmsControl onOpenDetail={openWorkflowDetail} />;
       case "executive": return <ExecutiveOutcomes onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "assurance": return <AssuranceCenter onOpenDetail={openWorkflowDetail} />;
-      case "admin": return <AdminConsole onNavigate={selectNav} />;
-      case "configuration": return <ConfigurationStudio onOpenDetail={openWorkflowDetail} onNavigate={selectNav} />;
+      case "platform": return <PlatformReview onNavigate={selectNav} />;
     }
   })();
 
@@ -385,7 +384,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
               <a className="button button-ghost console-switch" href="/admin/ui/" title="Open the AnantHealth operator console (server-authorized)"><MonitorUp size={13} /> Operator console</a>
             ) : null}
             <button className="icon-button notification-button" aria-label="Open workflow inbox" type="button" onClick={() => void openInbox()}><Bell size={18} /><span /></button>
-            <button className="profile-button" aria-label="Open operator profile and decision rights" type="button" onClick={() => openWorkflowDetail({ id: `PROFILE-${user?.username ?? "operator"}`, kind: "Operator profile", title: user?.displayName || user?.username || "Operator", summary: "Session identity, role, clearance and purpose-of-use scoping for this console. Authority is enforced server-side on every request.", status: "Session active", tone: "mint", owner: user?.displayName || user?.username || "Operator", scope: ROLE_LABELS[user?.role ?? ""] ?? (user?.role ?? "Operator"), metrics: [{ label: "Username", value: user?.username ?? "—" }, { label: "Role", value: user?.role ?? "—" }, { label: "Clearance", value: user?.clearance ?? "—" }, { label: "Purpose of use", value: (user?.purposeOfUse ?? []).join(", ") || "—" }], evidence: [{ label: "Session", value: user?.username ?? "operator", source: "Server-issued hh_session cookie" }], steps: [{ label: "Authenticate", detail: "Session resolved from hh_session", state: "done" }, { label: "Authorize", detail: "Role and scope evaluated server-side", state: "done" }, { label: "Use", detail: "Purpose-of-use scoped evidence only", state: "current" }], control: "The browser never grants authority. Each /admin/* request re-verifies the session, role and console scope.", primary: { label: "Inspect configuration", target: "configuration" } })}><span>{userInitials(user)}</span><div><strong>{user?.displayName || user?.username || "Operator"}</strong><small>{ROLE_LABELS[user?.role ?? ""] ?? (user?.role ?? "Operator")}</small></div></button>
+            <button className="profile-button" aria-label="Open operator profile and decision rights" type="button" onClick={() => openWorkflowDetail({ id: `PROFILE-${user?.username ?? "operator"}`, kind: "Operator profile", title: user?.displayName || user?.username || "Operator", summary: "Session identity, role, clearance and purpose-of-use scoping for this console. Authority is enforced server-side on every request.", status: "Session active", tone: "mint", owner: user?.displayName || user?.username || "Operator", scope: ROLE_LABELS[user?.role ?? ""] ?? (user?.role ?? "Operator"), metrics: [{ label: "Username", value: user?.username ?? "—" }, { label: "Role", value: user?.role ?? "—" }, { label: "Clearance", value: user?.clearance ?? "—" }, { label: "Purpose of use", value: (user?.purposeOfUse ?? []).join(", ") || "—" }], evidence: [{ label: "Session", value: user?.username ?? "operator", source: "Server-issued hh_session cookie" }], steps: [{ label: "Authenticate", detail: "Session resolved from hh_session", state: "done" }, { label: "Authorize", detail: "Role and scope evaluated server-side", state: "done" }, { label: "Use", detail: "Purpose-of-use scoped evidence only", state: "current" }], control: "The browser never grants authority. Each /admin/* request re-verifies the session, role and console scope.", primary: { label: "Inspect configuration", target: "platform" } })}><span>{userInitials(user)}</span><div><strong>{user?.displayName || user?.username || "Operator"}</strong><small>{ROLE_LABELS[user?.role ?? ""] ?? (user?.role ?? "Operator")}</small></div></button>
             <button className="icon-button" aria-label={`Theme: ${THEME_LABEL[theme]} — switch to ${THEME_LABEL[otherTheme(theme)]}`} title={`Theme: ${THEME_LABEL[theme]} — switch to ${THEME_LABEL[otherTheme(theme)]}`} type="button" onClick={toggleTheme}>{theme === "dark" ? <Sun size={18} /> : <Moon size={17} />}</button>
             <button className="icon-button signout-button" aria-label="Sign out" title="Sign out" type="button" onClick={() => onLogout?.()}><LogOut size={17} /></button>
           </div>

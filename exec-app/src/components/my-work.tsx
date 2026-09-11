@@ -86,7 +86,7 @@ function detailToDrawer(item: PlatformWorkItem, detail?: PlatformWorkDetail): Wo
     item.kind === "episode" || item.kind === "review"
       ? { label: "Open Outcome Command", target: "command" }
       : item.kind === "release"
-        ? { label: "Open Configuration Studio", target: "configuration" }
+        ? { label: "Open Platform & configuration", target: "platform" }
         : item.kind === "cohort"
           ? { label: "Open Renal Cohorts", target: "patient" }
           : { label: "Open Event Operations", target: "command" };

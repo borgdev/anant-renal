@@ -288,7 +288,7 @@ export type NbaDecisionRow = {
 
 /* ---------- harness fetch helpers ---------- */
 
-async function harnessJson<T>(path: string, init?: RequestInit): Promise<T> {
+export async function harnessJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { cache: "no-store", credentials: "same-origin", ...init });
   return responseOrThrow<T>(path, response);
 }
@@ -1186,32 +1186,6 @@ export async function runRedTeamReplay(scenarioId: string): Promise<{ result: Re
 
 /* ---------- configuration studio release workflow ---------- */
 
-export async function configurationAction(action: "create-draft" | "validate" | "request-approval", version?: string): Promise<{ release: { version: string; status: string; dossierHash: string }; runtimeEffect?: boolean; checks?: Array<{ name: string; passed: boolean; observed: string }> }> {
-  const releases = async (): Promise<HarnessConfigRelease[]> => (await harnessJson<{ releases: HarnessConfigRelease[] }>("/admin/swarm/config/releases")).releases;
-  const findRelease = async (status?: string): Promise<HarnessConfigRelease> => {
-    const all = await releases();
-    const target = (version ? all.find((r) => r.version === version || r.version.startsWith(String(version))) : undefined)
-      ?? (status ? all.find((r) => r.status === status) : undefined)
-      ?? all[0];
-    if (!target) throw new Error("no config release available");
-    return target;
-  };
-  if (action === "create-draft") {
-    const created = await harnessJson<{ release: HarnessConfigRelease }>("/admin/swarm/config/releases", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: version ?? undefined, changeSummary: "Packaged baseline catalog" }),
-    });
-    return { release: { version: created.release.version, status: created.release.status, dossierHash: created.release.contentHash }, runtimeEffect: false };
-  }
-  if (action === "validate") {
-    const target = await findRelease("draft");
-    const validated = await harnessJson<{ release: HarnessConfigRelease }>(`/admin/swarm/config/releases/${target.id}/validate`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-    return { release: { version: validated.release.version, status: validated.release.status, dossierHash: validated.release.contentHash }, runtimeEffect: false, checks: validated.release.checks };
-  }
-  const target = await findRelease("validated");
-  const approved = await harnessJson<{ release: HarnessConfigRelease }>(`/admin/swarm/config/releases/${target.id}/request-approval`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-  return { release: { version: approved.release.version, status: approved.release.status, dossierHash: approved.release.contentHash }, runtimeEffect: false };
-}
-
 /* ---------- platform admin (onboarding wizard) ---------- */
 
 import type { AdminConsoleSnapshot, AgentConfiguration, ConfigurationReleaseView, ConfigurationValidationView, KafkaBridgeConfiguration, OnboardingStep, OnboardingStepId, RuntimePolicyConfiguration } from "./contracts";
@@ -1238,109 +1212,6 @@ function onboardingSteps(current: OnboardingStepId): OnboardingStep[] {
   }));
 }
 
-async function adminSnapshot(): Promise<AdminConsoleSnapshot> {
-  const demo = await demoState();
-  const cells = demo.cells.map((cell) => ({
-    id: cell.id,
-    name: cell.displayName,
-    version: cell.version,
-    mode: "bounded",
-    inputs: cell.consumes,
-    outputs: cell.produces,
-    allowedActions: cell.allowedActions,
-    approvalClass: cell.approvalClass,
-    evaluationGateBasisPoints: Math.round(cell.evalGate * 10000),
-    killSwitchAvailable: true,
-    enabled: true,
-  }));
-  const [tenantRes, kafkaRes, policyRes, releasesRes] = await Promise.all([
-    harnessJson<{ tenant: HarnessTenant }>("/admin/swarm/admin/tenant"),
-    harnessJson<{ kafka: HarnessKafka }>("/admin/swarm/admin/kafka"),
-    harnessJson<{ policy: HarnessPolicy }>("/admin/swarm/admin/policy"),
-    harnessJson<{ releases: HarnessConfigRelease[] }>("/admin/swarm/config/releases"),
-  ]);
-  const tenant = tenantRes.tenant;
-  const kafka = kafkaRes.kafka;
-  const policy = policyRes.policy;
-  const releases: AdminConsoleSnapshot["releases"] = releasesRes.releases.map((r) => ({
-    releaseId: r.id,
-    version: r.version,
-    status: (r.status as ConfigurationReleaseView["status"]) ?? "draft",
-    changeSummary: r.changeSummary,
-    contentHash: r.contentHash,
-    objectCount: r.objectCount,
-    createdBy: r.createdBy,
-    createdAt: r.createdAt,
-    validatedAt: r.validatedAt ?? null,
-    activatedAt: r.activatedAt ?? null,
-  }));
-  const active = releases.find((r) => r.status === "active");
-  const validations: ConfigurationValidationView[] = releasesRes.releases.filter((r) => r.checks?.length).map((r) => ({
-    validationId: `validation-${r.id}`,
-    releaseId: r.id,
-    suite: "integration",
-    status: "passed",
-    scoreBasisPoints: 10000,
-    checks: r.checks ?? [],
-    evidenceHash: r.contentHash,
-    runAt: r.validatedAt ?? r.createdAt,
-  }));
-  return {
-    generatedAt: new Date().toISOString(),
-    tenant: {
-      tenantId: tenant.tenantId,
-      environmentId: tenant.environmentId,
-      displayName: tenant.displayName,
-      environmentName: tenant.environmentName,
-      deploymentMode: (tenant.deploymentMode as AdminConsoleSnapshot["tenant"]["deploymentMode"]) ?? "reference",
-      timeZone: tenant.timeZone,
-      dataRegion: tenant.dataRegion,
-      status: (tenant.status as AdminConsoleSnapshot["tenant"]["status"]) ?? "onboarding",
-      persisted: tenant.persisted,
-    },
-    onboarding: {
-      status: tenant.status === "active" ? "active" : releases.some((r) => r.status === "active" && r.releaseId !== "release-base") ? "ready" : "in-progress",
-      completionBasisPoints: tenant.status === "active" ? 10000 : releases.some((r) => r.status === "active") ? 7500 : 2500,
-      currentStep: "organization",
-      steps: onboardingSteps("organization"),
-    },
-    kafka: {
-      connectionId: null,
-      displayName: "Organization Kafka bridge",
-      bridgeUrl: kafka.bridgeUrl,
-      clusterAlias: kafka.clusterAlias,
-      securityProtocol: (kafka.securityProtocol as KafkaBridgeConfiguration["securityProtocol"]) ?? "SASL_SSL",
-      secretRef: kafka.secretRef,
-      consumerGroup: kafka.consumerGroup,
-      topicMappings: kafka.topicMappings.map((m) => ({ direction: m.direction as "inbound" | "outbound", topic: m.topic, contract: m.contract })),
-      status: (kafka.status as KafkaBridgeConfiguration["status"]) ?? "not-configured",
-      lastTestedAt: kafka.lastTestedAt ?? null,
-      testMode: (kafka.testMode as KafkaBridgeConfiguration["testMode"]) ?? "not-run",
-      testSummary: kafka.testSummary ?? "Save and test the bridge configuration.",
-    },
-    agents: cells,
-    policy: {
-      version: policy.version,
-      defaultDecision: "block" as const,
-      escalationThresholdBasisPoints: policy.escalationThresholdBasisPoints,
-      minThresholdBasisPoints: policy.minThresholdBasisPoints,
-      maxThresholdBasisPoints: policy.maxThresholdBasisPoints,
-      externalWritesEnabled: policy.externalWritesEnabled as RuntimePolicyConfiguration["externalWritesEnabled"],
-    },
-    releases,
-    validations,
-    activeConfigurationVersion: active?.version ?? "renal-harness-2026.08.5",
-    activation: {
-      runtimeEffect: "hot-reload",
-      codeRedeployRequired: false,
-      externalWritesEnabled: policy.externalWritesEnabled as AdminConsoleSnapshot["activation"]["externalWritesEnabled"],
-      productionGate: "The reference runtime does not transmit to any live environment. Production activation requires organization-specific credentials, security authorization and designated human approval.",
-    },
-  };
-}
-
-type AdminMutationAction = "save-organization" | "save-kafka" | "test-kafka" | "save-agent" | "save-policy" | "validate-release" | "activate-release";
-
 /** The REAL release gate — green checks with per-check evidence, red containment,
 source currency and approvals, scored against the live action policy. */
 export interface ReleaseGateCheck { id: string; plane: string; status: string; check: string; evidence?: string }
@@ -1366,44 +1237,7 @@ export interface ReleaseGateView {
 }
 
 export async function fetchReleaseGate(): Promise<ReleaseGateView> {
-  return harnessJson<ReleaseGateView>("/admin/swarm/release-gate");
-}
-
-export async function fetchAdminConsole(): Promise<AdminConsoleSnapshot> {
-  return adminSnapshot();
-}
-
-export async function mutateAdminConsole(action: AdminMutationAction, input: Record<string, unknown> = {}): Promise<AdminConsoleSnapshot> {
-  const resolveRelease = async (preferredId?: string, status?: string): Promise<string> => {
-    const res = await harnessJson<{ releases: HarnessConfigRelease[] }>("/admin/swarm/config/releases");
-    const target = res.releases.find((r) => preferredId && r.id === preferredId)
-      ?? (status ? res.releases.find((r) => r.status === status) : undefined)
-      ?? res.releases[0];
-    if (!target) throw new Error("no config release available");
-    return target.id;
-  };
-  if (action === "save-organization") {
-    await harnessJson<{ tenant: HarnessTenant }>("/admin/swarm/admin/tenant", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
-  } else if (action === "save-kafka") {
-    await harnessJson<{ kafka: HarnessKafka }>("/admin/swarm/admin/kafka", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
-  } else if (action === "test-kafka") {
-    await harnessJson<{ kafka: HarnessKafka }>("/admin/swarm/admin/kafka/test", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-  } else if (action === "save-agent") {
-    // There is no durable agent-configuration write on this surface: cells are the
-    // source of truth and are configured through the operator console's Observer
-    // studio. This branch used to `set()` a module-level Map that NOTHING read, so
-    // the UI reported success and discarded the edit.
-    throw new Error("agent-configuration-moved: edit agents in the operator console (Observer studio)");
-  } else if (action === "save-policy") {
-    await harnessJson<{ policy: HarnessPolicy }>("/admin/swarm/admin/policy", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input.policy ?? input) });
-  } else if (action === "validate-release") {
-    const releaseId = String(input.releaseId ?? "") || (await resolveRelease(undefined, "draft"));
-    await harnessJson<{ release: HarnessConfigRelease }>(`/admin/swarm/config/releases/${releaseId}/validate`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-  } else if (action === "activate-release") {
-    const releaseId = String(input.releaseId ?? "") || (await resolveRelease(undefined, "approved"));
-    await harnessJson<{ release: HarnessConfigRelease }>(`/admin/swarm/config/releases/${releaseId}/activate`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-  }
-  return adminSnapshot();
+  return harnessJson<ReleaseGateView>("/admin/platform/release-gate");
 }
 
 /* ---------- shared intelligence knowledge notes (durable /admin/swarm/notes) ---------- */

@@ -71,7 +71,7 @@ Three more surfaces are duplicated the same way:
   tabs, one store). exec reaches a third view of it from Platform admin.
 - **AI assurance** — exec `assurance` ↔ admin-ui `platform-assurance` + `ws-redteam`.
 - **Agent configuration** — exec Platform admin edits agents; admin-ui has the real
-  Agent Studio (173 rows, test/kill/rollback). exec's version is a dead write (§3).
+  Agent Studio (172 of 437 rows — it enumerates 6 of ~24 packs, see §3(b); test/kill/rollback). exec's version is a dead write (§3).
 
 ---
 
@@ -185,13 +185,22 @@ storage bug.
 Meanwhile the one genuinely file-based configuration in the product is **not in
 this studio at all**:
 
-- **452 agent specs** at `packs/*/agents/*.yaml` + `packs/*/drafts/*.yaml`, read by
-  `AgentAuthoringService` with `readdirSync`/`readFileSync` (`src/server/agent-authoring.ts:87,112`)
+- **438 agent specs** at `packs/*/agents/*.yaml` (437) + `packs/*/drafts/*.yaml`
+  (1), read by `AgentAuthoringService` with `readdirSync`/`readFileSync`
+  (`src/server/agent-authoring.ts:87,112`). The other 14 YAML files under `packs/`
+  are per-pack `manifest.yaml` — a different document, and not counted here.
 - "publishing" a draft **renames a file** onto `agents/<id>.yaml` (`:144–181`)
 - no Postgres row, no audit row beyond a JSONL append, not reachable from either
   console's config surface
+- **and the two readers of that tree disagree by 2.5×.** `/admin/agents` (the
+  Agent Studio) enumerates a **hardcoded 6-pack list** (`PACK_ROOTS`,
+  `src/server/admin-routes.ts:154–161`) with `catch { /* skip malformed */ }` on
+  every file, so it reports **172 of the 437** specs — silently, and with no way
+  for a caller to know a pack is missing. Measured live, not inferred. This was
+  invisible until the durable registry existed to compare against; it is the same
+  shape of defect as the console's swallowed 403: a reader that cannot fail loudly.
 
-And there are **two competing "agent" concepts**: those 452 specs, and the
+And there are **two competing "agent" concepts**: those 438 specs, and the
 `agent-manifest` catalog (12 swarm cells) which *is* in Postgres and *is* editable
 in the ops console. Whichever one an operator thinks "the agents" are, the other
 one is somewhere else.
@@ -305,12 +314,13 @@ shippable.
 
 | # | Slice | State |
 |---|---|---|
-| 0 | Stop lying | **Partly done** — admin-ui rewritten with explicit failure states and the fabricated content removed from the ops side; the exec-side items (fabricated filenames, invented gates, dead agent write) still stand: they are §6a below |
+| 0 | Stop lying | **Done** — admin-ui renders explicit failure states instead of defaults; the exec fabrications (literal filenames, invented gates, fake tests/numbers) are deleted with the two views that carried them |
 | 1 | Re-home the API by domain | **Done** — `src/server/ops-config-routes.ts` serves the setup surface under `/admin/platform/*` over the same workspace documents; the swarm twins still exist for exec |
 | 2 | Consolidate the ops console | **Done** — Platform admin and Configuration studio merged; the `Exec assets` section removed; 33k+33k+6k bytes of unreachable exec-scoped code deleted |
-| 3 | Reduce exec to banner + review | Not started (needs Decision A's remaining half — see below) |
-| 4 | Agent specs durable | Not started (independent) |
-| 5 | One release lifecycle | Not started |
+| 3 | Reduce exec to banner + review | **Done** — `admin-console.tsx` and `configuration-studio.tsx` deleted (546 lines), replaced by one read-only `platform-review.tsx`; `save-agent` now throws `agent-configuration-moved` instead of writing to a Map; the fabrications are gone (verified in the browser: no literal filenames, no invented gates, no fake tests or numbers) |
+| 4 | Agent specs durable (registry + surface) | **Done** — `agent-spec` workspace kind + `src/server/agent-spec-store.ts` + `/admin/platform/agent-specs*` + an **Agent specs** tab in the ops studio. Import is idempotent per content hash; publish is a state transition; a row is never deleted because a file vanished |
+| **4b** | **Retire the old file-based authoring path** | **Not done — and the migration is incomplete without it.** `AgentAuthoringService` and `src/server/agent-studio-routes.ts` are still live, still reachable, and still publish by renaming a file: **15** references in `admin-ui/index.html`, plus `tests/agent-authoring.test.ts` and `tests/hardening.test.ts`, plus `src/server/knowledge-routes.ts`. Until this lands there are **three** ways to author an agent (two file-based, one row-based) where there was one, so slice 4 has not reduced the duplication it was aimed at — it has added a third spelling |
+| 5 | One release lifecycle | **Done** — the 5 `/admin/swarm/config/releases*` and 2 `/admin/swarm/release-gate*` routes are deleted; the ops pair under `/admin/platform/*` is the only spelling. The 4 deprecated `/admin/swarm/admin/*` aliases remain pending Decision B |
 
 Measured outcome of 1+2: admin-ui went from **20 "platform" tabs across two
 sections** to **10 tabs in one section**, and from **31 distinct
@@ -318,16 +328,32 @@ sections** to **10 tabs in one section**, and from **31 distinct
 serves is now ops-scoped, so the 403 class of bug is structurally gone rather than
 hidden.
 
-**Decision A, remaining half.** "Accept it" settles that clinical roles do not
-need setup pages, but `ROLE_NAV` grants **Platform to no non-admin role at all**,
-so today "setup lives in Admin" means "setup lives with `admin`". And the console
-has no read-only mode: granting Platform to `auditor` would hand over the Save
-and Activate buttons along with the read. How to resolve it is a policy call, not
-a refactor:
+Measured outcome of 4: **438 files scanned, 437 rows created, 1 refused** — and the
+refusal is a real defect the import surfaced rather than introduced:
+`packs/research-pharma/agents/new-drug-surveillance.yaml` fails `AgentSpecSchema`
+(invalid `scope`; missing `trigger.expression`; invalid
+`governance.clearanceRequired`; `hitlGates[0]` missing `afterStepId` and
+`slaMinutes`). Nothing validated the tree as a whole before, so a spec that fails
+at runtime had been sitting in the repository. A second import returns
+`{created: 0, updated: 0, unchanged: 437}`. The import also falsified the
+"452 specs" figure in §3(b): the true count is 438, and the 14 excluded files are
+pack manifests, not specs.
 
-1. leave Platform admin-only (current behaviour, nothing more to build);
-2. add a read-only rendering mode and grant that to `auditor`;
-3. grant Platform to specific ops roles and accept that they can write.
+**Decision A — resolved.** Chosen: **admin reads and writes the setup surface;
+`auditor` reads it and is refused every write.** Enforced server-side in
+`api-auth.ts` (`READ_ONLY_ROLES` + `SETUP_WRITE_PREFIXES` → `403 read-only-role`,
+checked *before* console scoping so the answer does not depend on which prefix
+reached the document) and mirrored in the console by `applyReadOnly()`, which
+disables every writer on a platform page and re-enables only navigation and
+refresh. The console mirror is a courtesy, not the control: the same writes are
+refused by the API whichever way they are reached.
+
+**Decision B — still open.** The 4 `/admin/swarm/admin/*` aliases remain as
+documented deprecated twins of the `/admin/platform/*` documents, because 4 test
+files use `/admin/swarm/admin/policy` as a fixture setter and removing it is a
+test-only change with no product value. They are aliases over one store, not a
+second store, so they cannot drift — but they are a second spelling, which is the
+thing this document exists to remove.
 
 ### Slice ledger
 
@@ -340,7 +366,7 @@ Sizing measured against the tree, not estimated. "Sites" = every reference in
 | 1 | Re-home the API by domain | new `/admin/platform/{organization,policy,release-gate}`; 75 call sites (`swarm/admin/` 39, `config/releases` 22, `release-gate` 14); 5 test files | ~6 route definitions + 75 sites | 0 | Medium — a missed site is a silent 403 |
 | 2 | Consolidate the ops console | 19 render fns (~700 lines) in one 7,946-line file; NAV 20 tabs → 10 | largest UI change | 1 (a page can't call a prefix that doesn't exist yet) | Medium–high **for verification** — admin-ui has no build step |
 | 3 | Reduce exec to banner + review | delete 2 components (546 lines), 3 harness fns, 2 nav ids, 2 `NavigationId`s, 1 `demoSteps` entry, 2 render cases | 546 lines deleted, ~60 added | 2 + **Decision A** | Medium — the guided demo dies if nav/union/dispatch disagree |
-| 4 | Agent specs durable (the real YAML→Postgres) | new `agent-spec` kind; rewrite `AgentAuthoringService`; importer for 452 files; exporter; ops Agent Studio | biggest functional change | **none** (independent) | **High** — it is the agent runtime's source of truth |
+| 4 | Agent specs durable (the real YAML→Postgres) | new `agent-spec` kind; rewrite `AgentAuthoringService`; importer for the existing 438 files on disk; exporter; ops Agent Studio tab | biggest functional change | **none** (independent) | **High** — it is the agent runtime's source of truth |
 | 5 | One release lifecycle, one gate model | delete `/admin/swarm/config/releases*` (22 sites), add `DELETE` to the platform family, converge gate rendering | ~22 sites | 1 + 3 | Medium |
 
 Tests that move with Slices 1/5: `assurance.test.ts`,
@@ -424,7 +450,7 @@ Add an `agent-spec` workspace kind and make `AgentAuthoringService` write to it:
 - draft/published rows in Postgres with content hash, author, timestamps
 - publish = a state transition, **not a file rename**
 - the `packs/*/agents/*.yaml` tree becomes an **export** (`Materialize to packs/`)
-  driven from the DB, plus an importer for the existing 452 files
+  driven from the DB, plus an importer for the existing 438 files on disk
 - audit through the existing audit chain; killed/rolled-back state already lives in
   `agent-kill-switch` / `agent-rollback` kinds
 - surface it on the ops console Agent Studio (create/edit/validate/publish/delete),

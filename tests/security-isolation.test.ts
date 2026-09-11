@@ -70,7 +70,7 @@ describe('Phase F — security: role/scope isolation + break-glass', () => {
   afterAll(async () => { await app.close(); });
 
   it('anonymous sessions are rejected on every admin surface (401)', async () => {
-    for (const url of ['/admin/platform/submissions', '/admin/platform/assurance', '/admin/platform/agents', '/admin/platform/releases', '/admin/swarm/release-gate', '/admin/auth/users']) {
+    for (const url of ['/admin/platform/submissions', '/admin/platform/assurance', '/admin/platform/agents', '/admin/platform/releases', '/admin/swarm/cells', '/admin/auth/users']) {
       const res = await app.inject({ method: 'GET', url });
       expect(res.statusCode, url).toBe(401);
     }
@@ -81,7 +81,7 @@ describe('Phase F — security: role/scope isolation + break-glass', () => {
     const assurance = await app.inject({ method: 'GET', url: '/admin/platform/assurance', headers: { cookie: cookie(nurse) } });
     expect(assurance.statusCode).toBe(200);
     // exec-only swarm surface → 403
-    const exec = await app.inject({ method: 'GET', url: '/admin/swarm/release-gate', headers: { cookie: cookie(nurse) } });
+    const exec = await app.inject({ method: 'GET', url: '/admin/swarm/cells', headers: { cookie: cookie(nurse) } });
     expect(exec.statusCode).toBe(403);
     expect(exec.json().error).toBe('role-not-permitted-for-console');
     // admin-only user management → 403
@@ -90,13 +90,13 @@ describe('Phase F — security: role/scope isolation + break-glass', () => {
   });
 
   it('auditor (ops) gets the same isolation as nurse', async () => {
-    expect((await app.inject({ method: 'GET', url: '/admin/swarm/release-gate', headers: { cookie: cookie(auditor) } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'GET', url: '/admin/swarm/cells', headers: { cookie: cookie(auditor) } })).statusCode).toBe(403);
     expect((await app.inject({ method: 'GET', url: '/admin/auth/users', headers: { cookie: cookie(auditor) } })).statusCode).toBe(403);
     expect((await app.inject({ method: 'GET', url: '/admin/platform/submissions', headers: { cookie: cookie(auditor) } })).statusCode).toBe(200);
   });
 
   it('admin (exec+ops) reaches both consoles and user management', async () => {
-    expect((await app.inject({ method: 'GET', url: '/admin/swarm/release-gate', headers: { cookie: cookie(admin) } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/admin/platform/release-gate', headers: { cookie: cookie(admin) } })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/admin/auth/users', headers: { cookie: cookie(admin) } })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/admin/platform/assurance', headers: { cookie: cookie(admin) } })).statusCode).toBe(200);
   });

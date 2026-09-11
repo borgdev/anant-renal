@@ -143,7 +143,7 @@ export default function AgentOperations({
         </div>
         <div className="heading-actions">
           <Tag tone={snapshot?.runtimeStatus === "active" ? "mint" : "amber"}><Activity size={11} /> {snapshot?.runtimeStatus === "active" ? "Runtime active" : "Runtime idle"}</Tag>
-          <button className="button button-secondary" type="button" onClick={() => onNavigate("admin")}><Settings2 size={15} /> Configure agents</button>
+          <button className="button button-secondary" type="button" onClick={() => onNavigate("platform")}><Settings2 size={15} /> Configure agents</button>
           <button className="button button-primary" type="button" disabled={Boolean(busy)} onClick={() => run(snapshot?.runtimeStatus === "empty" ? "replay" : "step")}>
             {busy ? <RefreshCw size={15} className="is-spinning" /> : <Play size={15} />}
             {snapshot?.runtimeStatus === "empty" ? "Load governed replay" : "Run next event"}

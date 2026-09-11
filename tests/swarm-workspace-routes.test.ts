@@ -64,17 +64,17 @@ describe('swarm workspace routes', () => {
 
   it('supports the config release lifecycle over HTTP', async () => {
     const app = await build();
-    const created = await app.inject({ method: 'POST', url: '/admin/swarm/config/releases', payload: { version: 'route-sandbox', changeSummary: 'Route test' } });
+    const created = await app.inject({ method: 'POST', url: '/admin/platform/releases', payload: { version: 'route-sandbox', changeSummary: 'Route test' } });
     expect(created.statusCode).toBe(200);
     const id = created.json().release.id;
     expect(created.json().release.status).toBe('draft');
-    const validated = await app.inject({ method: 'POST', url: `/admin/swarm/config/releases/${id}/validate`, payload: {} });
+    const validated = await app.inject({ method: 'POST', url: `/admin/platform/releases/${id}/validate`, payload: {} });
     expect(validated.json().release.status).toBe('validated');
-    const approved = await app.inject({ method: 'POST', url: `/admin/swarm/config/releases/${id}/request-approval`, payload: {} });
+    const approved = await app.inject({ method: 'POST', url: `/admin/platform/releases/${id}/request-approval`, payload: {} });
     expect(approved.json().release.status).toBe('approved');
-    const active = await app.inject({ method: 'POST', url: `/admin/swarm/config/releases/${id}/activate`, payload: {} });
+    const active = await app.inject({ method: 'POST', url: `/admin/platform/releases/${id}/activate`, payload: {} });
     expect(active.json().release.status).toBe('active');
-    const list = await app.inject({ method: 'GET', url: '/admin/swarm/config/releases' });
+    const list = await app.inject({ method: 'GET', url: '/admin/platform/releases' });
     expect(list.json().active?.id).toBe(id);
   });
 

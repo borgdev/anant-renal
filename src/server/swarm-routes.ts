@@ -23,7 +23,9 @@ import { SWARM_CELLS, cellAllows } from '../swarm/cells.js';
 import { buildSwarmDemo, policyWhatIf, type SwarmDemoState } from '../swarm/demo.js';
 import { PersistentOutcomeCoordinator } from '../swarm/durable-coordinator.js';
 import { computeRollups, deriveLiveSwarm, hasLiveData, integrationHealth, type LiveRealmSource } from '../swarm/live.js';
-import { applyRedOverrides, demoReleaseInput, evaluateRelease } from '../swarm/release.js';
+// The release gate + release lifecycle moved to ops-config-routes.ts
+// (/admin/platform/release-gate*, /admin/platform/releases*) — the swarm family
+// no longer serves either, so it no longer imports the release engine.
 import { sqlWorkspacePersistence, SwarmWorkspaceStore, projectRealmEvents, type NbaDecision, type SubmissionPackage, type WorkspaceDoc, type WorkspaceKind } from '../swarm/workspace.js';
 import type { ApprovalClass, WorldEffectKind } from '../swarm/types.js';
 import type { EventBroker } from './event-broker.js';
@@ -400,21 +402,10 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
   });
 
   // M-S3 — release gate (green/red-team gating; pure + deterministic).
-  app.get('/admin/swarm/release-gate', async () => {
-    const input = demoReleaseInput();
-    return { input, verdict: evaluateRelease(input) };
-  });
-  app.post<{ Body: { red?: Array<{ id: string; contained: boolean }>; approvals?: { required?: number; granted?: string[] } } }>(
-    '/admin/swarm/release-gate/evaluate',
-    async (req) => {
-      const base = demoReleaseInput();
-      const input = demoReleaseInput({
-        ...(req.body?.red ? { red: applyRedOverrides(base.red, req.body.red) } : {}),
-        ...(req.body?.approvals ? { approvals: { required: req.body.approvals.required ?? 2, granted: req.body.approvals.granted ?? [] } } : {}),
-      });
-      return { input, verdict: evaluateRelease(input) };
-    },
-  );
+  // MOVED to ops-config-routes.ts as /admin/platform/release-gate* — a release
+  // gate is configuration control, and the executive console reads the same path.
+  // One gate model, one spelling; the invented five-gate strip that lived in the
+  // exec studio is gone and nothing renders a second model.
 
   // M-S3 — kafka-bridge: durable connector over the transactional outbox.
   // Registered only when a store is wired (prod SqlStore); absent → endpoints
@@ -515,38 +506,13 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
   });
 
   // --- configuration studio release dossier ---
-  app.get('/admin/swarm/config/releases', async () => ({ releases: await ws().listReleases(), active: await ws().activeRelease() }));
-  app.post<{ Body: { version?: string; changeSummary?: string; objectCount?: number; createdBy?: string } }>(
-    '/admin/swarm/config/releases',
-    async (req, reply) => {
-      try {
-        const release = await ws().createReleaseDraft(req.body ?? {});
-        return { release };
-      } catch (err) {
-        return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
-      }
-    },
-  );
-  app.post<{ Params: { id: string } }>('/admin/swarm/config/releases/:id/validate', async (req, reply) => {
-    const release = await ws().validateRelease(req.params.id);
-    if (!release) return reply.code(404).send({ error: 'config-release-not-found' });
-    return { release };
-  });
-  app.post<{ Params: { id: string } }>('/admin/swarm/config/releases/:id/request-approval', async (req, reply) => {
-    const release = await ws().approveRelease(req.params.id);
-    if (!release) return reply.code(404).send({ error: 'config-release-not-found' });
-    return { release };
-  });
-  app.post<{ Params: { id: string } }>('/admin/swarm/config/releases/:id/activate', async (req, reply) => {
-    const release = await ws().activateRelease(req.params.id);
-    if (!release) return reply.code(404).send({ error: 'config-release-not-found' });
-    return { release };
-  });
-  app.delete<{ Params: { id: string } }>('/admin/swarm/config/releases/:id', async (req, reply) => {
-    const ok = await ws().deleteRelease(req.params.id);
-    if (!ok) return reply.code(404).send({ error: 'config-release-not-found' });
-    return { ok: true };
-  });
+  // MOVED to src/server/ops-config-routes.ts as /admin/platform/releases*. The
+  // release lifecycle is CONFIGURATION, so it belongs to the operator console's
+  // scope like the rest of the setup surface; the executive console reads it
+  // read-only through the same path. Keeping this twin alive meant two spellings
+  // of one lifecycle over one store, which is what produced the confusion it was
+  // meant to prevent.
+
 
   // --- platform admin: tenant / kafka / policy ---
   app.get('/admin/swarm/admin/tenant', async () => ({ tenant: await ws().getAdminTenant() }));

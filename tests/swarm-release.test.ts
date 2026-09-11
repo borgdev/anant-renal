@@ -257,20 +257,20 @@ describe('kafka-bridge (M-S3)', () => {
   });
 });
 
-describe('swarm release-gate + bridge admin routes', () => {
-  it('GET /admin/swarm/release-gate returns a shipping verdict', async () => {
+describe('release-gate + bridge admin routes', () => {
+  it('GET /admin/platform/release-gate returns a shipping verdict', async () => {
     const app = await build();
-    const res = await app.inject({ method: 'GET', url: '/admin/swarm/release-gate' });
+    const res = await app.inject({ method: 'GET', url: '/admin/platform/release-gate' });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.verdict.decision).toBe('ship');
     expect(body.input.green.length).toBeGreaterThan(0);
   });
 
-  it('POST /admin/swarm/release-gate/evaluate blocks when a red finding is opened', async () => {
+  it('POST /admin/platform/release-gate/evaluate blocks when a red finding is opened', async () => {
     const app = await build();
     const res = await app.inject({
-      method: 'POST', url: '/admin/swarm/release-gate/evaluate',
+      method: 'POST', url: '/admin/platform/release-gate/evaluate',
       payload: { red: [{ id: 'red/stale-rule', contained: false }] },
     });
     expect(res.statusCode).toBe(200);

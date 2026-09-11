@@ -481,7 +481,7 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
         </div>
         <div className="heading-actions">
           <Tag tone={runtime?.runtime.status === "active" ? "mint" : runtimeError ? "red" : "violet"}><Sparkles size={11} /> {runtimeBusy ? "Connecting runtime" : runtime?.runtime.status === "active" ? "Persistent runtime active" : runtimeError ? "Reference fallback" : "Synthetic enterprise replay"}</Tag>
-          <button className="button button-secondary" onClick={() => onNavigate("admin")} type="button"><Settings2 size={15} /> Launch & configure</button>
+          <button className="button button-secondary" onClick={() => onNavigate("platform")} type="button"><Settings2 size={15} /> Launch & configure</button>
         </div>
       </header>
 
@@ -588,7 +588,7 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
             <div className="agent-allowlist"><small>Allowed actions only</small><div>{selectedAgent.allowedActions.map((action) => <span key={action}>{action}</span>)}</div></div>
             <div className="agent-gate"><span>Release evaluation</span><strong>{Math.round(selectedAgent.evalGate * 100)}%</strong></div><ProgressBar value={selectedAgent.evalGate * 100} tone="mint" />
           </div>
-          <button className="button button-secondary agent-config-button" onClick={() => onNavigate("configuration")} type="button"><Settings2 size={14} /> Open versioned manifest</button>
+          <button className="button button-secondary agent-config-button" onClick={() => onNavigate("platform")} type="button"><Settings2 size={14} /> Open versioned manifest</button>
         </article>
       </section>
 

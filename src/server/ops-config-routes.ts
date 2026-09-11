@@ -52,6 +52,15 @@ import {
   demoReleaseInput,
   evaluateRelease,
 } from '../swarm/release.js';
+import {
+  agentSpecDrift,
+  agentSpecSummary,
+  importAgentSpecs,
+  materializeAgentSpec,
+  sha256,
+  validateSpecYaml,
+  type ImportReport,
+} from './agent-spec-store.js';
 
 /** The catalog kinds the operator console may read and write. Mirrors the
  *  swarm catalog surface — the exec console imports these same datasets. */
@@ -225,4 +234,123 @@ export async function registerOpsConfigRoutes(app: FastifyInstance): Promise<voi
    * configuration is ABOUT). Editing the graph is the intelligence workspace's
    * job in the exec console. */
   app.get('/admin/platform/topology', async () => ({ ...(await projectTopology(ws())) }));
+
+  /* ---------- agent specs ----------
+   * The 452 `packs/<pack>/agents/*.yaml` files were the only configuration in the
+   * product with no row behind them: authoring read and wrote the filesystem and
+   * "publish" was a file RENAME. These routes make the row the source of truth and
+   * the YAML tree an import source / export target. */
+  let specImportGate: Promise<ImportReport> | null = null;
+
+  /** Seed from the tree once per process, and only when the store is empty — the
+   *  console must not present an empty registry as if there were no agents. */
+  const ensureImported = async (): Promise<ImportReport | undefined> => {
+    const rows = await ws().listAgentSpecs();
+    if (rows.length > 0) return undefined;
+    if (!specImportGate) specImportGate = importAgentSpecs(ws());
+    return specImportGate;
+  };
+
+  app.get('/admin/platform/agent-specs', async () => {
+    const imported = await ensureImported();
+    return { specs: await ws().listAgentSpecs(), summary: await agentSpecSummary(ws()), ...(imported ? { imported } : {}) };
+  });
+
+  /* Kept grouped here, above the `/:packId/:agentId` reads, purely for reading
+   * order; the two-segment and three-segment paths cannot collide. */
+  /** Import (or re-import) the repository tree. Idempotent per content hash. */
+  app.post<{ Body: { dryRun?: boolean } }>('/admin/platform/agent-specs/import', async (req) => {
+    const report = await importAgentSpecs(ws(), { ...(req.body?.dryRun ? { dryRun: true } : {}) });
+    return { report, summary: await agentSpecSummary(ws()) };
+  });
+
+  /** Where the rows and the tree disagree — the panel that makes the migration honest. */
+  app.get('/admin/platform/agent-specs/drift', async () => ({ drift: await agentSpecDrift(ws()) }));
+
+  app.get<{ Params: { packId: string; agentId: string } }>('/admin/platform/agent-specs/:packId/:agentId', async (req, reply) => {
+    const spec = await ws().getAgentSpec(req.params.packId, req.params.agentId);
+    if (!spec) return reply.code(404).send({ error: 'agent-spec-not-found' });
+    return { spec };
+  });
+
+  /** Create or update a DRAFT. The YAML is validated here, so a bad spec is refused
+   *  at author time with the schema issues named — not at runtime. */
+  app.post<{ Body: { packId?: string; agentId?: string; yaml?: string; note?: string } }>(
+    '/admin/platform/agent-specs',
+    async (req, reply) => {
+      const packId = (req.body?.packId ?? '').trim();
+      const agentId = (req.body?.agentId ?? '').trim();
+      const yaml = req.body?.yaml ?? '';
+      if (!packId || !agentId || !yaml) {
+        return reply.code(400).send({ error: 'packId-agentId-and-yaml-required' });
+      }
+      const validation = validateSpecYaml(yaml);
+      if (!validation.ok || !validation.spec) {
+        return reply.code(400).send({ error: 'agent-spec-invalid', issues: validation.errors });
+      }
+      const spec = validation.spec;
+      if (spec.packId !== packId || spec.id !== agentId) {
+        return reply.code(400).send({
+          error: 'agent-spec-identity-mismatch',
+          detail: `the YAML declares packId=${spec.packId} id=${spec.id}; the request says ${packId}/${agentId}`,
+        });
+      }
+      const existing = await ws().getAgentSpec(packId, agentId);
+      const saved = await ws().saveAgentSpec({
+        packId,
+        agentId,
+        yaml,
+        contentSha256: sha256(yaml),
+        authorRef: 'console:operator',
+        status: existing?.status === 'published' ? 'published' : 'draft',
+        version: spec.version,
+        displayName: spec.displayName,
+        ...(req.body?.note ? { note: req.body.note } : {}),
+      });
+      return { spec: saved, ...(existing ? { updated: true } : { created: true }) };
+    },
+  );
+
+  /** PUBLISH IS A STATE TRANSITION. The previous implementation renamed a file,
+   *  which left no record of who published what and made the registry unreconcilable. */
+  app.post<{ Params: { packId: string; agentId: string }; Body: { note?: string; materialize?: boolean } }>(
+    '/admin/platform/agent-specs/:packId/:agentId/publish',
+    async (req, reply) => {
+      const { packId, agentId } = req.params;
+      const existing = await ws().getAgentSpec(packId, agentId);
+      if (!existing) return reply.code(404).send({ error: 'agent-spec-not-found' });
+      // Re-validate at publish: the row is what ships, not the file it came from.
+      const validation = validateSpecYaml(existing.yaml);
+      if (!validation.ok) return reply.code(400).send({ error: 'agent-spec-invalid', issues: validation.errors });
+      // Ids are unique across the whole registry — a duplicate would silently shadow.
+      const clash = (await ws().listAgentSpecs('published')).find((r) => r.agentId === agentId && r.packId !== packId);
+      if (clash) {
+        return reply.code(409).send({ error: 'agent-id-already-published', agentId, inPack: clash.packId });
+      }
+      const published = await ws().publishAgentSpec(packId, agentId, 'console:operator', req.body?.note);
+      const exported = req.body?.materialize
+        ? await materializeAgentSpec(ws(), packId, agentId).catch((err) => ({ error: err instanceof Error ? err.message : String(err) }))
+        : undefined;
+      return { spec: published, ...(exported ? { exported } : {}) };
+    },
+  );
+
+  /** Export a row to the repository tree (git review / the pack loader). */
+  app.post<{ Params: { packId: string; agentId: string } }>(
+    '/admin/platform/agent-specs/:packId/:agentId/materialize',
+    async (req, reply) => {
+      const result = await materializeAgentSpec(ws(), req.params.packId, req.params.agentId);
+      if (!result) return reply.code(404).send({ error: 'agent-spec-not-found' });
+      return { exported: result };
+    },
+  );
+
+  app.delete<{ Params: { packId: string; agentId: string } }>(
+    '/admin/platform/agent-specs/:packId/:agentId',
+    async (req, reply) => {
+      const ok = await ws().deleteAgentSpec(req.params.packId, req.params.agentId);
+      if (!ok) return reply.code(404).send({ error: 'agent-spec-not-found' });
+      return { ok: true };
+    },
+  );
 }

@@ -19,8 +19,7 @@ export type NavigationId =
   | "cms"
   | "executive"
   | "assurance"
-  | "admin"
-  | "configuration";
+  | "platform";
 
 export type OutcomeStatus = "new" | "review" | "ready" | "resolved";
 

@@ -892,7 +892,7 @@ NAV.forEach((g) => g.items.forEach((it) => { VIEW_INDEX[it.view] = it; }));
 // Matches IdentityRole: admin | md | nurse | pharmacist | coder | auditor | facilities-tech | safety.
 const ROLE_NAV = {
   admin: null, // everything
-  auditor: ['Overview', 'Catalog', 'Governance', 'System'],
+  auditor: ['Overview', 'Catalog', 'Governance', 'System', 'Platform'],
   md: ['Overview', 'Agents', 'Catalog', 'World', 'Anant Trajectory', 'Renal Swarm'],
   nurse: ['Overview', 'Agents', 'Catalog', 'World', 'Anant Trajectory'],
   pharmacist: ['Overview', 'Catalog', 'World', 'Anant Trajectory'],
@@ -900,6 +900,49 @@ const ROLE_NAV = {
   'facilities-tech': ['Overview', 'World', 'System'],
   safety: ['Overview', 'World', 'Governance', 'Anant Trajectory'],
 };
+
+/** Roles that may READ the configuration but never write it.
+ *  Mirrors READ_ONLY_ROLES in src/server/api-auth.ts — the server is the
+ *  boundary; this only stops the console from offering buttons that would 403. */
+const READ_ONLY_ROLES = ['auditor'];
+function isReadOnlyRole() {
+  return !!sessionUser && READ_ONLY_ROLES.includes(sessionUser.role);
+}
+
+/** Reading, not writing: a read-only role keeps the page and loses the buttons. */
+function readOnlyBannerHTML() {
+  if (!isReadOnlyRole()) return '';
+  return `<div class="state-card" id="ro-banner" style="border-color:color-mix(in srgb,var(--warn) 40%,transparent);">
+    <div class="state-icon"><i data-lucide="eye"></i></div>
+    <div class="state-title">Read-only role</div>
+    <div class="state-sub">You can inspect this configuration in full; changes are refused by the server for the <code>${esc(sessionUser.role)}</code> role. Ask an administrator to make a change.</div>
+  </div>`;
+}
+
+/**
+ * Disable every writer on a configuration page for a read-only role.
+ *
+ * Deliberately inverted: disable all controls, then re-enable the ones that only
+ * navigate or refresh. If a harmless control ends up disabled that is a small
+ * annoyance; if a "Save" ended up enabled the console would be offering an action
+ * the server refuses, which is the thing being fixed.
+ */
+const READ_ONLY_ALLOWED = /^(refresh|reload|fit|−|\+|100%|open|\u2192|.*\u2192\s*$|filter|search)/i;
+function applyReadOnly() {
+  if (!isReadOnlyRole()) return;
+  if (!/^platform-/.test(currentView)) return;
+  const scope = document.querySelector('main');
+  if (!scope) return;
+  if (!scope.querySelector('#ro-banner')) scope.insertAdjacentHTML('afterbegin', readOnlyBannerHTML());
+  scope.querySelectorAll('button, input, select, textarea').forEach((el) => {
+    if (el.closest('.page-tabs')) return;
+    const label = (el.getAttribute('aria-label') || el.textContent || el.value || '').trim();
+    if (el.tagName === 'BUTTON' && READ_ONLY_ALLOWED.test(label)) return;
+    el.disabled = true;
+    el.setAttribute('title', 'Read-only role — this control is disabled. The server refuses writes for it too.');
+  });
+  hydrateIcons();
+}
 function allowedSections() {
   if (!sessionUser || !ROLE_NAV[sessionUser.role]) return null; // admins (and pre-login) see all
   return ROLE_NAV[sessionUser.role];
@@ -1652,6 +1695,8 @@ async function render() {
   else if (view === 'platform-dlq') await renderPlatformDlq();
   else if (view === 'platform-context') await renderPlatformContext();
   hydrateIcons();
+  // A read-only role keeps the page and loses the writers (server-enforced too).
+  applyReadOnly();
 }
 
 async function renderSummary() {
@@ -4973,7 +5018,7 @@ window.plConfigSavePolicy = async function() {
  * console is actually scoped for, and every read failure is rendered as a
  * failure.
  */
-const CFG_TABS = [['packs', 'Packs & lens'], ['objects', 'Configuration objects'], ['ontology', 'Ontology'], ['policy', 'Action policy']];
+const CFG_TABS = [['packs', 'Packs & lens'], ['objects', 'Configuration objects'], ['specs', 'Agent specs'], ['ontology', 'Ontology'], ['policy', 'Action policy']];
 let cfgTab = 'packs';
 let cfgPacks = [];
 let cfgActivePack = null;
@@ -5019,6 +5064,7 @@ async function cfgBody(ctx) {
   }
 
   if (cfgTab === 'objects') { await cfgObjectsBody(); return; }
+  if (cfgTab === 'specs') { await cfgSpecsBody(); return; }
   if (cfgTab === 'ontology') { await cfgOntologyBody(); return; }
 
   // Action policy — the red-team suite evaluates THIS live, so an unsafe policy
@@ -7298,6 +7344,191 @@ async function wsCatalogSaveEdit(payload) {
   else { const row = wsCatRows[wsCatEditIndex]; id = row && row.r ? row.r.id : null; }
   if (!id) { toast('Cannot save — no id on this row', 'bad'); return; }
   try { await plFetch('PUT', `/admin/platform/config-objects/${wsCatKind}/${encodeURIComponent(id)}`, payload); closeCatalogEdit(); toast('Saved to Postgres', 'good'); cfgObjectsBody(); } catch (e) { toast(e.message, 'bad'); }
+}
+
+// ---------- Agent specs — the last configuration that had no database row ----------
+/**
+ * 452 specs lived only as `packs/<pack>/agents/*.yaml`, read with readFileSync,
+ * with authoring writing the filesystem directly and "publishing" implemented as
+ * a file RENAME — so there was no row, no audit record, and nothing to reconcile
+ * against the registry. The row is now the source of truth; the YAML tree is an
+ * import source and an export target (Import tree / ⤓ Export).
+ *
+ * Publish is a STATE TRANSITION here: the row keeps its identity and gains a
+ * stamp. The store never deletes a row because a file vanished, so the drift
+ * panel is how the two are kept honest.
+ */
+const CFG_SPEC_PILL = { published: 'good', draft: 'brand', 'in-review': 'warn', rejected: 'bad' };
+let cfgSpecs = [];
+let cfgSpecRows = [];
+let cfgSpecSummary = null;
+let cfgSpecStatus = '';
+
+async function cfgSpecsBody() {
+  const body = document.getElementById('cfg-body');
+  if (!body) return;
+  let err = null;
+  try {
+    const j = await plFetch('GET', '/admin/platform/agent-specs');
+    cfgSpecs = j.specs || [];
+    cfgSpecSummary = j.summary || null;
+  } catch (e) { err = e.message; }
+  if (err) { body.innerHTML = loadFailureHTML('the agent-spec registry', err); hydrateIcons(); return; }
+
+  const s = cfgSpecSummary || { total: 0, byStatus: {}, drift: { onlyOnDisk: [], onlyInStore: [], differing: [], inSync: 0 }, imported: false };
+  const d = s.drift || { onlyOnDisk: [], onlyInStore: [], differing: [], inSync: 0 };
+  const statuses = Object.keys(s.byStatus || {}).sort();
+  cfgSpecRows = cfgSpecStatus ? cfgSpecs.filter((r) => r.status === cfgSpecStatus) : cfgSpecs;
+  const CAP = 60;
+  const shown = cfgSpecRows.slice(0, CAP);
+
+  const rowsHTML = shown.map((r, i) => `<tr>
+      <td>${esc(r.agentId)}</td>
+      <td class="muted" style="font-size:11px;">${esc(r.packId)}</td>
+      <td><span class="pill ${CFG_SPEC_PILL[r.status] || ''}">${esc(r.status)}</span></td>
+      <td class="muted" style="font-size:11px;">v${esc(r.version || '—')}</td>
+      <td class="muted" style="font-size:11px;font-family:var(--mono,monospace);" title="${esc(r.contentSha256)}">${esc(String(r.contentSha256 || '').slice(0, 8))}</td>
+      <td class="muted" style="font-size:11px;">${r.importedFrom ? `imported · ${esc(String(r.importedFrom).split('/').slice(-2).join('/'))}` : 'authored here'}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-sm" title="Edit the stored YAML" onclick="cfgSpecOpen(${i})"><i data-lucide="pencil" style="width:13px;height:13px"></i></button>
+        ${r.status === 'published' ? '' : `<button class="btn btn-sm" title="Publish — the row is what ships" onclick="cfgSpecPublish(${i})"><i data-lucide="check" style="width:13px;height:13px"></i></button>`}
+        <button class="btn btn-sm" title="Export this row to the repository tree" onclick="cfgSpecExport(${i})"><i data-lucide="download" style="width:13px;height:13px"></i></button>
+        <button class="btn btn-sm" title="Delete the row" onclick="cfgSpecDelete(${i})"><i data-lucide="trash-2" style="width:13px;height:13px"></i></button>
+      </td></tr>`).join('') || `<tr><td colspan="7" class="muted">${cfgSpecStatus ? `No ${esc(cfgSpecStatus)} specs.` : 'Registry empty — use <b>Import tree</b> to seed it from packs/*/agents and packs/*/drafts.'}</td></tr>`;
+
+  const driftList = (label, ids, colour) => ids.length ? `<div style="margin-top:4px;"><span style="color:var(${colour});font-weight:600;">${label} (${ids.length})</span> <span class="muted" style="font-family:var(--mono,monospace);">${esc(ids.slice(0, 8).join(', '))}${ids.length > 8 ? ` … +${ids.length - 8}` : ''}</span></div>` : '';
+  const driftTotal = d.onlyOnDisk.length + d.onlyInStore.length + d.differing.length;
+
+  body.innerHTML = `
+    <div class="field-row" style="margin-bottom:10px;align-items:flex-end;">
+      <div class="field"><label>Status</label><select id="cfg-spec-status" onchange="cfgSpecStatus=this.value;cfgSpecsBody()"><option value="">all (${s.total})</option>${statuses.map((st) => `<option value="${esc(st)}" ${cfgSpecStatus === st ? 'selected' : ''}>${esc(st)} (${s.byStatus[st]})</option>`).join('')}</select></div>
+      <button class="btn btn-primary" onclick="cfgSpecOpen(null)"><i data-lucide="plus"></i> New spec</button>
+      <button class="btn" onclick="cfgSpecImport(true)"><i data-lucide="search" style="width:13px;height:13px"></i> Preview import</button>
+      <button class="btn" onclick="cfgSpecImport(false)"><i data-lucide="upload" style="width:13px;height:13px"></i> Import tree</button>
+      <button class="btn" onclick="cfgSpecsBody()"><i data-lucide="refresh-cw" style="width:13px;height:13px"></i> Refresh</button>
+    </div>
+    <div class="detail muted" style="font-size:11px;margin-bottom:8px;">
+      Durable rows in Postgres (<code>swarm_workspace</code>, kind <code>agent-spec</code>). Import is idempotent per content hash, so it is safe to run repeatedly: a matching file is skipped, a changed file updates its row, and a row whose file disappeared is <b>kept</b> and reported as drift rather than deleted.
+      ${s.imported ? '' : ' <span style="color:var(--warn);">The tree has not been imported yet — this list is not the whole registry.</span>'}
+    </div>
+    <div class="field-row" style="gap:14px;flex-wrap:wrap;margin-bottom:10px;">
+      ${statuses.map((st) => `<span class="muted" style="font-size:11px;"><span class="pill ${CFG_SPEC_PILL[st] || ''}">${esc(st)}</span> ${s.byStatus[st]}</span>`).join('')}
+      <span class="muted" style="font-size:11px;">in sync with the tree: <b>${d.inSync}</b></span>
+      <span class="muted" style="font-size:11px;">drift: <b style="color:var(${driftTotal ? '--warn' : '--good'});">${driftTotal}</b></span>
+    </div>
+    <div style="overflow-x:auto;"><table class="panel"><thead><tr><th>agent</th><th>pack</th><th>status</th><th>version</th><th>content</th><th>origin</th><th>actions</th></tr></thead><tbody>${rowsHTML}</tbody></table></div>
+    ${cfgSpecRows.length > CAP ? `<div class="muted" style="font-size:11px;margin-top:6px;">Showing ${CAP} of ${cfgSpecRows.length}. Filter by status to narrow.</div>` : ''}
+    ${driftTotal ? `<div class="section-card" style="margin-top:12px;"><div class="detail" style="font-size:11px;"><b>Drift</b> — the rows and the YAML tree disagree here. Rows are the source of truth; export to reconcile a row outward, or run <b>Import tree</b> to pull a disk change in.
+      ${driftList('in the store, not on disk', d.onlyInStore, '--good')}
+      ${driftList('on disk, never imported', d.onlyOnDisk, '--warn')}
+      ${driftList('both exist, content differs', d.differing, '--bad')}
+    </div></div>` : ''}`;
+  hydrateIcons();
+}
+
+function closeCfgSpec() { const m = document.getElementById('cfg-spec-modal'); if (m) m.remove(); }
+
+async function cfgSpecOpen(i) {
+  let packId = ''; let agentId = ''; let yaml = ''; let status = 'draft';
+  if (i !== null && i !== undefined) {
+    const row = cfgSpecRows[i];
+    if (!row) return;
+    packId = row.packId; agentId = row.agentId;
+    try {
+      const j = await plFetch('GET', `/admin/platform/agent-specs/${encodeURIComponent(packId)}/${encodeURIComponent(agentId)}`);
+      yaml = j.spec.yaml; status = j.spec.status;
+    } catch (e) { toast(e.message, 'bad'); return; }
+  } else {
+    yaml = ['id: my-agent', 'version: 1.0.0', 'packId: my-pack', 'displayName: My agent', 'description: ""', 'scope: patient', 'trigger:', '  kind: manual', 'plan:', '  type: step', '  step:', '    id: s1', '    skill: llm.call', 'governance:', '  phiHandling: none', '  purposeOfUse: [treatment]', '  clearanceRequired: internal', 'billing: {}', ''].join('\n');
+  }
+  const existing = document.getElementById('cfg-spec-modal');
+  if (existing) existing.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-overlay open" id="cfg-spec-modal" style="z-index:90;"><div class="modal" style="max-width:900px;">
+    <div class="modal-header"><h3>${agentId ? `Edit ${esc(packId)} / ${esc(agentId)}` : 'New agent spec'} <span class="muted" style="font-weight:400;font-size:11px;">· ${esc(status)} · stored in Postgres</span></h3><button class="modal-close" id="cfg-spec-close" aria-label="Close">×</button></div>
+    <div class="modal-body">
+      <div class="field-row">
+        <div class="field"><label>Pack id</label><input id="cfg-spec-pack" value="${esc(packId)}" placeholder="renal-swarm" ${agentId ? 'disabled' : ''} /></div>
+        <div class="field"><label>Agent id</label><input id="cfg-spec-agent" value="${esc(agentId)}" placeholder="triage-agent" ${agentId ? 'disabled' : ''} /></div>
+      </div>
+      <div class="field"><label>Spec YAML <span class="muted" style="font-weight:400;">· validated against AgentSpecSchema before it is stored, so a bad spec is refused here rather than at runtime</span></label>
+        <textarea id="cfg-spec-yaml" spellcheck="false" style="width:100%;min-height:360px;font-family:var(--mono,monospace);font-size:12px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:10px;resize:vertical;">${esc(yaml)}</textarea></div>
+      <div id="cfg-spec-issues" class="muted" style="font-size:12px;"></div>
+    </div>
+    <div class="modal-footer"><button class="btn" id="cfg-spec-cancel">Cancel</button><button class="btn btn-primary" id="cfg-spec-save"><i data-lucide="save"></i> ${agentId ? 'Save' : 'Create draft'}</button></div>
+  </div></div>`);
+  hydrateIcons();
+  document.getElementById('cfg-spec-close').addEventListener('click', closeCfgSpec);
+  document.getElementById('cfg-spec-cancel').addEventListener('click', closeCfgSpec);
+  document.getElementById('cfg-spec-save').addEventListener('click', () => cfgSpecSave(!!agentId));
+  document.getElementById('cfg-spec-modal').addEventListener('click', (e) => { if (e.target && e.target.id === 'cfg-spec-modal') closeCfgSpec(); });
+}
+
+/**
+ * Save through raw fetch rather than plFetch: the 400 carries a list of schema
+ * issues, and plFetch collapses a failure to its `error` code alone. An author
+ * who cannot see WHICH field is wrong has to guess.
+ */
+async function cfgSpecSave(isEdit) {
+  const packId = (document.getElementById('cfg-spec-pack').value || '').trim();
+  const agentId = (document.getElementById('cfg-spec-agent').value || '').trim();
+  const yaml = document.getElementById('cfg-spec-yaml').value || '';
+  const out = document.getElementById('cfg-spec-issues');
+  if (!packId || !agentId || !yaml.trim()) {
+    out.innerHTML = '<span style="color:var(--bad);">pack id, agent id and YAML are all required.</span>';
+    return;
+  }
+  let res; let j = {};
+  try {
+    res = await fetch('/admin/platform/agent-specs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ packId, agentId, yaml }) });
+    j = await res.json().catch(() => ({}));
+  } catch (e) { out.innerHTML = `<span style="color:var(--bad);">${esc(e.message)}</span>`; return; }
+  if (!res.ok) {
+    const detail = Array.isArray(j.issues) && j.issues.length ? `<ul style="margin:6px 0 0 16px;">${j.issues.map((x) => `<li>${esc(String(x))}</li>`).join('')}</ul>` : '';
+    out.innerHTML = `<span style="color:var(--bad);">${esc(j.detail || j.error || String(res.status))}</span>${detail}`;
+    return;
+  }
+  closeCfgSpec();
+  toast(isEdit ? 'Draft saved' : 'Draft created', 'good');
+  cfgSpecsBody();
+}
+
+async function cfgSpecPublish(i) {
+  const row = cfgSpecRows[i]; if (!row) return;
+  if (!confirm(`Publish ${row.packId}/${row.agentId}? The stored row is what ships — the release gate scores this content, not the file it was imported from.`)) return;
+  try {
+    await plFetch('POST', `/admin/platform/agent-specs/${encodeURIComponent(row.packId)}/${encodeURIComponent(row.agentId)}/publish`, { note: 'published from the operator console' });
+    toast('Published', 'good');
+    cfgSpecsBody();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+async function cfgSpecExport(i) {
+  const row = cfgSpecRows[i]; if (!row) return;
+  try {
+    const j = await plFetch('POST', `/admin/platform/agent-specs/${encodeURIComponent(row.packId)}/${encodeURIComponent(row.agentId)}/materialize`, {});
+    toast(`Exported to ${j.exported ? j.exported.path : 'the tree'}`, 'good');
+    cfgSpecsBody();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+async function cfgSpecDelete(i) {
+  const row = cfgSpecRows[i]; if (!row) return;
+  if (!confirm(`Delete the stored spec for ${row.packId}/${row.agentId}? The YAML tree is the source it was imported from, so re-importing will bring it back.`)) return;
+  try {
+    await plFetch('DELETE', `/admin/platform/agent-specs/${encodeURIComponent(row.packId)}/${encodeURIComponent(row.agentId)}`);
+    toast('Deleted', 'good');
+    cfgSpecsBody();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+async function cfgSpecImport(dryRun) {
+  try {
+    const j = await plFetch('POST', '/admin/platform/agent-specs/import', dryRun ? { dryRun: true } : {});
+    const r = j.report || {};
+    const skipped = r.skipped ? `, ${r.skipped} skipped as invalid` : '';
+    toast(`${dryRun ? 'Would import' : 'Imported'}: ${r.created} created, ${r.updated} updated, ${r.unchanged} unchanged${skipped}`, r.skipped ? 'err' : 'good');
+    cfgSpecsBody();
+  } catch (e) { toast(e.message, 'bad'); }
 }
 
 // ---------- Ontology editor — the org hierarchy operating model, stored in Postgres ----------

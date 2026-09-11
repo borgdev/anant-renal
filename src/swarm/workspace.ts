@@ -78,6 +78,13 @@ export type WorkspaceKind =
   | 'assurance-finding'
   | 'green-team-run'
   | 'delegated-work'
+  /* Agent specs — the 452 `packs/<pack>/agents/*.yaml` files were the only
+     configuration in the product with no database row: authoring read and wrote
+     the filesystem directly, and "publish" was a file RENAME, so there was no
+     audit row, no content hash the API could serve, and no way to author an agent
+     from a console. This kind makes the row the source of truth and the YAML tree
+     an import/export artifact. */
+  | 'agent-spec'
   | 'pack-activation'
   | 'esa-validation-report'
   | 'esa-study-record'
@@ -369,6 +376,43 @@ export interface OrgLevel {
   label: string;
   facilities?: number;
   patients?: number;
+}
+
+export type AgentSpecStatus = 'draft' | 'in-review' | 'published' | 'rejected';
+
+/** An agent specification, durable. `id` is `${packId}:${agentId}` so a spec is
+ *  addressable without a second key, and the same id the Agent Studio already
+ *  uses for a draft. */
+export interface AgentSpecRecord extends WorkspaceDoc {
+  packId: string;
+  agentId: string;
+  status: AgentSpecStatus;
+  yaml: string;
+  contentSha256: string;
+  version?: string;
+  displayName?: string;
+  authorRef: string;
+  updatedBy: string;
+  note?: string;
+  /** Publishing is a STATE TRANSITION on this row, not a file rename. */
+  publishedAt?: string;
+  publishedBy?: string;
+  /** Set when the row was seeded from the repository tree, with that file's path. */
+  importedFrom?: string;
+  /** SHA of the file currently on disk, when the row has been materialized. Equal
+   *  to `contentSha256` means the export matches the row; different means someone
+   *  hand-edited the file and the row is ahead. */
+  materializedSha256?: string;
+  materializedAt?: string;
+}
+
+/** Stable list order for the authoring surface: published first, then pack+id. */
+function AgentSpecRecord$cmp(a: AgentSpecRecord, b: AgentSpecRecord): number {
+  const rank = (r: AgentSpecRecord) => (r.status === 'published' ? 0 : r.status === 'in-review' ? 1 : 2);
+  const byRank = rank(a) - rank(b);
+  if (byRank !== 0) return byRank;
+  const byPack = a.packId.localeCompare(b.packId);
+  return byPack !== 0 ? byPack : a.agentId.localeCompare(b.agentId);
 }
 
 export interface PlatformOrganization extends WorkspaceDoc {
@@ -2110,6 +2154,95 @@ export class SwarmWorkspaceStore {
     }
   }
 
+  /* ---------- agent specs (durable authoring) ---------- */
+
+  static agentSpecId(packId: string, agentId: string): string { return `${packId}:${agentId}`; }
+
+  async listAgentSpecs(status?: AgentSpecStatus): Promise<AgentSpecRecord[]> {
+    const rows = await this.list<AgentSpecRecord>('agent-spec');
+    const filtered = status ? rows.filter((r) => r.status === status) : rows;
+    return filtered.sort((a, b) => AgentSpecRecord$cmp(a, b));
+  }
+
+  async getAgentSpec(packId: string, agentId: string): Promise<AgentSpecRecord | undefined> {
+    return this.get<AgentSpecRecord>('agent-spec', SwarmWorkspaceStore.agentSpecId(packId, agentId));
+  }
+
+  /** Create or update a draft. Validates nothing — the caller validates the YAML
+   *  and passes the parsed identity, so the store stays a store. */
+  async saveAgentSpec(input: {
+    packId: string;
+    agentId: string;
+    yaml: string;
+    contentSha256: string;
+    authorRef: string;
+    status?: AgentSpecStatus;
+    version?: string;
+    displayName?: string;
+    note?: string;
+    importedFrom?: string;
+  }): Promise<AgentSpecRecord> {
+    const id = SwarmWorkspaceStore.agentSpecId(input.packId, input.agentId);
+    const existing = await this.get<AgentSpecRecord>('agent-spec', id);
+    // exactOptionalPropertyTypes: narrow each optional to a string FIRST, then
+    // spread conditionally — `...(a ?? b ? { k: a ?? b } : {})` keeps `undefined`
+    // in the value type and fails the assignment.
+    const version = input.version ?? existing?.version;
+    const displayName = input.displayName ?? existing?.displayName;
+    const importedFrom = input.importedFrom ?? existing?.importedFrom;
+    const body = {
+      packId: input.packId,
+      agentId: input.agentId,
+      status: input.status ?? existing?.status ?? 'draft',
+      yaml: input.yaml,
+      contentSha256: input.contentSha256,
+      authorRef: existing?.authorRef ?? input.authorRef,
+      updatedBy: input.authorRef,
+      ...(version ? { version } : {}),
+      ...(displayName ? { displayName } : {}),
+      ...(input.note ? { note: input.note } : {}),
+      ...(importedFrom ? { importedFrom } : {}),
+      // A published row keeps its publication stamp; editing it does not unpublish.
+      ...(existing?.publishedAt ? { publishedAt: existing.publishedAt } : {}),
+      ...(existing?.publishedBy ? { publishedBy: existing.publishedBy } : {}),
+      ...(existing?.materializedSha256 ? { materializedSha256: existing.materializedSha256 } : {}),
+      ...(existing?.materializedAt ? { materializedAt: existing.materializedAt } : {}),
+    } satisfies Partial<AgentSpecRecord>;
+    if (existing) return (await this.update<AgentSpecRecord>('agent-spec', id, body)) as AgentSpecRecord;
+    return this.create<AgentSpecRecord>('agent-spec', id, body);
+  }
+
+  /** Publish = set the status and stamp who/when. The YAML tree is an export. */
+  async publishAgentSpec(packId: string, agentId: string, actorRef: string, note?: string): Promise<AgentSpecRecord | undefined> {
+    const id = SwarmWorkspaceStore.agentSpecId(packId, agentId);
+    const existing = await this.get<AgentSpecRecord>('agent-spec', id);
+    if (!existing) return undefined;
+    return (await this.update<AgentSpecRecord>('agent-spec', id, {
+      status: 'published',
+      publishedAt: this.now(),
+      publishedBy: actorRef,
+      updatedBy: actorRef,
+      ...(note ? { note } : {}),
+    })) as AgentSpecRecord;
+  }
+
+  /** Record that the row was written out to the repository tree. */
+  async markAgentSpecMaterialized(packId: string, agentId: string, sha256: string): Promise<AgentSpecRecord | undefined> {
+    const id = SwarmWorkspaceStore.agentSpecId(packId, agentId);
+    const existing = await this.get<AgentSpecRecord>('agent-spec', id);
+    if (!existing) return undefined;
+    return (await this.update<AgentSpecRecord>('agent-spec', id, {
+      materializedSha256: sha256,
+      materializedAt: this.now(),
+    })) as AgentSpecRecord;
+  }
+
+  async deleteAgentSpec(packId: string, agentId: string): Promise<boolean> {
+    return this.remove('agent-spec', SwarmWorkspaceStore.agentSpecId(packId, agentId));
+  }
+
+  /* ---------- platform admin profile (deprecated tenant/kafka/policy) ---------- */
+
   async getAdminTenant(): Promise<AdminTenant> {
     await this.seedAdmin();
     return (await this.get<AdminTenant>('admin-tenant', 'default')) as AdminTenant;
@@ -2621,6 +2754,7 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'assurance-finding',
   'green-team-run',
   'delegated-work',
+  'agent-spec',
   'esa-validation-report',
   'esa-study-record',
   'esa-mdr-file',
