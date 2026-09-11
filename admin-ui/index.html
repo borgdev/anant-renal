@@ -867,35 +867,22 @@ const NAV = [
   // Generic platform (port plan Phase A/B) — organization, topics, releases, DLQ
   // and the public context/work APIs. Admin-only surface for now.
   { section: 'Platform', icon: 'server', tabbed: true, items: [
-    { view: 'platform-onboarding', icon: 'compass', label: 'Onboarding' },
-    { view: 'platform-org', icon: 'network', label: 'Organization' },
-    { view: 'platform-topics', icon: 'radio', label: 'Topic plan' },
-    { view: 'platform-config', icon: 'sliders-horizontal', label: 'Configuration Studio' },
+    { view: 'platform-admin', icon: 'compass', label: 'Platform admin' },
+    { view: 'platform-config', icon: 'sliders-horizontal', label: 'Configuration studio' },
     { view: 'platform-cohorts', icon: 'layers', label: 'Living cohorts', count: 'c-cohorts' },
     { view: 'platform-agents', icon: 'eye', label: 'Observer studio' },
     { view: 'platform-assurance', icon: 'shield-check', label: 'AI Assurance' },
-    { view: 'rsi-intelligence', icon: 'network', label: 'Shared Intelligence ↗' },
-    { view: 'rsi-executive', icon: 'trending-up', label: 'Executive Outcomes ↗' },
+    { view: 'platform-submissions', icon: 'send', label: 'CMS submissions' },
     { view: 'platform-releases', icon: 'git-branch', label: 'Release center' },
     { view: 'platform-dlq', icon: 'archive', label: 'Dead-letter queue' },
     { view: 'platform-context', icon: 'eye', label: 'Context API' },
+    { view: 'rsi-intelligence', icon: 'network', label: 'Shared Intelligence ↗' },
+    { view: 'rsi-executive', icon: 'trending-up', label: 'Executive Outcomes ↗' },
   ] },
   // Renal Swarm Intelligence — linked domain application (operational product).
   // Clinical / operational screens live in RSI; this section links through to it.
   { section: 'Renal Swarm', icon: 'network', items: [
     { view: 'rsi-app', icon: 'external-link', label: 'Open RSI app' },
-  ] },
-  // Exec workspace — durable executive assets (config releases, red-team, CMS
-  // submissions, platform admin, evidence reviews, facility sims, knowledge notes).
-  { section: 'Exec assets', icon: 'briefcase', tabbed: true, items: [
-    { view: 'ws-releases', icon: 'git-branch', label: 'Config releases' },
-    { view: 'ws-redteam', icon: 'shield-alert', label: 'Red team' },
-    { view: 'ws-submissions', icon: 'send', label: 'CMS submissions' },
-    { view: 'ws-admin', icon: 'settings', label: 'Platform admin' },
-    { view: 'ws-reviews', icon: 'clipboard-check', label: 'Evidence reviews' },
-    { view: 'ws-sim', icon: 'stethoscope', label: 'Facility simulations' },
-    { view: 'ws-notes', icon: 'sticky-note', label: 'Knowledge notes' },
-    { view: 'ws-substrate', icon: 'database', label: 'Substrate' },
   ] },
 ];
 const VIEW_INDEX = {};
@@ -1269,6 +1256,46 @@ function emptyStateHTML(title, sub, actionHTML = '') {
 function errorStateHTML(err) {
   return `<div class="state-card error"><div class="state-icon"><i data-lucide="triangle-alert"></i></div><div class="state-title">Couldn't load this realm</div><div class="state-sub">${esc(String(err || 'unknown error'))}</div></div>`;
 }
+/**
+ * A load failure that NAMES the failure. A denied read is not an empty state and
+ * must never be rendered as one: the platform pages used to swallow the 403 and
+ * fall back to hardcoded defaults, so a governance screen showed an escalation
+ * threshold of 5000bp while the stored policy was 8200bp.
+ */
+function loadFailureHTML(subject, err) {
+  const msg = String(err || 'unknown error');
+  const denied = /role-not-permitted-for-console|^403$|not-authenticated/.test(msg);
+  const unauth = /not-authenticated/.test(msg);
+  const title = unauth ? 'Sign in to continue' : denied ? 'Not permitted for your role' : `Couldn't load ${subject}`;
+  const sub = unauth
+    ? 'Your session has ended. Sign in again to load this page.'
+    : denied
+      ? 'This surface belongs to the other console. The fields below were NOT loaded with defaults.'
+      : msg;
+  return `<div class="state-card error"><div class="state-icon"><i data-lucide="shield-alert"></i></div><div class="state-title">${esc(title)}</div><div class="state-sub">${esc(sub)}</div></div>`;
+}
+/** The REAL release gate — green/red/sources/approvals with per-check evidence.
+ *  Replaces the invented five-gate strip the exec studio used to draw. */
+function releaseGateHTML(gate) {
+  if (!gate || !gate.verdict) return '<div class="muted" style="font-size:12px;">Gate evidence unavailable.</div>';
+  const { input, verdict } = gate;
+  const tone = verdict.decision === 'ship' ? 'good' : verdict.decision === 'hold' ? 'warn' : 'bad';
+  const chip = (ok, label) => `<span class="pill ${ok ? 'good' : 'warn'}">${esc(label)} ${ok ? '✓' : '…'}</span>`;
+  const green = (input.green || []).map((c) => `<tr><td><code>${esc(c.id)}</code></td><td>${esc(c.plane)}</td><td><span class="pill ${c.status === 'pass' ? 'good' : c.status === 'fail' ? 'bad' : 'warn'}">${esc(c.status)}</span></td><td>${esc(c.check)}</td><td class="muted" style="font-size:11px;">${esc(c.evidence || '')}</td></tr>`).join('');
+  const red = (input.red || []).map((r) => `<span class="pill ${r.contained ? 'good' : 'bad'}">${esc(r.id)} ${r.contained ? 'contained' : 'OPEN'}</span>`).join('');
+  return `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span class="pill ${tone}" style="font-size:12px;">${esc(verdict.decision.toUpperCase())}</span>
+      <span class="muted" style="font-size:12px;">score ${verdict.score} · green ${Math.round((verdict.greenScore || 0) * 100)}%</span>
+      ${chip(verdict.redOpen === 0, `${verdict.redOpen} red open`)}
+      ${chip(verdict.sourcesCurrent, 'sources current')}
+      ${chip(verdict.approvalsMet, 'approvals met')}
+    </div>
+    ${(verdict.blocks || []).length ? `<div class="muted" style="font-size:12px;margin-top:6px;">Blocks: <b>${(verdict.blocks || []).map((b) => esc(b)).join(', ')}</b></div>` : ''}
+    ${(verdict.reasons || []).length ? `<div class="muted" style="font-size:12px;margin-top:2px;">Holds: ${(verdict.reasons || []).map((b) => esc(b)).join('; ')}</div>` : ''}
+    <div class="muted" style="font-size:11px;margin-top:8px;">Red findings: ${red || '<span class="muted">none</span>'}</div>
+    <div style="overflow-x:auto;margin-top:8px;"><table style="width:100%;"><thead><tr><th>Check</th><th>Plane</th><th>Status</th><th>Assertion</th><th>Evidence</th></tr></thead><tbody>${green || '<tr><td colspan="5" class="muted">No green checks.</td></tr>'}</tbody></table></div>`;
+}
 /** Render a page shell with a realm scope bar, then load the body for the current realm. */
 async function mountScope(loadBody) {
   const select = document.getElementById('scope-realm');
@@ -1613,9 +1640,7 @@ async function render() {
   else if (view === 'users') await renderUsers();
   else if (view === 'settings') await renderSettings();
   else if (view === 'rsi-app') renderRsiApp();
-  else if (view === 'platform-onboarding') await renderPlatformOnboarding();
-  else if (view === 'platform-org') await renderPlatformOrg();
-  else if (view === 'platform-topics') await renderPlatformTopics();
+  else if (view === 'platform-admin') await renderPlatformAdmin();
   else if (view === 'platform-config') await renderPlatformConfig();
   else if (view === 'platform-cohorts') await renderPlatformCohorts();
   else if (view === 'platform-agents') await renderPlatformAgents();
@@ -1623,16 +1648,9 @@ async function render() {
   else if (view === 'rsi-intelligence') renderRsiDeepLink('intelligence', 'Shared Intelligence');
   else if (view === 'rsi-executive') renderRsiDeepLink('executive', 'Executive Outcomes');
   else if (view === 'platform-releases') await renderPlatformReleases();
+  else if (view === 'platform-submissions') await renderWsSubmissions();
   else if (view === 'platform-dlq') await renderPlatformDlq();
   else if (view === 'platform-context') await renderPlatformContext();
-  else if (view === 'ws-releases') await renderWsReleases();
-  else if (view === 'ws-redteam') await renderWsRedteam();
-  else if (view === 'ws-submissions') await renderWsSubmissions();
-  else if (view === 'ws-admin') await renderWsAdmin();
-  else if (view === 'ws-reviews') await renderWsReviews();
-  else if (view === 'ws-sim') await renderWsSim();
-  else if (view === 'ws-notes') await renderWsNotes();
-  else if (view === 'ws-substrate') await renderWsSubstrate();
   hydrateIcons();
 }
 
@@ -4385,161 +4403,226 @@ async function plFetch(method, path, body) {
   return j;
 }
 
-async function renderPlatformOnboarding() {
-  const boot = await plFetch('GET', '/admin/platform/bootstrap');
-  const o = boot.onboarding || { steps: [], gates: {}, currentStep: 'organization', readyForRehearsal: false, operatingModel: null };
-  const done = (o.steps || []).filter((s) => s.status === 'complete').length;
+/**
+ * Platform admin — ONE page for the customer-launch journey: the gated steps,
+ * the organization profile (identity + deployment posture), the integration
+ * contract and the Kafka topic plan.
+ *
+ * Why one page: these were four tabs, and one of them (`ws-admin`) called
+ * exec-scoped endpoints that an ops role could not read, while `platform-org`
+ * and `platform-topics` read a DIFFERENT organization document. Merging them
+ * also means one organization record instead of two.
+ *
+ * Every section loads INDEPENDENTLY and renders its own failure. A denied or
+ * broken read can no longer blank the page or be papered over with defaults —
+ * that was the defect this whole pass exists to remove.
+ */
+async function renderPlatformAdmin() {
   main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Platform onboarding</h2>
-      <p class="page-sub">Generic platform setup — organization, identity, data plane, topic plan, packs, agents, release gates and activation. Resumable and gated; every gate is derived from real backend state.</p></div></div>
-    <div class="cards" style="grid-template-columns: repeat(4,1fr);">
-      <div class="stat-card"><div class="num">${esc(boot.status || 'onboarding')}</div><div class="lbl">Environment status</div></div>
-      <div class="stat-card"><div class="num">${done}/${o.steps.length}</div><div class="lbl">Steps complete</div></div>
+    <div class="page-header"><div><h2 class="page-title">Platform admin</h2>
+      <p class="page-sub">Customer launch: the gated journey, the organization profile (identity + deployment posture), the integration contract and the topic plan. Configuration objects, packs and the action policy live in <b>Configuration studio</b>.</p></div>
+      <button class="btn" onclick="goTo('platform-config')">Configuration studio →</button></div>
+    <div id="pa-steps" class="section-card">Loading journey…</div>
+    <div id="pa-org" class="section-card">Loading organization…</div>
+    <div id="pa-int" class="section-card">Loading integration contract…</div>
+    <div id="pa-topics" class="section-card">Loading topic plan…</div>`;
+  await Promise.all([paSteps(), paOrgSection(), paIntegrationsSection(), paTopicsSection()]);
+  hydrateIcons();
+}
+
+/** Journey: steps + the gates DERIVED from real backend state. */
+async function paSteps() {
+  const el = document.getElementById('pa-steps');
+  if (!el) return;
+  let boot = null; let err = null;
+  try { boot = await plFetch('GET', '/admin/platform/bootstrap'); } catch (e) { err = e.message; }
+  if (!boot) { el.innerHTML = `<h3 style="margin-top:0;">Customer launch readiness</h3>${loadFailureHTML('the launch journey', err)}`; return; }
+  const o = boot.onboarding || { steps: [], gates: {}, currentStep: 'organization', readyForRehearsal: false };
+  const done = (o.steps || []).filter((s) => s.status === 'complete').length;
+  el.innerHTML = `
+    <h3 style="margin-top:0;">Customer launch readiness
+      <span class="muted" style="font-weight:400;font-size:11px;">· ${done}/${(o.steps || []).length} steps complete · environment ${esc(boot.status || 'onboarding')}</span></h3>
+    <div class="cards" style="grid-template-columns:repeat(3,1fr);">
+      <div class="stat-card"><div class="num">${done}/${(o.steps || []).length}</div><div class="lbl">Steps complete</div></div>
       <div class="stat-card"><div class="num">${esc(o.currentStep)}</div><div class="lbl">Current step</div></div>
       <div class="stat-card"><div class="num">${o.readyForRehearsal ? 'YES' : '—'}</div><div class="lbl">Ready for rehearsal</div></div>
     </div>
-    <div class="detail">
-      <h3 style="margin-top:0;">Step rail</h3>
-      ${(o.steps || []).map((s) => `
-        <div style="display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">
-          <span style="font-weight:700;color:${s.status === 'complete' ? 'var(--good)' : s.status === 'active' ? 'var(--brand)' : 'var(--muted)'};">${s.status === 'complete' ? '✓' : s.status === 'active' ? '▸' : '·'}</span>
-          <div style="flex:1;">
-            <div style="font-weight:600;">${esc(s.label)} <span class="pill ${s.status === 'complete' ? 'good' : s.status === 'active' ? 'brand' : 'muted'}">${esc(s.status)}</span></div>
-            <div style="font-size:12px;color:var(--muted);">${esc(s.gate)}</div>
-          </div>
-        </div>`).join('')}
+    <div style="margin-top:10px;">${(o.steps || []).map((s) => `
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:5px 0;border-bottom:1px solid var(--border);">
+        <span style="font-weight:700;color:${s.status === 'complete' ? 'var(--good)' : s.status === 'active' ? 'var(--brand)' : 'var(--muted)'};">${s.status === 'complete' ? '✓' : s.status === 'active' ? '▸' : '·'}</span>
+        <div style="flex:1;"><div style="font-weight:600;">${esc(s.label)} <span class="pill ${s.status === 'complete' ? 'good' : s.status === 'active' ? 'brand' : 'muted'}">${esc(s.status)}</span></div>
+        <div class="muted" style="font-size:12px;">${esc(s.gate)}</div></div>
+      </div>`).join('')}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">${Object.entries(o.gates || {}).map(([k, v]) => `<span class="pill ${v ? 'good' : 'warn'}">${esc(k)} ${v ? '✓' : '…'}</span>`).join('')}</div>
+    <div class="field-row" style="margin-top:12px;">
+      <div class="field"><label>Resume at step</label><select id="pa-step">${(o.steps || []).map((s) => `<option value="${esc(s.id)}" ${s.id === o.currentStep ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}</select></div>
+      <div class="field"><label>Operating model</label><select id="pa-model">
+        <option value="provider" ${o.operatingModel === 'provider' ? 'selected' : ''}>Provider</option>
+        <option value="payer" ${o.operatingModel === 'payer' ? 'selected' : ''}>Payer</option>
+        <option value="hybrid" ${o.operatingModel === 'hybrid' ? 'selected' : ''}>Hybrid</option>
+      </select></div>
+      <div class="field" style="align-self:flex-end;"><button class="btn btn-primary" onclick="paSaveOnboarding()">Save onboarding</button></div>
     </div>
-    <div class="detail" style="margin-top:12px;">
-      <h3 style="margin-top:0;">Gates (derived)</h3>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;">
-        ${Object.entries(o.gates || {}).map(([k, v]) => `<span class="pill ${v ? 'good' : 'warn'}">${esc(k)} ${v ? '✓' : '…'}</span>`).join('')}
-      </div>
-      <div class="field-row" style="margin-top:12px;">
-        <div class="field"><label>Resume at step</label>
-          <select id="pl-step-sel">${(o.steps || []).map((s) => `<option value="${esc(s.id)}" ${s.id === o.currentStep ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}</select></div>
-        <div class="field"><label>Operating model</label>
-          <select id="pl-model-sel">
-            <option value="provider" ${o.operatingModel === 'provider' ? 'selected' : ''}>Provider</option>
-            <option value="payer" ${o.operatingModel === 'payer' ? 'selected' : ''}>Payer</option>
-            <option value="hybrid" ${o.operatingModel === 'hybrid' ? 'selected' : ''}>Hybrid</option>
-          </select></div>
-        <div class="field" style="align-self:flex-end;"><button class="btn btn-primary" id="pl-save">Save onboarding</button></div>
-        <div class="field" style="align-self:flex-end;"><button class="btn" id="pl-kafka-test">Test Kafka (contract)</button></div>
-      </div>
-      <div id="pl-out" style="margin-top:8px;font-size:12px;"></div>
-    </div>
-  `;
-  document.getElementById('pl-save')?.addEventListener('click', async () => {
-    const out = document.getElementById('pl-out');
-    try {
-      const j = await plFetch('PUT', '/admin/platform/onboarding', { operatingModel: document.getElementById('pl-model-sel').value, currentStep: document.getElementById('pl-step-sel').value });
-      out.innerHTML = `<span style="color:var(--good);">Onboarding saved — current step <code>${esc(j.state.currentStep)}</code>.</span>`;
-      renderPlatformOnboarding();
-    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
-  });
-  document.getElementById('pl-kafka-test')?.addEventListener('click', async () => {
-    const out = document.getElementById('pl-out');
-    try {
-      const j = await plFetch('POST', '/admin/platform/integrations/kafka/test');
-      out.innerHTML = `<span style="color:var(--good);">Kafka contract test: ${esc(j.kafka.status)} · ${esc(j.kafka.testSummary || '')}</span>`;
-      renderPlatformOnboarding();
-    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
-  });
+    <div id="pa-step-out" class="muted" style="font-size:12px;margin-top:6px;">Saving onboarding changes the operating model and the resumed step — no redeploy.</div>`;
 }
 
-async function renderPlatformOrg() {
-  const { organization, realized } = await plFetch('GET', '/admin/platform/organization');
-  const org = organization || {};
-  const totalPatients = (realized || []).reduce((n, r) => n + (r.patients || 0), 0);
-  const totalFacilities = (realized || []).reduce((n, r) => n + (r.facilities || 0), 0);
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Organization graph</h2>
-      <p class="page-sub">Provider, payer or hybrid hierarchy — one configurable organization graph that scopes every query, agent run, measure and action.</p></div></div>
-    <div class="cards" style="grid-template-columns: repeat(4,1fr);">
-      <div class="stat-card"><div class="num">${esc(org.operatingModel ?? '—')}</div><div class="lbl">Operating model</div></div>
-      <div class="stat-card"><div class="num">${(org.scopePath || []).length}</div><div class="lbl">Hierarchy levels</div></div>
-      <div class="stat-card"><div class="num">${totalFacilities}</div><div class="lbl">Facilities (live)</div></div>
-      <div class="stat-card"><div class="num">${totalPatients}</div><div class="lbl">Patients (live)</div></div>
+window.paSaveOnboarding = async function() {
+  const out = document.getElementById('pa-step-out');
+  try {
+    const j = await plFetch('PUT', '/admin/platform/onboarding', {
+      operatingModel: document.getElementById('pa-model').value,
+      currentStep: document.getElementById('pa-step').value,
+    });
+    out.innerHTML = `<span style="color:var(--good);">Saved — resumed at <code>${esc(j.state.currentStep)}</code>.</span>`;
+    refreshSyntheticBadge();
+    await paSteps();
+  } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+};
+
+/** Organization profile — identity AND deployment posture, one document. */
+async function paOrgSection() {
+  const el = document.getElementById('pa-org');
+  if (!el) return;
+  let org = null; let realized = []; let err = null;
+  try {
+    const j = await plFetch('GET', '/admin/platform/organization');
+    org = j.organization; realized = j.realized || [];
+  } catch (e) { err = e.message; }
+  if (!org) { el.innerHTML = `<h3 style="margin-top:0;">Organization</h3>${loadFailureHTML('the organization profile', err)}`; return; }
+  const totalPatients = realized.reduce((n, r) => n + (r.patients || 0), 0);
+  el.innerHTML = `
+    <h3 style="margin-top:0;">Organization <span class="muted" style="font-weight:400;font-size:11px;">· one record for identity, deployment posture and the hierarchy</span></h3>
+    <div class="field-row">
+      <div class="field"><label>Display name</label><input id="pa-name" value="${esc(org.displayName ?? '')}" /></div>
+      <div class="field"><label>Operating model</label><select id="pa-om">
+        <option value="provider" ${org.operatingModel === 'provider' ? 'selected' : ''}>Provider</option>
+        <option value="payer" ${org.operatingModel === 'payer' ? 'selected' : ''}>Payer</option>
+        <option value="hybrid" ${org.operatingModel === 'hybrid' ? 'selected' : ''}>Hybrid</option>
+      </select></div>
+      <div class="field"><label>Environment</label><input id="pa-env" value="${esc(org.environmentName ?? 'reference')}" /></div>
+      <div class="field"><label>Deployment mode</label><select id="pa-mode">
+        ${['reference', 'non-production', 'production'].map((m) => `<option value="${m}" ${org.deploymentMode === m ? 'selected' : ''}>${m}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Data region</label><input id="pa-data-region" value="${esc(org.dataRegion ?? 'United States')}" /></div>
     </div>
-    ${(realized || []).length ? `<div class="detail"><h3 style="margin-top:0;">Realized counts</h3>${(realized || []).map((r) => `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);"><span>${esc(r.label)} <span class="muted">(${esc(r.id)})</span></span><span>${r.facilities} facilities · ${r.patients} patients</span></div>`).join('')}</div>` : ''}
-    <div class="detail" style="margin-top:12px;">
-      <h3 style="margin-top:0;">Edit</h3>
-      <div class="field-row">
-        <div class="field"><label>Display name</label><input id="po-name" value="${esc(org.displayName ?? '')}" /></div>
-        <div class="field"><label>Operating model</label>
-          <select id="po-model">
-            <option value="provider" ${org.operatingModel === 'provider' ? 'selected' : ''}>Provider</option>
-            <option value="payer" ${org.operatingModel === 'payer' ? 'selected' : ''}>Payer</option>
-            <option value="hybrid" ${org.operatingModel === 'hybrid' ? 'selected' : ''}>Hybrid</option>
-          </select></div>
-        <div class="field"><label>Region</label><input id="po-region" value="${esc(org.region ?? '')}" /></div>
-        <div class="field"><label>Timezone</label><input id="po-tz" value="${esc(org.timezone ?? '')}" /></div>
-        <div class="field"><label>Retention (days)</label><input id="po-ret" type="number" value="${org.retentionDays ?? 365}" /></div>
-        <div class="field"><label style="display:block;"><input id="po-synthetic" type="checkbox" ${org.synthetic ? 'checked' : ''} /> Synthetic demonstration data</label></div>
-      </div>
-      <div class="field"><label>Scope path (JSON · [{id, level, label, facilities?, patients?}])</label><textarea id="po-scope" rows="8" class="code">${esc(JSON.stringify(org.scopePath ?? [], null, 2))}</textarea></div>
-      <button class="btn btn-primary" id="po-save">Save organization</button>
-      <div id="po-out" style="margin-top:8px;font-size:12px;"></div>
+    <div class="field-row">
+      <div class="field"><label>Region</label><input id="pa-region" value="${esc(org.region ?? '')}" /></div>
+      <div class="field"><label>Timezone</label><input id="pa-tz" value="${esc(org.timezone ?? '')}" /></div>
+      <div class="field"><label>Retention (days)</label><input id="pa-ret" type="number" value="${org.retentionDays ?? 365}" /></div>
+      <div class="field checkbox"><label><input id="pa-synthetic" type="checkbox" ${org.synthetic ? 'checked' : ''}> <span>Synthetic demonstration data</span></label></div>
     </div>
-  `;
-  document.getElementById('po-save')?.addEventListener('click', async () => {
-    const out = document.getElementById('po-out');
-    let scopePath = [];
-    try { scopePath = JSON.parse(document.getElementById('po-scope').value || '[]'); }
-    catch { out.innerHTML = '<span style="color:var(--bad);">Scope path must be valid JSON.</span>'; return; }
-    try {
-      const j = await plFetch('PUT', '/admin/platform/organization', {
-        operatingModel: document.getElementById('po-model').value,
-        displayName: document.getElementById('po-name').value,
-        region: document.getElementById('po-region').value,
-        timezone: document.getElementById('po-tz').value,
-        retentionDays: Number(document.getElementById('po-ret').value) || 365,
-        synthetic: document.getElementById('po-synthetic').checked,
-        scopePath,
-      });
-      out.innerHTML = `<span style="color:var(--good);">Saved ${esc(j.organization.displayName)} (${esc(j.organization.operatingModel)}${j.organization.synthetic ? ' · synthetic' : ''}).</span>`;
-      refreshSyntheticBadge();
-      renderPlatformOrg();
-    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
-  });
+    <div class="muted" style="font-size:12px;">Hierarchy: ${(org.scopePath || []).map((l) => esc(l.label || l.id)).join(' → ') || 'none yet'} — edit the structured hierarchy in <a href="#" onclick="goTo('platform-config');return false;">Configuration studio → Ontology</a>. Live: <b>${realized.length}</b> mapped levels · <b>${totalPatients}</b> patients.</div>
+    <div style="margin-top:8px;"><button class="btn btn-primary" onclick="paSaveOrg()">Save organization</button></div>
+    <div id="pa-org-out" class="muted" style="font-size:12px;margin-top:6px;">Saving updates the durable organization record; the executive lens reads it via <code>/api/context</code>.</div>`;
 }
 
-async function renderPlatformTopics() {
-  const { topics, defaults } = await plFetch('GET', '/admin/platform/topics');
-  const t = topics || defaults || { entries: [] };
+window.paSaveOrg = async function() {
+  const out = document.getElementById('pa-org-out');
+  const val = (id) => document.getElementById(id);
+  try {
+    const j = await plFetch('PUT', '/admin/platform/organization', {
+      displayName: val('pa-name').value,
+      operatingModel: val('pa-om').value,
+      environmentName: val('pa-env').value,
+      deploymentMode: val('pa-mode').value,
+      dataRegion: val('pa-data-region').value,
+      region: val('pa-region').value,
+      timezone: val('pa-tz').value,
+      retentionDays: Number(val('pa-ret').value) || 365,
+      synthetic: val('pa-synthetic').checked,
+    });
+    out.innerHTML = `<span style="color:var(--good);">Saved ${esc(j.organization.displayName)} (${esc(j.organization.operatingModel)} · ${esc(j.organization.deploymentMode || 'reference')}${j.organization.synthetic ? ' · synthetic' : ''}).</span>`;
+    refreshSyntheticBadge();
+    await paSteps();
+  } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+};
+
+/** Integration contract — the bridge and its secret REFERENCE. */
+async function paIntegrationsSection() {
+  const el = document.getElementById('pa-int');
+  if (!el) return;
+  let integrations = null; let err = null;
+  try { integrations = await plFetch('GET', '/admin/platform/integrations'); } catch (e) { err = e.message; }
+  if (!integrations) { el.innerHTML = `<h3 style="margin-top:0;">Integration contract</h3>${loadFailureHTML('the integration contract', err)}`; return; }
+  const k = integrations.kafka || {};
+  const mappings = k.topicMappings || [];
+  el.innerHTML = `
+    <h3 style="margin-top:0;">Integration contract ${wsStatusPill(k.status)}</h3>
+    <div class="field-row">
+      <div class="field" style="flex:2;"><label>Bridge URL</label><input id="pa-url" value="${esc(k.bridgeUrl ?? '')}" /></div>
+      <div class="field"><label>Cluster alias</label><input id="pa-alias" value="${esc(k.clusterAlias ?? '')}" /></div>
+      <div class="field"><label>Protocol</label><select id="pa-proto">
+        ${['SASL_SSL', 'SSL', 'PLAINTEXT'].map((p) => `<option ${k.securityProtocol === p ? 'selected' : ''}>${p}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Consumer group</label><input id="pa-group" value="${esc(k.consumerGroup ?? '')}" /></div>
+    </div>
+    <div class="field-row">
+      <div class="field" style="flex:3;"><label>Secret binding reference</label><input id="pa-secret" value="${esc(k.secretRef ?? '')}" /><small class="muted">Reference only — never enter the secret value; the server rejects anything that looks like one.</small></div>
+      <button class="btn btn-primary" onclick="paSaveKafka()">Save contract</button>
+      <button class="btn" onclick="paTestKafka()"><i data-lucide="cable" style="width:13px;height:13px"></i> Test contract</button>
+    </div>
+    ${mappings.length ? `<div style="margin-top:8px;">${mappings.map((m) => `<span class="pill ${m.direction === 'inbound' ? 'brand' : 'muted'}" style="margin-right:6px;">${esc(m.direction)} <code>${esc(m.topic)}</code> → ${esc(m.contract)}</span>`).join('')}</div>` : ''}
+    ${k.testSummary ? `<div class="muted" style="font-size:12px;margin-top:8px;">${esc(k.testSummary)}${k.lastTestedAt ? ` · ${esc(String(k.lastTestedAt))}` : ''}</div>` : ''}
+    <div id="pa-int-out" class="muted" style="font-size:12px;margin-top:6px;">Secrets live in deployment bindings. The contract test verifies authentication, the topic allowlist and the envelope schema.</div>`;
+}
+
+window.paSaveKafka = async function() {
+  const out = document.getElementById('pa-int-out');
+  try {
+    await plFetch('PUT', '/admin/platform/integrations/kafka', {
+      bridgeUrl: document.getElementById('pa-url').value,
+      clusterAlias: document.getElementById('pa-alias').value,
+      securityProtocol: document.getElementById('pa-proto').value,
+      consumerGroup: document.getElementById('pa-group').value,
+      secretRef: document.getElementById('pa-secret').value,
+    });
+    out.innerHTML = '<span style="color:var(--good);">Contract saved.</span>';
+    await paIntegrationsSection();
+    await paSteps();
+  } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+};
+
+window.paTestKafka = async function() {
+  const out = document.getElementById('pa-int-out');
+  try {
+    const j = await plFetch('POST', '/admin/platform/integrations/kafka/test');
+    out.innerHTML = `<span style="color:var(--good);">Contract test: ${esc(j.kafka.status)} · ${esc(j.kafka.testSummary || '')}</span>`;
+    await paIntegrationsSection();
+    await paSteps();
+  } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+};
+
+/** Topic plan — every agent resolves exactly one output topic. */
+async function paTopicsSection() {
+  const el = document.getElementById('pa-topics');
+  if (!el) return;
+  let data = null; let err = null;
+  try { data = await plFetch('GET', '/admin/platform/topics'); } catch (e) { err = e.message; }
+  if (!data) { el.innerHTML = `<h3 style="margin-top:0;">Kafka topic plan</h3>${loadFailureHTML('the topic plan', err)}`; return; }
+  const t = data.topics || data.defaults || { entries: [] };
   const required = [t.defaultOutputTopic, t.agentDlqTopic, t.actionCommandTopic, t.actionAckTopic, t.outcomeStateTopic, t.assuranceEventTopic].filter(Boolean);
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Kafka topic plan</h2>
-      <p class="page-sub">Versioned topic/partition/key/DLQ plan. Every agent resolves exactly one output topic; failures route to the governed DLQ.</p></div></div>
-    <div class="cards" style="grid-template-columns: repeat(3,1fr);">
-      <div class="stat-card"><div class="num">${(t.entries || []).length}</div><div class="lbl">Planned topics</div></div>
-      <div class="stat-card"><div class="num">${esc(t.defaultOutputTopic || '—')}</div><div class="lbl">Default agent output</div></div>
-      <div class="stat-card"><div class="num">${esc(t.agentDlqTopic || '—')}</div><div class="lbl">Agent DLQ</div></div>
-    </div>
-    <div class="detail">
-      <h3 style="margin-top:0;">Required product topics</h3>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;">${required.map((x) => `<span class="pill brand"><code>${esc(x)}</code></span>`).join('')}</div>
-      <table style="width:100%;margin-top:10px;">
-        <thead><tr><th>Topic</th><th>Direction</th><th>Contract</th><th>Partitions</th><th>Key strategy</th><th>Owning agent</th></tr></thead>
-        <tbody>${(t.entries || []).map((e) => `<tr><td><code>${esc(e.topic)}</code></td><td>${esc(e.direction)}</td><td>${esc(e.contract)}</td><td>${e.partitions ?? '—'}</td><td>${esc(e.keyStrategy ?? '—')}</td><td>${esc(e.owningAgent ?? '—')}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No planned entries yet.</td></tr>'}</tbody>
-      </table>
-      <div class="field"><label>Entries (JSON)</label><textarea id="pt-entries" rows="8" class="code">${esc(JSON.stringify(t.entries ?? [], null, 2))}</textarea></div>
-      <button class="btn btn-primary" id="pt-save">Save topic plan</button>
-      <div id="pt-out" style="margin-top:8px;font-size:12px;"></div>
-    </div>
-  `;
-  document.getElementById('pt-save')?.addEventListener('click', async () => {
-    const out = document.getElementById('pt-out');
-    let entries = [];
-    try { entries = JSON.parse(document.getElementById('pt-entries').value || '[]'); }
-    catch { out.innerHTML = '<span style="color:var(--bad);">Entries must be valid JSON.</span>'; return; }
-    try {
-      const j = await plFetch('PUT', '/admin/platform/topics', { entries });
-      out.innerHTML = `<span style="color:var(--good);">Topic plan saved — ${j.topics.entries.length} entries.</span>`;
-      renderPlatformTopics();
-    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
-  });
+  el.innerHTML = `
+    <h3 style="margin-top:0;">Kafka topic plan <span class="muted" style="font-weight:400;font-size:11px;">· ${(t.entries || []).length} planned</span></h3>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;">${required.map((x) => `<span class="pill brand"><code>${esc(x)}</code></span>`).join('') || '<span class="muted" style="font-size:12px;">No required topics configured yet.</span>'}</div>
+    <div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;"><thead><tr><th>Topic</th><th>Direction</th><th>Contract</th><th>Partitions</th><th>Key strategy</th><th>Owning agent</th></tr></thead>
+      <tbody>${(t.entries || []).map((e) => `<tr><td><code>${esc(e.topic)}</code></td><td>${esc(e.direction)}</td><td>${esc(e.contract)}</td><td>${e.partitions ?? '—'}</td><td>${esc(e.keyStrategy ?? '—')}</td><td>${esc(e.owningAgent ?? '—')}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No planned entries yet.</td></tr>'}</tbody></table></div>
+    <div class="field" style="margin-top:8px;"><label>Entries (JSON)</label><textarea id="pa-entries" rows="6" class="code">${esc(JSON.stringify(t.entries ?? [], null, 2))}</textarea></div>
+    <button class="btn btn-primary" onclick="paSaveTopics()">Save topic plan</button>
+    <div id="pa-topics-out" class="muted" style="font-size:12px;margin-top:6px;">Failures route to the governed DLQ; each agent resolves exactly one output topic.</div>`;
 }
+
+window.paSaveTopics = async function() {
+  const out = document.getElementById('pa-topics-out');
+  let entries = [];
+  try { entries = JSON.parse(document.getElementById('pa-entries').value || '[]'); }
+  catch { out.innerHTML = '<span style="color:var(--bad);">Entries must be valid JSON.</span>'; return; }
+  try {
+    const j = await plFetch('PUT', '/admin/platform/topics', { entries });
+    out.innerHTML = `<span style="color:var(--good);">Saved — ${j.topics.entries.length} entries.</span>`;
+    await paTopicsSection();
+    await paSteps();
+  } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+};
 
 // Release actions (survive re-renders via inline onclick).
 window.plReleaseAction = async function(id, step) {
@@ -4550,12 +4633,22 @@ window.plReleaseAction = async function(id, step) {
   renderPlatformReleases();
 };
 async function renderPlatformReleases() {
-  const { releases, active } = await plFetch('GET', '/admin/platform/releases');
-  window.__plReleases = releases || [];
+  let releases = []; let active = null; let gate = null; let err = null;
+  try {
+    const j = await plFetch('GET', '/admin/platform/releases');
+    releases = j.releases || []; active = j.active || null;
+    window.__plReleases = releases;
+  } catch (e) { err = e.message; }
+  if (err) { main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Release center</h2></div></div>${loadFailureHTML('the release center', err)}`; hydrateIcons(); return; }
+  try { gate = await plFetch('GET', '/admin/platform/release-gate'); } catch { /* panel reports its own state */ }
   main.innerHTML = `
     <div class="page-header"><div><h2 class="page-title">Release center</h2>
       <p class="page-sub">Immutable release manifests — draft → validate → approve → canary → activate → rollback. Runtime confirms the active hash; customer configuration never needs a redeploy. An intentionally unsafe release cannot validate or activate.</p></div></div>
     <div class="detail">
+      <h3 style="margin-top:0;">Release gate <span class="muted" style="font-weight:400;font-size:11px;">· green / red / sources / approvals, from the live policy</span></h3>
+      ${releaseGateHTML(gate)}
+    </div>
+    <div class="detail" style="margin-top:12px;">
       <h3 style="margin-top:0;">New release</h3>
       <div class="field-row">
         <div class="field"><label>Version</label><input id="pr-version" placeholder="v1" /></div>
@@ -4859,49 +4952,94 @@ window.plConfigSavePolicy = async function() {
     maxThresholdBasisPoints: parseInt(g('cfg-max') || '10000', 10),
   };
   try {
-    const j = await plFetch('PUT', '/admin/swarm/admin/policy', payload);
+    const j = await plFetch('PUT', '/admin/platform/policy', payload);
     toast(`Policy saved (${j.policy.defaultDecision})`, 'good');
   } catch (err) { toast('Policy save failed: ' + err.message, 'err'); }
 };
 
-async function renderPlatformConfig() {
-  let ctx = { pack: { id: '', lens: '' }, configuration: {} };
-  try { ctx = await plFetch('GET', '/api/context'); } catch (e) { /* ignore */ }
-  let packData = { packs: [], activePack: null };
-  try { packData = await plFetch('GET', '/admin/platform/packs'); } catch (e) { /* ignore */ }
-  const packs = packData.packs || [];
-  const activePackId = packData.activePack;
-  let policy = { defaultDecision: 'block', externalWritesEnabled: false, escalationThresholdBasisPoints: 5000, minThresholdBasisPoints: 0, maxThresholdBasisPoints: 10000 };
-  try { policy = (await plFetch('GET', '/admin/swarm/admin/policy')).policy || policy; } catch (e) { /* ignore */ }
-  let releases = [];
-  try { releases = (await plFetch('GET', '/admin/platform/releases')).releases || []; } catch (e) { /* ignore */ }
-  const active = releases.find((r) => r.status === 'active');
+/**
+ * Configuration studio — ONE page for the four things that change what the
+ * runtime does: the installed packs (and the lens they switch), the durable
+ * configuration objects (the datasets the exec console renders), the
+ * organization ontology, and the action-boundary policy.
+ *
+ * Two things it no longer does, both of which were lies:
+ *   - it presented these objects as a read-only YAML FILE EDITOR headed with
+ *     filenames (riverbend-fhir-r4.yaml, action-boundary.yaml, …) that exist
+ *     nowhere on disk, while the content really came from Postgres;
+ *   - it swallowed a 403 on the policy read and rendered hardcoded defaults
+ *     (5000bp) instead of the stored value (8200bp).
+ * Neither is possible now: every path is /admin/platform/*, which the operator
+ * console is actually scoped for, and every read failure is rendered as a
+ * failure.
+ */
+const CFG_TABS = [['packs', 'Packs & lens'], ['objects', 'Configuration objects'], ['ontology', 'Ontology'], ['policy', 'Action policy']];
+let cfgTab = 'packs';
+let cfgPacks = [];
+let cfgActivePack = null;
 
+async function renderPlatformConfig() {
+  let ctx = { pack: { id: '', lens: '' } };
+  let err = null;
+  try {
+    ctx = await plFetch('GET', '/api/context');
+    const list = await plFetch('GET', '/admin/platform/packs');
+    cfgPacks = list.packs || [];
+    cfgActivePack = list.activePack || null;
+  } catch (e) { err = e.message; }
+  if (err) {
+    main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Configuration studio</h2></div></div>${loadFailureHTML('the configuration studio', err)}`;
+    hydrateIcons();
+    return;
+  }
   main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Configuration Studio</h2>
-      <p class="page-sub">Control Center pack + policy/workflow — what the next release will change. Pack/lens (no redeploy), action policy, approval thresholds and the active release all derive from durable state.</p></div></div>
-    <div class="cards" style="grid-template-columns: repeat(3,1fr);">
-      <div class="stat-card"><div class="num">${esc(activePackId || ctx.pack.id || '—')}</div><div class="lbl">Active pack · lens ${esc(ctx.pack.lens || '—')}</div></div>
-      <div class="stat-card"><div class="num">${packs.length}</div><div class="lbl">Installed domain packs</div></div>
-      <div class="stat-card"><div class="num">${active ? esc(active.version) : '—'}</div><div class="lbl">Active release</div></div>
-    </div>
-    <div class="detail" style="margin-top:12px;">
-      <h3 style="margin-top:0;">Pack registry (installed via the pack loader — no redeploy)</h3>
-      <p class="muted" style="font-size:12px;">Activating a pack durably switches the exec lens in <code>/api/context</code> (no redeploy, no org-model edit). Deactivate restores the operating-model default.</p>
-      <div style="display:grid;gap:8px;margin-top:8px;">${packs.map((p) => packRegistryRow(p, activePackId)).join('') || '<span class="muted" style="font-size:12px;">No packs installed.</span>'}</div>
-    </div>
-    <div class="detail" style="margin-top:12px;">
-      <h3 style="margin-top:0;">Policy & Workflow Studio</h3>
-      <div class="field-row">
-        <div class="field"><label>Default decision</label><select id="cfg-decision"><option value="block" ${policy.defaultDecision === 'block' ? 'selected' : ''}>block (deny by default)</option><option value="allow" ${policy.defaultDecision === 'allow' ? 'selected' : ''}>allow</option></select></div>
-        <div class="field"><label>Escalation consensus (bp)</label><input id="cfg-escalation" type="number" value="${policy.escalationThresholdBasisPoints}" /></div>
-        <div class="field"><label>Min threshold (bp)</label><input id="cfg-min" type="number" value="${policy.minThresholdBasisPoints}" /></div>
-        <div class="field"><label>Max threshold (bp)</label><input id="cfg-max" type="number" value="${policy.maxThresholdBasisPoints}" /></div>
-        <div class="field"><label style="display:block;"><input id="cfg-extwrites" type="checkbox" ${policy.externalWritesEnabled ? 'checked' : ''} /> External writes enabled</label></div>
-        <div class="field" style="align-self:flex-end;"><button class="btn btn-primary" onclick="plConfigSavePolicy()">Save policy</button></div>
-      </div>
-      <div class="muted" style="font-size:12px;margin-top:6px;">The red-team suite evaluates THIS policy live — an unsafe (allow) policy fails the suite and blocks releases.</div>
+    <div class="page-header"><div><h2 class="page-title">Configuration studio</h2>
+      <p class="page-sub">What the next release will change — installed packs and the lens they switch, the durable configuration objects the executive console renders, the organization ontology, and the action-boundary policy. Release lifecycle and gate evidence live in <b>Release center</b>.</p></div>
+      <button class="btn" onclick="goTo('platform-releases')">Release center →</button></div>
+    <div class="section-card">
+      <div class="page-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">${CFG_TABS.map(([id, label]) => `<button class="tab${cfgTab === id ? ' is-active' : ''}" onclick="cfgGo('${id}')">${label}</button>`).join('')}</div>
+      <div id="cfg-body">Loading…</div>
     </div>`;
+  await cfgBody(ctx);
+  hydrateIcons();
+}
+
+window.cfgGo = async function(tab) { cfgTab = tab; await renderPlatformConfig(); };
+
+async function cfgBody(ctx) {
+  const body = document.getElementById('cfg-body');
+  if (!body) return;
+
+  if (cfgTab === 'packs') {
+    body.innerHTML = `
+      <h3 style="margin-top:0;">Pack registry <span class="muted" style="font-weight:400;font-size:11px;">· ${cfgPacks.length} installed by the pack loader</span></h3>
+      <p class="muted" style="font-size:12px;">Activating a pack durably switches the executive lens in <code>/api/context</code> — no redeploy, no operating-model edit. Deactivate restores the operating-model default. Currently serving lens <b>${esc((ctx.pack && ctx.pack.lens) || '—')}</b> from pack <b>${esc((ctx.pack && ctx.pack.id) || '—')}</b>.</p>
+      <div style="display:grid;gap:8px;margin-top:8px;">${cfgPacks.map((p) => packRegistryRow(p, cfgActivePack)).join('') || '<span class="muted" style="font-size:12px;">No packs installed.</span>'}</div>`;
+    return;
+  }
+
+  if (cfgTab === 'objects') { await cfgObjectsBody(); return; }
+  if (cfgTab === 'ontology') { await cfgOntologyBody(); return; }
+
+  // Action policy — the red-team suite evaluates THIS live, so an unsafe policy
+  // fails the suite and blocks a release.
+  let policy = null; let perr = null;
+  try { policy = (await plFetch('GET', '/admin/platform/policy')).policy; } catch (e) { perr = e.message; }
+  if (!policy) { body.innerHTML = loadFailureHTML('the action-boundary policy', perr); hydrateIcons(); return; }
+  body.innerHTML = `
+    <h3 style="margin-top:0;">Action-boundary policy</h3>
+    <p class="muted" style="font-size:12px;">Stored in Postgres and read live by the red-team suite and the release gate. Version <code>${esc(policy.version || '—')}</code>, last updated ${esc(String(policy.updatedAt || '—'))}.</p>
+    <div class="field-row">
+      <div class="field"><label>Default decision</label><select id="cfg-decision"><option value="block" ${policy.defaultDecision === 'block' ? 'selected' : ''}>block (deny by default)</option><option value="allow" ${policy.defaultDecision === 'allow' ? 'selected' : ''}>allow</option></select></div>
+      <div class="field"><label>Version</label><input id="cfg-version" value="${esc(policy.version || '')}" /></div>
+      <div class="field"><label>Escalation consensus (bp)</label><input id="cfg-escalation" type="number" value="${policy.escalationThresholdBasisPoints}" /></div>
+      <div class="field"><label>Min threshold (bp)</label><input id="cfg-min" type="number" value="${policy.minThresholdBasisPoints}" /></div>
+      <div class="field"><label>Max threshold (bp)</label><input id="cfg-max" type="number" value="${policy.maxThresholdBasisPoints}" /></div>
+      <div class="field"><label style="display:block;"><input id="cfg-extwrites" type="checkbox" ${policy.externalWritesEnabled ? 'checked' : ''} /> External writes enabled</label></div>
+      <div class="field" style="align-self:flex-end;"><button class="btn btn-primary" onclick="plConfigSavePolicy()">Save policy</button></div>
+    </div>
+    <div id="cfg-policy-out" class="muted" style="font-size:12px;margin-top:6px;">Escalation is enforced between the min and max bounds; the server rejects values outside 0–10000 basis points.</div>`;
+  hydrateIcons();
 }
 
 function packRegistryRow(p, activePackId) {
@@ -6776,17 +6914,11 @@ async function loadRealmsTab(body) {
   bindCrudActions(body);
 }
 
-// ---------- Renal Swarm Intelligence — executive cockpit surfaces ----------
-// Read-only snapshot of the executable reference boundary. Never reseeds/mutates
-// server state on a poll — reads come from GET /admin/swarm/state.
-async function swarmDemoState() {
-  try {
-    const res = await fetch('/admin/swarm/state');
-    if (res.ok) { const j = await res.json(); if (j && j.cells) return j; }
-  } catch (_) { /* offline */ }
-  return null;
-}
-
+// ---------- Renal Swarm Intelligence — deep link to the RSI application -------
+// The operator console does not render swarm surfaces: swarm control, cells,
+// insights, next-best actions, episodes and the executive cockpits are the
+// EXECUTIVE console's product (see docs/ui-cohesion-persona-matrix.md §1 — setup
+// lives in Admin, operations live in Exec). This hands off instead.
 function renderRsiDeepLink(screen, label) {
   const url = `http://localhost:5173/`;
   main.innerHTML = `
@@ -6861,118 +6993,8 @@ function renderRsiApp() {
   `;
 }
 
-async function renderSwarmControl() {
-  const d = await swarmDemoState();
-  if (!d || !d.cells) { main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Swarm control</h2></div></div><div class="state-card"><div class="state-title">Swarm runtime unavailable</div><div class="state-sub">Start the dev/prod server — the bounded-cell executive layer is served from /admin/swarm/*.</div></div>`; return; }
-  const k = d.kpis || {};
-  const insightCards = (d.insights || []).map((i) => `
-    <div class="detail" style="margin-top:0;">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span class="pill brand" style="font-weight:600;">${Math.round((i.consensus ?? 0) * 100)}%</span>
-        ${typeof i.belief === 'number' ? `<span class="pill muted" title="Dempster–Shafer belief interval · conflict mass">Bel ${Math.round(i.belief * 100)}% · Pl ${Math.round((i.plausibility ?? 0) * 100)}% · K ${Number(i.conflictMass ?? 0).toFixed(2)}</span>` : ''}
-        <span style="font-weight:600;font-size:14px;">${esc(i.headline)}</span>
-        ${i.retained ? '<span class="pill warn">retained conflict</span>' : ''}
-        <span class="pill muted">${esc(i.review)} review</span>
-      </div>
-      <div class="muted" style="font-size:12px;margin-top:4px;">${esc(i.summary)}</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;font-size:11px;">
-        <span class="pill muted">${i.cells.length} cell${i.cells.length === 1 ? '' : 's'}</span>
-        ${(i.cells || []).map((c) => `<code>${esc(c)}</code>`).join('')}
-        ${i.conflicts?.length ? `<span class="muted">· conflict: ${i.conflicts.map((c) => esc(c)).join(', ')}</span>` : ''}
-        ${i.abstentions?.length ? `<span class="muted">· abstained: ${i.abstentions.map((c) => esc(c)).join(', ')}</span>` : ''}
-        <span class="muted">· ${i.evidenceCount ?? 0} evidence objects</span>
-      </div>
-    </div>`).join('') || '<div class="muted">No insights yet.</div>';
-  const nbaRows = (d.nbas || []).map((n) => `
-    <div style="display:flex;gap:10px;align-items:baseline;padding:7px 0;border-bottom:1px dashed var(--border);">
-      <span class="pill brand" style="font-size:11px;">#${n.rank}</span>
-      <span style="flex:1;font-size:13px;">${esc(n.title)}</span>
-      <span class="pill ${n.status === 'awaiting-approval' ? 'warn' : 'muted'}">${esc(n.status)}</span>
-      <span class="pill muted">${esc(n.approvalClass)}</span>
-      <span class="muted" style="font-size:11px;">${Math.round((n.consensus ?? 0) * 100)}% · ${n.evidenceCount ?? 0} ev</span>
-      ${typeof n.belief === 'number' ? `<span class="pill muted" title="Dempster–Shafer belief interval · conflict mass">Bel ${Math.round(n.belief * 100)}% · Pl ${Math.round((n.plausibility ?? 0) * 100)}% · K ${Number(n.conflictMass ?? 0).toFixed(2)}</span>` : ''}
-      <span class="muted" style="font-size:11px;white-space:nowrap;">${esc(n.owner)} · ${esc(n.due)}</span>
-    </div>`).join('') || '<div class="muted">No next-best actions.</div>';
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Swarm control</h2>
-      <p class="page-sub">Enterprise topology, cross-facility intelligence, next-best actions, governed bounded cells and event traffic in one operational view. Ranking is advisory — the server re-checks role, scope and approval class before a durable command.</p></div>
-      <button class="btn btn-primary" onclick="goTo('swarm-cells')"><i data-lucide="boxes"></i> 12 bounded cells</button></div>
-    <div class="cards" style="grid-template-columns:repeat(4,1fr);">
-      <div class="stat-card"><div class="num">${k.treatmentsProtected ?? '—'}</div><div class="lbl">Treatments protected</div></div>
-      <div class="stat-card"><div class="num">${k.capacityHours ?? '—'}h</div><div class="lbl">Capacity opportunity</div></div>
-      <div class="stat-card"><div class="num">${k.cmsReadiness ?? '—'}%</div><div class="lbl">CMS readiness</div></div>
-      <div class="stat-card"><div class="num">$${Number(k.valueAtRisk ?? 0).toLocaleString()}</div><div class="lbl">Value at risk</div></div>
-    </div>
-    <div class="section-card"><h3>Cross-facility swarm intelligence <span class="muted" style="font-weight:400;font-size:11px;">· ${d.conflictCount ?? 0} retained conflict(s) · no autonomous action</span></h3>${insightCards}</div>
-    <div class="section-card"><h3>Next-best actions <span class="muted" style="font-weight:400;font-size:11px;">· ranked by outcome + urgency + policy</span></h3>${nbaRows}</div>
-    <div class="detail muted" style="font-size:12px;">Executable reference boundary: ${(d.cells || []).length} bounded cells · ${(d.insights || []).length} swarm insights · ${(d.nbas || []).length} ranked NBAs · ${d.episodes?.length ?? 0} outcome episode(s) resolved with a measure result.</div>
-  `;
-}
-
-async function renderExecutiveOutcomes() {
-  const d = await swarmDemoState();
-  const k = d?.kpis || {};
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Executive outcomes</h2>
-      <p class="page-sub">Clinical, operational, regulatory and economic outcomes rolled up from the bounded cells — synthetic-by-default.</p></div></div>
-    <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
-      <div class="stat-card"><div class="num">${k.treatmentsProtected ?? '—'}</div><div class="lbl">Treatments kept (30d)</div></div>
-      <div class="stat-card"><div class="num">${k.capacityHours ?? '—'}h</div><div class="lbl">Capacity opportunity</div></div>
-      <div class="stat-card"><div class="num">${k.cmsReadiness ?? '—'}%</div><div class="lbl">CMS &amp; compliance ready</div></div>
-      <div class="stat-card"><div class="num">$${Number(k.valueAtRisk ?? 0).toLocaleString()}</div><div class="lbl">Value at risk (quality + revenue)</div></div>
-    </div>
-    <div class="section-card"><h3>Roll-up of next-best actions</h3><div id="exec-nba"></div></div>
-    <div class="section-card"><h3>What would change if the escalation threshold moves?</h3>
-      <p class="page-sub" style="font-size:12px;">Server-side policy replay in an isolated sandbox — run it in <b>Policy replay</b>.</p>
-      <button class="btn btn-primary" onclick="goTo('policy-replay')"><i data-lucide="flask-conical"></i> Open policy replay</button>
-    </div>`;
-  const list = document.getElementById('exec-nba');
-  if (list) list.innerHTML = (d?.nbas || []).map((n) => `<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px dashed var(--border);font-size:13px;"><span class="pill brand" style="font-size:11px;">#${n.rank}</span><span style="flex:1;">${esc(n.title)}</span><span class="muted" style="font-size:12px;">${esc(n.owner)}</span></div>`).join('') || '<div class="muted">No actions.</div>';
-}
-
-async function renderSwarmHealth() {
-  let h = null;
-  try { const res = await fetch('/admin/swarm/integration'); if (res.ok) h = await res.json(); } catch (_) { /* offline */ }
-  if (!h || !h.cells) { main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Swarm data health</h2></div></div><div class="state-card"><div class="state-title">Integration health unavailable</div><div class="state-sub">The /admin/swarm/integration surface did not respond — start the server.</div></div>`; return; }
-  const t = h.totals || {};
-  const isLive = h.mode === 'live';
-  const liveCells = (h.cells || []).filter((c) => c.live).length;
-  const cellRows = (h.cells || []).map((c) => {
-    const s = c.sources || {};
-    const live = !!c.live;
-    return `
-    <div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px dashed var(--border);flex-wrap:wrap;">
-      <span class="pill ${live ? 'brand' : 'muted'}" style="font-size:11px;min-width:64px;text-align:center;">${live ? 'LIVE' : 'ref'}</span>
-      <span style="flex:1;min-width:170px;font-size:13px;"><b>${esc(c.displayName || c.cellId)}</b> <span class="muted" style="font-size:11px;">· ${esc(c.domain || '')}</span></span>
-      <span class="muted" style="font-size:11px;white-space:nowrap;">realms ${s.realms ?? 0} · patients ${s.patients ?? 0} · units ${s.units ?? 0} · effects ${s.effects ?? 0} · presences ${s.presences ?? 0}</span>
-      <span class="muted" style="font-size:11px;white-space:nowrap;">${c.proposals ?? 0} proposals</span>
-      ${!live ? '<span class="pill warn">no live source</span>' : ''}
-    </div>`;
-  }).join('') || '<div class="muted">No cells.</div>';
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Swarm data health</h2>
-      <p class="page-sub">Verifies the bounded-cell layer is fed by REAL realm state instead of the synthetic reference boundary. Mode ${isLive ? '<span class="pill brand">live</span>' : '<span class="pill muted">reference</span>'} — ${isLive ? 'cells are derived from live realm snapshots.' : 'no realm has patients yet; swarm state falls back to the reference boundary until a realm is populated.'}</p></div></div>
-    <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));">
-      <div class="stat-card"><div class="num">${t.realms ?? 0}</div><div class="lbl">Realms</div></div>
-      <div class="stat-card"><div class="num">${t.patients ?? 0}</div><div class="lbl">Patients</div></div>
-      <div class="stat-card"><div class="num">${t.units ?? 0}</div><div class="lbl">Units</div></div>
-      <div class="stat-card"><div class="num">${t.facilities ?? 0}</div><div class="lbl">Facilities</div></div>
-      <div class="stat-card"><div class="num">${t.effects ?? 0}</div><div class="lbl">Effects</div></div>
-      <div class="stat-card"><div class="num">${t.presences ?? 0}</div><div class="lbl">Presences</div></div>
-      <div class="stat-card"><div class="num">${t.openEpisodes ?? 0}</div><div class="lbl">Open episodes</div></div>
-      <div class="stat-card"><div class="num">${liveCells}/${(h.cells || []).length}</div><div class="lbl">Cells live</div></div>
-    </div>
-    <div class="section-card"><h3>Per-cell live source counts <span class="muted" style="font-weight:400;font-size:11px;">· proposals emitted from realm snapshots</span></h3>${cellRows}</div>
-    <div class="detail muted" style="font-size:12px;">Surface: GET /admin/swarm/integration · a cell is LIVE when its observer has ≥1 real realm with patients; otherwise it contributes proposals from the reference boundary and is flagged.</div>
-  `;
-}
-
 // ---------- Simulator — start/stop/step synthetic data driver (2026-08-23) ----------
 let simScenarioSel = 'dialysis-demo';
-function simStatusPill(status) {
-  const tone = { running: 'good', paused: 'warn', idle: 'muted' };
-  return `<span class="pill ${tone[status] || 'muted'}">${esc(status || 'idle')}</span>`;
-}
 async function simFetch(path, init) {
   const res = await fetch(path, { headers: { 'content-type': 'application/json' }, ...init });
   const j = await res.json().catch(() => ({}));
@@ -7110,78 +7132,6 @@ function wsStatusPill(status) {
   return `<span class="pill ${tone[status] || 'muted'}">${esc(status)}</span>`;
 }
 
-async function renderWsReleases() {
-  let data = null; let err = null;
-  try { data = await wsFetch('/admin/swarm/config/releases'); } catch (e) { err = e.message; }
-  const rows = (data?.releases || []).map((r) => `
-    <div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px dashed var(--border);flex-wrap:wrap;">
-      <span style="flex:1;min-width:180px;font-size:13px;"><b>${esc(r.version)}</b> <span class="muted" style="font-size:11px;">· ${esc(r.changeSummary)}</span></span>
-      ${wsStatusPill(r.status)}
-      <span class="muted" style="font-size:11px;">${r.objectCount} objects · ${esc(r.createdBy)}</span>
-      ${r.status === 'draft' ? `<button class="btn btn-sm" onclick="wsReleaseAct('validate','${r.id}')">Validate</button>` : ''}
-      ${(r.status === 'draft' || r.status === 'validated') ? `<button class="btn btn-sm" onclick="wsReleaseAct('approve','${r.id}')">Approve</button>` : ''}
-      ${r.status === 'approved' ? `<button class="btn btn-sm btn-primary" onclick="wsReleaseAct('activate','${r.id}')">Activate</button>` : ''}
-      <button class="btn btn-sm" onclick="wsReleaseAct('delete','${r.id}')"><i data-lucide="trash-2" style="width:13px;height:13px"></i></button>
-    </div>`).join('') || '<div class="muted">No releases yet — create a draft.</div>';
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Config releases</h2><p class="page-sub">Configuration studio release dossier lifecycle — durable CRUD the admin authors. No runtime effect until activated.</p></div>
-      <button class="btn btn-primary" onclick="wsReleaseDraft()"><i data-lucide="plus"></i> New draft</button></div>
-    ${err ? `<div class="state-card"><div class="state-title">${esc(err)}</div></div>` : ''}
-    <div class="cards" style="grid-template-columns:repeat(2,1fr);"><div class="stat-card"><div class="num">${(data?.releases || []).length}</div><div class="lbl">Releases</div></div><div class="stat-card"><div class="num">${data?.active?.version ? esc(data.active.version) : '—'}</div><div class="lbl">Active configuration</div></div></div>
-    <div class="section-card"><h3>Release dossier <span class="muted" style="font-weight:400;font-size:11px;">· draft → validated → approved → active</span></h3>${rows}</div>`;
-  hydrateIcons();
-}
-async function wsReleaseDraft() {
-  try { await wsFetch('/admin/swarm/config/releases', { method: 'POST', body: '{}' }); toast('Draft persisted', 'good'); renderWsReleases(); } catch (e) { toast(e.message, 'bad'); }
-}
-async function wsReleaseAct(action, id) {
-  const url = action === 'delete' ? `/admin/swarm/config/releases/${id}` : `/admin/swarm/config/releases/${id}/${action}`;
-  try { await wsFetch(url, { method: action === 'delete' ? 'DELETE' : 'POST', body: '{}' }); toast(`Release ${action}d`, 'good'); renderWsReleases(); } catch (e) { toast(e.message, 'bad'); }
-}
-
-async function renderWsRedteam() {
-  let scenarios = []; let runs = []; let err = null;
-  try { const [s, r] = await Promise.all([wsFetch('/admin/swarm/red-team/scenarios'), wsFetch('/admin/swarm/red-team/runs')]); scenarios = s.scenarios || []; runs = r.runs || []; } catch (e) { err = e.message; }
-  const sRows = scenarios.map((s) => `
-    <div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px dashed var(--border);flex-wrap:wrap;">
-      <span style="flex:1;min-width:180px;font-size:13px;"><b>${esc(s.name)}</b> <span class="muted" style="font-size:11px;">· ${esc(s.threatModel)}</span></span>
-      <span class="muted" style="font-size:11px;">${s.checks.length} checks</span>
-      ${wsStatusPill(s.status)}
-      <button class="btn btn-sm btn-primary" onclick="wsReplay('${s.id}')"><i data-lucide="play" style="width:13px;height:13px"></i> Replay</button>
-      <button class="btn btn-sm" onclick="wsScenarioDelete('${s.id}')"><i data-lucide="trash-2" style="width:13px;height:13px"></i></button>
-    </div>`).join('') || '<div class="muted">No scenarios.</div>';
-  const rRows = runs.slice(0, 12).map((r) => `
-    <div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--border);font-size:12px;flex-wrap:wrap;">
-      <span style="flex:1;min-width:160px;">${esc(r.scenarioName)}</span>
-      <span class="pill ${r.passed ? 'good' : 'bad'}">${r.passed ? 'PASSED' : 'FAILED'}</span>
-      <span class="muted">${r.checks.filter((c) => c.passed).length}/${r.checks.length} checks</span>
-      <span class="muted" style="font-size:11px;">${esc(r.ranBy)} · ${new Date(r.updatedAt || r.createdAt).toLocaleString()}</span>
-    </div>`).join('') || '<div class="muted">No runs yet.</div>';
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Red team</h2><p class="page-sub">Assurance scenarios the admin authors. Replay evaluates the CURRENT runtime config — policy default-deny and external-writes come from Platform admin.</p></div></div>
-    ${err ? `<div class="state-card"><div class="state-title">${esc(err)}</div></div>` : ''}
-    <div class="section-card"><h3>Add a scenario</h3>
-      <div class="field-row"><div class="field" style="flex:2;"><label>Name</label><input id="rt-name" placeholder="e.g. Prompt injection in scheduler"></div>
-      <div class="field" style="flex:1;"><label>Threat model</label><input id="rt-threat" placeholder="prompt-injection"></div>
-      <div class="field" style="flex:2;"><label>Description</label><input id="rt-desc" placeholder="What the attacker attempts and the expected containment."></div>
-      <button class="btn btn-primary" onclick="wsScenarioCreate()"><i data-lucide="plus"></i> Add</button></div></div>
-    <div class="section-card"><h3>Scenarios</h3>${sRows}</div>
-    <div class="section-card"><h3>Replay runs</h3>${rRows}</div>`;
-  hydrateIcons();
-}
-async function wsScenarioCreate() {
-  try {
-    await wsFetch('/admin/swarm/red-team/scenarios', { method: 'POST', body: JSON.stringify({ name: document.getElementById('rt-name').value, threatModel: document.getElementById('rt-threat').value, description: document.getElementById('rt-desc').value }) });
-    toast('Scenario added', 'good'); renderWsRedteam();
-  } catch (e) { toast(e.message, 'bad'); }
-}
-async function wsReplay(id) {
-  try { const r = await wsFetch('/admin/swarm/red-team/replay', { method: 'POST', body: JSON.stringify({ scenarioId: id }) }); toast(`Replay ${r.run.passed ? 'PASSED' : 'FAILED'} · ${r.run.checks.filter((c) => c.passed).length}/${r.run.checks.length}`, r.run.passed ? 'good' : 'bad'); renderWsRedteam(); } catch (e) { toast(e.message, 'bad'); }
-}
-async function wsScenarioDelete(id) {
-  try { await wsFetch(`/admin/swarm/red-team/scenarios/${id}`, { method: 'DELETE' }); toast('Scenario deleted', 'good'); renderWsRedteam(); } catch (e) { toast(e.message, 'bad'); }
-}
-
 // Journey K (Epic 8) — full CMS submission lifecycle.
 async function renderWsSubmissions() {
   const dom = await consoleDomain();
@@ -7268,178 +7218,26 @@ window.wsSubAction = async function(id, action) {
   renderWsSubmissions();
 };
 
-async function renderWsAdmin() {
-  let t = null; let k = null; let p = null; let err = null;
-  try { const [tr, kr, pr] = await Promise.all([wsFetch('/admin/swarm/admin/tenant'), wsFetch('/admin/swarm/admin/kafka'), wsFetch('/admin/swarm/admin/policy')]); t = tr.tenant; k = kr.kafka; p = pr.policy; } catch (e) { err = e.message; }
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Platform admin</h2><p class="page-sub">Organization profile, Kafka bridge contract and the action-boundary policy — durable; the red-team replay and release gates read this live.</p></div></div>
-    ${err ? `<div class="state-card"><div class="state-title">${esc(err)}</div></div>` : t ? `
-    <div class="section-card"><h3>Organization</h3>
-      <div class="field-row"><div class="field" style="flex:2;"><label>Display name</label><input id="ad-name" value="${esc(t.displayName)}"></div>
-      <div class="field"><label>Environment</label><input id="ad-env" value="${esc(t.environmentName)}"></div>
-      <div class="field"><label>Deployment</label><select id="ad-mode"><option ${t.deploymentMode === 'reference' ? 'selected' : ''}>reference</option><option ${t.deploymentMode === 'non-production' ? 'selected' : ''}>non-production</option><option ${t.deploymentMode === 'production' ? 'selected' : ''}>production</option></select></div>
-      <div class="field"><label>Region</label><input id="ad-region" value="${esc(t.dataRegion)}"></div>
-      <button class="btn btn-primary" onclick="wsTenantSave()">Save</button></div></div>
-    <div class="section-card"><h3>Kafka bridge ${wsStatusPill(k.status)}</h3>
-      <div class="field-row"><div class="field" style="flex:2;"><label>Bridge URL</label><input id="ad-url" value="${esc(k.bridgeUrl)}"></div>
-      <div class="field"><label>Cluster alias</label><input id="ad-alias" value="${esc(k.clusterAlias)}"></div>
-      <div class="field"><label>Protocol</label><select id="ad-proto"><option ${k.securityProtocol === 'SASL_SSL' ? 'selected' : ''}>SASL_SSL</option><option ${k.securityProtocol === 'SSL' ? 'selected' : ''}>SSL</option><option ${k.securityProtocol === 'PLAINTEXT' ? 'selected' : ''}>PLAINTEXT</option></select></div>
-      <div class="field"><label>Consumer group</label><input id="ad-group" value="${esc(k.consumerGroup)}"></div></div>
-      <div class="field-row"><div class="field" style="flex:3;"><label>Secret binding reference</label><input id="ad-secret" value="${esc(k.secretRef)}"><small class="muted">Reference only — never enter the secret value.</small></div>
-      <button class="btn btn-primary" onclick="wsKafkaSave()">Save</button>
-      <button class="btn" onclick="wsKafkaTest()"><i data-lucide="cable" style="width:13px;height:13px"></i> Test contract</button></div></div>
-    <div class="section-card"><h3>Action-boundary policy</h3>
-      <div class="field-row"><div class="field" style="flex:2;"><label>Version</label><input id="ad-policy-ver" value="${esc(p.version)}"></div>
-      <div class="field" style="flex:2;"><label>Escalation threshold · ${p.escalationThresholdBasisPoints / 100}%</label><input id="ad-policy-thr" type="range" min="${p.minThresholdBasisPoints}" max="${p.maxThresholdBasisPoints}" step="100" value="${p.escalationThresholdBasisPoints}" oninput="document.getElementById('ad-policy-thr-lbl').textContent=(this.value/100)+'%'"></div>
-      <div class="field"><label>&nbsp;</label><span id="ad-policy-thr-lbl" class="pill brand">${p.escalationThresholdBasisPoints / 100}%</span></div>
-      <div class="field checkbox"><label><input id="ad-policy-ext" type="checkbox" ${p.externalWritesEnabled ? 'checked' : ''}> <span>External writes enabled</span></label></div>
-      <button class="btn btn-primary" onclick="wsPolicySave()">Save</button></div></div>` : ''}`;
-  hydrateIcons();
-}
-async function wsTenantSave() {
-  try { await wsFetch('/admin/swarm/admin/tenant', { method: 'PUT', body: JSON.stringify({ displayName: document.getElementById('ad-name').value, environmentName: document.getElementById('ad-env').value, deploymentMode: document.getElementById('ad-mode').value, dataRegion: document.getElementById('ad-region').value }) }); toast('Organization saved', 'good'); renderWsAdmin(); } catch (e) { toast(e.message, 'bad'); }
-}
-async function wsKafkaSave() {
-  try { await wsFetch('/admin/swarm/admin/kafka', { method: 'PUT', body: JSON.stringify({ bridgeUrl: document.getElementById('ad-url').value, clusterAlias: document.getElementById('ad-alias').value, securityProtocol: document.getElementById('ad-proto').value, consumerGroup: document.getElementById('ad-group').value, secretRef: document.getElementById('ad-secret').value }) }); toast('Kafka bridge saved', 'good'); renderWsAdmin(); } catch (e) { toast(e.message, 'bad'); }
-}
-async function wsKafkaTest() {
-  try { await wsFetch('/admin/swarm/admin/kafka/test', { method: 'POST', body: '{}' }); toast('Contract verified', 'good'); renderWsAdmin(); } catch (e) { toast(e.message, 'bad'); }
-}
-async function wsPolicySave() {
-  try { await wsFetch('/admin/swarm/admin/policy', { method: 'PUT', body: JSON.stringify({ version: document.getElementById('ad-policy-ver').value, escalationThresholdBasisPoints: Number(document.getElementById('ad-policy-thr').value), externalWritesEnabled: document.getElementById('ad-policy-ext').checked }) }); toast('Policy saved', 'good'); renderWsAdmin(); } catch (e) { toast(e.message, 'bad'); }
-}
-
-async function renderWsReviews() {
-  let reviews = []; let err = null;
-  try { reviews = (await wsFetch('/admin/swarm/reviews')).reviews || []; } catch (e) { err = e.message; }
-  const rows = reviews.map((r) => `
-    <div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px dashed var(--border);flex-wrap:wrap;">
-      <span style="flex:1;min-width:170px;font-size:13px;"><b>${esc(r.entityId)}</b> <span class="muted" style="font-size:11px;">· ${esc(r.entityType)}</span></span>
-      ${wsStatusPill(r.status)}
-      <span class="muted" style="font-size:11px;">${esc(r.requestedBy)} · ${new Date(r.requestedAt || r.createdAt).toLocaleString()}</span>
-      ${r.status === 'pending' ? `<button class="btn btn-sm" onclick="wsReview('${r.id}','confirmed')">Confirm</button><button class="btn btn-sm" onclick="wsReview('${r.id}','rejected')">Reject</button>` : `<span class="muted" style="font-size:11px;">${esc(r.reviewer || '')}${r.note ? ' · ' + esc(r.note) : ''}</span>`}
-    </div>`).join('') || '<div class="muted">No reviews requested.</div>';
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Evidence reviews</h2><p class="page-sub">Command-cockpit request-review / review-evidence flow — durable decision ledger.</p></div></div>
-    ${err ? `<div class="state-card"><div class="state-title">${esc(err)}</div></div>` : ''}
-    <div class="section-card"><h3>Request a review</h3>
-      <div class="field-row"><div class="field" style="flex:2;"><label>Entity id</label><input id="rv-entity" placeholder="episode or evidence id"></div>
-      <div class="field"><label>Type</label><select id="rv-type"><option>outcome-episode</option><option>evidence</option><option>command</option></select></div>
-      <div class="field" style="flex:2;"><label>Reason</label><input id="rv-reason" value="Evidence review requested before execution"></div>
-      <button class="btn btn-primary" onclick="wsReviewRequest()"><i data-lucide="plus"></i> Request</button></div></div>
-    <div class="section-card"><h3>Review ledger</h3>${rows}</div>`;
-  hydrateIcons();
-}
-async function wsReviewRequest() {
-  try { await wsFetch('/admin/swarm/reviews', { method: 'POST', body: JSON.stringify({ entityId: document.getElementById('rv-entity').value, entityType: document.getElementById('rv-type').value, reason: document.getElementById('rv-reason').value }) }); toast('Review requested', 'good'); renderWsReviews(); } catch (e) { toast(e.message, 'bad'); }
-}
-async function wsReview(id, decision) {
-  try { await wsFetch(`/admin/swarm/reviews/${id}/review`, { method: 'POST', body: JSON.stringify({ decision, reviewer: 'operator' }) }); toast(`Review ${decision}`, 'good'); renderWsReviews(); } catch (e) { toast(e.message, 'bad'); }
-}
-
-async function renderWsSim() {
-  let sims = []; let err = null;
-  try { sims = (await wsFetch('/admin/swarm/facility/simulations')).simulations || []; } catch (e) { err = e.message; }
-  const rows = sims.slice(0, 20).map((s) => `
-    <div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px dashed var(--border);flex-wrap:wrap;">
-      <span class="pill ${s.feasible ? 'good' : 'bad'}">${s.feasible ? 'FEASIBLE' : 'BLOCKED'}</span>
-      <span style="flex:1;min-width:160px;font-size:13px;"><b>${esc(s.realmId || 'no realm')}</b> <span class="muted" style="font-size:11px;">${s.checks.filter((c) => c.passed).length}/${s.checks.length} checks</span></span>
-      <span class="muted" style="font-size:11px;">${s.checks.map((c) => `${esc(c.label)}${c.passed ? '✓' : '✗'}`).join(' · ')}</span>
-    </div>`).join('') || '<div class="muted">No simulations run.</div>';
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Facility simulations</h2><p class="page-sub">Facility-twin capacity checks derived from REAL realm snapshots (units, patients, effects).</p></div></div>
-    ${err ? `<div class="state-card"><div class="state-title">${esc(err)}</div></div>` : ''}
-    <div class="section-card"><h3>Run a simulation</h3>
-      <div class="field-row"><div class="field"><label>Realm id</label><input id="sim-realm" placeholder="realm:c2"></div>
-      <div class="field"><label>Patient id</label><input id="sim-patient" placeholder="f1-pt-0001"></div>
-      <div class="field"><label>Requested slot</label><input id="sim-slot" placeholder="14:30"></div>
-      <button class="btn btn-primary" onclick="wsSimRun()"><i data-lucide="play" style="width:13px;height:13px"></i> Simulate</button></div></div>
-    <div class="section-card"><h3>Simulation ledger</h3>${rows}</div>`;
-  hydrateIcons();
-}
-async function wsSimRun() {
-  try {
-    const r = await wsFetch('/admin/swarm/facility/simulate', { method: 'POST', body: JSON.stringify({ realmId: document.getElementById('sim-realm').value, patientId: document.getElementById('sim-patient').value, requestedSlot: document.getElementById('sim-slot').value }) });
-    toast(`Simulation ${r.simulation.feasible ? 'FEASIBLE' : 'BLOCKED'}`, r.simulation.feasible ? 'good' : 'bad'); renderWsSim();
-  } catch (e) { toast(e.message, 'bad'); }
-}
-
-async function renderWsNotes() {
-  let notes = []; let err = null;
-  try { notes = (await wsFetch('/admin/swarm/notes')).notes || []; } catch (e) { err = e.message; }
-  const rows = notes.map((n) => `
-    <div style="padding:9px 0;border-bottom:1px dashed var(--border);">
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-        <b style="font-size:13px;">${esc(n.title)}</b> <code>${esc(n.nodeId)}</code> <span class="pill muted">v${n.version}</span>
-        <span class="muted" style="font-size:11px;flex:1;">${esc(n.createdBy)}</span>
-        <button class="btn btn-sm" onclick="wsNoteDelete('${n.id}')"><i data-lucide="trash-2" style="width:13px;height:13px"></i></button>
-      </div>
-      <div class="muted" style="font-size:12px;margin-top:3px;">${esc(n.content)}</div>
-      ${(n.comments || []).map((c) => `<div class="muted" style="font-size:11px;margin-top:2px;">· ${esc(c.by)}: ${esc(c.body)}</div>`).join('')}
-      <div class="field-row" style="margin-top:6px;"><div class="field" style="flex:1;"><input id="cmt-${n.id}" placeholder="Add a comment…"></div>
-      <button class="btn btn-sm" onclick="wsNoteComment('${n.id}')">Comment</button></div>
-    </div>`).join('') || '<div class="muted">No knowledge notes.</div>';
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Knowledge notes</h2><p class="page-sub">Intelligence-workspace notes + comments on topology nodes — durable CRUD.</p></div></div>
-    ${err ? `<div class="state-card"><div class="state-title">${esc(err)}</div></div>` : ''}
-    <div class="section-card"><h3>Add a note</h3>
-      <div class="field-row"><div class="field"><label>Node id</label><input id="nt-node" placeholder="treatment-continuity"></div>
-      <div class="field" style="flex:1.5;"><label>Title</label><input id="nt-title"></div>
-      <div class="field" style="flex:2;"><label>Content</label><input id="nt-content"></div>
-      <button class="btn btn-primary" onclick="wsNoteCreate()"><i data-lucide="plus"></i> Add note</button></div></div>
-    <div class="section-card"><h3>Notes</h3>${rows}</div>`;
-  hydrateIcons();
-}
-async function wsNoteCreate() {
-  try { await wsFetch('/admin/swarm/notes', { method: 'POST', body: JSON.stringify({ nodeId: document.getElementById('nt-node').value, title: document.getElementById('nt-title').value, content: document.getElementById('nt-content').value }) }); toast('Note added', 'good'); renderWsNotes(); } catch (e) { toast(e.message, 'bad'); }
-}
-async function wsNoteComment(id) {
-  try { await wsFetch(`/admin/swarm/notes/${id}/comments`, { method: 'POST', body: JSON.stringify({ body: document.getElementById(`cmt-${id}`).value }) }); toast('Comment added', 'good'); renderWsNotes(); } catch (e) { toast(e.message, 'bad'); }
-}
-async function wsNoteDelete(id) {
-  try { await wsFetch(`/admin/swarm/notes/${id}`, { method: 'DELETE' }); toast('Note deleted', 'good'); renderWsNotes(); } catch (e) { toast(e.message, 'bad'); }
-}
-
 // ---------- Exec substrate — the enrichment the exec console renders, now real ----------
-const WS_SUB = {
-  events: { label: 'Events', get: '/admin/swarm/events', listKey: 'events', post: '/admin/swarm/events', fields: [['eventId', 'Event id'], ['eventType', 'Event type'], ['subjectId', 'Subject'], ['sourceSystem', 'Source']], cols: ['eventType', 'subjectId', 'sourceSystem', 'status'] },
-  evidence: { label: 'Evidence', get: '/admin/swarm/evidence', listKey: 'evidence', post: '/admin/swarm/evidence', fields: [['exactText', 'Exact text'], ['questionId', 'Question id']], cols: ['evidenceId', 'exactText', 'confidenceBasisPoints'] },
-  traces: { label: 'Traces', get: '/admin/swarm/traces', listKey: 'traces', post: '/admin/swarm/traces', fields: [['name', 'Name'], ['system', 'System'], ['durationMs', 'Duration ms']], cols: ['spanId', 'name', 'system', 'status', 'durationMs'] },
-  models: { label: 'Models', get: '/admin/swarm/models', listKey: 'models', post: '/admin/swarm/models', fields: [['modelId', 'Model id'], ['evaluationScoreBasisPoints', 'Eval score bp']], cols: ['modelId', 'modelVersion', 'status', 'evaluationScoreBasisPoints', 'killSwitch'] },
-  drift: { label: 'Drift', get: '/admin/swarm/drift', listKey: 'drift', post: '/admin/swarm/drift', fields: [['targetId', 'Target'], ['metric', 'Metric']], cols: ['targetId', 'metric', 'valueBasisPoints', 'thresholdBasisPoints', 'status'] },
-  authority: { label: 'Authority', get: '/admin/swarm/authority', listKey: 'sources', post: '/admin/swarm/authority', fields: [['sourceId', 'Source id'], ['authority', 'Authority']], cols: ['sourceId', 'authority', 'status', 'effectiveFrom'] },
-  audits: { label: 'Audits', get: '/admin/swarm/audits', listKey: 'audits', post: '/admin/swarm/audits', fields: [['actor', 'Actor'], ['action', 'Action'], ['decision', 'Decision']], cols: ['eventId', 'category', 'actor', 'action', 'decision'] },
-  topology: { label: 'Topology', get: '/admin/swarm/topology', listKey: 'nodes', post: '/admin/swarm/topology/nodes', fields: [['label', 'Node label'], ['type', 'Type']], cols: ['label', 'type', 'x', 'y'] },
-};
-let wsSubTab = 'events';
 const WS_CATALOG_KINDS = ['agent-manifest', 'measure-pack', 'public-source', 'domain-pack', 'operating-model', 'ecosystem', 'runtime-policy', 'public-benchmark', 'federal-fact', 'green-team-check', 'source-mapping', 'facility-station', 'assessment-response', 'outcome-episode-story', 'patient-timeline'];
 let wsCatKind = 'agent-manifest';
 let wsCatRows = []; let wsCatIsSingle = false; let wsCatSingleId = null; let wsCatEditIndex = -1;
 let wsOntology = null; let wsOntologyRealized = null;
 const WS_LEVELS = ['enterprise', 'division', 'region', 'market', 'facility'];
-async function renderWsSubstrate() {
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Exec substrate</h2><p class="page-sub">The enrichment the executive console renders — events, evidence, traces, models, drift, authority sources, audits, topology AND every catalog (agent manifests, measure packs, public sources, operating model, …). All durable CRUD the admin authors.</p></div></div>
-    <div class="section-card"><div class="page-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">${Object.entries(WS_SUB).map(([key, c]) => `<button class="tab${wsSubTab === key ? ' is-active' : ''}" onclick="wsSubGo('${key}')">${c.label}</button>`).join('')}<button class="tab${wsSubTab === 'ontology' ? ' is-active' : ''}" onclick="wsSubGo('ontology')">Ontology</button><button class="tab${wsSubTab === 'catalogs' ? ' is-active' : ''}" onclick="wsSubGo('catalogs')">Catalogs</button></div>
-      <div id="ws-substrate-body">Loading…</div></div>`;
-  await wsSubstrateBody();
-  hydrateIcons();
-}
-async function wsSubGo(key) { wsSubTab = key; await renderWsSubstrate(); }
-async function wsCatalogBody() {
-  const body = document.getElementById('ws-substrate-body');
+async function cfgObjectsBody() {
+  const body = document.getElementById('cfg-body');
   if (!body) return;
   const single = ['operating-model', 'ecosystem', 'runtime-policy', 'public-benchmark', 'domain-pack'];
   wsCatIsSingle = single.includes(wsCatKind);
   let rows = []; let err = null; let data = null; wsCatSingleId = null;
   try {
     if (wsCatIsSingle) {
-      const j = await wsFetch(`/admin/swarm/catalog/${wsCatKind}`);
+      const j = await plFetch('GET', `/admin/platform/config-objects/${wsCatKind}`);
       data = j.data;
       wsCatSingleId = j.id ?? null;
       rows = wsCatKind === 'domain-pack' && data?.packs ? data.packs : wsCatKind === 'public-benchmark' && data?.benchmarks ? data.benchmarks : data ? [data] : [];
     } else {
-      rows = (await wsFetch(`/admin/swarm/catalog/${wsCatKind}`)).rows || [];
+      rows = (await plFetch('GET', `/admin/platform/config-objects/${wsCatKind}`)).rows || [];
     }
   } catch (e) { err = e.message; }
   wsCatRows = rows.map((r) => ({ r }));
@@ -7454,22 +7252,22 @@ async function wsCatalogBody() {
       <div class="field"><label>Catalog</label><select id="ws-cat-kind" onchange="wsCatKind=this.value;wsCatalogBody()">${WS_CATALOG_KINDS.map((k) => `<option value="${k}" ${k === wsCatKind ? 'selected' : ''}>${k}</option>`).join('')}</select></div>
       <div class="field" style="flex:1;"><label>JSON payload</label><input id="ws-cat-json" placeholder='{"name":"New item"}'></div>
       <button class="btn btn-primary" onclick="wsCatalogCreate()"><i data-lucide="plus"></i> Add row</button>
-      <button class="btn" onclick="renderWsSubstrate()"><i data-lucide="refresh-cw" style="width:13px;height:13px"></i> Refresh</button></div>
-    <div class="detail muted" style="font-size:11px;margin-bottom:8px;">Catalog is the single source the exec console renders — the frontend imports no JSON anymore; every row is stored in Postgres (swarm_workspace). ✎ edits and 🗑 deletes persist immediately. For single-doc catalogs (operating-model/ecosystem/runtime-policy/public-benchmark/domain-pack) the payload is the full document — use the <b>Ontology</b> tab for a structured operating-model editor.</div>
+      <button class="btn" onclick="cfgObjectsBody()"><i data-lucide="refresh-cw" style="width:13px;height:13px"></i> Refresh</button></div>
+    <div class="detail muted" style="font-size:11px;margin-bottom:8px;">Durable rows in Postgres (<code>swarm_workspace</code>) — the single source the executive console renders; the frontend bundles no JSON. ✎ and 🗑 persist immediately. Single-document kinds (operating-model / ecosystem / runtime-policy / public-benchmark / domain-pack) take the full document as the payload; use the <b>Ontology</b> tab for a structured operating-model editor.</div>
     ${table}`;
   hydrateIcons();
 }
 async function wsCatalogCreate() {
   let payload = {};
   try { payload = JSON.parse(document.getElementById('ws-cat-json').value || '{}'); } catch { toast('Payload must be valid JSON', 'bad'); return; }
-  try { await wsFetch(`/admin/swarm/catalog/${wsCatKind}`, { method: 'POST', body: JSON.stringify(payload) }); toast('Row added', 'good'); wsCatalogBody(); } catch (e) { toast(e.message, 'bad'); }
+  try { await plFetch('POST', `/admin/platform/config-objects/${wsCatKind}`, payload); toast('Row added', 'good'); cfgObjectsBody(); } catch (e) { toast(e.message, 'bad'); }
 }
 async function wsCatalogDelete(i) {
   let id;
   if (wsCatIsSingle) id = wsCatSingleId;
   else { const row = wsCatRows[i]; id = row && row.r ? row.r.id : null; }
   if (!id) { toast('Cannot delete — no id on this row', 'bad'); return; }
-  try { await wsFetch(`/admin/swarm/catalog/${wsCatKind}/${encodeURIComponent(id)}`, { method: 'DELETE' }); toast('Deleted', 'good'); wsCatalogBody(); } catch (e) { toast(e.message, 'bad'); }
+  try { await plFetch('DELETE', `/admin/platform/config-objects/${wsCatKind}/${encodeURIComponent(id)}`); toast('Deleted', 'good'); cfgObjectsBody(); } catch (e) { toast(e.message, 'bad'); }
 }
 function wsCatalogEdit(i) {
   const row = wsCatRows[i];
@@ -7499,7 +7297,7 @@ async function wsCatalogSaveEdit(payload) {
   if (wsCatIsSingle) id = wsCatSingleId;
   else { const row = wsCatRows[wsCatEditIndex]; id = row && row.r ? row.r.id : null; }
   if (!id) { toast('Cannot save — no id on this row', 'bad'); return; }
-  try { await wsFetch(`/admin/swarm/catalog/${wsCatKind}/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }); closeCatalogEdit(); toast('Saved to Postgres', 'good'); wsCatalogBody(); } catch (e) { toast(e.message, 'bad'); }
+  try { await plFetch('PUT', `/admin/platform/config-objects/${wsCatKind}/${encodeURIComponent(id)}`, payload); closeCatalogEdit(); toast('Saved to Postgres', 'good'); cfgObjectsBody(); } catch (e) { toast(e.message, 'bad'); }
 }
 
 // ---------- Ontology editor — the org hierarchy operating model, stored in Postgres ----------
@@ -7508,12 +7306,12 @@ const WS_ONTOLOGY_FIELDS = {
   roles: { title: 'Role cockpits', prefix: 'role', fields: ['id', 'shortLabel', 'label', 'scopeLevel', 'purpose', 'decisionRights'] },
   domains: { title: 'Outcome domains', prefix: 'domain', fields: ['id', 'label', 'ownerRoles', 'agentIds'] },
 };
-async function wsOntologyBody() {
-  const body = document.getElementById('ws-substrate-body');
+async function cfgOntologyBody() {
+  const body = document.getElementById('cfg-body');
   if (!body) return;
   let err = null;
   try {
-    const j = await wsFetch('/admin/ontology');
+    const j = await plFetch('GET', '/admin/ontology');
     wsOntology = j.ontology || { version: '2026.1.0', synthetic: true, organization: '', model: '', scopePath: [], roles: [], domains: [] };
     wsOntologyRealized = j.realized || { totalFacilities: 0, totalPatients: 0, perFacility: [] };
   } catch (e) { err = e.message; }
@@ -7535,7 +7333,7 @@ async function wsOntologyBody() {
     ${cards}
     <div style="display:flex;gap:8px;margin-top:12px;">
       <button class="btn btn-primary" onclick="wsOntologySave()"><i data-lucide="save"></i> Save ontology to Postgres</button>
-      <button class="btn" onclick="renderWsSubstrate()"><i data-lucide="x"></i> Discard</button></div>`;
+      <button class="btn" onclick="renderPlatformConfig()"><i data-lucide="x"></i> Discard</button></div>`;
   hydrateIcons();
 }
 function wsOntologyCard(key, cfg) {
@@ -7567,15 +7365,15 @@ function wsOntologyAdd(key) {
     : key === 'roles' ? { id: '', shortLabel: '', label: '', scopeLevel: 'facility', purpose: '', decisionRights: [] }
     : { id: '', label: '', ownerRoles: [], agentIds: [] };
   wsOntology[key].push(base);
-  wsOntologyBody();
+  cfgOntologyBody();
 }
 function wsOntologyRemove(key, idx) {
   wsOntology[key].splice(idx, 1);
-  wsOntologyBody();
+  cfgOntologyBody();
 }
 async function wsOntologySave() {
   const payload = { version: wsOntology.version, synthetic: wsOntology.synthetic, organization: wsOntology.organization, model: wsOntology.model, scopePath: wsOntology.scopePath || [], roles: wsOntology.roles || [], domains: wsOntology.domains || [] };
-  try { await wsFetch('/admin/ontology', { method: 'PUT', body: JSON.stringify(payload) }); toast('Ontology saved to Postgres', 'good'); renderWsSubstrate(); } catch (e) { toast(e.message, 'bad'); }
+  try { await plFetch('PUT', '/admin/ontology', payload); toast('Ontology saved to Postgres', 'good'); renderPlatformConfig(); } catch (e) { toast(e.message, 'bad'); }
 }
 function wsOntologyPullLive() {
   const r = wsOntologyRealized || {};
@@ -7586,359 +7384,12 @@ function wsOntologyPullLive() {
       if (match) node.patients = match.patients;
     }
   });
-  wsOntologyBody();
+  cfgOntologyBody();
 }
-function wsSubCell(v) {
-  if (v === null || v === undefined) return '—';
-  if (typeof v === 'boolean') return v ? 'yes' : 'no';
-  if (typeof v === 'object') return `<code>${esc(JSON.stringify(v)).slice(0, 60)}</code>`;
-  return esc(String(v));
-}
-async function wsSubstrateBody() {
-  if (wsSubTab === 'ontology') { await wsOntologyBody(); return; }
-  if (wsSubTab === 'catalogs') { await wsCatalogBody(); return; }
-  const cfg = WS_SUB[wsSubTab];
-  const body = document.getElementById('ws-substrate-body');
-  if (!body) return;
-  let rows = []; let err = null;
-  try {
-    const j = await wsFetch(cfg.get);
-    rows = j[cfg.listKey] || [];
-    if (wsSubTab === 'topology' && Array.isArray(j.edges)) rows = rows.concat(j.edges.map((e) => ({ __edge: true, id: e.id || `${e.source}->${e.target}`, label: `${e.source} ${e.relation} ${e.target}`, type: 'edge', x: '', y: '' })));
-  } catch (e) { err = e.message; }
-  const formFields = cfg.fields.map(([key, label]) => `<div class="field"><label>${label}</label><input id="sub-${key}" ${key === 'durationMs' || key === 'evaluationScoreBasisPoints' ? 'type="number"' : ''}></div>`).join('');
-  const table = `<div style="overflow-x:auto;"><table class="panel"><thead><tr>${cfg.cols.map((c) => `<th>${c}</th>`).join('')}<th></th></tr></thead><tbody>${
-    rows.map((r) => `<tr>${cfg.cols.map((c) => `<td>${wsSubCell(r[c])}</td>`).join('')}<td><button class="btn btn-sm" onclick="wsSubDelete('${wsSubTab}','${esc(String(r.id))}')"><i data-lucide="trash-2" style="width:13px;height:13px"></i></button></td></tr>`).join('')
-    || '<tr><td colspan="99" class="muted">Empty — add a row below.</td></tr>'}</tbody></table></div>`;
-  body.innerHTML = `
-    ${err ? `<div class="state-card"><div class="state-title">${esc(err)}</div></div>` : ''}
-    <div class="field-row" style="margin-bottom:12px;">${formFields}<button class="btn btn-primary" onclick="wsSubCreate()"><i data-lucide="plus"></i> Add ${cfg.label.slice(0, -1)}</button></div>
-    ${table}`;
-  hydrateIcons();
-}
-async function wsSubCreate() {
-  const cfg = WS_SUB[wsSubTab];
-  const payload = {};
-  for (const [key] of cfg.fields) {
-    const el = document.getElementById(`sub-${key}`);
-    if (!el) continue;
-    const v = el.value.trim();
-    if (key === 'durationMs' || key === 'evaluationScoreBasisPoints' || key === 'confidenceBasisPoints') payload[key] = Number(v || 0);
-    else if (v) payload[key] = v;
-  }
-  try { await wsFetch(cfg.post, { method: 'POST', body: JSON.stringify(payload) }); toast(`${cfg.label.slice(0, -1)} added`, 'good'); renderWsSubstrate(); } catch (e) { toast(e.message, 'bad'); }
-}
-async function wsSubDelete(kind, id) {
-  const cfg = WS_SUB[kind];
-  const map = { events: 'events', evidence: 'evidence', traces: 'traces', models: 'models', drift: 'drift', authority: 'authority', audits: 'audits', topology: 'topology/nodes' };
-  try { await wsFetch(`/admin/swarm/${map[kind]}/${id}`, { method: 'DELETE' }); toast('Deleted', 'good'); renderWsSubstrate(); } catch (e) { toast(e.message, 'bad'); }
-}
-
-async function renderSwarmCells() {
-  const d = await swarmDemoState();
-  const cells = d?.cells || [];
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Bounded cells</h2>
-      <p class="page-sub">Each cell is a contract: consumes → produces → allowed actions only → approval class → eval gate → kill switch. Cells publish typed proposals to the harness; they never call each other directly.</p></div></div>
-    <div id="swarm-cells-grid"></div>`;
-  dataGrid({
-    el: 'swarm-cells-grid', filename: 'swarm-cells', pageSize: 12, empty: 'No cells declared.',
-    columns: [
-      { key: 'id', label: 'Cell', render: (v, r) => `<div><code>${esc(v)}</code></div><div class="muted" style="font-size:11px;">${esc(r.displayName || '')}</div>` },
-      { key: 'domain', label: 'Domain', render: (v) => `<span class="pill muted">${esc(v)}</span>` },
-      { key: 'approvalClass', label: 'Class', render: (v) => `<span class="pill ${v === 'D' ? 'bad' : v === 'C' ? 'warn' : 'brand'}">${esc(v)}</span>` },
-      { key: 'evalGate', label: 'Eval gate', render: (v) => `<code>${Math.round((v ?? 0) * 100)}%</code>` },
-      { key: 'killSwitch', label: 'Kill switch', render: (v) => (v ? '<span class="pill bad">killed</span>' : '<span class="pill good">armed</span>') },
-      { key: 'allowedActions', label: 'Allowed actions only', render: (v) => `<div style="display:flex;gap:3px;flex-wrap:wrap;max-width:340px;">${(v || []).map((a) => `<code style="font-size:10px;">${esc(a)}</code>`).join('')}</div>` },
-      { key: 'consumes', label: 'Consumes', render: (v) => `<span class="muted" style="font-size:11px;">${esc((v || []).slice(0, 4).join(' · '))}</span>` },
-      { key: 'observerRef', label: 'Built on', render: (v) => `<code style="font-size:10px;">${esc(v || '')}</code>` },
-    ],
-    data: cells,
-  });
-}
-
-async function renderSwarmNba() {
-  const d = await swarmDemoState();
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Next-best actions</h2>
-      <p class="page-sub">Candidate interventions ranked by outcome + urgency + value + evidence + consensus − risk − policy cost. The ranking is advisory; the server re-checks role, scope and approval class before a durable command.</p></div></div>
-    <div id="swarm-nba-grid"></div>`;
-  dataGrid({
-    el: 'swarm-nba-grid', filename: 'swarm-nba', pageSize: 10, empty: 'No next-best actions.',
-    columns: [
-      { key: 'rank', label: '#', align: 'right', render: (v) => `<span class="pill brand">${v}</span>` },
-      { key: 'title', label: 'Action' },
-      { key: 'cells', label: 'Cells', render: (v) => `<div style="display:flex;gap:3px;flex-wrap:wrap;">${(v || []).map((c) => `<code style="font-size:10px;">${esc(c)}</code>`).join('')}</div>` },
-      { key: 'consensus', label: 'Consensus', render: (v) => `${Math.round((v ?? 0) * 100)}%` },
-      { key: 'belief', label: 'Belief', render: (v, r) => (typeof v === 'number' ? `${Math.round(v * 100)}%` : '—'), title: 'DST committed belief' },
-      { key: 'plausibility', label: 'Plausibility', render: (v) => (typeof v === 'number' ? `${Math.round(v * 100)}%` : '—'), title: 'DST best case' },
-      { key: 'conflictMass', label: 'Conflict K', render: (v) => (typeof v === 'number' ? Number(v).toFixed(2) : '—'), title: 'DST fused conflict mass' },
-      { key: 'evidenceCount', label: 'Evidence', align: 'right' },
-      { key: 'owner', label: 'Owner' },
-      { key: 'due', label: 'Due' },
-      { key: 'approvalClass', label: 'Class', render: (v) => `<span class="pill ${v === 'C' ? 'warn' : 'brand'}">${esc(v)}</span>` },
-      { key: 'status', label: 'Status', render: (v) => `<span class="pill ${v === 'awaiting-approval' ? 'warn' : 'muted'}">${esc(v)}</span>` },
-      { key: 'score', label: 'Score', align: 'right', render: (v) => Number(v).toFixed(3) },
-    ],
-    data: d?.nbas || [],
-  });
-}
-
-async function renderSwarmEpisodes() {
-  const dom = await consoleDomain();
-  let episodes = [];
-  try { const j = await api('GET', '/admin/swarm/episodes'); episodes = j.episodes || []; } catch (_) { /* offline */ }
-  const statePill = (s) => `<span class="pill ${s === 'Resolved' ? 'good' : s === 'Escalated' || s === 'Blocked' ? 'bad' : s === 'AwaitingApproval' ? 'warn' : 'muted'}">${esc(s)}</span>`;
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Outcome episodes</h2>
-      <p class="page-sub">Durable coordination of evidence → proposal → approval → command → acknowledgement → verified result. Approve to issue an idempotent command; Ack to close with a measure result.</p></div></div>
-    <div class="detail" style="margin-top:0;"><div class="field-row">
-      <div class="field"><label>Kind</label><input id="se-kind" value="continuity.risk" style="width:160px"></div>
-      <div class="field"><label>Subject</label><input id="se-subject" value="patient:p1" style="width:200px"></div>
-      <div class="field"><label>Scope</label><select id="se-scope"><option>region</option><option>facility</option><option>market</option><option>patient</option></select></div>
-      <button class="btn btn-primary" id="se-open"><i data-lucide="plus"></i> Open episode</button>
-    </div></div>
-    <div class="detail"><h3 style="margin-top:0;">Episodes (${episodes.length})</h3>
-      <div id="swarm-episodes-list"></div>
-    </div>`;
-  const list = document.getElementById('swarm-episodes-list');
-  const renderList = (eps) => {
-    if (!list) return;
-    list.innerHTML = eps.map((e) => `
-      <div style="padding:7px 0;border-bottom:1px dashed var(--border);">
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <code>${esc(e.episodeId)}</code> ${statePill(e.state)}
-          <span class="muted" style="font-size:12px;">${esc(e.kind)} · ${esc(e.subject)}</span>
-          ${e.measureResult ? `<span class="pill good">${esc(e.measureResult.measureId)} ${e.measureResult.met ? '✓' : '✗'}</span>` : ''}
-          ${e.evidenceFusion && typeof e.evidenceFusion.belief === 'number' ? `<span class="pill muted" title="Dempster–Shafer evidence fusion · provenance">Bel ${Math.round(e.evidenceFusion.belief * 100)}% · Pl ${Math.round((e.evidenceFusion.plausibility ?? 0) * 100)}% · K ${Number(e.evidenceFusion.conflictMass ?? 0).toFixed(2)} · ${esc(e.evidenceStatus ?? 'fused')}</span>` : ''}
-          <span class="muted" style="font-size:11px;">${e.transitions.length} transitions</span>
-        </div>
-        <div class="muted" style="font-size:11px;margin-top:2px;">${(e.transitions || []).map((t) => `${esc(t.from)} → ${esc(t.to)}`).join(' · ')}</div>
-        <div style="display:flex;gap:6px;margin-top:4px;">
-          ${['Observed', 'Watching', 'Understood'].includes(e.state) ? `<button class="btn btn-ghost" data-ep="${e.episodeId}" data-act="propose" style="padding:2px 10px;font-size:12px;">Prepare proposal</button>` : ''}
-          ${e.state === 'AwaitingApproval' ? `<button class="btn btn-ghost" data-ep="${e.episodeId}" data-act="approve" style="padding:2px 10px;font-size:12px;">Approve</button><button class="btn btn-ghost" data-ep="${e.episodeId}" data-act="reject" style="padding:2px 10px;font-size:12px;">Reject</button>` : ''}
-          ${e.state === 'Coordinating' ? `<button class="btn btn-ghost" data-ep="${e.episodeId}" data-act="ack" style="padding:2px 10px;font-size:12px;">Ack + verify</button>` : ''}
-        </div>
-      </div>`).join('') || '<div class="muted">No episodes — open one above.</div>';
-    list.querySelectorAll('[data-ep]').forEach((b) => b.addEventListener('click', async () => {
-      const id = b.dataset.ep; const act = b.dataset.act;
-      if (act === 'propose') {
-        const res = await fetch(`/admin/swarm/episodes/${id}/propose`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-        const j = await res.json();
-        if (!res.ok) { toast(j.error || 'propose failed', 'err'); return; }
-        toast('Proposal prepared — awaiting approval', 'good'); renderSwarmEpisodes();
-        return;
-      }
-      const body = act === 'approve' ? { decision: 'approved', approver: 'AR · Regional operator', approvalClass: 'B' } : act === 'reject' ? { decision: 'rejected', approver: 'AR · Regional operator', approvalClass: 'B' } : { by: 'facility', measureId: dom.domainOptions.defaultMeasureId, met: true };
-      const url = act === 'ack' ? `/admin/swarm/episodes/${id}/ack` : `/admin/swarm/episodes/${id}/decide`;
-      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-      const j = await res.json();
-      if (!res.ok) { toast(j.error || 'episode action failed', 'err'); return; }
-      toast('Episode updated', 'good'); renderSwarmEpisodes();
-    }));
-  };
-  renderList(episodes);
-  document.getElementById('se-open')?.addEventListener('click', async () => {
-    const res = await fetch('/admin/swarm/episodes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: document.getElementById('se-kind').value, subject: document.getElementById('se-subject').value, scopeType: document.getElementById('se-scope').value }) });
-    const j = await res.json();
-    if (!res.ok) { toast(j.error || 'open failed', 'err'); return; }
-    toast('Episode opened', 'good'); renderSwarmEpisodes();
-  });
-}
-
-async function renderPolicyReplay() {
-  const d = await swarmDemoState();
-  let current = 0.82;
-  let min = 0.5, max = 0.99;
-  try {
-    const j = await (await fetch('/admin/swarm/admin/policy')).json();
-    const pol = j && j.policy;
-    if (pol && typeof pol.escalationThresholdBasisPoints === 'number') current = pol.escalationThresholdBasisPoints / 10000;
-    if (pol && typeof pol.minThresholdBasisPoints === 'number') min = pol.minThresholdBasisPoints / 10000;
-    if (pol && typeof pol.maxThresholdBasisPoints === 'number') max = pol.maxThresholdBasisPoints / 10000;
-  } catch { /* fall back to the reference policy */ }
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Policy replay · isolated sandbox</h2>
-      <p class="page-sub">Change the escalation (consensus) threshold and replay persisted evidence to see what WOULD change — without mutating runtime state. Synthetic-by-default.</p></div></div>
-    <div class="detail" style="margin-top:0;">
-      <div class="field-row" style="align-items:flex-end;">
-        <div class="field" style="flex:1;"><label>Escalation threshold — current policy ${Math.round(current * 100)}%</label>
-          <input id="pr-threshold" type="range" min="${min}" max="${max}" step="0.01" value="${current}" style="width:100%;accent-color:var(--brand);">
-        </div>
-        <button class="btn btn-primary" id="pr-run"><i data-lucide="play"></i> Run what-if</button>
-      </div>
-      <div class="muted" style="font-size:12px;margin-top:6px;">Simulation is isolated — replaying never modifies runtime state.</div>
-    </div>
-    <div class="cards" id="pr-cards" style="grid-template-columns:repeat(4,1fr);">
-      <div class="stat-card"><div class="num">—</div><div class="lbl">Episodes surfaced</div></div>
-      <div class="stat-card"><div class="num">—</div><div class="lbl">Treatments protected</div></div>
-      <div class="stat-card"><div class="num">—</div><div class="lbl">Human reviews required</div></div>
-      <div class="stat-card"><div class="num">—</div><div class="lbl">Estimated value</div></div>
-    </div>
-    <div id="pr-out" class="muted" style="font-size:13px;margin-top:8px;">Move the slider and run the what-if.</div>`;
-  const run = async () => {
-    const threshold = Number(document.getElementById('pr-threshold').value);
-    const res = await fetch('/admin/swarm/whatif', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ threshold }) });
-    const j = await res.json();
-    if (!res.ok) { toast(j.error || 'what-if failed', 'err'); return; }
-    document.getElementById('pr-cards').innerHTML = `
-      <div class="stat-card"><div class="num">${j.episodesSurfaced}</div><div class="lbl">Episodes surfaced</div></div>
-      <div class="stat-card"><div class="num">${j.treatmentsProtected}</div><div class="lbl">Treatments protected</div></div>
-      <div class="stat-card"><div class="num">${j.reviewsRequired}</div><div class="lbl">Human reviews required</div></div>
-      <div class="stat-card"><div class="num">$${Number(j.estimatedValue).toLocaleString()}</div><div class="lbl">Estimated value</div></div>`;
-    document.getElementById('pr-out').innerHTML = `<span class="pill good">simulation isolated</span> At threshold ${Math.round(threshold * 100)}%, ${j.episodesSurfaced} episode(s) surface — replay did not modify runtime state.`;
-  };
-  document.getElementById('pr-run')?.addEventListener('click', run);
-  document.getElementById('pr-threshold')?.addEventListener('input', () => { const v = Number(document.getElementById('pr-threshold').value); document.getElementById('pr-out').textContent = `Threshold ${Math.round(v * 100)}% — run the what-if.`; });
-}
-
 // ---------- M-S3 release gate — green/red-team gating (deterministic) ----------
 let releaseRedOverrides = {}; // red finding id → contained
 
-async function renderReleaseGate() {
-  main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Release gate</h2>
-    <p class="page-sub">Green/red-team gating before shipping a change to the governed swarm. Identical input always produces the same verdict.</p></div></div>
-    <div class="muted" style="font-size:13px;">Loading gate…</div>`;
-  const res = await fetch('/admin/swarm/release-gate');
-  if (!res.ok) { main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Release gate</h2></div></div><div class="state-card"><div class="state-title">Gate unavailable</div></div>`; return; }
-  const { input, verdict } = await res.json();
-  renderReleaseGateBody(input, verdict);
-}
-
-function renderReleaseGateBody(input, verdict) {
-  const d = verdict.decision;
-  const badge = d === 'ship' ? '<span class="pill good" style="font-size:13px;">SHIP</span>'
-    : d === 'hold' ? '<span class="pill warn" style="font-size:13px;">HOLD</span>'
-    : '<span class="pill err" style="font-size:13px;">BLOCK</span>';
-  const c = input.change;
-  const greenRows = (verdict.gates || []).map((g) => `
-    <tr>
-      <td><code>${esc(g.id)}</code></td>
-      <td>${esc(g.plane)}</td>
-      <td>${esc(g.check)}</td>
-      <td><span class="pill ${g.status === 'pass' ? 'good' : g.status === 'warn' ? 'warn' : g.status === 'fail' ? 'err' : 'muted'}">${g.status}</span></td>
-      <td class="muted" style="font-size:12px;">${esc(g.evidence)}</td>
-    </tr>`).join('');
-  // Initialize containment toggles from the returned red findings.
-  (input.red || []).forEach((r) => { if (!(r.id in releaseRedOverrides)) releaseRedOverrides[r.id] = r.contained; });
-  const redRows = (verdict.red || []).map((r) => {
-    const contained = !!releaseRedOverrides[r.id];
-    return `
-      <tr>
-        <td><code>${esc(r.id)}</code></td>
-        <td>${esc(r.scenario)}</td>
-        <td class="muted" style="font-size:12px;">${esc(r.detail)}</td>
-        <td>
-          <label class="field-row" style="align-items:center;gap:6px;">
-            <input type="checkbox" data-red="${esc(r.id)}" ${contained ? 'checked' : ''}>
-            <span class="${contained ? 'pill good' : 'pill err'}">${contained ? 'contained' : 'open'}</span>
-          </label>
-        </td>
-      </tr>`;
-  }).join('');
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Release gate</h2>
-      <p class="page-sub">Green/red-team gating before shipping a change to the governed swarm. Identical input always produces the same verdict.</p></div></div>
-    <div class="cards" style="grid-template-columns:repeat(4,1fr);">
-      <div class="stat-card"><div class="num">${badge}</div><div class="lbl">Decision</div></div>
-      <div class="stat-card"><div class="num">${Math.round(verdict.score * 100)}%</div><div class="lbl">Gate score</div></div>
-      <div class="stat-card"><div class="num">${verdict.greenScore * 100}%</div><div class="lbl">Green pass rate</div></div>
-      <div class="stat-card"><div class="num">${verdict.redContained}/${verdict.redContained + verdict.redOpen}</div><div class="lbl">Red contained</div></div>
-    </div>
-    <div class="detail" style="margin-top:0;">
-      <div class="field-row" style="justify-content:space-between;align-items:center;">
-        <div style="font-weight:600;font-size:14px;">${esc(c.summary)}</div>
-        <button class="btn btn-primary" id="rg-run"><i data-lucide="refresh-cw"></i> Re-run gate</button>
-      </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;font-size:12px;">
-        <span class="pill muted">${esc(c.id)}</span>
-        <span class="pill muted">${esc(c.changeType)}</span>
-        <span class="pill muted">cells: ${(c.cellIds || []).map((x) => esc(x)).join(', ')}</span>
-        <span class="pill ${verdict.sourcesCurrent ? 'good' : 'err'}">sources ${input.sources.current}/${input.sources.required}</span>
-        <span class="pill ${verdict.approvalsMet ? 'good' : 'warn'}">approvals ${input.approvals.granted.length}/${input.approvals.required}</span>
-      </div>
-      ${verdict.blocks.length ? `<div class="muted" style="margin-top:8px;font-size:12px;">Blocking: ${verdict.blocks.map((b) => `<code>${esc(b)}</code>`).join(' ')}</div>` : ''}
-      ${verdict.reasons.length ? `<div class="muted" style="margin-top:8px;font-size:12px;">Holding: ${verdict.reasons.map((b) => `<code>${esc(b)}</code>`).join(' ')}</div>` : ''}
-    </div>
-    <div class="detail">
-      <div class="section-label">Green-team checks</div>
-      <table class="table" style="width:100%;"><thead><tr><th>Check</th><th>Plane</th><th>What was verified</th><th>Status</th><th>Evidence</th></tr></thead><tbody>${greenRows}</tbody></table>
-    </div>
-    <div class="detail">
-      <div class="section-label">Red-team findings — toggle containment then re-run</div>
-      <table class="table" style="width:100%;"><thead><tr><th>Finding</th><th>Scenario</th><th>Detail</th><th>Contained</th></tr></thead><tbody>${redRows}</tbody></table>
-    </div>`;
-  document.querySelectorAll('[data-red]').forEach((el) => el.addEventListener('change', () => {
-    releaseRedOverrides[el.dataset.red] = el.checked;
-  }));
-  document.getElementById('rg-run')?.addEventListener('click', async () => {
-    const red = Object.keys(releaseRedOverrides).map((id) => ({ id, contained: !!releaseRedOverrides[id] }));
-    const res = await fetch('/admin/swarm/release-gate/evaluate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ red }) });
-    if (!res.ok) { toast('gate re-run failed', 'err'); return; }
-    const j = await res.json();
-    renderReleaseGateBody(j.input, j.verdict);
-  });
-}
-
 // ---------- M-S3 kafka-bridge — outbox leasing + receipts / incidents ----------
-async function renderBridge() {
-  main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Kafka bridge</h2>
-    <p class="page-sub">The hosted worker terminates Kafka at authenticated HTTPS. The bridge leases outbox rows, validates integrity/tenant, publishes with an idempotent producer and records receipts or terminal incidents.</p></div></div>
-    <div class="muted" style="font-size:13px;">Loading bridge…</div>`;
-  await bridgeRefresh();
-}
-
-async function bridgeRefresh() {
-  const res = await fetch('/admin/swarm/bridge');
-  if (!res.ok) { main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Kafka bridge</h2></div></div><div class="state-card"><div class="state-title">Bridge unavailable</div><div class="state-sub">No durable store wired to /admin/swarm/bridge.</div></div>`; return; }
-  const { status } = await res.json();
-  const c = status.counts || {};
-  const o = status.outbox || {};
-  const receiptRows = (status.receipts || []).map((r) => `
-    <tr>
-      <td><code>${esc(r.outboxId)}</code></td>
-      <td><code>${esc(r.idempotencyKey)}</code></td>
-      <td><span class="pill ${r.state === 'delivered' ? 'good' : 'err'}">${r.state}</span></td>
-      <td class="muted" style="font-size:12px;">${r.incident ? esc(r.incident) : `${esc(r.topic)} · ${esc(r.partitionKey)}`}</td>
-    </tr>`).join('') || '<tr><td colspan="4" class="muted">No receipts yet — seed the outbox and poll.</td></tr>';
-  main.innerHTML = `
-    <div class="page-header"><div><h2 class="page-title">Kafka bridge</h2>
-      <p class="page-sub">The hosted worker terminates Kafka at authenticated HTTPS. The bridge leases outbox rows, validates integrity/tenant, publishes with an idempotent producer and records receipts or terminal incidents.</p></div></div>
-    <div class="detail" style="margin-top:0;">
-      <div class="field-row" style="justify-content:space-between;align-items:center;">
-        <div style="font-size:13px;">Worker <code>${esc(status.workerId)}</code> · driver <span class="pill muted">${esc(status.driver)}</span></div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn" id="br-seed"><i data-lucide="database-zap"></i> Seed outbox</button>
-          <button class="btn btn-primary" id="br-poll"><i data-lucide="play"></i> Poll now</button>
-        </div>
-      </div>
-      <div class="muted" style="font-size:12px;margin-top:4px;">One worker owns a row at a time (lease TTL). Publish is keyed by event id — the broker dedupes, so at-most-once delivery per row.</div>
-    </div>
-    <div class="cards" style="grid-template-columns:repeat(4,1fr);">
-      <div class="stat-card"><div class="num">${o.pending}</div><div class="lbl">Outbox pending</div></div>
-      <div class="stat-card"><div class="num">${c.receipts}</div><div class="lbl">Delivered receipts</div></div>
-      <div class="stat-card"><div class="num">${c.activeLeases}</div><div class="lbl">Active leases</div></div>
-      <div class="stat-card"><div class="num">${c.incidents}</div><div class="lbl">Terminal incidents</div></div>
-    </div>
-    <div class="detail">
-      <div class="section-label">Bridge receipts / incidents</div>
-      <table class="table" style="width:100%;"><thead><tr><th>Outbox row</th><th>Idempotency key</th><th>State</th><th>Detail</th></tr></thead><tbody>${receiptRows}</tbody></table>
-    </div>`;
-  document.getElementById('br-seed')?.addEventListener('click', async () => {
-    const res = await fetch('/admin/swarm/bridge/seed', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-    const j = await res.json();
-    if (!res.ok) { toast(j.error || 'seed failed', 'err'); return; }
-    toast(`seeded ${j.seeded} canonical event(s)`, 'ok');
-    bridgeRefresh();
-  });
-  document.getElementById('br-poll')?.addEventListener('click', async () => {
-    const res = await fetch('/admin/swarm/bridge/poll', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-    const j = await res.json();
-    if (!res.ok) { toast(j.error || 'poll failed', 'err'); return; }
-    toast(`leased ${j.leased} · published ${j.published} · retrying ${j.retrying} · incidents ${j.incidents}`, 'ok');
-    bridgeRefresh();
-  });
-}
 </script>
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
 <script>initApp();</script>

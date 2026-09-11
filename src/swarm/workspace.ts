@@ -379,6 +379,13 @@ export interface PlatformOrganization extends WorkspaceDoc {
   retentionDays: number;
   scopePath: OrgLevel[];
   synthetic: boolean;
+  /* Deployment posture. These used to live on a SECOND document (the swarm
+     `admin-tenant` profile), which meant one concept had two homes and the
+     operator console could only read one of them. They belong to the same
+     organization record, so they live here. */
+  environmentName?: string;
+  deploymentMode?: 'reference' | 'non-production' | 'production';
+  dataRegion?: string;
 }
 
 export interface TopicPlanEntry {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   Braces,
@@ -23,7 +23,7 @@ import {
   TestTube2,
 } from "lucide-react";
 import { agentManifests, domainPacks, measurePacks, operatingModel, publicSources, runtimePolicy, sourceMappings } from "../lib/catalogs";
-import { configurationAction } from "../lib/harness";
+import { configurationAction, fetchReleaseGate, type ReleaseGateView } from "../lib/harness";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import type { NavigationId } from "../lib/types";
 import { Eyebrow, PanelExpand, Tag } from "./ui";
@@ -59,15 +59,24 @@ export default function ConfigurationStudio({ onOpenDetail, onNavigate }: { onOp
   const [release, setRelease] = useState<{ version: string; status: string; dossierHash: string } | null>(null);
   const [releaseBusy, setReleaseBusy] = useState(false);
   const [releaseNotice, setReleaseNotice] = useState<string | null>(null);
+  // The release gate is served by the backend (evaluateRelease). The studio used
+  // to draw its own five-gate strip whose step states were driven only by "does a
+  // release object exist" — an invented gate model beside the two real ones.
+  const [gate, setGate] = useState<ReleaseGateView | null>(null);
+  useEffect(() => { void fetchReleaseGate().then(setGate).catch(() => setGate(null)); }, []);
   const stats = useMemo(() => ({ cells: agentManifests.length, measures: measurePacks.length, sources: publicSources.length, roles: operatingModel.roles.length, domains: domainPacks.packs.length }), []);
+  // Where each object REALLY lives. This editor used to be headed with plausible
+  // filenames — riverbend-fhir-r4.yaml, action-boundary.yaml, continuity-cell.yaml
+  // — that exist nowhere in the repository, while the content was generated from
+  // durable configuration objects. Naming the real store is the whole fix.
   const filenames: Record<ConfigTab, string> = {
-    organization: "swarm_workspace · operating-model (Postgres)",
-    domains: "domain-packs.json",
-    adapters: "riverbend-fhir-r4.yaml",
-    events: "hospital.transition.v2.yaml",
-    cells: "continuity-cell.yaml",
-    measures: "ktv-comprehensive.yaml",
-    policies: "action-boundary.yaml",
+    organization: "swarm_workspace · operating-model",
+    domains: "swarm_workspace · domain-pack",
+    adapters: "swarm_workspace · source-mapping",
+    events: "canonical-event@1.0.0 (compiled contract)",
+    cells: "swarm_workspace · agent-manifest",
+    measures: "swarm_workspace · measure-pack",
+    policies: "swarm_workspace · runtime-policy",
   };
 
   async function configurationActionRun(action: "create-draft" | "validate" | "request-approval") {
@@ -100,9 +109,9 @@ export default function ConfigurationStudio({ onOpenDetail, onNavigate }: { onOp
       </header>
 
       <section className="config-release panel">
-        <div className="release-context"><span className="release-icon"><GitBranch size={19} /></span><div><Eyebrow>Packaged baseline catalog</Eyebrow><h2>renal-harness-2026.08.5</h2><p>Platform Admin can layer and hot-activate a validated tenant release over this rollback-safe baseline.</p></div></div>
+        <div className="release-context"><span className="release-icon"><GitBranch size={19} /></span><div><Eyebrow>Active configuration</Eyebrow><h2>{release ? release.version : "no draft release"}</h2><p>{release ? `Status ${release.status} · every promotable object pins a last-known-good target and keeps its change dossier.` : "Draft a change set to open a release dossier. The packaged baseline is the runtime's own schema, not a versioned file."}</p></div></div>
         <div className="release-stats"><span><small>Roles</small><strong>{stats.roles}</strong></span><span><small>Cells</small><strong>{stats.cells}</strong></span><span><small>Measure packs</small><strong>{stats.measures}</strong></span><span><small>Authority sources</small><strong>{stats.sources}</strong></span></div>
-        <Tag tone="mint"><CheckCircle2 size={11} /> 126 tests passed</Tag>
+        {gate ? <Tag tone={gate.verdict.decision === "ship" ? "mint" : gate.verdict.decision === "hold" ? "amber" : "red"}>{gate.verdict.decision.toUpperCase()} · score {gate.verdict.score}</Tag> : null}
       </section>
 
       <section className="configuration-layout">
@@ -122,10 +131,21 @@ export default function ConfigurationStudio({ onOpenDetail, onNavigate }: { onOp
 
         <aside className="config-side-stack">
           <article className="panel promotion-card">
-            <div className="panel-title-row"><div><Eyebrow>Promotion contract</Eyebrow><h2>Five enforced gates</h2></div><ShieldCheck size={18} /></div>
-            <div className="promotion-flow">
-              {[{label:"Schema",detail:"Contract compatible"},{label:"Replay",detail:"Synthetic + golden data"},{label:"Evaluate",detail:"Green and red suites"},{label:"Approve",detail:"Role-specific quorum"},{label:"Release",detail:"Canary + rollback"}].map((step, index) => <button type="button" onClick={() => openConfigurationDetail(`${step.label} gate`, step.detail, release?.status ?? "Reference control", [{ label: "Gate order", value: String(index + 1), source: "Promotion contract" }, { label: "Current release", value: "renal-harness-2026.08.5", source: "Active reference" }])} key={step.label}><span>{index + 1}</span><div><strong>{step.label}</strong><small>{step.detail}</small></div>{index < 4 ? <ArrowRight size={13} /> : null}</button>)}
-            </div>
+            <div className="panel-title-row"><div><Eyebrow>Release gate</Eyebrow><h2>Live checks</h2></div><ShieldCheck size={18} /></div>
+            {gate ? <>
+              <div className="release-stats">
+                <span><small>Decision</small><strong>{gate.verdict.decision.toUpperCase()}</strong></span>
+                <span><small>Green</small><strong>{Math.round((gate.verdict.greenScore ?? 0) * 100)}%</strong></span>
+                <span><small>Red open</small><strong>{gate.verdict.redOpen}</strong></span>
+                <span><small>Sources</small><strong>{gate.verdict.sourcesCurrent ? "current" : "stale"}</strong></span>
+              </div>
+              <div className="promotion-flow">
+                {gate.input.green.slice(0, 6).map((check, index) => <button type="button" key={check.id} onClick={() => openConfigurationDetail(`${check.plane} · ${check.id}`, check.check, check.status, [{ label: "Evidence", value: check.evidence ?? "—", source: "Release gate" }, { label: "Plane", value: check.plane, source: "evaluateRelease" }])}><span>{index + 1}</span><div><strong>{check.plane}</strong><small>{check.status} · {check.id}</small></div>{check.status !== "pass" ? <ArrowRight size={13} /> : null}</button>)}
+              </div>
+              {gate.verdict.blocks.length ? <p className="muted">Blocks: {gate.verdict.blocks.join(", ")}</p> : null}
+              {gate.verdict.reasons.length ? <p className="muted">Holds: {gate.verdict.reasons.join("; ")}</p> : null}
+              <p className="muted">Scored by evaluateRelease against the LIVE action policy — green pass rate, red containment, source currency and approvals, each with its own evidence. An unsafe policy fails the suite and blocks the release.</p>
+            </> : <p className="muted">Gate evidence unavailable — the release gate did not respond.</p>}
           </article>
           <article className="panel longevity-card"><Layers3 size={19} /><div><Eyebrow>2039 posture</Eyebrow><h3>Time-aware, not year-coded</h3><p>Effective windows, semantic versions and authority snapshots allow 2026 and 2039 rules to coexist and replay.</p></div></article>
           {draft ? <article className="panel draft-card"><SlidersHorizontal size={18} /><div><Eyebrow>Persisted change set</Eyebrow><strong>{release?.version ?? "Creating…"}</strong><p>{release?.dossierHash ? `Dossier ${release.dossierHash.slice(0, 12)}…` : "No runtime effect"}</p></div><Tag tone={release?.status === "approved" ? "mint" : release?.status === "validated" ? "blue" : "amber"}>{release?.status ?? "Draft"}</Tag></article> : null}
@@ -142,10 +162,8 @@ export default function ConfigurationStudio({ onOpenDetail, onNavigate }: { onOp
       </section>
 
       <section className="config-catalog">
-        <button className="panel catalog-card drillable-surface" type="button" onClick={() => openConfigurationDetail("Renal ecosystem packs", "Modality, care-continuum and enterprise-service packs are independently activatable after schema, adapter, evaluation and owner approval.", `${stats.domains} packs`, domainPacks.packs.map((pack) => ({ label: pack.id, value: pack.state, source: pack.label })))}><Settings2 size={18} /><div><small>Renal ecosystem packs</small><strong>{stats.domains}</strong><span>1 active · {stats.domains - 1} framework-ready</span></div></button>
-        <button className="panel catalog-card drillable-surface" type="button" onClick={() => openConfigurationDetail("Active versions", "Independent semantic versions and effective windows resolve configuration at event valid time.", "18 active", [{ label: "Resolution", value: "Bitemporal", source: "Valid time + recorded time" }])}><GitBranch size={18} /><div><small>Active versions</small><strong>18</strong><span>Bitemporal resolution</span></div></button>
-        <button className="panel catalog-card drillable-surface" type="button" onClick={() => openConfigurationDetail("Replay fixtures", "Synthetic operating fixtures and separately labeled public facts exercise event contracts without representing live patient data.", "64 fixtures", [{ label: "Runtime replay", value: "11 canonical events", source: "Synthetic patient and operations" }, { label: "Public facts", value: String(stats.sources), source: "Real authority registry" }])}><TestTube2 size={18} /><div><small>Replay fixtures</small><strong>64</strong><span>Synthetic + public facts</span></div></button>
-        <button className="panel catalog-card drillable-surface" type="button" onClick={() => openConfigurationDetail("Rollback coverage", "Every promotable object pins a last-known-good target and retains its change dossier.", "100%", [{ label: "Rollback target", value: "Pinned", source: "Promotion contract" }])}><ShieldCheck size={18} /><div><small>Rollback coverage</small><strong>100%</strong><span>Last known-good pinned</span></div></button>
+        <button className="panel catalog-card drillable-surface" type="button" onClick={() => openConfigurationDetail("Renal ecosystem packs", "Modality, care-continuum and enterprise-service packs are independently activatable after schema, adapter, evaluation and owner approval.", `${stats.domains} packs`, domainPacks.packs.map((pack) => ({ label: pack.id, value: pack.state, source: pack.label })))}><Settings2 size={18} /><div><small>Renal ecosystem packs</small><strong>{stats.domains}</strong><span>{domainPacks.packs.filter((p) => p.state === "reference-active").length} active · {stats.domains - domainPacks.packs.filter((p) => p.state === "reference-active").length} framework-ready</span></div></button>
+        <button className="panel catalog-card drillable-surface" type="button" onClick={() => openConfigurationDetail("Release gate", "Green checks, red containment, source currency and approvals for the next promotion — every number comes from evaluateRelease, none of them are configured here.", gate ? gate.verdict.decision.toUpperCase() : "unavailable", gate ? gate.input.green.map((c) => ({ label: `${c.plane} · ${c.id}`, value: c.status, source: c.evidence ?? "release gate" })) : [])}><ShieldCheck size={18} /><div><small>Release gate</small><strong>{gate ? gate.verdict.decision.toUpperCase() : "—"}</strong><span>{gate ? `${gate.input.green.length} checks · ${gate.verdict.redOpen} red open` : "not responding"}</span></div></button>
       </section>
     </div>
   );

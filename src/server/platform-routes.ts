@@ -488,6 +488,11 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
         retentionDays: body.retentionDays ?? existing?.retentionDays ?? 365,
         scopePath: body.scopePath ?? existing?.scopePath ?? [],
         synthetic: body.synthetic ?? existing?.synthetic ?? false,
+        // Deployment posture — same document as the rest of the profile, so the
+        // operator console reads and writes one organization record, not two.
+        environmentName: body.environmentName?.trim() || existing?.environmentName || 'reference',
+        deploymentMode: body.deploymentMode ?? existing?.deploymentMode ?? 'reference',
+        dataRegion: body.dataRegion?.trim() || existing?.dataRegion || 'United States',
       });
       return { organization: org };
     },

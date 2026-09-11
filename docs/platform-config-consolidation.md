@@ -141,10 +141,25 @@ Consequences **today**:
   | real policy (`/admin/swarm/admin/policy`) | **8200** bp | **7000** | **9500** |
   | shown to a non-admin by `platform-config` | **5000** | **0** | **10000** |
 
-  A governance console displaying a *plausible wrong threshold* as fact is the most
-  serious finding here. There are **9** of these silent `catch { /* ignore */ }`
-  fallbacks in admin-ui's platform/exec-asset pages (`4752, 4754, 4820, 4822,
-  4869, 4871, 4875, 4877`).
+  A governance console displaying a *plausible wrong threshold* as fact is a
+  serious defect **in kind**. There are **9** of these silent
+  `catch { /* ignore */ }` fallbacks in admin-ui's platform/exec-asset pages.
+
+  **Correction (measured after the first three slices shipped).** It was a
+  *latent* defect, not a live one, and the earlier draft of this document
+  overstated it as "the most serious finding". `ROLE_NAV`
+  (`admin-ui/index.html:893`) grants the **Platform** and **Exec assets** sections
+  to no non-admin role, and `goTo` enforces that (`viewAllowed`, `:1967`) — an
+  auditor calling `goTo('platform-config')` is redirected to the dashboard
+  (verified). So the only role that could open the page was `admin`, which reads
+  `/admin/swarm/admin/policy` successfully, and the fallback never rendered for
+  anyone. It was fixed anyway because it would fire the instant a non-admin were
+  granted the section, and because it disguised the real scope mismatch instead
+  of surfacing it.
+
+  The genuinely **live** defects are the ones visible to exec users today: the
+  fabricated filenames and hero numbers (§3b, §3e), the invented gate model
+  (§3e) and the dead agent-configuration write (§3c).
 
 ### (b) The configuration "YAML" does not exist; the real YAML is invisible
 
@@ -285,6 +300,34 @@ roles' entries there are *approve / red-team / validate* — approvals, not CRUD
 
 Ordered so that no slice leaves a console broken. Each slice is independently
 shippable.
+
+### Status
+
+| # | Slice | State |
+|---|---|---|
+| 0 | Stop lying | **Partly done** — admin-ui rewritten with explicit failure states and the fabricated content removed from the ops side; the exec-side items (fabricated filenames, invented gates, dead agent write) still stand: they are §6a below |
+| 1 | Re-home the API by domain | **Done** — `src/server/ops-config-routes.ts` serves the setup surface under `/admin/platform/*` over the same workspace documents; the swarm twins still exist for exec |
+| 2 | Consolidate the ops console | **Done** — Platform admin and Configuration studio merged; the `Exec assets` section removed; 33k+33k+6k bytes of unreachable exec-scoped code deleted |
+| 3 | Reduce exec to banner + review | Not started (needs Decision A's remaining half — see below) |
+| 4 | Agent specs durable | Not started (independent) |
+| 5 | One release lifecycle | Not started |
+
+Measured outcome of 1+2: admin-ui went from **20 "platform" tabs across two
+sections** to **10 tabs in one section**, and from **31 distinct
+`/admin/swarm/*` call sites** to **zero**. Every page the operator console still
+serves is now ops-scoped, so the 403 class of bug is structurally gone rather than
+hidden.
+
+**Decision A, remaining half.** "Accept it" settles that clinical roles do not
+need setup pages, but `ROLE_NAV` grants **Platform to no non-admin role at all**,
+so today "setup lives in Admin" means "setup lives with `admin`". And the console
+has no read-only mode: granting Platform to `auditor` would hand over the Save
+and Activate buttons along with the read. How to resolve it is a policy call, not
+a refactor:
+
+1. leave Platform admin-only (current behaviour, nothing more to build);
+2. add a read-only rendering mode and grant that to `auditor`;
+3. grant Platform to specific ops roles and accept that they can write.
 
 ### Slice ledger
 

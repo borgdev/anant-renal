@@ -73,6 +73,7 @@ import { registerApiRoutes } from './api-routes.js';
 import { registerEnterpriseRoutes } from './enterprise-routes.js';
 import { registerSwarmRoutes, getSwarmWorkspace, resetSwarmRuntime } from './swarm-routes.js';
 import { registerPlatformRoutes } from './platform-routes.js';
+import { registerOpsConfigRoutes } from './ops-config-routes.js';
 import { registerPayerRoutes } from './payer-routes.js';
 import { registerAnemiaRoutes } from './anemia-routes.js';
 import { registerRenalRoutes } from './renal-routes.js';
@@ -438,6 +439,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // Payer proof pack (Phase 5 / Epic 7) — a second domain closing a payer loop
   // through the SAME durable coordinator + workspace contracts. No runtime fork.
   await registerPayerRoutes(app);
+
+  // Operator-console setup surface (ops-scoped /admin/platform/*): organization
+  // profile, action policy, integration contract, release gate and the
+  // configuration-object catalog. These are the SAME durable workspace documents
+  // the exec-scoped /admin/swarm/admin/* family serves — the operator console
+  // could not read them because the guard scopes by URL prefix, not by domain.
+  await registerOpsConfigRoutes(app);
 
   // Anemia / ESA dose-adjustment CDSS (P0 reference) — a governed, Class-C,
   // human-in-the-loop decision-support domain (manifold-learning EPO model)

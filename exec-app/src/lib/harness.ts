@@ -1341,9 +1341,33 @@ async function adminSnapshot(): Promise<AdminConsoleSnapshot> {
 
 type AdminMutationAction = "save-organization" | "save-kafka" | "test-kafka" | "save-agent" | "save-policy" | "validate-release" | "activate-release";
 
-// Agent configuration edits are bounded-cell overrides — cells remain the source
-// of truth, but the reference console allows toggling them client-side.
-const agentOverrides = new Map<string, Partial<AgentConfiguration>>();
+/** The REAL release gate — green checks with per-check evidence, red containment,
+source currency and approvals, scored against the live action policy. */
+export interface ReleaseGateCheck { id: string; plane: string; status: string; check: string; evidence?: string }
+export interface ReleaseGateView {
+  input: {
+    change?: { id?: string; summary?: string };
+    green: ReleaseGateCheck[];
+    red: Array<{ id: string; contained: boolean }>;
+    sources: { current: number; required: number };
+    approvals: { required: number; granted: string[] };
+  };
+  verdict: {
+    decision: "ship" | "hold" | "block";
+    score: number;
+    greenScore?: number;
+    redContained: number;
+    redOpen: number;
+    sourcesCurrent: boolean;
+    approvalsMet: boolean;
+    blocks: string[];
+    reasons: string[];
+  };
+}
+
+export async function fetchReleaseGate(): Promise<ReleaseGateView> {
+  return harnessJson<ReleaseGateView>("/admin/swarm/release-gate");
+}
 
 export async function fetchAdminConsole(): Promise<AdminConsoleSnapshot> {
   return adminSnapshot();
@@ -1365,8 +1389,11 @@ export async function mutateAdminConsole(action: AdminMutationAction, input: Rec
   } else if (action === "test-kafka") {
     await harnessJson<{ kafka: HarnessKafka }>("/admin/swarm/admin/kafka/test", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   } else if (action === "save-agent") {
-    const agent = input.agent as AgentConfiguration | undefined;
-    if (agent) agentOverrides.set(agent.id, agent);
+    // There is no durable agent-configuration write on this surface: cells are the
+    // source of truth and are configured through the operator console's Observer
+    // studio. This branch used to `set()` a module-level Map that NOTHING read, so
+    // the UI reported success and discarded the edit.
+    throw new Error("agent-configuration-moved: edit agents in the operator console (Observer studio)");
   } else if (action === "save-policy") {
     await harnessJson<{ policy: HarnessPolicy }>("/admin/swarm/admin/policy", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input.policy ?? input) });
   } else if (action === "validate-release") {
