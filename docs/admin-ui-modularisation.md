@@ -134,17 +134,43 @@ to test a single one of them in isolation.
 | # | Slice | State |
 |---|---|---|
 | **S1** | **Move the classic script blocks into `js/app.js`** as an external **classic** script (`<script src="./js/app.js">` at the end of `<body>`) — no modules yet, so no facade is needed and nothing enters strict mode. A pure move: the same code, in the same order, from a different file | **DONE** — `index.html` 7,629 → 942 lines; `js/app.js` 6,723 lines (6,691 moved + banner). Byte-identical blocks asserted by the split script |
-| S2 | Convert `js/app.js` to `type="module"` and add the explicit handler facade; extract leaves (`components.js`, `api.js`, `theme.js`) | Not started |
-| S3 | Extract views along the existing 50 banners, one commit per 2-3 views, in dependency order (leaves before dependents: `catalog` before `platform-config`) | Not started |
-| S4 | Convert `onclick` → delegated `data-action` per view; shrink the facade until it is empty | Not started |
+| **S2** | **Convert `js/app.js` to `type="module"` and publish the handler facade** — 63 names, derived from the source, published as live getters, with a `void [...]` probe so a renamed symbol fails at boot | **DONE** — 61 of the 91 handler references were already `window.x =` assignments; the 63 that were top-level declarations are now published explicitly |
+| S3 | Extract views and leaves into real modules (`views/*.js`, `components.js`, `api.js`), now that `import` is available; shrink the facade by moving its entries into the module they belong to | Not started |
+| S4 | Convert `onclick` → delegated `data-action` per view; shrink the facade until it is empty and delete it | Not started |
 
-**Why S1 is a classic script, not a module.** A module would have forced three
-simultaneous changes: the facade (81 new globals), strict mode (a real behaviour
+**Why S1 was a classic script, not a module.** A module would have forced three
+simultaneous changes: the facade (63 new globals), strict mode (a real behaviour
 change — an accidental undeclared assignment that silently creates a global today
 would throw), and the deferral of the whole console's boot. Each is testable, but
-bundling them means a failure does not tell you which one caused it. S1 changes
-one thing — where the code lives — and keeps the gate green, which is what makes
-S2's failures attributable.
+bundling them means a failure does not tell you which one caused it. S1 changed
+one thing — where the code lives — and kept the gate green, which is what made
+S2's failures attributable. S2 then made exactly one change (module + facade) and
+had exactly one failure mode to look for, which is how the facade list was proven
+complete in a single pass.
+
+### What S2 broke in the GATE (worth remembering)
+
+The harness was built on three globals that module scope removed, and each one
+failed in a way that looked like an application bug:
+
+- `typeof NAV` → `undefined` ⇒ *"the console did not boot"* against a console
+  that had booted perfectly. `NAV` is a top-level `const`, so it lives in the
+  module's scope, not on `window`.
+- `currentView` likewise. The activation check now reads the UI: the page tab
+  strip's active `button.tab[data-view]`, falling back to the sidebar item for a
+  non-tabbed view. Note the console uses `active` for page tabs and `is-active`
+  for the config studio's inner tabs — CSS class selectors are token-exact, so
+  the two cannot be confused.
+- Discovery via the rendered DOM is not sufficient either: a tabbed sidebar
+  section renders ONE element with a `data-view`, so the DOM exposes 11 of the 48
+  views. Discovery now reads the render dispatch from the served source.
+
+**Handler counts are NOT a fingerprint.** They are data-dependent (a row only
+carries handlers once it renders), so they change across a server restart even
+when the code is untouched. S1's counts matched the pre-move baseline exactly
+because the server state was identical; do not repeat that as a general claim.
+The invariant that matters, and the one the harness enforces, is **0 unresolved
+handlers** on every view.
 
 What deliberately did **not** move in S1: the theme bootstrap in `<head>` (it
 exists to run before first paint), the `tailwind.config` block (must run
@@ -175,9 +201,18 @@ The backstops exist and run in this order:
      `goTo('catalog')` (not a view) renders the dashboard: a walk over ids like
      that reports "clean" while testing a different page 48 times. It also asserts
      `currentView === view` after each transition for the same reason.
-   - Baseline (and the S1 result): **48/48 clean**, with per-view handler counts
-     identical before and after the move (the strongest available evidence that a
-     move changed nothing).
+   - Baseline (and the S1 result): **48/48 clean**. S2: 48/48 across consecutive
+     runs with **0 unresolved handlers**, which is the evidence that the facade
+     list is complete — derived from the source rather than guessed, and then
+     proven at runtime.
+   - **It found a real, pre-existing defect**: one intermittent
+     `TypeError: Cannot read properties of null (reading 'addEventListener')` on
+     a view. The mechanism is a render that `await`s a fetch and then wires the
+     DOM: if a navigation replaces `main.innerHTML` during that await, the
+     deferred `getElementById(...)` returns null. There are **42** unguarded
+     `getElementById(...).addEventListener` sites in the console. Only observed
+     once in ~6 runs and not reproduced since, so it is recorded rather than
+     fixed here — but it is the class of bug a page walk exists to surface.
 2. **`node scripts/check-admin-ui-syntax.mjs`** — extended in S1 to cover both the
    remaining inline blocks **and every locally-referenced external script**, so
    the code that moved into `js/app.js` is still syntax-checked. A syntax error in

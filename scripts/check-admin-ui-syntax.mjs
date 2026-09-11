@@ -58,16 +58,21 @@ while ((m = inline.exec(html))) {
   checkClassic(`index.html inline block #${i}`, m[1]);
 }
 
-// 2. Every locally-referenced external script (skip CDN/protocol URLs).
+// 2. Every locally-referenced external script (skip CDN/protocol URLs). The
+//    module-ness comes from the TAG, not from guessing at the file's contents:
+//    app.js is loaded as type="module" but contains no import/export, so a
+//    content sniff would parse it as a sloppy-mode classic script and miss
+//    strict-mode-only syntax errors.
 const localSrcs = [];
-const srcRe = /<script[^>]*\bsrc="([^"]+)"/g;
+const srcRe = /<script([^>]*)\bsrc="([^"]+)"/g;
 while ((m = srcRe.exec(html))) {
-  const url = m[1];
+  const attrs = m[1];
+  const url = m[2];
   if (/^(https?:)?\/\//.test(url) || url.startsWith('data:')) continue;
-  localSrcs.push(url);
+  localSrcs.push({ url, isModule: /type\s*=\s*["']module["']/.test(attrs) });
 }
 
-for (const url of localSrcs) {
+for (const { url, isModule } of localSrcs) {
   const path = fileURLToPath(new URL(`../admin-ui/${url.replace(/^\.\//, '')}`, import.meta.url));
   if (!existsSync(path)) {
     failed += 1;
@@ -75,13 +80,13 @@ for (const url of localSrcs) {
     continue;
   }
   const code = readFileSync(path, 'utf8');
-  if (/^\s*(import|export)\s/m.test(code)) checkModule(url, code);
+  if (isModule) checkModule(url, code);
   else checkClassic(url, code);
 }
 
 console.log(
   failed === 0
-    ? `ALL ${checked} scripts OK (${i} inline + ${localSrcs.length} external: ${localSrcs.join(', ')})`
+    ? `ALL ${checked} scripts OK (${i} inline + ${localSrcs.length} external: ${localSrcs.map((s) => `${s.url}${s.isModule ? ' [module]' : ''}`).join(', ')})`
     : `FAILED — ${failed} of ${checked} scripts`,
 );
 process.exit(failed === 0 ? 0 : 1);

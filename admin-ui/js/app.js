@@ -6720,4 +6720,98 @@ let releaseRedOverrides = {}; // red finding id → contained
 
 // ---------- M-S3 kafka-bridge — outbox leasing + receipts / incidents ----------
 
+
+/* ---------------------------------------------------------------------------
+ * GLOBAL HANDLER FACADE — required, and temporary.
+ *
+ * This file is an ES module, so a top-level `function foo() {}` is
+ * MODULE-scoped: it is no longer a property of `window`. The console's views
+ * are assembled as HTML strings whose inline handlers (`onclick="foo(…)"`)
+ * resolve their names from the GLOBAL scope, so every name reached that way has
+ * to be published explicitly — otherwise the click throws
+ * `ReferenceError: foo is not defined`, on one view, silently.
+ *
+ * The list is DERIVED, not hand-maintained: scan index.html and this file for
+ * `on<event>="name(` / `name.`, keep the names declared at the top level here.
+ * scripts/admin-ui-check.mjs fails if any inline handler in any of the 48 views
+ * does not resolve, so this list cannot silently go stale.
+ *
+ * Getters, not value copies: an assignment would snapshot a `let` binding
+ * (wsOntology starts as null and is reassigned later), leaving the handler
+ * looking at the boot-time value.
+ *
+ * The `void [...]` probe reads every name once, so a renamed or deleted symbol
+ * fails at BOOT rather than on the one click that happens to use it.
+ *
+ * S4 removes entries from this list by converting `onclick` to a delegated
+ * `data-action` handler. When the list is empty, the facade goes.
+ * ------------------------------------------------------------------------- */
+void [addStep, cfgObjectsBody, cfgSpecDelete, cfgSpecExport, cfgSpecImport, cfgSpecOpen, cfgSpecPublish, cfgSpecsBody, cloneAgent, cohortAddCriterion, cohortCancelEdit, cohortCriterionInput, cohortDelete, cohortEdit, cohortEvaluateNow, cohortNew, cohortRemoveCriterion, cohortSave, cohortToggle, deleteDraft, doLogin, editDraft, editorState, generateYaml, goTo, knowledgeFilter, nav, nlObserve, openCredentialSheet, openProvenance, plPackActivate, plPackDeactivate, publishDraft, removeStep, renderPlatformConfig, runDueSources, saveCreds, saveDraft, simAction, simCleanup, syncSource, testCreds, validateNow, wqBegin, wqCancelDecline, wqClose, wqConfirmDecline, wqDeclineReason, wqFilter, wqOpen, wqRefresh, wsCatalogCreate, wsCatalogDelete, wsCatalogEdit, wsOntology, wsOntologyAdd, wsOntologyPullLive, wsOntologyRemove, wsOntologySave, wsOntologySet, wsSubmissionCreate, wsSubmissionDelete, wsSubmissionValidate];
+
+Object.defineProperties(window, {
+  addStep: { configurable: true, get: () => addStep },
+  cfgObjectsBody: { configurable: true, get: () => cfgObjectsBody },
+  cfgSpecDelete: { configurable: true, get: () => cfgSpecDelete },
+  cfgSpecExport: { configurable: true, get: () => cfgSpecExport },
+  cfgSpecImport: { configurable: true, get: () => cfgSpecImport },
+  cfgSpecOpen: { configurable: true, get: () => cfgSpecOpen },
+  cfgSpecPublish: { configurable: true, get: () => cfgSpecPublish },
+  cfgSpecsBody: { configurable: true, get: () => cfgSpecsBody },
+  cloneAgent: { configurable: true, get: () => cloneAgent },
+  cohortAddCriterion: { configurable: true, get: () => cohortAddCriterion },
+  cohortCancelEdit: { configurable: true, get: () => cohortCancelEdit },
+  cohortCriterionInput: { configurable: true, get: () => cohortCriterionInput },
+  cohortDelete: { configurable: true, get: () => cohortDelete },
+  cohortEdit: { configurable: true, get: () => cohortEdit },
+  cohortEvaluateNow: { configurable: true, get: () => cohortEvaluateNow },
+  cohortNew: { configurable: true, get: () => cohortNew },
+  cohortRemoveCriterion: { configurable: true, get: () => cohortRemoveCriterion },
+  cohortSave: { configurable: true, get: () => cohortSave },
+  cohortToggle: { configurable: true, get: () => cohortToggle },
+  deleteDraft: { configurable: true, get: () => deleteDraft },
+  doLogin: { configurable: true, get: () => doLogin },
+  editDraft: { configurable: true, get: () => editDraft },
+  editorState: { configurable: true, get: () => editorState },
+  generateYaml: { configurable: true, get: () => generateYaml },
+  goTo: { configurable: true, get: () => goTo },
+  knowledgeFilter: { configurable: true, get: () => knowledgeFilter },
+  nav: { configurable: true, get: () => nav },
+  nlObserve: { configurable: true, get: () => nlObserve },
+  openCredentialSheet: { configurable: true, get: () => openCredentialSheet },
+  openProvenance: { configurable: true, get: () => openProvenance },
+  plPackActivate: { configurable: true, get: () => plPackActivate },
+  plPackDeactivate: { configurable: true, get: () => plPackDeactivate },
+  publishDraft: { configurable: true, get: () => publishDraft },
+  removeStep: { configurable: true, get: () => removeStep },
+  renderPlatformConfig: { configurable: true, get: () => renderPlatformConfig },
+  runDueSources: { configurable: true, get: () => runDueSources },
+  saveCreds: { configurable: true, get: () => saveCreds },
+  saveDraft: { configurable: true, get: () => saveDraft },
+  simAction: { configurable: true, get: () => simAction },
+  simCleanup: { configurable: true, get: () => simCleanup },
+  syncSource: { configurable: true, get: () => syncSource },
+  testCreds: { configurable: true, get: () => testCreds },
+  validateNow: { configurable: true, get: () => validateNow },
+  wqBegin: { configurable: true, get: () => wqBegin },
+  wqCancelDecline: { configurable: true, get: () => wqCancelDecline },
+  wqClose: { configurable: true, get: () => wqClose },
+  wqConfirmDecline: { configurable: true, get: () => wqConfirmDecline },
+  wqDeclineReason: { configurable: true, get: () => wqDeclineReason },
+  wqFilter: { configurable: true, get: () => wqFilter },
+  wqOpen: { configurable: true, get: () => wqOpen },
+  wqRefresh: { configurable: true, get: () => wqRefresh },
+  wsCatalogCreate: { configurable: true, get: () => wsCatalogCreate },
+  wsCatalogDelete: { configurable: true, get: () => wsCatalogDelete },
+  wsCatalogEdit: { configurable: true, get: () => wsCatalogEdit },
+  wsOntology: { configurable: true, get: () => wsOntology },
+  wsOntologyAdd: { configurable: true, get: () => wsOntologyAdd },
+  wsOntologyPullLive: { configurable: true, get: () => wsOntologyPullLive },
+  wsOntologyRemove: { configurable: true, get: () => wsOntologyRemove },
+  wsOntologySave: { configurable: true, get: () => wsOntologySave },
+  wsOntologySet: { configurable: true, get: () => wsOntologySet },
+  wsSubmissionCreate: { configurable: true, get: () => wsSubmissionCreate },
+  wsSubmissionDelete: { configurable: true, get: () => wsSubmissionDelete },
+  wsSubmissionValidate: { configurable: true, get: () => wsSubmissionValidate },
+});
+
 initApp();

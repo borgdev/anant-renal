@@ -52,22 +52,53 @@ const QUIET = flag('--quiet');
 const ONLY = arg('--views', '');
 
 /**
- * Enumerate the views to walk. Prefer the live sidebar model (which is the thing
- * the operator can actually reach); fall back to the render dispatch in the
- * served source so the harness still works if the global changes shape.
+ * Enumerate the views to walk.
+ *
+ * The console's shape changed under S2: `NAV` used to be a global (a classic
+ * script's top-level `const`), but in an ES module it is module-scoped and no
+ * longer reachable by name — which made this harness report "the console did not
+ * boot" against a console that had booted perfectly. The rendered DOM is only
+ * partially usable either: a tabbed sidebar section renders ONE element with a
+ * `data-view`, so the DOM exposes 11 of the 48 views.
+ *
+ * So discovery reads the render dispatch from the console's source, which is
+ * complete and stable, and which is the set the operator can reach (every NAV
+ * view id has exactly one dispatch case — verified separately).
  */
 async function discoverViews(page) {
-  const fromNav = await page.evaluate(() => {
-    try {
-      if (typeof NAV === 'undefined') return [];
-      return NAV.flatMap((g) => (g.items ?? []).map((i) => i.view)).filter(Boolean);
-    } catch { return []; }
-  });
-  if (fromNav.length) return { views: fromNav, source: 'NAV' };
+  const fromDispatch = [];
+  for (const url of [`${BASE}/admin/ui/js/app.js`, `${BASE}/admin/ui/`]) {
+    const text = await (await page.request.get(url)).text().catch(() => '');
+    for (const m of text.matchAll(/view === '([a-z0-9-]+)'/g)) fromDispatch.push(m[1]);
+  }
+  if (fromDispatch.length) return { views: [...new Set(fromDispatch)], source: 'render dispatch (source)' };
 
-  const html = await (await page.request.get(`${BASE}/admin/ui/`)).text();
-  const fromDispatch = [...html.matchAll(/view === '([a-z0-9-]+)'/g)].map((m) => m[1]);
-  return { views: [...new Set(fromDispatch)], source: 'render-dispatch' };
+  const fromDom = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-view]')].map((el) => el.getAttribute('data-view')).filter(Boolean));
+  if (fromDom.length) return { views: [...new Set(fromDom)], source: 'rendered sidebar' };
+
+  return { views: [], source: 'none' };
+}
+
+/**
+ * Which view the console says is active, read from the UI rather than from an
+ * internal variable (S2 moved `currentView` into module scope too).
+ *
+ * Two markers exist and they mean different things: the sidebar's `data-view` is
+ * the SECTION's first child (a tabbed section renders one entry), while the page
+ * tab strip's active `button.tab[data-view]` is the actual current view. A
+ * non-tabbed view (Overview) has only the sidebar marker, which does name it.
+ * Note the console uses `active` for page tabs and `is-active` for the config
+ * studio's inner tabs; CSS class selectors are token-exact, so `[data-view].active`
+ * cannot match `class="tab is-active"`.
+ */
+async function activeView(page) {
+  return page.evaluate(() => {
+    const tab = document.querySelector('button.tab.active[data-view]');
+    if (tab) return tab.getAttribute('data-view');
+    const nav = document.querySelector('.nav-item.active[data-view]');
+    return nav ? nav.getAttribute('data-view') : null;
+  });
 }
 
 /**
@@ -85,7 +116,9 @@ async function unresolvedHandlers(page) {
       for (const attr of ATTRS) {
         const v = el.getAttribute(attr);
         if (!v) continue;
-        const m = /^\s*([A-Za-z_$][\w$]*)\s*\(/.exec(v);
+        // `foo(` is a call, `foo.` is a property access on a global such as
+        // `wsOntology.set(…)` — both resolve the leading name from global scope.
+        const m = /^\s*([A-Za-z_$][\w$]*)\s*[.(]/.exec(v);
         if (m && m[1] !== 'this') names.add(m[1]);
       }
     }
@@ -93,7 +126,9 @@ async function unresolvedHandlers(page) {
     for (const n of names) {
       let t;
       try { t = new Function(`return typeof ${n}`)(); } catch { t = 'unresolvable'; }
-      if (t !== 'function') missing.push(`${n}:${t}`);
+      // Only UNDEFINED is a failure: a name may legitimately resolve to an object
+      // or a value (an inline handler can read `wsOntology.set`, not call it).
+      if (t === 'undefined' || t === 'unresolvable') missing.push(`${n}:${t}`);
     }
     return { checked: names.size, missing };
   });
@@ -124,7 +159,17 @@ async function run() {
   const consoleErrors = [];
   const pageErrors = [];
   page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
-  page.on('pageerror', (err) => pageErrors.push(String(err).split('\n')[0]));
+  page.on('pageerror', (err) => {
+    // Keep the first stack frame: an intermittent error is only actionable if it
+    // says WHERE. `render*` that awaits a fetch and then wires the DOM throws here
+    // when a navigation replaces main.innerHTML underneath it, and the message
+    // alone ("Cannot read properties of null") names nothing.
+    const frame = (err.stack ?? '')
+      .split('\n')
+      .slice(1)
+      .find((l) => l.trim().startsWith('at ')) ?? '';
+    pageErrors.push(`${String(err).split('\n')[0]} ${frame.trim()}`.trim());
+  });
 
   await page.goto(`${BASE}/admin/ui/`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => document.querySelectorAll('.nav-item').length > 0, { timeout: 20000 })
@@ -181,10 +226,10 @@ async function run() {
     const cErr = consoleErrors.slice(c0);
     const pErr = pageErrors.slice(p0);
     const handlers = await unresolvedHandlers(page);
-    // The view must actually become current. If goTo() declined it (unknown id,
-    // or a role guard redirect via viewAllowed) we would otherwise be measuring
-    // the view it redirected TO and calling it clean.
-    const active = await page.evaluate(() => (typeof currentView === 'string' ? currentView : null));
+    // The view must actually become the ACTIVE view (visible in the UI). If goTo()
+    // declined it (unknown id, or a role redirect via viewAllowed) we would
+    // otherwise be measuring the view it redirected TO and calling it clean.
+    const active = await activeView(page);
     const body = await page.evaluate(() => {
       const main = document.querySelector('main');
       const text = (main?.innerText ?? '').trim();
@@ -199,7 +244,7 @@ async function run() {
     const overflow = body.scrollW > body.inner + 1;
 
     const problems = [];
-    if (active !== view) problems.push(`view did not activate (currentView=${active})`);
+    if (active !== view) problems.push(`view did not activate (active=${active})`);
     if (pErr.length) problems.push(`page-error: ${pErr[0]}`);
     if (cErr.length) problems.push(`${cErr.length} console error(s): ${cErr[0].slice(0, 90)}`);
     if (handlers.missing.length) problems.push(`unresolved handler(s): ${handlers.missing.join(', ')}`);
