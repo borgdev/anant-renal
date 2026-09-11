@@ -135,8 +135,64 @@ to test a single one of them in isolation.
 |---|---|---|
 | **S1** | **Move the classic script blocks into `js/app.js`** as an external **classic** script (`<script src="./js/app.js">` at the end of `<body>`) — no modules yet, so no facade is needed and nothing enters strict mode. A pure move: the same code, in the same order, from a different file | **DONE** — `index.html` 7,629 → 942 lines; `js/app.js` 6,723 lines (6,691 moved + banner). Byte-identical blocks asserted by the split script |
 | **S2** | **Convert `js/app.js` to `type="module"` and publish the handler facade** — 63 names, derived from the source, published as live getters, with a `void [...]` probe so a renamed symbol fails at boot | **DONE** — 61 of the 91 handler references were already `window.x =` assignments; the 63 that were top-level declarations are now published explicitly |
-| S3 | Extract views and leaves into real modules (`views/*.js`, `components.js`, `api.js`), now that `import` is available; shrink the facade by moving its entries into the module they belong to | Not started |
+| **S3** | **Extract views and leaves into real modules** | **Step 1 DONE** — 298 of 326 top-level declarations extracted into **48 modules** + `state.js`; `app.js` 6,817 → **2,001 lines** and provably acyclic (0 module edges back into it). The remaining 28 are mutually recursive and need a view registry (step 2 below) |
 | S4 | Convert `onclick` → delegated `data-action` per view; shrink the facade until it is empty and delete it | Not started |
+
+### S3, step 1 — how it was done, and what it cost to get right
+
+Hand-moving 6,800 lines across 48 modules would have produced a console that boots
+and then throws on one view. The split was driven by a tool (`/tmp/split.mjs`) that
+resolves every identifier to its **declaration** with the TypeScript checker, so:
+
+- imports/exports are **derived**, not hand-written — a name crossing a boundary
+  cannot be forgotten;
+- a **local that shares a name** is never mistaken for the top-level binding;
+- **shared mutable state** is handled properly. ESM gives an importer a read-only
+  view of a live binding, so `let currentView` cannot be exported and written by
+  five modules. 14 bindings moved to a `state.js` singleton and **151 references**
+  were rewritten to `S.currentView` — only uses the checker proves bind to the
+  top-level declaration, never declaration sites.
+
+Extraction order came from the dependency graph, not from taste: a `plan` pass
+computed dependency layers and found that layers 0–6 (298 declarations) never
+reference the remaining 28, so moving them creates **no cycle at all**. Grouping was
+then taken from the console's own 50 `// ----------` banner sections, so a module
+lands where a reader would expect it.
+
+The **28 that remain** are genuinely mutually recursive: `goTo` → `render` → a view's
+render function → `goTo`. They also include the settings-tab family
+(`loadSettingsTab` → `loadFacilitiesTab` → `bindCrudActions` → …) and the drafts
+actions. Step 2 moves them behind a **view registry** (`registerView(id, fn)`, which
+breaks `render` ↔ views) plus one module for the settings cluster (a cycle is fine
+*inside* one module).
+
+**Four bugs in my own tool, each caught by verification rather than by review:**
+
+1. keying variables by `VariableStatement.pos` (the position of `let`) instead of the
+   declarator's position — every **variable** reference became invisible, which made
+   the first manifest claim `sharedState: 0` while `main` alone is used from 51
+   declarations;
+2. treating the declaration-site identifier as a reference — produced
+   `let S.currentView = 'summary'`;
+3. mixing original and rewritten offsets — produced the character corruption
+   `let PACKS = [...]e`;
+4. filtering `S.` insertions against *all* deleted spans — a **moved** declaration is
+   relocated, not discarded, so its body lost its rewrites and the console booted
+   and then threw `ReferenceError: sessionUser is not defined` from inside
+   `core/nav.js`.
+
+### A real defect the walk found, now fixed
+
+`Cannot read properties of null (reading 'addEventListener')`, intermittent, on the
+view following Settings. Cause: `async function loadXTab(body)` awaits, writes
+`body.innerHTML`, then calls `document.getElementById('x-add').addEventListener(…)`.
+If the operator navigates during the await, `main.innerHTML` is replaced and `body`
+is **detached** — so `getElementById`, which searches the document rather than that
+node, returns null and the abandoned render throws. Guarding the lookup (`?.`) at all
+**42** such sites makes the lookup non-throwing, and the handler simply is not wired
+when the view is gone, which is the correct outcome. Three consecutive walks are now
+clean where the failure had appeared in roughly one run in three.
+
 
 **Why S1 was a classic script, not a module.** A module would have forced three
 simultaneous changes: the facade (63 new globals), strict mode (a real behaviour

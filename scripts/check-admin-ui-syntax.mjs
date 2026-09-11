@@ -1,8 +1,11 @@
-import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+const jsDir = fileURLToPath(new URL('../admin-ui/js', import.meta.url));
+let moduleFiles = 0;
 
 /**
  * Syntax gate for the operator console.
@@ -84,9 +87,24 @@ for (const { url, isModule } of localSrcs) {
   else checkClassic(url, code);
 }
 
+// 3. Every module under admin-ui/js/. These are reached through `import`, not
+//    through a script tag, so a syntax error in one of them would break the console
+//    at load with nothing above noticing — the script-tag scan only ever sees app.js.
+if (existsSync(jsDir)) {
+  for (const entry of readdirSync(jsDir, { recursive: true })) {
+    const name = String(entry);
+    if (!name.endsWith('.js')) continue;
+    const path = join(jsDir, name);
+    const code = readFileSync(path, 'utf8');
+    checked += 1;
+    moduleFiles += 1;
+    checkModule(`js/${name}`, code);
+  }
+}
+
 console.log(
   failed === 0
-    ? `ALL ${checked} scripts OK (${i} inline + ${localSrcs.length} external: ${localSrcs.map((s) => `${s.url}${s.isModule ? ' [module]' : ''}`).join(', ')})`
+    ? `ALL ${checked} scripts OK (${i} inline + ${localSrcs.length} external + ${moduleFiles} modules)`
     : `FAILED — ${failed} of ${checked} scripts`,
 );
 process.exit(failed === 0 ? 0 : 1);
