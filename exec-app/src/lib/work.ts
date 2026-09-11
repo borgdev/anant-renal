@@ -7,7 +7,7 @@
 // server says the current session may see and act on — it never decides
 // authorization.
 import { responseOrThrow } from "./session";
-export type PlatformWorkKind = "episode" | "review" | "release" | "dlq";
+export type PlatformWorkKind = "episode" | "review" | "release" | "dlq" | "cohort";
 export type PlatformUrgency = "high" | "medium" | "low";
 export type ConsoleId = "exec" | "ops";
 

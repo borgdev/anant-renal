@@ -301,12 +301,16 @@ async function buildWorkQueue(ws: SwarmWorkspaceStore, coord: PersistentOutcomeC
       const docs = await ws.listCohortDefinitions();
       if (docs.length > 0) {
         const { evaluateCohorts, toCohortDefinition } = await import('./cohort-routes.js');
-        const { cachedLedgerSeries } = await import('./cohort-routes.js');
+        const { cachedLedgerSeries, declinedSuppression } = await import('./cohort-routes.js');
         const live = opts.patients();
         const series = cachedLedgerSeries(live);
         const { rows } = evaluateCohorts(docs.filter((d) => d.enabled).map(toCohortDefinition), live, { series, at: new Date().toISOString(), intervalDays: 2 });
+        // A suggestion a human already declined is not re-presented until its
+        // criteria change — otherwise declining it looks like it did nothing.
+        const suppressed = await declinedSuppression(ws);
         for (const row of rows) {
           if (row.state !== 'member' || row.kind !== 'suggested') continue;
+          if (suppressed(row.cohortId, row.patientId, row.criterionVersion) !== null) continue;
           items.push({
             id: `cohort:${row.cohortId}:${row.patientId}`,
             kind: 'cohort',
@@ -804,6 +808,11 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
     if (kind === 'dlq') {
       return { detail: dlqDetail(rest) };
     }
+    if (kind === 'cohort') {
+      const detail = await cohortDetail(ws(), rest, opts.patients);
+      if (!detail) return reply.code(404).send({ error: 'cohort-suggestion-not-found' });
+      return { detail };
+    }
     return reply.code(404).send({ error: 'work-item-not-found' });
   });
 
@@ -865,6 +874,36 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
         // and outbox; this endpoint records the operator acknowledgement.
         if (action !== 'acknowledge') return reply.code(400).send({ error: 'unsupported-dlq-action', allowed: ['acknowledge'] });
         result = { accepted: true, action, note: 'acknowledged — durable remediation is wired through /admin/swarm/bridge and the outbox' };
+      } else if (kind === 'cohort') {
+        // A cohort suggestion is a statement about state; the human decides
+        // whether it was worth raising. A decline is REQUIRED to carry a reason
+        // because it is the only feedback that can tune a criterion.
+        if (action !== 'review' && action !== 'decline') {
+          return reply.code(400).send({ error: 'unsupported-cohort-action', allowed: ['review', 'decline'] });
+        }
+        const suggestion = await cohortSuggestion(ws(), rest, opts.patients);
+        if (!suggestion) return reply.code(404).send({ error: 'cohort-suggestion-not-found' });
+        if (action === 'decline' && !req.body?.reason?.trim()) {
+          return reply.code(400).send({ error: 'decline-requires-reason' });
+        }
+        const decision = await ws().recordCohortDecision({
+          cohortId: suggestion.cohortId,
+          patientId: suggestion.patientId,
+          action,
+          reason: req.body?.reason?.trim() || 'reviewed and accepted',
+          actor: req.body?.approver?.trim() || sessionRole(req) || 'operator',
+          criterionVersion: suggestion.criterionVersion,
+          suggestionReason: suggestion.reason,
+          confidence: suggestion.confidence,
+          risk: suggestion.risk,
+        });
+        result = {
+          accepted: true, action, state: `${suggestion.cohortId}:${action}`,
+          decisionId: decision.id, criterionVersion: decision.criterionVersion,
+          note: action === 'decline'
+            ? 'declined — retained against the criterion version so the definition can be tuned'
+            : 'reviewed by a human; acting remains a separate proposal',
+        };
       } else {
         return reply.code(404).send({ error: 'work-item-not-found' });
       }
@@ -1036,6 +1075,151 @@ function splitWorkId(id: string): [string, string] {
   const i = id.indexOf(':');
   if (i < 0) return ['', ''];
   return [id.slice(0, i), id.slice(i + 1)];
+}
+
+/** `cohort:<cohortId>:<patientId>` — both halves are colon-free slugs. */
+function parseCohortRef(rest: string): [string, string] | null {
+  const i = rest.indexOf(':');
+  if (i <= 0 || i === rest.length - 1) return null;
+  return [rest.slice(0, i), rest.slice(i + 1)];
+}
+
+interface CohortSuggestion {
+  cohortId: string;
+  patientId: string;
+  realmId: string;
+  label: string;
+  protocol: string;
+  approvalClass: string;
+  suggestedAction: string;
+  mayNever: string[];
+  guard: string[];
+  criterionVersion: string;
+  rationale: string;
+  reason: string;
+  confidence: number;
+  risk: number;
+  opportunity: number;
+  unresolved: string[];
+  entry: readonly import('../swarm/cohort.js').CriterionResult[];
+  exit: readonly import('../swarm/cohort.js').CriterionResult[];
+}
+
+/**
+ * Re-evaluate ONE cohort for ONE patient.
+ *
+ * The queue and the item detail must agree: both go through this function, so a
+ * drawer can never explain a suggestion differently from the row that raised it.
+ * A patient who no longer qualifies returns null — the suggestion is gone rather
+ * than stale, which is what makes a cohort self-clearing.
+ */
+async function cohortSuggestion(
+  ws: SwarmWorkspaceStore,
+  rest: string,
+  patients?: (() => import('../swarm/renal-cohort.js').RenalPatientInput[]) | undefined,
+): Promise<CohortSuggestion | null> {
+  const ref = parseCohortRef(rest);
+  if (!ref || !patients) return null;
+  const [cohortId, patientId] = ref;
+  const doc = await ws.getCohortDefinition(cohortId);
+  if (!doc) return null;
+  const { evaluateCohorts, toCohortDefinition, cachedLedgerSeries } = await import('./cohort-routes.js');
+  const live = patients();
+  const { rows } = evaluateCohorts([toCohortDefinition(doc)], live, {
+    series: cachedLedgerSeries(live), at: new Date().toISOString(), intervalDays: 2,
+  });
+  const row = rows.find((r) => r.patientId === patientId && r.state === 'member');
+  if (!row) return null;
+  return {
+    cohortId, patientId,
+    realmId: row.realmId,
+    label: row.label,
+    protocol: row.protocol,
+    approvalClass: row.approvalClass,
+    suggestedAction: row.suggestedAction,
+    mayNever: row.mayNever,
+    guard: row.guard,
+    criterionVersion: row.criterionVersion,
+    rationale: String(doc.rationale ?? ''),
+    reason: row.reason,
+    confidence: row.confidence,
+    risk: row.risk,
+    opportunity: row.opportunity,
+    unresolved: row.unresolved,
+    entry: row.entry,
+    exit: row.exit,
+  };
+}
+
+/**
+ * A cohort work item, in the same shape as every other drawer.
+ *
+ * `decision.allowed` is the whole contract for a suggestion: a human reviews or
+ * declines it. Acting on the patient remains a separate proposal → approval →
+ * outcome episode, so nothing here can move a patient by itself.
+ */
+async function cohortDetail(
+  ws: SwarmWorkspaceStore,
+  rest: string,
+  patients?: (() => import('../swarm/renal-cohort.js').RenalPatientInput[]) | undefined,
+): Promise<Record<string, unknown> | null> {
+  const s = await cohortSuggestion(ws, rest, patients);
+  if (!s) return null;
+  const membership = await ws.get<import('../swarm/workspace.js').CohortMembershipDoc>('cohort-membership', `${s.cohortId}::${s.patientId}`);
+  const decisions = await ws.cohortDecisions(s.cohortId, s.patientId);
+  const activity = [
+    ...(membership?.history ?? []).map((h) => ({ at: h.at, from: '—', to: h.event, by: 'cohort engine', note: `${h.reason} (criteria ${h.criterionVersion})` })),
+    ...decisions.map((d) => ({ at: d.at, from: 'suggested', to: d.action === 'decline' ? 'declined' : 'reviewed', by: d.actor, note: d.reason })),
+  ].sort((a, b) => String(a.at).localeCompare(String(b.at)));
+
+  const criteriaOf = (rows: readonly import('../swarm/cohort.js').CriterionResult[]): Array<Record<string, unknown>> =>
+    rows.map((c) => ({ metric: c.metric, comparator: c.comparator, expected: c.expected, observed: c.observed ?? null, outcome: c.outcome, note: c.note ?? null }));
+
+  return {
+    id: `cohort:${s.cohortId}:${s.patientId}`,
+    kind: 'cohort',
+    title: `${s.label} · ${s.patientId}`,
+    state: 'suggested',
+    scope: s.realmId,
+    owner: s.approvalClass === 'C' ? 'Nephrologist' : 'Renal nurse',
+    // `why` is the product: the reason is the suggestion's entire justification
+    why: s.reason,
+    overview: {
+      cohortId: s.cohortId, patientId: s.patientId, protocol: s.protocol,
+      rationale: s.rationale, confidence: s.confidence, risk: s.risk,
+      opportunity: s.opportunity, criterionVersion: s.criterionVersion,
+      suggestedAction: s.suggestedAction,
+      // the engine's own words for what held and what did not
+      entryCriteria: criteriaOf(s.entry),
+      exitCriteria: criteriaOf(s.exit),
+      unresolved: s.unresolved,
+    },
+    evidence: criteriaOf(s.entry).map((c) => ({ sourceId: String(c.metric), contentType: 'criterion', hash: null, span: { expected: c.expected, observed: c.observed } })),
+    contributions: [],
+    policy: {
+      approvalClass: s.approvalClass,
+      mayNever: s.mayNever,
+      guard: s.guard,
+      // a cohort is a statement about state, never an action
+      actsOnPatient: false,
+    },
+    activity,
+    decision: {
+      allowed: ['review', 'decline'],
+      reasonRequiredFor: ['decline'],
+    },
+    execution: null,
+    outcome: {
+      // the only way anything changes: a separate proposal, approved, then verified
+      verification: 'proposal → approval → outcome episode',
+      actingOnSuggestion: false,
+    },
+    assurance: {
+      criterionVersion: s.criterionVersion,
+      replay: `/api/work/cohort:${s.cohortId}:${s.patientId}`,
+      whyPatientIsHere: `/admin/cohorts/patients/${s.patientId}`,
+    },
+  };
 }
 
 const DEFAULT_TOPIC_PLAN: Omit<PlatformTopicPlan, 'id' | 'createdAt' | 'updatedAt'> = {

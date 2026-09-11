@@ -293,6 +293,28 @@ export function evaluateCohorts(
   return { rows, states };
 }
 
+/**
+ * A declined suggestion stays suppressed until its criteria change.
+ *
+ * A decline means a human judged THIS criterion wrong, so re-presenting it on the
+ * next poll would be both noisy and disrespectful of that judgement. The decision
+ * records the criterion version it was made against, so editing the definition
+ * (and bumping the version) legitimately re-opens the question — a new criterion
+ * has not been judged yet, and must not inherit the old verdict.
+ */
+export async function declinedSuppression(
+  store: SwarmWorkspaceStore,
+): Promise<(cohortId: string, patientId: string, criterionVersion: string) => string | null> {
+  const decisions = await store.listCohortDecisions();
+  const declined = new Map<string, string>();
+  for (const d of decisions) {
+    if (d.action !== 'decline') continue;
+    declined.set(`${d.cohortId}\u0001${d.patientId}\u0001${d.criterionVersion}`, d.reason);
+  }
+  return (cohortId, patientId, criterionVersion) =>
+    declined.get(`${cohortId}\u0001${patientId}\u0001${criterionVersion}`) ?? null;
+}
+
 export async function registerCohortRoutes(app: FastifyInstance, opts: CohortRouteOptions = {}): Promise<void> {
   const patients = opts.patients ?? (() => renalPatientInputs(RealmRegistry.list()));
   const series = opts.series ?? ((patientId: string, code: string) => cachedLedgerSeries(patients())(patientId, code));
@@ -449,8 +471,11 @@ export async function registerCohortRoutes(app: FastifyInstance, opts: CohortRou
     const limitRaw = Number(request.query?.limit);
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(500, Math.floor(limitRaw)) : 100;
     const kind = request.query?.kind;
+    const suppressed = await declinedSuppression(store);
     const queue = result.rows
       .filter((r) => r.state === 'member' && r.kind === 'suggested')
+      // a decline removes the suggestion until the criteria change
+      .filter((r) => suppressed(r.cohortId, r.patientId, r.criterionVersion) === null)
       .filter((r) => (kind ? r.protocol === kind : true))
       .sort((a, b) => b.opportunity - a.opportunity || a.patientId.localeCompare(b.patientId))
       .slice(0, limit)

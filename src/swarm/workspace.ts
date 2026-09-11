@@ -112,7 +112,8 @@ export type WorkspaceKind =
   | 'assurance-burden-report'
   | 'cross-pack-release-gate'
   | 'cohort-definition'
-  | 'cohort-membership';
+  | 'cohort-membership'
+  | 'cohort-decision';
 
 export interface WorkspaceDoc {
   id: string;
@@ -521,6 +522,28 @@ export interface CohortMembershipDoc extends WorkspaceDoc {
   metrics?: Record<string, unknown> | undefined;
 }
 
+/**
+ * A durable human decision on a cohort suggestion.
+ *
+ * A decline is not a dismissal — it is the only feedback the fleet gets about
+ * whether a criterion is wrong, so it is retained with the criterion version it
+ * was made against. Criterion tuning (Phase 5) reads these back.
+ */
+export interface CohortDecisionDoc extends WorkspaceDoc {
+  cohortId: string;
+  patientId: string;
+  action: 'review' | 'decline';
+  reason: string;
+  actor: string;
+  /** the criterion version in force when the decision was made */
+  criterionVersion: string;
+  /** the reason the engine gave, kept so a decline can be compared to it */
+  suggestionReason: string;
+  confidence: number;
+  risk: number;
+  at: string;
+}
+
 /** Durable Pack Studio activation — which installed domain pack drives the
  *  exec lens (`/api/context`). Single-doc kind (`pack-activation`). */
 export interface PackActivation extends WorkspaceDoc {
@@ -729,15 +752,32 @@ export class SwarmWorkspaceStore {
   async hydrate(): Promise<void> {
     if (this.hydrated || !this.persistence) return;
     this.hydrated = true;
+    let loaded = 0;
+    let skipped = 0;
     for (const kind of WORKSPACE_KINDS) {
       const rows = await this.persistence.list(kind);
       for (const row of rows) {
         try {
           this.map(kind).set(row.id, { ...JSON.parse(row.entityJson), id: row.id, createdAt: row.createdAt, updatedAt: row.updatedAt });
+          loaded += 1;
         } catch {
-          // corrupt row — skip; a fresh save will overwrite it.
+          // A genuinely corrupt row (unparseable JSON) is skipped so one bad
+          // document cannot block the boot; a fresh save overwrites it. But the
+          // count is reported, because this catch previously hid a total
+          // hydration failure — a populated table loading zero documents looks
+          // exactly like an empty one from the outside.
+          skipped += 1;
         }
       }
+    }
+    if (skipped > 0) {
+      console.warn(`[workspace] hydrate: loaded ${loaded} document(s), skipped ${skipped} unreadable row(s)`);
+    }
+    if (loaded === 0 && skipped > 0) {
+      throw new Error(
+        `workspace hydrate failed: all ${skipped} durable row(s) were unreadable — ` +
+        'check that the persistence adapter returns the documented field names (entityJson/createdAt/updatedAt)',
+      );
     }
   }
 
@@ -1716,6 +1756,61 @@ export class SwarmWorkspaceStore {
       .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   }
 
+  /**
+   * Record a human decision on a suggestion.
+   *
+   * Idempotent per (cohort, patient, action): a double-click is one decision,
+   * not two — a duplicated decline would corrupt the very signal it exists to
+   * provide.
+   */
+  async recordCohortDecision(input: {
+    cohortId: string;
+    patientId: string;
+    action: 'review' | 'decline';
+    reason: string;
+    actor: string;
+    criterionVersion: string;
+    suggestionReason: string;
+    confidence: number;
+    risk: number;
+  }): Promise<CohortDecisionDoc> {
+    const id = `${input.cohortId}::${input.patientId}::${input.action}`;
+    const existing = await this.get<CohortDecisionDoc>('cohort-decision', id);
+    const at = this.now();
+    const doc: CohortDecisionDoc = {
+      id,
+      createdAt: existing?.createdAt ?? at,
+      updatedAt: at,
+      cohortId: input.cohortId,
+      patientId: input.patientId,
+      action: input.action,
+      reason: input.reason,
+      actor: input.actor,
+      criterionVersion: input.criterionVersion,
+      suggestionReason: input.suggestionReason,
+      confidence: input.confidence,
+      risk: input.risk,
+      at,
+    };
+    if (existing) {
+      const updated = await this.update<CohortDecisionDoc>('cohort-decision', id, doc);
+      return updated ?? doc;
+    }
+    return this.create<CohortDecisionDoc>('cohort-decision', id, doc);
+  }
+
+  async listCohortDecisions(): Promise<CohortDecisionDoc[]> {
+    return this.list<CohortDecisionDoc>('cohort-decision');
+  }
+
+  /** Decisions for one (cohort, patient) pair, newest first. */
+  async cohortDecisions(cohortId: string, patientId?: string): Promise<CohortDecisionDoc[]> {
+    const rows = await this.listCohortDecisions();
+    return rows
+      .filter((r) => r.cohortId === cohortId && (!patientId || r.patientId === patientId))
+      .sort((a, b) => b.at.localeCompare(a.at));
+  }
+
   /* ---------- Pack Studio — durable pack activation (lens switch) ---------- */
 
   async activePack(): Promise<PackActivation | undefined> {
@@ -2439,6 +2534,7 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'cross-pack-release-gate',
   'cohort-definition',
   'cohort-membership',
+  'cohort-decision',
 ];
 
 function slug(input: string): string {

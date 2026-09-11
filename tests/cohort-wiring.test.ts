@@ -164,6 +164,117 @@ describe('living cohorts reach the queue on the default patient source', () => {
     await app.inject({ method: 'DELETE', url: '/admin/cohorts/wiring-probe', headers: { cookie } });
   }, 120_000);
 
+  it('a cohort suggestion carries its reason and can never act on the patient', async () => {
+    const work = await app.inject({ method: 'GET', url: '/api/work', headers: { cookie } });
+    const items = (work.json() as { items: Array<{ id: string; kind: string }> }).items;
+    const item = items.find((i) => i.kind === 'cohort');
+    expect(item).toBeDefined();
+
+    const res = await app.inject({ method: 'GET', url: `/api/work/${item!.id}`, headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    const detail = (res.json() as { detail: Record<string, unknown> }).detail;
+
+    // the reason is the suggestion's entire justification, so it must be present
+    expect(typeof detail.why).toBe('string');
+    expect(String(detail.why).length).toBeGreaterThan(0);
+
+    // the allowed actions are the whole contract: a human reviews or declines.
+    // acting on a patient stays a separate proposal -> approval -> episode.
+    expect(detail.decision).toEqual({ allowed: ['review', 'decline'], reasonRequiredFor: ['decline'] });
+    expect(detail.execution).toBeNull();
+    expect((detail.overview as Record<string, unknown>).entryCriteria).toBeDefined();
+
+    // an action the design does not permit is refused rather than ignored
+    const forbidden = await app.inject({
+      method: 'POST', url: `/api/work/${item!.id}/actions`,
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: { action: 'approve' },
+    });
+    expect(forbidden.statusCode).toBe(400);
+  }, 120_000);
+
+  it('a decline requires a reason and is retained against the criterion version', async () => {
+    const work = await app.inject({ method: 'GET', url: '/api/work', headers: { cookie } });
+    const items = (work.json() as { items: Array<{ id: string; kind: string }> }).items;
+    const item = items.find((i) => i.kind === 'cohort');
+    expect(item).toBeDefined();
+
+    // a decline with no reason is unusable as feedback, so it is refused
+    const bare = await app.inject({
+      method: 'POST', url: `/api/work/${item!.id}/actions`,
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: { action: 'decline' },
+    });
+    expect(bare.statusCode).toBe(400);
+
+    const declined = await app.inject({
+      method: 'POST', url: `/api/work/${item!.id}/actions`,
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: { action: 'decline', reason: 'catheter is tunnelled and clinically essential', idempotencyKey: 'wiring-decline-1' },
+    });
+    expect(declined.statusCode).toBe(200);
+    const body = declined.json() as { criterionVersion: string; decisionId: string };
+    // the criterion version is what makes a decline tunable rather than noise
+    expect(body.criterionVersion).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(body.decisionId).toBeTruthy();
+
+    // replaying the same intent is one decision, not two
+    const replay = await app.inject({
+      method: 'POST', url: `/api/work/${item!.id}/actions`,
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: { action: 'decline', reason: 'catheter is tunnelled and clinically essential', idempotencyKey: 'wiring-decline-1' },
+    });
+    expect((replay.json() as { duplicate?: boolean }).duplicate).toBe(true);
+
+    // and it shows up as history on the item itself
+    const detail = await app.inject({ method: 'GET', url: `/api/work/${item!.id}`, headers: { cookie } });
+    const activity = ((detail.json() as { detail: { activity: Array<{ to: string }> } }).detail.activity);
+    expect(activity.some((a) => a.to === 'declined')).toBe(true);
+  }, 120_000);
+
+  it('a declined suggestion stays declined until its criteria change', async () => {
+    // a cohort every patient satisfies, so the queue item is deterministic
+    const base = {
+      id: 'decline-probe', label: 'Decline probe', kind: 'suggested', protocol: 'cross',
+      rationale: 'proves a decline sticks', entry: [{ metric: 'age.years', comparator: 'gte', value: 0 }],
+      exit: [{ metric: 'age.years', comparator: 'lt', value: 0 }],
+      suggestedAction: 'Review the plan of care', approvalClass: 'B',
+      mayNever: ['amend a prescription'], guard: ['clinician review'], minN: 1,
+      criterionVersion: '1.0.0', owner: 'test', enabled: true,
+    };
+    await app.inject({ method: 'POST', url: '/admin/cohorts', headers: { cookie, 'content-type': 'application/json' }, payload: base });
+
+    const queued = async (): Promise<string[]> => {
+      const res = await app.inject({ method: 'GET', url: '/api/work', headers: { cookie } });
+      return (res.json() as { items: Array<{ id: string }> }).items
+        .map((i) => i.id).filter((id) => id.startsWith('cohort:decline-probe:'));
+    };
+    const before = await queued();
+    expect(before.length).toBeGreaterThan(0);
+
+    const declined = await app.inject({
+      method: 'POST', url: `/api/work/${before[0]}/actions`,
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: { action: 'decline', reason: 'criterion too broad for this unit', idempotencyKey: 'decline-probe-1' },
+    });
+    expect(declined.statusCode).toBe(200);
+
+    // the nurse must not see the same suggestion come back on the next poll
+    const after = await queued();
+    expect(after).not.toContain(before[0]);
+
+    // but a NEW criterion has not been judged, so bumping the version re-opens it
+    const bumped = await app.inject({
+      method: 'PUT', url: '/admin/cohorts/decline-probe',
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: { ...base, criterionVersion: '1.1.0', entry: [{ metric: 'age.years', comparator: 'gte', value: 18 }] },
+    });
+    expect(bumped.statusCode).toBe(200);
+    expect(await queued()).toContain(before[0]);
+
+    await app.inject({ method: 'DELETE', url: '/admin/cohorts/decline-probe', headers: { cookie } });
+  }, 120_000);
+
   it('a disabled definition stops producing queue items', async () => {
     // PUT is a full replace, not a patch: a cohort's criteria are a versioned
     // unit, so it is replaced whole and attributed by criterionVersion.

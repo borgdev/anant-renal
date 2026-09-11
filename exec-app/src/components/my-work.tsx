@@ -12,6 +12,7 @@ import {
   Inbox,
   RefreshCw,
   ShieldCheck,
+  Users,
   XCircle,
 } from "lucide-react";
 import { fetchMyWork, fetchWorkDetail, performWorkAction, type PlatformWorkItem, type PlatformWorkDetail, type PlatformUrgency } from "../lib/work";
@@ -24,6 +25,7 @@ const KIND_LABEL: Record<PlatformWorkItem["kind"], string> = {
   review: "Evidence review",
   release: "Release",
   dlq: "DLQ incident",
+  cohort: "Cohort suggestion",
 };
 
 const KIND_ICON: Record<PlatformWorkItem["kind"], typeof CircleDot> = {
@@ -31,6 +33,7 @@ const KIND_ICON: Record<PlatformWorkItem["kind"], typeof CircleDot> = {
   review: ShieldCheck,
   release: GitBranch,
   dlq: AlertOctagon,
+  cohort: Users,
 };
 
 const URGENCY_TONE: Record<PlatformUrgency, "red" | "amber" | "mint"> = { high: "red", medium: "amber", low: "mint" };
@@ -56,6 +59,7 @@ const ACTION_LABEL: Record<string, string> = {
   approve: "Approve", reject: "Reject", escalate: "Escalate", validate: "Validate",
   activate: "Activate", rollback: "Rollback", acknowledge: "Acknowledge", "request-approval": "Request approval",
   canary: "Canary", promote: "Promote", fail: "Fail",
+  review: "Review", decline: "Decline",
 };
 
 function toneFor(item: PlatformWorkItem): "neutral" | "mint" | "amber" | "red" | "blue" | "violet" {
@@ -80,7 +84,9 @@ function detailToDrawer(item: PlatformWorkItem, detail?: PlatformWorkDetail): Wo
       ? { label: "Open Outcome Command", target: "command" }
       : item.kind === "release"
         ? { label: "Open Configuration Studio", target: "configuration" }
-        : { label: "Open Event Operations", target: "command" };
+        : item.kind === "cohort"
+          ? { label: "Open Renal Cohorts", target: "patient" }
+          : { label: "Open Event Operations", target: "command" };
   const metrics: WorkflowDetail["metrics"] = [
     { label: "State", value: detail?.state ?? item.state },
     { label: "Scope", value: detail?.scope ?? item.scope },
@@ -120,6 +126,9 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // A decline is feedback, so it must carry a reason. Collected inline rather
+  // than sent bare and rejected.
+  const [declining, setDeclining] = useState<{ id: string; reason: string } | null>(null);
   const mounted = useRef(true);
 
   const load = useCallback(async () => {
@@ -153,12 +162,15 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
   // Page the queue (10/page) so long role-scoped lists never stretch the page.
   const paged = usePaged(visible, 10, filter);
 
-  const act = async (item: PlatformWorkItem, action: string) => {
+  const act = async (item: PlatformWorkItem, action: string, reason?: string) => {
     const key = `${item.id}:${action}`;
     setBusy(key);
     setNotice(null);
     try {
-      const res = await performWorkAction(item.id, action, { approver: "operator", idempotencyKey: `${key}:${Date.now()}` });
+      const res = await performWorkAction(item.id, action, {
+        approver: "operator", idempotencyKey: `${key}:${Date.now()}`,
+        ...(reason ? { reason } : {}),
+      });
       setNotice(`${item.title} → ${res.state ?? action}${res.duplicate ? " (duplicate idempotent replay)" : ""}`);
       await load();
     } catch (e) {
@@ -166,6 +178,16 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
     } finally {
       setBusy(null);
     }
+  };
+
+  /** Cohorts ask a human to judge the suggestion itself, so a decline needs the
+   *  reason that will be read back when the criterion is tuned. */
+  const beginAction = (item: PlatformWorkItem, action: string) => {
+    if (action === "decline") {
+      setDeclining({ id: item.id, reason: "" });
+      return;
+    }
+    void act(item, action);
   };
 
   const openItem = (item: PlatformWorkItem) => {
@@ -250,17 +272,38 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
                   <span className="mywork-time" title={item.at}><Clock3 size={11} /> {item.sla}</span>
                 </span>
                 <span className="mywork-actions">
-                  {item.actions.map((a) => (
-                    <button
-                      key={a}
-                      className={`button ${a === "approve" || a === "activate" ? "button-primary" : "button-ghost"}`}
-                      disabled={busy === `${item.id}:${a}`}
-                      onClick={() => void act(item, a)}
-                      type="button"
-                    >
-                      {busy === `${item.id}:${a}` ? "…" : <CheckCircle2 size={12} />} {ACTION_LABEL[a] ?? a}
-                    </button>
-                  ))}
+                  {declining?.id === item.id ? (
+                    <span className="mywork-decline">
+                      <input
+                        autoFocus
+                        className="input"
+                        onChange={(e) => setDeclining({ id: item.id, reason: e.target.value })}
+                        placeholder="Why is this suggestion wrong? (kept for criterion tuning)"
+                        value={declining.reason}
+                      />
+                      <button
+                        className="button button-primary"
+                        disabled={declining.reason.trim().length < 4 || busy === `${item.id}:decline`}
+                        onClick={() => { const r = declining.reason.trim(); setDeclining(null); void act(item, "decline", r); }}
+                        type="button"
+                      >
+                        Confirm decline
+                      </button>
+                      <button className="button button-ghost" onClick={() => setDeclining(null)} type="button">Cancel</button>
+                    </span>
+                  ) : (
+                    item.actions.map((a) => (
+                      <button
+                        key={a}
+                        className={`button ${a === "approve" || a === "activate" ? "button-primary" : "button-ghost"}`}
+                        disabled={busy === `${item.id}:${a}`}
+                        onClick={() => beginAction(item, a)}
+                        type="button"
+                      >
+                        {busy === `${item.id}:${a}` ? "…" : <CheckCircle2 size={12} />} {ACTION_LABEL[a] ?? a}
+                      </button>
+                    ))
+                  )}
                   {busy === actionKey ? <XCircle size={13} style={{ color: "var(--faint)" }} /> : null}
                 </span>
               </div>
