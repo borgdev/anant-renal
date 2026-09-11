@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { aliasNames, restoreAliasCase } from '../src/server/sql/sql-db.js';
 import { MIGRATIONS, WIDEN_TO_BIGINT } from '../src/server/sql/schema.js';
+import { SqlStore } from '../src/server/sql/sql-store.js';
 import { SwarmWorkspaceStore, WORKSPACE_KINDS, type WorkspacePersistence } from '../src/swarm/workspace.js';
 import { LocalUserStore, seedDefaultUsers, sqlUserPersistence, type LocalUser, type UserPersistence } from '../src/server/auth/users.js';
 import { SessionManager } from '../src/server/auth/session.js';
@@ -64,6 +65,55 @@ describe('millisecond columns are 64-bit', () => {
     expect(new Set(WIDEN_TO_BIGINT.map((s) => s.split(' ')[2]))).toEqual(
       new Set(['retention_policies', 'auth_sessions', 'bridge_leases']),
     );
+  });
+
+  it('reads a BIGINT back as a number, because Postgres returns it as a string', async () => {
+    // Declaring a column `number` in TypeScript does not make the driver return
+    // one. On Postgres a restored session's `expires_at` arrived as "1789…", so
+    // `new Date(session.expiresAt)` produced an Invalid Date and `toISOString()`
+    // threw `Invalid time value` — a 500 on GET /auth/me that ALSO meant the
+    // durable session restore never worked. SQLite returns a number, which is why
+    // every SQLite test passed.
+    const rows = [
+      { tokenHash: 'h1', username: 'admin', createdAt: '2026-01-01T00:00:00.000Z', expiresAt: '1790000000000' },
+      { tokenHash: 'h2', username: 'nurse', createdAt: '2026-01-01T00:00:00.000Z', expiresAt: 1790000000000 },
+    ];
+    const db = {
+      async all() { return rows; },
+      async run() { return { changes: 0 }; },
+      async exec() { /* noop */ },
+    };
+    const store = new SqlStore(db as never);
+    const sessions = await store.listSessions();
+    for (const s of sessions) {
+      expect(typeof s.expiresAt).toBe('number');
+      // the exact operation that used to throw
+      expect(() => new Date(s.expiresAt).toISOString()).not.toThrow();
+    }
+    expect(sessions[0]!.expiresAt).toBe(sessions[1]!.expiresAt);
+  });
+
+  it('coerces the other BIGINT columns the same way', async () => {
+    const db = {
+      async all(sql: string) {
+        if (sql.includes('retention_policies')) {
+          return [{ id: 'p1', entity: 'audit_events', scopeId: null, maxAgeMs: '2592000000', enabled: true }];
+        }
+        if (sql.includes('bridge_receipts')) {
+          return [{ outboxId: 'o1', topic: 't', partitionKey: null, idempotencyKey: 'k', publishedAt: 'now', ackOffset: '42', state: 'delivered', incident: null }];
+        }
+        return [];
+      },
+      async run() { return { changes: 0 }; },
+      async exec() { /* noop */ },
+    };
+    const store = new SqlStore(db as never);
+    const policies = await store.listRetentionPolicies();
+    expect(policies[0]!.maxAgeMs).toBe(2_592_000_000);
+    // a purge window computed from a string would be a silent zero
+    expect(Date.now() - policies[0]!.maxAgeMs).toBeLessThan(Date.now());
+    const receipts = await store.listBridgeReceipts();
+    expect(receipts[0]!.ackOffset).toBe(42);
   });
 });
 

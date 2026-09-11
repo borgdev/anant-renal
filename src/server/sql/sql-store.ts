@@ -39,6 +39,30 @@ import type { SqlDb } from './sql-db.js';
 import { MIGRATIONS, WIDEN_TO_BIGINT } from './schema.js';
 import type { LocalUser } from '../auth/users.js';
 
+/**
+ * A BIGINT/BIGINT-shaped column, as a number.
+ *
+ * The pg driver returns INT8 as a STRING because it cannot know a value fits a JS
+ * number; SQLite returns a number. A column declared `number` in TypeScript is
+ * therefore a string at runtime on Postgres — which is how a restored session's
+ * `expiresAt` reached `new Date(...)` as "1789…" and threw
+ * `Invalid time value`, 500-ing `GET /auth/me` and quietly defeating the durable
+ * session restore it exists to provide. Epoch-millisecond values are well inside
+ * the safe integer range, so the coercion is lossless here.
+ */
+function bigintToNumber(value: unknown): number | undefined {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'bigint') return Number(value);
+  if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) return Number(value);
+  return undefined;
+}
+
+/** `nudge_ledger.expires_at` is BIGINT — coerce it wherever the row is read. */
+function coerceNudge<T extends { expiresAt?: number | string | undefined | null }>(row: T): T {
+  const coerced = bigintToNumber(row.expiresAt);
+  return { ...row, ...(coerced !== undefined ? { expiresAt: coerced } : {}) };
+}
+
 /** Row shape for `local_users` (JSON array columns arrive as TEXT). */
 interface LocalUserRow {
   username: string;
@@ -443,10 +467,17 @@ export class SqlStore {
   }
 
   async listSessions(): Promise<Array<{ tokenHash: string; username: string; createdAt: string; expiresAt: number }>> {
-    return this.db.all<{ tokenHash: string; username: string; createdAt: string; expiresAt: number }>(
+    const rows = await this.db.all<{ tokenHash: string; username: string; createdAt: string; expiresAt: number | string }>(
       `SELECT token_hash AS tokenHash, username, created_at AS createdAt, expires_at AS expiresAt
        FROM auth_sessions`,
     );
+    // Postgres returns BIGINT as a STRING (the pg driver cannot know a value fits a
+    // JS number) while SQLite returns a number, so a column declared `number` here
+    // is a string at runtime on Postgres. That is how a restored session's
+    // `expiresAt` reached `new Date(...)` as "1789…" and threw
+    // `Invalid time value` — 500-ing GET /auth/me and silently breaking the durable
+    // session restore this exists to provide. Coerce at the boundary.
+    return rows.map((r) => ({ ...r, expiresAt: bigintToNumber(r.expiresAt) ?? 0 }));
   }
 
   async deleteSession(tokenHash: string): Promise<void> {
@@ -539,20 +570,20 @@ export class SqlStore {
                            expires_at AS expiresAt, status, sent_at AS sentAt, observed_at AS observedAt,
                            observed_outcome_json AS observedOutcomeJson
                     FROM nudge_ledger`;
-    if (realmId) {
-      return this.db.all<NudgeRow>(`${select} WHERE realm_id = ? ORDER BY sent_at DESC`, [realmId]);
-    }
-    return this.db.all<NudgeRow>(`${select} ORDER BY sent_at DESC`);
+    const rows = realmId
+      ? await this.db.all<NudgeRow & { expiresAt: number | string }>(`${select} WHERE realm_id = ? ORDER BY sent_at DESC`, [realmId])
+      : await this.db.all<NudgeRow & { expiresAt: number | string }>(`${select} ORDER BY sent_at DESC`);
+    return rows.map(coerceNudge);
   }
 
   async getNudge(id: string): Promise<NudgeRow | undefined> {
-    const rows = await this.db.all<NudgeRow>(
+    const rows = await this.db.all<NudgeRow & { expiresAt: number | string }>(
       `SELECT id, realm_id AS realmId, patient_id AS patientId, channel, nudge_kind AS nudgeKind,
               expected_effect_json AS expectedEffectJson, rehearsal_id AS rehearsalId, variant_id AS variantId,
               expires_at AS expiresAt, status, sent_at AS sentAt, observed_at AS observedAt,
               observed_outcome_json AS observedOutcomeJson
        FROM nudge_ledger WHERE id = ?`, [id]);
-    return rows[0];
+    return rows[0] ? coerceNudge(rows[0]) : undefined;
   }
 
   async updateNudgeObserved(id: string, observedAt: string, observedOutcomeJson: string, status = 'observed'): Promise<boolean> {
@@ -875,10 +906,16 @@ export class SqlStore {
       [row.outboxId, row.topic, row.partitionKey, row.idempotencyKey, row.publishedAt, row.ackOffset ?? null, row.state, row.incident ?? null]);
   }
   async listBridgeReceipts(limit = 100): Promise<BridgeReceiptRow[]> {
-    return this.db.all<BridgeReceiptRow>(
+    const rows = await this.db.all<BridgeReceiptRow & { ackOffset: number | string | null }>(
       `SELECT outbox_id AS outboxId, topic, partition_key AS partitionKey, idempotency_key AS idempotencyKey,
               published_at AS publishedAt, ack_offset AS ackOffset, state, incident
        FROM bridge_receipts ORDER BY published_at DESC LIMIT ?`, [limit]);
+    // ack_offset is BIGINT and is part of a receipt's evidence, so it is coerced
+    // rather than reported as a quoted string.
+    return rows.map((r) => {
+      const offset = bigintToNumber(r.ackOffset);
+      return { ...r, ...(offset !== undefined ? { ackOffset: offset } : {}) };
+    });
   }
   async bridgeCounts(): Promise<BridgeCounts> {
     const leases = await this.db.all<{ active: number; terminal: number }>(
@@ -1093,8 +1130,12 @@ export class SqlStore {
       [row.id, row.entity, row.scopeId ?? null, row.maxAgeMs, row.enabled]);
   }
   async listRetentionPolicies(): Promise<RetentionPolicyRow[]> {
-    return this.db.all<RetentionPolicyRow>(
+    const rows = await this.db.all<RetentionPolicyRow & { maxAgeMs: number | string }>(
       `SELECT id, entity, scope_id AS scopeId, max_age_ms AS maxAgeMs, enabled FROM retention_policies ORDER BY entity`);
+    // max_age_ms is BIGINT: 30 days is 2.592e9, past INT4, so it is a string on
+    // Postgres and a number on SQLite — and a purge window computed from a string
+    // is a silent zero.
+    return rows.map((r) => ({ ...r, maxAgeMs: bigintToNumber(r.maxAgeMs) ?? 0 }));
   }
   async deleteRetentionPolicy(id: string): Promise<boolean> {
     const res = await this.db.run(`DELETE FROM retention_policies WHERE id = ?`, [id]);

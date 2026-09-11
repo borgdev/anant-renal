@@ -26,7 +26,7 @@ import { getSwarmWorkspace } from './swarm-routes.js';
 import type { CohortDefinitionDoc, CohortMembershipDoc, SwarmWorkspaceStore } from '../swarm/workspace.js';
 import {
   COHORT_METRICS, DECLINE_SAMPLE_FLOOR, SEED_COHORT_DEFINITIONS, analyseCohortDeclines, canonicalLabCode,
-  cohortMetric, cohortStateOf, evaluatePatient,
+  cohortMetric, cohortStateOf, evaluatePatient, seedUpgradeFor,
   type CohortCriterion, type CohortDefinition, type CohortEvaluation, type LabPoint,
 } from '../swarm/cohort.js';
 
@@ -357,6 +357,18 @@ export async function registerCohortRoutes(app: FastifyInstance, opts: CohortRou
   /** Seed the shipped catalog once; operator edits are never overwritten. */
   async function ensureDefinitions(store: SwarmWorkspaceStore): Promise<CohortDefinitionDoc[]> {
     await store.seedCohortDefinitions(SEED_COHORT_DEFINITIONS.map((d) => ({ ...d, definitionId: d.id })));
+    const docs = await store.listCohortDefinitions();
+    // Seeding never overwrites an operator's edit — which means a CORRECTED shipped
+    // definition would never reach a deployment that already stored the broken one,
+    // and the catalog would keep criteria that cannot fire forever. Apply the
+    // correction only where the stored definition is still, byte for byte, the
+    // clinical logic we shipped; anything else is left alone and reported.
+    for (const doc of docs) {
+      const upgrade = seedUpgradeFor(toCohortDefinition(doc));
+      if (!upgrade) continue;
+      await store.saveCohortDefinition({ ...upgrade.definition, definitionId: doc.definitionId });
+      console.warn(`[cohorts] upgraded shipped cohort '${doc.definitionId}' from v${doc.criterionVersion} to v${upgrade.definition.criterionVersion}: ${upgrade.reason}`);
+    }
     return store.listCohortDefinitions();
   }
 

@@ -23,9 +23,9 @@ import { buildApp } from '../src/server/app.js';
 import { Telemetry, InMemorySink } from '../src/server/telemetry.js';
 import { healthcareCorePack } from '../packs/healthcare-core/index.js';
 import {
-  analyseCohortDeclines, cohortCoverageOf, cohortStateOf, evaluatePatient,
-  SEED_COHORT_DEFINITIONS,
-  type CohortDefinition, type CohortEvaluation,
+  analyseCohortDeclines, cohortCoverageOf, cohortStateOf, evaluatePatient, resolveMetric,
+  COHORT_METRICS, SEED_COHORT_DEFINITIONS, SUPERSEDED_SEED_COHORTS, seedUpgradeFor,
+  type CohortDefinition, type CohortEvaluation, type LabPoint,
 } from '../src/swarm/cohort.js';
 import { renalPatientFacts, type RenalPatientInput } from '../src/swarm/renal-cohort.js';
 import { SwarmWorkspaceStore, type CohortMembershipInput } from '../src/swarm/workspace.js';
@@ -131,7 +131,11 @@ describe('cohort coverage explains an empty cohort', () => {
     // the binding criterion is the one that admits the fewest patients
     expect(coverage.blockers).toEqual(['hgb.current']);
     expect(coverage.verdict).toContain('individually satisfiable');
-    expect(coverage.verdict).toContain('cannot admit anyone');
+    // and it must NOT claim the definition is broken: the counts cannot tell
+    // "mutually exclusive" from "no such patient in this population"
+    expect(coverage.verdict).toContain('no patient evaluated satisfies them together');
+    expect(coverage.verdict).toContain('check both branches');
+    expect(coverage.verdict).not.toContain('cannot admit anyone');
   });
 
   it('says so when nothing was evaluated at all', () => {
@@ -440,4 +444,234 @@ describe('one evaluation takes one patient snapshot', () => {
     expect(scans).toBe(1);
     await app.close();
   }, 60_000);
+});
+
+/* ---------- 5. recalibrated seeds ---------- */
+
+function seriesOf(points: Array<[number, number]>): readonly LabPoint[] {
+  // [daysAgo, value]
+  const base = Date.parse('2026-09-10T07:00:00Z');
+  return points.map(([daysAgo, value]) => ({ at: new Date(base - daysAgo * 86_400_000).toISOString(), value }));
+}
+
+describe('shipped cohort criteria are reachable', () => {
+  // Four shipped cohorts could not admit anybody: a threshold above the metric's
+  // own ceiling, two mutually exclusive criteria, and a precondition that excluded
+  // every patient the cohort existed to find. All four sat at zero members and read
+  // as "nobody is at risk". These tests assert reachability, not shape.
+  const seedOf = (id: string): CohortDefinition => {
+    const seed = SEED_COHORT_DEFINITIONS.find((s) => s.id === id);
+    expect(seed, `no shipped cohort '${id}'`).toBeDefined();
+    return seed as CohortDefinition;
+  };
+  const evaluate = (id: string, facts: ReturnType<typeof renalPatientFacts>, ctx: { at: string; series?: () => readonly LabPoint[] }) =>
+    evaluatePatient(seedOf(id), facts, { ...ctx, ...(ctx.series ? { series: ctx.series } : {}) });
+
+  /** A dialysis session in the shape `renal-cohort` actually reads. */
+  const session = (over: Record<string, unknown> = {}) => ({
+    sessionId: 's-1', deliveredMinutes: 240, prescribedMinutes: 240, ufVolumeL: 3, ...over,
+  });
+
+  it('idh-next-session admits a patient in the fluid advisor\u2019s top tier', () => {
+    // the OLD criterion asked for an IDH probability >= 0.6, above the metric's own
+    // ceiling, so this cohort could never fire whatever the patient looked like
+    const tiered = renalPatientFacts(patient('p-1', {}, { sessions: [session({ nadirSbp: 84 })] }));
+    expect(evaluate('idh-next-session', tiered, { at: '2026-09-10T07:00:00Z' }).state).toBe('member');
+  });
+
+  it('hgb-deviation-4w admits a falling trajectory and clears it when it flattens', () => {
+    // slope ~-0.09/wk with a forecast near 10.4: reachable, where -0.15/<10 was not
+    const falling = seriesOf([[21, 11.4], [14, 11.0], [7, 10.6], [0, 10.3]]);
+    const admitted = evaluate('hgb-deviation-4w', renalPatientFacts(patient('p-1', { HGB: 10.3 }, { labs: { HGB: 10.3 } })), { at: '2026-09-10T07:00:00Z', series: () => falling });
+    expect(admitted.state).toBe('member');
+    // and the EXIT must fire for a patient the entry admits, or the cohort can only
+    // grow — the anti-rot invariant the whole layer rests on
+    const flat = seriesOf([[21, 10.3], [14, 10.3], [7, 10.3], [0, 10.3]]);
+    const cleared = evaluate('hgb-deviation-4w', renalPatientFacts(patient('p-1', { HGB: 10.3 }, { labs: { HGB: 10.3 } })), { at: '2026-09-10T07:00:00Z', series: () => flat });
+    expect(cleared.exit.some((c) => c.outcome === 'met')).toBe(true);
+  });
+
+  it('inadequate-clearance is decided by MEASURED clearance, not by a starved advisor', () => {
+    // the OLD entry paired `protocol.severity.adequacy >= 0.5` (which rises only
+    // when the advisor has NO data) with `sessions.count >= 1` — mutually exclusive
+    const belowFloor = renalPatientFacts(patient('p-1', { URR: 55 }, { sessions: [session()] }));
+    expect(evaluate('inadequate-clearance', belowFloor, { at: '2026-09-10T07:00:00Z' }).state).toBe('member');
+    // and the observed fleet profile — measured URR above the pack floor — is a
+    // decidable "nobody qualifies", NOT an unresolved coverage gap
+    const adequate = renalPatientFacts(patient('p-2', { URR: 72 }, { sessions: [session()] }));
+    const ev = evaluate('inadequate-clearance', adequate, { at: '2026-09-10T07:00:00Z' });
+    expect(ev.state).toBe('not-member');
+    const coverage = cohortCoverageOf(seedOf('inadequate-clearance'), [ev]);
+    expect(coverage.diagnosis).toBe('criteria-too-strict');
+    expect(coverage.neverMet).toContain('urr.current');
+  });
+
+  it('reports an unmeasurable branch as coverage, not as the reason, in ANY mode', () => {
+    // In `any` mode a missing measurement cannot admit anybody, so it is a coverage
+    // fact rather than the explanation for the zero. Reporting it as the headline
+    // would send an operator after data when the real answer is "the measure exists
+    // and nobody crosses the threshold". In `all` mode the same criterion DOES
+    // block, and there the headline is the gap.
+    const def: CohortDefinition = {
+      id: 'any-mode', label: 'any mode', kind: 'monitoring', protocol: 'cross', rationale: 'test',
+      entryMode: 'any',
+      entry: [
+        { metric: 'urr.current', comparator: 'lt', value: 60 },
+        { metric: 'pth.current', comparator: 'gt', value: 300 },
+      ],
+      exit: [{ metric: 'urr.current', comparator: 'gte', value: 65 }],
+      suggestedAction: 'review', approvalClass: 'C', mayNever: ['act'], guard: ['g'],
+      minN: 2, criterionVersion: '1.0.0', owner: 'test', enabled: true,
+    };
+    // PTH is absent from every patient, URR resolves and is adequate everywhere
+    const evaluations = evaluationsOf(def, [patient('p-1', { URR: 72 }), patient('p-2', { URR: 74 })]);
+    const coverage = cohortCoverageOf(def, evaluations);
+    expect(coverage.diagnosis).toBe('criteria-too-strict');
+    expect(coverage.dataBlocked).toEqual(['pth.current']);
+    expect(coverage.verdict).toContain('urr.current');
+    expect(coverage.verdict).toContain('could not be resolved at all');
+    expect(coverage.verdict).toContain("cannot admit anyone");
+
+    // the same criteria in ALL mode: the gap is the headline, because there the
+    // missing measurement is what blocks membership
+    const allMode = cohortCoverageOf({ ...def, entryMode: 'all' }, evaluationsOf({ ...def, entryMode: 'all' }, [patient('p-1', { URR: 72 })]));
+    expect(allMode.diagnosis).toBe('data-gap');
+    expect(allMode.verdict).toContain('pth.current');
+    expect(allMode.verdict).toContain('not evidence that nobody is at risk');
+  });
+
+  it('access-deterioration admits the patients the pack flags, including un-surveilled ones', () => {
+    // the OLD entry required >= 3 access observations, which excluded exactly the
+    // under-surveilled patients the cohort exists to find
+    const recirculating = renalPatientFacts(patient('p-1', {}, {
+      access: { type: 'avf', ageDays: 400, observations: [] },
+      sessions: [{ id: 's-1', adherencePct: 95, recirculationPct: 14 }],
+    }));
+    const ev = evaluate('access-deterioration', recirculating, { at: '2026-09-10T07:00:00Z' });
+    expect(ev.state).toBe('member');
+    expect(ev.entry[0]!.observed).toBe(0.6);
+  });
+
+  it('every shipped cohort\u2019s exit can clear its own entry direction', () => {
+    // A cohort whose exit can never fire for a patient its entry admits is an inbox
+    // with a clinical label.
+    for (const seed of SEED_COHORT_DEFINITIONS) {
+      const numeric = (cs: readonly { metric: string; comparator: string; value?: number | string | boolean }[]) =>
+        cs.filter((c) => typeof c.value === 'number');
+      for (const entry of numeric(seed.entry)) {
+        const exit = numeric(seed.exit).find((c) => c.metric === entry.metric);
+        if (!exit) continue;
+        const entryValue = entry.value as number;
+        const exitValue = exit.value as number;
+        const opening = entry.comparator === 'gte' || entry.comparator === 'gt';
+        const closing = exit.comparator === 'lte' || exit.comparator === 'lt';
+        if (opening) {
+          expect(closing, `${seed.id}: '${entry.metric}' opens upward but its exit also opens upward`).toBe(true);
+          expect(exitValue, `${seed.id}: exit ${exitValue} must be reachable below entry ${entryValue}`).toBeLessThanOrEqual(entryValue);
+        }
+      }
+    }
+  });
+});
+
+describe('an authorable threshold must be able to discriminate', () => {
+  // The root cause of one dead cohort: `idh.nextSessionProbability` was resolved
+  // with a single systolic reading and nothing else, which collapses the advisor's
+  // prior to `0.055 * (110 - sbp)` — a near-constant 0.029-0.04 across a whole
+  // 58-patient fleet. An operator could author a threshold on it and the cohort
+  // would never fire, silently.
+  const idh = (age: number, nadirSbp: number, idwgKg: number): number => {
+    // IDWG needs a weight pair across two sessions; a single session supplies none
+    const sessions = idwgKg > 0
+      ? [
+        { sessionId: 's-1', deliveredMinutes: 240, prescribedMinutes: 240, ufVolumeL: 3, postWeightKg: 68 },
+        { sessionId: 's-2', deliveredMinutes: 240, prescribedMinutes: 240, ufVolumeL: 3, nadirSbp, preWeightKg: 68 + idwgKg },
+      ]
+      : [{ sessionId: 's-1', deliveredMinutes: 240, prescribedMinutes: 240, ufVolumeL: 3, nadirSbp }];
+    const p = patient('p-1', {}, { age, sessions });
+    return resolveMetric('idh.nextSessionProbability', renalPatientFacts(p), ctx, new Map()) as number;
+  };
+
+  it('the IDH prior responds to the inputs the advisor actually uses', () => {
+    const base = idh(55, 118, 0);
+    expect(idh(55, 84, 0)).toBeGreaterThan(base);      // a prior low nadir
+    expect(idh(55, 118, 5.4)).toBeGreaterThan(base);   // heavy interdialytic gain
+    expect(idh(84, 118, 0)).toBeGreaterThan(base);     // age
+    // and it must span a real RANGE, not just differ in the fourth decimal: a
+    // metric that cannot discriminate is a threshold an operator can author and
+    // never see fire
+    expect(idh(84, 84, 5.4)).toBeGreaterThan(base * 2);
+  });
+
+  it('states in the vocabulary that the UF-rate term is unavailable', () => {
+    // the residual limitation must be visible to whoever authors the next threshold
+    const spec = COHORT_METRICS.find((m) => m.id === 'idh.nextSessionProbability');
+    expect(spec?.source).toContain('no body weight');
+    expect(spec?.source).toContain('ceiling');
+  });
+});
+
+/* ---------- 6. upgrading a superseded shipped definition ---------- */
+
+describe('superseded shipped definitions are upgraded, but never over an edit', () => {
+  const current = (id: string): CohortDefinition => SEED_COHORT_DEFINITIONS.find((s) => s.id === id) as CohortDefinition;
+  const oldOf = (id: string): CohortDefinition => SUPERSEDED_SEED_COHORTS.find((s) => s.definition.id === id)!.definition;
+  const asShipped = (id: string): CohortDefinition => {
+    const o = oldOf(id);
+    // reproduce what the old seed wrote: `entryMode` was absent entirely, so the
+    // spread must not inherit the current seed's 'any'
+    const { entryMode: _currentMode, ...rest } = current(id);
+    return {
+      ...rest,
+      entry: o.entry,
+      exit: o.exit,
+      criterionVersion: o.criterionVersion,
+      minN: o.minN,
+      ...(o.entryMode ? { entryMode: o.entryMode } : {}),
+    };
+  };
+
+  it('every superseded cohort is matched to a current seed with a bumped version', () => {
+    for (const old of SUPERSEDED_SEED_COHORTS) {
+      const seed = SEED_COHORT_DEFINITIONS.find((s) => s.id === old.definition.id);
+      expect(seed, `${old.definition.id} has no current seed`).toBeDefined();
+      expect(seed!.criterionVersion).not.toBe(old.definition.criterionVersion);
+      expect(old.reason.length).toBeGreaterThan(40);
+    }
+  });
+
+  it('upgrades a stored definition that is still exactly what we shipped', () => {
+    for (const old of SUPERSEDED_SEED_COHORTS) {
+      const upgrade = seedUpgradeFor(asShipped(old.definition.id));
+      expect(upgrade, `${old.definition.id} was not upgraded`).toBeDefined();
+      expect(upgrade!.definition.criterionVersion).toBe(current(old.definition.id).criterionVersion);
+      expect(upgrade!.reason).toBe(old.reason);
+    }
+  });
+
+  it('leaves an operator\u2019s edit alone', () => {
+    // an operator who changed a threshold keeps their cohort: the upgrade only
+    // recognises the clinical logic we shipped, byte for byte
+    expect(seedUpgradeFor({ ...asShipped('hgb-deviation-4w'), entry: [{ metric: 'hgb.slopePerWeek', comparator: 'lte', value: -0.11 }] })).toBeUndefined();
+    // and one who only reordered the criteria keeps it too
+    expect(seedUpgradeFor({ ...asShipped('hgb-deviation-4w'), entry: [...asShipped('hgb-deviation-4w').entry].reverse() })).toBeUndefined();
+    // and a disabled cohort is still the shipped logic, so it upgrades
+    expect(seedUpgradeFor({ ...asShipped('access-deterioration'), enabled: false })).toBeDefined();
+  });
+
+  it('is idempotent — an already-current definition is not upgraded again', () => {
+    for (const seed of SEED_COHORT_DEFINITIONS) {
+      expect(seedUpgradeFor(seed as CohortDefinition), `${seed.id} re-upgraded`).toBeUndefined();
+    }
+  });
+
+  it('ignores the reviewer-facing note when recognising what was shipped', () => {
+    // a note cannot change who is admitted, and Postgres JSONB does not preserve
+    // key order, so notes must not decide whether an upgrade applies
+    const withNotes: CohortDefinition = {
+      ...asShipped('access-deterioration'),
+      entry: asShipped('access-deterioration').entry.map((c) => ({ ...c, note: 'a note added later' })),
+    };
+    expect(seedUpgradeFor(withNotes)).toBeDefined();
+  });
 });

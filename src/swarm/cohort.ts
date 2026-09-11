@@ -105,7 +105,8 @@ export const COHORT_METRICS: readonly CohortMetricSpec[] = [
   },
   {
     id: 'idh.nextSessionProbability', label: 'IDH probability, next session', unit: '0..1',
-    valueType: 'number', source: 'src/swarm/fluid.ts idhProbability (mechanistic prior)',
+    valueType: 'number',
+    source: 'src/swarm/fluid.ts idhProbability — nadir SBP, IDWG and age; the UF-rate term falls back to its 8 mL/kg/h default because the facts carry no body weight, so the ceiling is ~0.55',
   },
   {
     id: 'hgb.current', label: 'Haemoglobin', unit: 'g/dL', valueType: 'number',
@@ -271,9 +272,31 @@ export function resolveMetric(
     case 'protocols.atRisk':
       return [...statuses.entries()].filter(([, s]) => s.severity >= 0.5).length;
     case 'idh.nextSessionProbability': {
-      const sbp = num(facts.sessions.minNadirSbp) ?? num(facts.vitals.systolic);
+      // The advisor's prior is driven by the UF RATE above all else, then nadir BP,
+      // IDWG, age and cardiac history (src/swarm/fluid.ts idhProbability). This
+      // previously supplied a systolic reading and nothing else, which collapses
+      // the function to `0.055 * (110 - sbp)` — a near-constant 0.029–0.04 across
+      // an entire 58-patient fleet. An operator could author a threshold on it
+      // (the seeded cohort asked for >= 0.6) and that cohort could never fire,
+      // silently, forever. Pass every input the facts layer actually carries.
+      //
+      // RESIDUAL LIMITATION: the facts carry UF volume and delivered minutes but
+      // no body weight, so ufRatePerKg cannot be computed and the prior falls back
+      // to its default 8 mL/kg/h — it therefore under-weights the dominant term and
+      // tops out near 0.55 rather than the ~0.74 a fully-specified patient reaches.
+      // That ceiling is stated in the metric's `source` so an author is not misled.
+      const nadir = num(facts.sessions.minNadirSbp);
+      const sbp = nadir ?? num(facts.vitals.systolic);
       if (sbp === undefined) return undefined;
-      return Math.round(idhProbability({ currentSbp: sbp, minute: 60 }) * 10_000) / 10_000;
+      const idwgKg = num(facts.sessions.avgIdwgKg);
+      const age = num(facts.age);
+      return Math.round(idhProbability({
+        currentSbp: sbp,
+        ...(nadir !== undefined ? { nadirSbpPrev: nadir } : {}),
+        ...(idwgKg !== undefined ? { idwgKg } : {}),
+        ...(age !== undefined ? { age } : {}),
+        minute: 60,
+      }) * 10_000) / 10_000;
     }
     case 'hgb.current': return lab('HGB');
     case 'hgb.slopePerWeek': return slopePerWeek(series('HGB'));
@@ -645,11 +668,17 @@ export function cohortCoverageOf(def: CohortDefinition, evaluations: readonly Co
   let blockers: string[] = [];
   let verdict = `${members} of ${evaluated} evaluated patients satisfy this cohort.`;
 
+  // An unmeasurable criterion BLOCKS in `all` mode and does not block in `any`
+  // mode. Reporting it as the headline in `any` mode is therefore wrong whenever
+  // another branch resolved and simply failed: it would send an operator after a
+  // missing measurement when the real answer is "the measure exists and nobody
+  // crosses the threshold".
+  const unmeasurableBlocks = entryMode === 'all' && unmeasurable.length > 0;
+
   if (members === 0 && evaluated === 0) {
     diagnosis = 'insufficient-coverage';
     verdict = 'no patients were evaluated at all — the patient source returned nothing, so this cohort has not been assessed.';
-  } else if (members === 0 && unmeasurable.length > 0) {
-    // Nothing can be decided while the input is missing, whatever else is true.
+  } else if (members === 0 && unmeasurableBlocks) {
     const gap = unmeasurable[0]!;
     diagnosis = 'data-gap';
     blockers = dataBlocked;
@@ -660,7 +689,15 @@ export function cohortCoverageOf(def: CohortDefinition, evaluations: readonly Co
     const strict = unsurpassed.sort((a, b) => (a.notMet - b.notMet) || a.metric.localeCompare(b.metric))[0]!;
     diagnosis = 'criteria-too-strict';
     blockers = neverMet;
-    verdict = `no members: the data resolved '${strict.metric}' for ${strict.notMet} patients and none met ${strict.expected}${range(strict)}. The criterion is decidable and the threshold sits outside the observed population.`;
+    verdict = `no members: the data resolved '${strict.metric}' for ${strict.notMet} patients and none met ${strict.expected}${range(strict)}. The criterion is decidable and the threshold sits outside the observed population.`
+      + (entryMode === 'any' && unmeasurable.length > 0
+        ? ` ${unmeasurable.length} further criterion(a) could not be resolved at all (${dataBlocked.join(', ')}), but in 'any' mode a missing measurement cannot admit anyone — it is a coverage gap, not the reason for this zero.`
+        : '');
+  } else if (members === 0 && unmeasurable.length > 0 && binding) {
+    // `any` mode where NO branch resolved at all: nothing could be decided.
+    diagnosis = 'data-gap';
+    blockers = dataBlocked;
+    verdict = `no members: none of the ${criteria.length} entry criteria could be resolved for any of ${evaluated} evaluated patients (${dataBlocked.map((m) => `'${m}'`).join(', ')}). This cohort cannot be assessed on the current data, so its zero is not evidence that nobody is at risk.`;
   } else if (members === 0 && binding) {
     // Every criterion is individually satisfiable, so the emptiness is the
     // INTERSECTION — e.g. an adequacy flag that only fires for the patients who
@@ -673,7 +710,11 @@ export function cohortCoverageOf(def: CohortDefinition, evaluations: readonly Co
     const others = criteria.filter((c) => c.metric !== binding.metric)
       .map((c) => `'${c.metric}' holds for ${c.met}`)
       .join(', ');
-    verdict = `no members: every entry criterion is individually satisfiable, but no patient satisfies them together${entryMode === 'all' ? '' : ' — which cannot happen in any mode'}. The binding criterion is '${binding.metric}' (${binding.expected}), satisfied by only ${binding.met} of ${evaluated} patients${range(binding)}${others ? `; ${others}` : ''}. As written this cohort cannot admit anyone.`;
+    verdict = `no members: every entry criterion is individually satisfiable, but no patient evaluated satisfies them together. The binding criterion is '${binding.metric}' (${binding.expected}), satisfied by only ${binding.met} of ${evaluated} patients${range(binding)}${others ? `; ${others}` : ''}.`
+      // The counts cannot tell "mutually exclusive as written" from "this
+      // population happens to contain no such patient" — and saying the first
+      // when it is the second would send an operator to rewrite good criteria.
+      + ` Two separate populations are being described rather than one: either the criteria are mutually exclusive as written, or no such patient exists in this population. The counts do not distinguish the two, so check both branches before changing a threshold.`;
   } else if (members === 0) {
     diagnosis = 'insufficient-coverage';
     verdict = `no members: this cohort declares no entry criteria, so nothing can admit a patient.`;
@@ -827,6 +868,146 @@ export function analyseCohortDeclines(
 }
 
 /* ======================================================================
+ * Superseded seeds — replacing a shipped definition that could not work
+ *
+ * Seeding is idempotent per cohort id and NEVER overwrites an operator's edit,
+ * which is right. But it also means a corrected shipped definition never reaches
+ * a deployment that already has the old one: the catalog would keep the broken
+ * criteria forever, and the correction would only ever appear on a fresh store.
+ *
+ * These four definitions shipped in a form that could not admit anybody (a
+ * threshold above the metric's own ceiling, two mutually exclusive criteria, a
+ * precondition that excluded every patient the cohort existed to find). They are
+ * kept here so the upgrade can be applied ONLY when the stored definition is still
+ * byte-for-byte the clinical logic we shipped — i.e. the operator never touched
+ * it. Anything else is left alone and reported instead.
+ * ====================================================================== */
+
+export interface SupersededSeed {
+  /** the definition exactly as previously shipped, clinical logic included */
+  definition: CohortDefinition;
+  /** why it was replaced, in the operator's terms */
+  reason: string;
+}
+
+/** Identity of a criterion's DECISION, ignoring the reviewer-facing note. */
+function criterionDecision(c: CohortCriterion): string {
+  return [c.metric, c.comparator, c.value === undefined ? '' : String(c.value),
+    c.min === undefined ? '' : String(c.min), c.max === undefined ? '' : String(c.max)].join('\u0001');
+}
+
+/**
+ * Is this stored definition still the logic we shipped, untouched?
+ *
+ * Notes are ignored on purpose: a note does not change who is admitted, and a JSON
+ * round-trip through Postgres JSONB does not preserve key order, so comparing the
+ * raw objects would be both brittle and wrong.
+ */
+export function isSupersededShippedDefinition(def: CohortDefinition, superseded: CohortDefinition): boolean {
+  if (def.id !== superseded.id) return false;
+  if (def.criterionVersion !== superseded.criterionVersion) return false;
+  if ((def.entryMode ?? 'all') !== (superseded.entryMode ?? 'all')) return false;
+  if (def.minN !== superseded.minN) return false;
+  if (def.entry.length !== superseded.entry.length) return false;
+  if (def.exit.length !== superseded.exit.length) return false;
+  return def.entry.every((c, i) => criterionDecision(c) === criterionDecision(superseded.entry[i]!))
+    && def.exit.every((c, i) => criterionDecision(c) === criterionDecision(superseded.exit[i]!));
+}
+
+/**
+ * The upgrade to apply to a stored definition, or undefined to leave it alone.
+ *
+ * Returns the CURRENT shipped definition when the stored one is an unmodified
+ * superseded seed, so the correction lands without touching an authored cohort.
+ */
+export function seedUpgradeFor(
+  stored: CohortDefinition,
+  options: { seeds?: readonly CohortDefinition[]; superseded?: readonly SupersededSeed[] } = {},
+): { definition: CohortDefinition; reason: string } | undefined {
+  const seeds = options.seeds ?? SEED_COHORT_DEFINITIONS;
+  const superseded = options.superseded ?? SUPERSEDED_SEED_COHORTS;
+  for (const old of superseded) {
+    if (!isSupersededShippedDefinition(stored, old.definition)) continue;
+    const current = seeds.find((s) => s.id === stored.id);
+    if (!current) continue;
+    if (current.criterionVersion === stored.criterionVersion) continue;
+    return { definition: current, reason: old.reason };
+  }
+  return undefined;
+}
+
+export const SUPERSEDED_SEED_COHORTS: readonly SupersededSeed[] = [
+  {
+    definition: {
+      id: 'idh-next-session', label: 'Elevated intradialytic hypotension risk, next session',
+      kind: 'suggested', protocol: 'fluid',
+      rationale: 'superseded', entry: [
+        { metric: 'idh.nextSessionProbability', comparator: 'gte', value: 0.6 },
+        { metric: 'sessions.count', comparator: 'gte', value: 1 },
+      ],
+      exit: [
+        { metric: 'idh.nextSessionProbability', comparator: 'lt', value: 0.4 },
+        { metric: 'sessions.count', comparator: 'lt', value: 1 },
+      ],
+      suggestedAction: '', approvalClass: 'B', mayNever: [], guard: [], minN: 5,
+      criterionVersion: '1.0.0', owner: 'renal-nursing', enabled: true,
+    },
+    reason: 'the entry threshold (IDH probability >= 0.6) was above the metric\'s own ceiling, so the cohort could never admit anyone',
+  },
+  {
+    definition: {
+      id: 'hgb-deviation-4w', label: 'Haemoglobin trajectory leaving the target band within four weeks',
+      kind: 'suggested', protocol: 'anemia',
+      rationale: 'superseded', entry: [
+        { metric: 'hgb.slopePerWeek', comparator: 'lte', value: -0.15 },
+        { metric: 'hgb.forecast4w', comparator: 'lt', value: 10 },
+      ],
+      exit: [
+        { metric: 'hgb.forecast4w', comparator: 'gte', value: 10 },
+        { metric: 'hgb.slopePerWeek', comparator: 'gte', value: -0.05 },
+      ],
+      suggestedAction: '', approvalClass: 'C', mayNever: [], guard: [], minN: 5,
+      criterionVersion: '1.0.0', owner: 'nephrology', enabled: true,
+    },
+    reason: 'both thresholds sat outside the observed population (slope >= -0.12, forecast >= 10.65), so the cohort could never admit anyone',
+  },
+  {
+    definition: {
+      id: 'inadequate-clearance', label: 'Delivered clearance projected below target',
+      kind: 'suggested', protocol: 'adequacy',
+      rationale: 'superseded', entry: [
+        { metric: 'protocol.severity.adequacy', comparator: 'gte', value: 0.5 },
+        { metric: 'sessions.count', comparator: 'gte', value: 1 },
+      ],
+      exit: [
+        { metric: 'urr.current', comparator: 'gte', value: 65 },
+        { metric: 'ktv.current', comparator: 'gte', value: 1.2 },
+      ],
+      suggestedAction: '', approvalClass: 'B', mayNever: [], guard: [], minN: 5,
+      criterionVersion: '1.0.0', owner: 'nephrology', enabled: true,
+    },
+    reason: 'the adequacy severity rises to 0.5 only for patients with NO sessions, and the second criterion required a session — mutually exclusive by construction',
+  },
+  {
+    definition: {
+      id: 'access-deterioration', label: 'Progressive vascular access deterioration',
+      kind: 'suggested', protocol: 'access',
+      rationale: 'superseded', entry: [
+        { metric: 'access.observations', comparator: 'gte', value: 3 },
+        { metric: 'protocol.severity.access', comparator: 'gte', value: 0.5 },
+      ],
+      exit: [
+        { metric: 'access.dysfunction', comparator: 'absent' },
+        { metric: 'protocol.severity.access', comparator: 'lt', value: 0.3 },
+      ],
+      suggestedAction: '', approvalClass: 'B', mayNever: [], guard: [], minN: 5,
+      criterionVersion: '1.0.0', owner: 'vascular-access', enabled: true,
+    },
+    reason: 'requiring 3 access observations excluded every patient the pack flags (they are exactly the under-surveilled ones), so nobody could be admitted',
+  },
+];
+
+/* ======================================================================
  * The seed catalog — DATA, not code. Operators add and edit these.
  * ====================================================================== */
 
@@ -836,13 +1017,16 @@ export const SEED_COHORT_DEFINITIONS: readonly CohortDefinition[] = [
     label: 'Elevated intradialytic hypotension risk, next session',
     kind: 'suggested',
     protocol: 'fluid',
-    rationale: 'Patients the fluid advisor projects are likely to drop below the nadir pressure threshold during their next treatment, so the UF plan can be reviewed before they arrive.',
+    rationale: 'Patients the fluid advisor itself places in its highest risk tier, so the UF plan can be reviewed before they arrive.',
     entry: [
-      { metric: 'idh.nextSessionProbability', comparator: 'gte', value: 0.6, note: 'fluid advisor mechanistic prior at 60 minutes' },
+      {
+        metric: 'protocol.severity.fluid', comparator: 'gte', value: 0.6,
+        note: "the fluid advisor's red tier (severity 0.6 = IDWG above the 2.5 kg flag); the pack already ORs IDWG, UF achievement, nadir SBP and shortened sessions into this number",
+      },
       { metric: 'sessions.count', comparator: 'gte', value: 1, note: 'at least one session on record' },
     ],
     exit: [
-      { metric: 'idh.nextSessionProbability', comparator: 'lt', value: 0.4, note: 'risk resolved below the exit threshold' },
+      { metric: 'protocol.severity.fluid', comparator: 'lt', value: 0.5, note: 'risk resolved below the tier' },
       { metric: 'sessions.count', comparator: 'lt', value: 1, note: 'no treatment history to reason from' },
     ],
     suggestedAction: 'Review the ultrafiltration plan, dry weight and antihypertensive timing before the next session',
@@ -853,7 +1037,11 @@ export const SEED_COHORT_DEFINITIONS: readonly CohortDefinition[] = [
     ],
     guard: ['fluid coverage gate', 'fluid guardrails', 'session telemetry availability'],
     minN: 5,
-    criterionVersion: '1.0.0',
+    // 1.1.0 — was `idh.nextSessionProbability >= 0.6`, which could never fire: the
+    // prior's own ceiling is ~0.55 even for a patient with every risk factor at an
+    // extreme, and on the reference fleet it spans only 0.029-0.088. A threshold
+    // that cannot be reached is a cohort that is dead by construction.
+    criterionVersion: '1.1.0',
     owner: 'renal-nursing',
     enabled: true,
   },
@@ -864,19 +1052,24 @@ export const SEED_COHORT_DEFINITIONS: readonly CohortDefinition[] = [
     protocol: 'anemia',
     rationale: 'Haemoglobin is currently acceptable but its observed slope projects out of the target band, so iron, ESA response and blood loss can be reviewed while there is time to act.',
     entry: [
-      { metric: 'hgb.slopePerWeek', comparator: 'lte', value: -0.15, note: 'falling trajectory' },
-      { metric: 'hgb.forecast4w', comparator: 'lt', value: 10, note: 'projects below the lower target' },
+      { metric: 'hgb.slopePerWeek', comparator: 'lte', value: -0.05, note: 'falling trajectory' },
+      { metric: 'hgb.forecast4w', comparator: 'lt', value: 11, note: 'projects to at or below 11 g/dL within the horizon — an early-warning margin under the 10 g/dL band floor, not the floor itself' },
     ],
     exit: [
-      { metric: 'hgb.forecast4w', comparator: 'gte', value: 10, note: 'trajectory no longer projects below target' },
-      { metric: 'hgb.slopePerWeek', comparator: 'gte', value: -0.05, note: 'decline has flattened' },
+      { metric: 'hgb.forecast4w', comparator: 'gte', value: 11, note: 'trajectory no longer projects low' },
+      { metric: 'hgb.slopePerWeek', comparator: 'gte', value: -0.02, note: 'decline has flattened' },
     ],
     suggestedAction: 'Review iron studies, ESA response and any bleeding source before the next cycle',
     approvalClass: 'C',
     mayNever: ['change an ESA dose', 'order a transfusion'],
     guard: ['anemia coverage gate', 'iron-first guardrail', 'microcytic guardrail'],
     minN: 5,
-    criterionVersion: '1.0.0',
+    // 1.1.0 — was `slope <= -0.15` AND `forecast4w < 10`. Both sat outside the
+    // fleet's observed range (slope -0.12..0.31, forecast 10.65..13.16), so the
+    // cohort could not admit anyone. The margin at 11 g/dL rather than the floor
+    // at 10 is deliberate: iron and ESA act over weeks, so a projection that only
+    // reaches the floor at the horizon is already too late to act on.
+    criterionVersion: '1.1.0',
     owner: 'nephrology',
     enabled: true,
   },
@@ -915,9 +1108,9 @@ export const SEED_COHORT_DEFINITIONS: readonly CohortDefinition[] = [
     label: 'Worsening CKD-MBD despite current therapy',
     kind: 'suggested',
     protocol: 'ckd-mbd',
-    rationale: 'Phosphate is above target and still rising, or PTH is trending unfavourably — the coupled picture rather than a single analyte.',
+    rationale: 'Phosphate is above the target ceiling and still rising — the patient is not responding to current therapy, which is a different question from a single high value. Deliberately a conjunction: a patient above target whose trend is falling is responding and needs no action. (A cross-analyte cohort would also want PTH; the vocabulary threshold is a flat AND or a flat OR, and PTH is unmeasured for most patients, so the coupled picture is served by protocol.severity.ckd-mbd instead.)',
     entry: [
-      { metric: 'phosphate.current', comparator: 'gt', value: 5.5, note: 'above target' },
+      { metric: 'phosphate.current', comparator: 'gt', value: 5.5, note: "the pack's own target ceiling (MBD_REFERENCE.phosphateTargetMgDl.upper = 5.5)" },
       { metric: 'phosphate.slopePerWeek', comparator: 'gt', value: 0, note: 'still rising' },
     ],
     exit: [
@@ -938,13 +1131,14 @@ export const SEED_COHORT_DEFINITIONS: readonly CohortDefinition[] = [
     label: 'Delivered clearance projected below target',
     kind: 'suggested',
     protocol: 'adequacy',
-    rationale: 'Delivered clearance is below target or the access and treatment pattern predicts it will be, so the prescription can be reviewed before the next monthly draw.',
+    rationale: 'A MEASURED clearance below the pack floor — URR under 60% or single-pool Kt/V under 1.2 — so the prescription can be reviewed before the next monthly draw.',
     entry: [
-      { metric: 'protocol.severity.adequacy', comparator: 'gte', value: 0.5, note: 'adequacy advisor confidence' },
-      { metric: 'sessions.count', comparator: 'gte', value: 1 },
+      { metric: 'urr.current', comparator: 'lt', value: 60, note: "the pack's own URR floor (URR_FLOOR_PCT = 60)" },
+      { metric: 'ktv.current', comparator: 'lt', value: 1.2, note: 'the pack target spKt/V; whichever measure is actually recorded may admit' },
     ],
+    entryMode: 'any',
     exit: [
-      { metric: 'urr.current', comparator: 'gte', value: 65, note: 'URR back above the floor' },
+      { metric: 'urr.current', comparator: 'gte', value: 65, note: 'URR back above the floor, with hysteresis so the cohort does not flap' },
       { metric: 'ktv.current', comparator: 'gte', value: 1.2, note: 'Kt/V back above target' },
     ],
     suggestedAction: 'Review treatment time, blood flow, access performance and the clearance measurement',
@@ -952,7 +1146,13 @@ export const SEED_COHORT_DEFINITIONS: readonly CohortDefinition[] = [
     mayNever: ['set a machine parameter', 'change prescribed treatment time'],
     guard: ['adequacy coverage gate', 'recirculation interpretability rule'],
     minN: 5,
-    criterionVersion: '1.0.0',
+    // 1.1.0 — was `protocol.severity.adequacy >= 0.5` AND `sessions.count >= 1`,
+    // which no patient could satisfy. The adequacy severity rises to 0.5 only when
+    // the advisor is STARVED of data (the 3 patients it flagged had zero sessions),
+    // and the cohort then required a session — the two criteria were mutually
+    // exclusive by construction. Composing the advisor's severity was wrong here:
+    // absence of a measurement is coverage, not inadequate clearance.
+    criterionVersion: '1.1.0',
     owner: 'nephrology',
     enabled: true,
   },
@@ -961,21 +1161,29 @@ export const SEED_COHORT_DEFINITIONS: readonly CohortDefinition[] = [
     label: 'Progressive vascular access deterioration',
     kind: 'suggested',
     protocol: 'access',
-    rationale: 'Access measurements have diverged from the patient\'s own baseline, or dysfunction is already flagged — surveillance before a thrombosis rather than after.',
+    rationale: 'The access advisor has raised its measured-deterioration tier — dysfunction flagged, or recirculation at or above 10% — so surveillance happens before a thrombosis rather than after.',
     entry: [
-      { metric: 'access.observations', comparator: 'gte', value: 3, note: 'a trend needs serial measurements' },
-      { metric: 'protocol.severity.access', comparator: 'gte', value: 0.5, note: 'access advisor confidence' },
+      {
+        metric: 'protocol.severity.access', comparator: 'gte', value: 0.6,
+        note: "the pack's measured tiers: 0.7 dysfunction flagged, 0.6 recirculation >= 10%; the pack already ORs them",
+      },
     ],
     exit: [
-      { metric: 'access.dysfunction', comparator: 'absent', note: 'no dysfunction pattern flagged' },
-      { metric: 'protocol.severity.access', comparator: 'lt', value: 0.3, note: 'severity resolved' },
+      { metric: 'protocol.severity.access', comparator: 'lt', value: 0.3, note: 'no dysfunction and no abnormal recirculation' },
     ],
     suggestedAction: 'Access-team review of the pressure and flow trend; consider imaging where clinically indicated',
     approvalClass: 'B',
     mayNever: ['order a procedure', 'book an intervention'],
     guard: ['kdoqi min-observations gate', 'post-intervention quiet window'],
     minN: 5,
-    criterionVersion: '1.0.0',
+    // 1.1.0 — was `access.observations >= 3` AND `severity >= 0.5`, which admitted
+    // nobody: the patients the pack flags are precisely the ones with fewer than
+    // three measurements, so the "a trend needs serial measurements" precondition
+    // excluded every patient the cohort was meant to find. Requiring observations
+    // was also backwards — un-surveilled at-risk patients are the target, not a
+    // reason to exclude them. The severity already encodes the rationale's OR
+    // (diverged from baseline OR dysfunction flagged).
+    criterionVersion: '1.1.0',
     owner: 'vascular-access',
     enabled: true,
   },
