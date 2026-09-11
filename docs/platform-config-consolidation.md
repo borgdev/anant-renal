@@ -286,6 +286,38 @@ roles' entries there are *approve / red-team / validate* — approvals, not CRUD
 Ordered so that no slice leaves a console broken. Each slice is independently
 shippable.
 
+### Slice ledger
+
+Sizing measured against the tree, not estimated. "Sites" = every reference in
+`src/`, `exec-app/src/`, `admin-ui/index.html`, `tests/` and `scripts/`.
+
+| # | Slice | Touches | Size | Depends on | Risk |
+|---|---|---|---|---|---|
+| 0 | Stop lying (defects in place) | `admin-ui/index.html` (9 catches, 2 pages), `configuration-studio.tsx`, `harness.ts` | ~9 + 3 edit sites; no API, no nav, no tests | — | **Low** — but it changes what a non-admin sees on those pages, from fake data to an error |
+| 1 | Re-home the API by domain | new `/admin/platform/{organization,policy,release-gate}`; 75 call sites (`swarm/admin/` 39, `config/releases` 22, `release-gate` 14); 5 test files | ~6 route definitions + 75 sites | 0 | Medium — a missed site is a silent 403 |
+| 2 | Consolidate the ops console | 19 render fns (~700 lines) in one 7,946-line file; NAV 20 tabs → 10 | largest UI change | 1 (a page can't call a prefix that doesn't exist yet) | Medium–high **for verification** — admin-ui has no build step |
+| 3 | Reduce exec to banner + review | delete 2 components (546 lines), 3 harness fns, 2 nav ids, 2 `NavigationId`s, 1 `demoSteps` entry, 2 render cases | 546 lines deleted, ~60 added | 2 + **Decision A** | Medium — the guided demo dies if nav/union/dispatch disagree |
+| 4 | Agent specs durable (the real YAML→Postgres) | new `agent-spec` kind; rewrite `AgentAuthoringService`; importer for 452 files; exporter; ops Agent Studio | biggest functional change | **none** (independent) | **High** — it is the agent runtime's source of truth |
+| 5 | One release lifecycle, one gate model | delete `/admin/swarm/config/releases*` (22 sites), add `DELETE` to the platform family, converge gate rendering | ~22 sites | 1 + 3 | Medium |
+
+Tests that move with Slices 1/5: `assurance.test.ts`,
+`swarm-workspace-routes.test.ts`, `swarm-release.test.ts`,
+`security-isolation.test.ts`, `anemia-governance.test.ts`.
+
+### Decision gates (each blocks a slice)
+
+- **A — do `md`/`safety` keep a page?** Blocks Slice 3. `admin` is in both
+  consoles; `md`/`safety` are exec-only, so removing the pages removes their
+  access. Options: accept / read-only mirror (recommended) / re-scope the APIs.
+- **B — alias or hard cutover?** Shapes Slices 1 and 5. Keeping the swarm paths as
+  deprecated aliases makes the migration reversible but leaves two spellings for
+  one endpoint during the window.
+- **C — are agent specs the source of truth, or the export?** Shapes Slice 4. If
+  YAML stays authoritative, the DB holds an index and the console is a viewer; if
+  the DB becomes authoritative, publishing stops being a file rename and the
+  `packs/` tree becomes an artifact. The second is the one that fixes the gap, but
+  it is a real change of contract for the agent runtime.
+
 ### Slice 0 — fix the four defects in place (no moves)
 
 1. Replace every silent `catch { /* ignore */ }` in the platform/exec-asset pages
