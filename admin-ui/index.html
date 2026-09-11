@@ -64,16 +64,16 @@
      * ===================================================================== */
     :root {
       color-scheme: dark;
-      --fg: #F9FAFB; --muted: #9CA3AF; --faint: #6B7280;
+      --fg: #F9FAFB; --muted: #9CA3AF; --faint: #97A0B0;
       --bg: #0A0D12; --bg-deep: #06080B;
       --card: #131822; --surface: #131822; --surface-2: #182029; --surface-3: #1E2632;
       --border: #1F2937; --line-strong: #2B3546;
       --brand: #00F2FE; --brand-2: #7C3AED; --accent: #7C3AED;
-      --good: #10B981; --warn: #F59E0B; --bad: #EF4444;
-      --mint: #00F2FE; --mint-strong: #7DF9FF; --cyan: #00F2FE; --amber: #F59E0B; --rose: #EF4444; --blue: #38BDF8; --violet: #7C3AED;
+      --good: #10B981; --warn: #F59E0B; --bad: #F87171;
+      --mint: #00F2FE; --mint-strong: #7DF9FF; --cyan: #00F2FE; --amber: #F59E0B; --rose: #F87171; --blue: #38BDF8; --violet: #7C3AED; --tint-blue: #7DD3FC;
       --code-bg: #0E131B; --code-fg: #CFFAFE;
       --primary-foreground: #0A0D12; --secondary: #182029; --secondary-foreground: #F9FAFB;
-      --accent-foreground: #F9FAFB; --destructive-foreground: #FFFFFF;
+      --accent-foreground: #F9FAFB; --destructive-foreground: #0A0D12;
       --card-foreground: #F9FAFB; --popover: #131822; --popover-foreground: #F9FAFB;
       --ring: #00F2FE; --input: #2B3546; --radius: 0.25rem;
       --shadow: 0 18px 44px rgba(0,0,0,0.5);
@@ -81,6 +81,7 @@
          follows the theme rather than being an unrelated hue. */
       --partner-accent: #00F2FE; --partner-accent-soft: #A5F3FC;
       --danger-soft: #FCA5A5; --warn-soft: #FFCE8A;
+      --scrim: rgba(6,9,14,0.68);
       /* Lifts and recesses: `.02` of white on obsidian, `.02` of ink on frost. */
       --elevate: #FFFFFF; --recess: #000000;
       /* Type — `--mono` is the engineered readout face (data, state keys, metrics),
@@ -96,21 +97,25 @@
      * ===================================================================== */
     :root[data-theme="light"] {
       color-scheme: light;
-      --fg: #0F172A; --muted: #475569; --faint: #64748B;
+      --fg: #0F172A; --muted: #475569; --faint: #55606F;
       --bg: #F8FAFC; --bg-deep: #F1F5F9;
       --card: #FFFFFF; --surface: #FFFFFF; --surface-2: #F8FAFC; --surface-3: #F1F5F9;
       --border: #E2E8F0; --line-strong: #CBD5E1;
-      --brand: #0284C7; --brand-2: #4F46E5; --accent: #4F46E5;
-      --good: #059669; --warn: #D97706; --bad: #DC2626;
-      --mint: #0284C7; --mint-strong: #0369A1; --cyan: #0284C7; --amber: #B45309; --rose: #DC2626; --blue: #0369A1; --violet: #4F46E5;
+      /* Deep Infrastructure Blue, one shade deeper than the spec's #0284C7: at
+         that value white-on-fill is 4.1:1 and blue-on-frost is 4.1:1, both under
+         AA. #0369A1 gives 5.9:1 either way. Same reason for good/warn below. */
+      --brand: #0369A1; --brand-2: #4F46E5; --accent: #4F46E5;
+      --good: #065F46; --warn: #92400E; --bad: #B91C1C;
+      --mint: #0369A1; --mint-strong: #075985; --cyan: #0369A1; --amber: #B45309; --rose: #DC2626; --blue: #0369A1; --violet: #4F46E5;
       --code-bg: #F1F5F9; --code-fg: #0F172A;
       --primary-foreground: #FFFFFF; --secondary: #F1F5F9; --secondary-foreground: #0F172A;
       --accent-foreground: #0F172A; --destructive-foreground: #FFFFFF;
       --card-foreground: #0F172A; --popover: #FFFFFF; --popover-foreground: #0F172A;
-      --ring: #0284C7; --input: #CBD5E1; --radius: 0.25rem;
+      --ring: #0369A1; --input: #CBD5E1; --radius: 0.25rem;
       --shadow: 0 10px 30px rgba(15,23,42,0.10);
-      --partner-accent: #0284C7; --partner-accent-soft: #0369A1;
+      --partner-accent: #0369A1; --partner-accent-soft: #075985;
       --danger-soft: #B91C1C; --warn-soft: #B45309;
+      --scrim: rgba(15,23,42,0.32);
       --elevate: #0F172A; --recess: #0F172A;
     }
     .dark { color-scheme: dark; }
