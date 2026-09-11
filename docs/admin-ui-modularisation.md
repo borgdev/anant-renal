@@ -131,38 +131,67 @@ to test a single one of them in isolation.
 
 ## 7. Slice plan
 
-| # | Slice | Touches | Risk |
-|---|---|---|---|
-| S1 | Shell + facade: `index.html` keeps markup/CSS, moves the two script blocks verbatim into `js/app.js` behind one `<script type="module">`, facade `Object.assign(window, …)` for the 81 handler names | 1 file → 2; no behaviour change | **Low** — the file is moved, not rewritten. Fails loudly (every handler breaks at once) rather than subtly |
-| S2 | Extract the leaves: `esc`/`toast`/`downloadBlob`/`format*`/`dataGrid`/state cards/modals → `components.js`; `plFetch`/`api()`/session → `api.js`; theme/icons → `theme.js` | ~3 modules, ~600 lines moved | Low — leaf modules with no view dependencies |
-| S3 | Extract views along the existing 50 banners, one commit per 2-3 views, in dependency order (leaves before dependents: `catalog` before `platform-config`) | ~15 view modules, the bulk of the 7,097 lines | **Medium** — this is where a missed facade name surfaces, view by view |
-| S4 | Convert `onclick` → delegated `data-action` per view; shrink the facade until it is empty | 167 attribute sites, incremental | Medium — but now testable one view at a time |
+| # | Slice | State |
+|---|---|---|
+| **S1** | **Move the classic script blocks into `js/app.js`** as an external **classic** script (`<script src="./js/app.js">` at the end of `<body>`) — no modules yet, so no facade is needed and nothing enters strict mode. A pure move: the same code, in the same order, from a different file | **DONE** — `index.html` 7,629 → 942 lines; `js/app.js` 6,723 lines (6,691 moved + banner). Byte-identical blocks asserted by the split script |
+| S2 | Convert `js/app.js` to `type="module"` and add the explicit handler facade; extract leaves (`components.js`, `api.js`, `theme.js`) | Not started |
+| S3 | Extract views along the existing 50 banners, one commit per 2-3 views, in dependency order (leaves before dependents: `catalog` before `platform-config`) | Not started |
+| S4 | Convert `onclick` → delegated `data-action` per view; shrink the facade until it is empty | Not started |
 
-## 8. How to prove each slice did not break the console
+**Why S1 is a classic script, not a module.** A module would have forced three
+simultaneous changes: the facade (81 new globals), strict mode (a real behaviour
+change — an accidental undeclared assignment that silently creates a global today
+would throw), and the deferral of the whole console's boot. Each is testable, but
+bundling them means a failure does not tell you which one caused it. S1 changes
+one thing — where the code lives — and keeps the gate green, which is what makes
+S2's failures attributable.
 
-The backstops already exist and should gate every slice:
+What deliberately did **not** move in S1: the theme bootstrap in `<head>` (it
+exists to run before first paint), the `tailwind.config` block (must run
+immediately after the CDN tag), and the two `type="module"` blocks (WASM
+what-if, TanStack grid) — modules are deferred, so leaving them in place
+preserves the relative order exactly: `app.js` runs after js-yaml has loaded and
+before the deferred modules execute, which is the order the console had before.
 
-1. `node scripts/check-admin-ui-syntax.mjs` — currently "ALL 5 inline script
-   blocks OK"; S1 changes it to walking `admin-ui/js/**`. A syntax error in a
-   classic script kills the *whole* boot (`initApp is not defined`), which is why
-   this gate exists.
-2. `/tmp/check-handlers.mjs` — finds `onclick="fn("` with no definition. Currently
-   **0 of 81 unresolved**. This is the primary S1/S3 regression detector: it is
-   the difference between "the file moved" and "a handler is now undefined".
-3. `npx tsc --noEmit` — unchanged; `admin-ui/` is not typechecked, so this only
-   covers the server.
-4. The full suite: `KNOWLEDGE_STORE_DIR=/tmp/x npx vitest run --no-file-parallelism`
-   (currently **1186 passed / 3 skipped**) — it does not exercise the console, so
-   it is a regression gate for the server, not for the split.
-5. **A browser walk of every view** is the actual acceptance test, and it must be
-   scripted rather than eyeballed: load the console, call each `window.render*`
-   (or `goTo(view)`) for every entry in `NAV`, and fail on any console error or
-   page error. **No such gate exists today.** `scripts/ui-console-check.mjs` is
-   exec-only — `page.goto('/exec/')` and its `ALL_PAGES` list is the 13 exec nav
-   ids — so the admin-ui console has never had an automated page walk. Writing
-   that script is the missing piece and it should be written **before** S1, so
-   the split has a real gate rather than a claim. Without it, "the split works"
-   is 81 handlers someone clicked by hand.
+### The 48 views
+
+`NAV` and the `render()` dispatch agree exactly: 48 ids, one render case each.
+That invariant is now checkable, and asserting it is how a nav item pointing at a
+non-existent view (which renders the dashboard) would be caught.
+
+## 8. How each slice is verified
+
+The backstops exist and run in this order:
+
+1. **`node scripts/admin-ui-check.mjs`** — the page walk this document asked for,
+   now written. It boots the console, discovers the view list from the live `NAV`,
+   and per view fails on: a page error, a console error, **an inline handler name
+   that does not resolve**, a view that did not actually activate, an empty/
+   `Loading…` main, or horizontal overflow. Plus two boot-level assertions: the
+   deferred-module globals (`__dataGrid`, `__liquidForecast`) must be functions,
+   because every consumer of those falls back silently and a broken module would
+   otherwise degrade the whole console without a single error.
+   - It **rejects unknown view ids**. `render()` falls through to a default, so
+     `goTo('catalog')` (not a view) renders the dashboard: a walk over ids like
+     that reports "clean" while testing a different page 48 times. It also asserts
+     `currentView === view` after each transition for the same reason.
+   - Baseline (and the S1 result): **48/48 clean**, with per-view handler counts
+     identical before and after the move (the strongest available evidence that a
+     move changed nothing).
+2. **`node scripts/check-admin-ui-syntax.mjs`** — extended in S1 to cover both the
+   remaining inline blocks **and every locally-referenced external script**, so
+   the code that moved into `js/app.js` is still syntax-checked. A syntax error in
+   the console's main script does not degrade the page, it kills the boot.
+3. **`npx tsc --noEmit`** — unaffected by console changes (`admin-ui/` is not
+   typechecked); it gates the server only.
+4. **The full suite** (`KNOWLEDGE_STORE_DIR=/tmp/x npx vitest run --no-file-parallelism`,
+   currently 1186 passed / 3 skipped) — likewise a server regression gate, not a
+   console one.
+
+What the walk does **not** cover: interactions that only happen on a click. It
+checks that the handler *resolves* and that the view renders without errors; it
+does not click every button. Deeper coverage means driving real actions per view,
+which is worth doing but is a bigger instrument than the split needs.
 
 ## 9. What this is not
 

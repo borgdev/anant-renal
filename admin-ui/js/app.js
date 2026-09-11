@@ -1,0 +1,6723 @@
+/*******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ *******************************************************************************/
+
+// ---------- Bundled snapshot API shim ----------
+// In the deployed static site, GETs are served from bundled JSON snapshots.
+// In production the same routes are served by Fastify (see admin-routes.ts).
+// Writes (POST /admin/drafts, publish, reject) hit the local storage draft
+// store here so the create/publish workflow is fully interactive in the demo.
+const FILES = {
+  '/admin/summary': 'summary.json',
+  '/admin/agents': 'agents.json',
+  '/admin/measures': 'measures.json',
+  '/admin/assessments': 'assessments.json',
+  '/admin/lifecycle': 'lifecycle.json',
+  '/admin/research/sources': 'research.json',
+  '/admin/realms/demo': 'realm.json',
+};
+const cache = {};
+// In-session state only (preview iframe blocks localStorage). Production wires
+// these to the real /admin/drafts routes backed by the AgentAuthoringService.
+const drafts = [];
+const auditLog = [];
+function saveDrafts() { /* in-memory */ }
+function saveAudit() { /* in-memory */ }
+function audit(action, packId, agentId, note) { auditLog.unshift({ timestamp: new Date().toISOString(), actorRef: 'user:you', action, packId, agentId, note: note || undefined }); saveAudit(); }
+async function loadFile(name) {
+  if (!cache[name]) cache[name] = await fetch(name).then(r => r.json());
+  return cache[name];
+}
+
+// Pack registry — derived from the live agent catalog (/admin/agents). The
+// static list is only a first-paint fallback so the UI never depends on it
+// once the backend responds.
+let PACKS = ['flagship-agents','dialysis-deep','primary-care-deep','urgent-care-deep','research-pharma','dialysis-provider'];
+let packsLoaded = false;
+async function ensurePacks() {
+  if (packsLoaded) return PACKS;
+  try {
+    const data = await api('GET', '/admin/agents');
+    const ids = [...new Set((data.agents || []).map((a) => a.packId).filter(Boolean))];
+    if (ids.length) PACKS = [...new Set([...PACKS, ...ids])];
+  } catch { /* keep fallback */ }
+  packsLoaded = true;
+  return PACKS;
+}
+
+// Console domain catalog + Learn recipes — fetched from the backend
+// (/admin/console/*) so no domain config is hardcoded in the UI. The literals
+// below are only first-paint fallbacks for offline / static-snapshot builds.
+const FALLBACK_DOMAIN = {
+  effectKinds: ['record-vitals', 'record-assessment', 'order-lab', 'order-med', 'result-lab', 'admit-patient', 'transfer-patient', 'discharge-patient', 'notify-staff', 'record-agent-thought'],
+  effectTemplates: {
+    'record-vitals': { hr: 82, bp: '132/80', spo2: 96, temp: 36.8, rr: 16 },
+    'record-assessment': { assessmentId: 'phq2', score: 2, band: 'mild' },
+    'order-lab': { code: '17861-6', priority: 'routine' },
+    'order-med': { code: '853653', dose: '50 mg', route: 'PO', frequency: 'Q8H' },
+    'result-lab': { code: '17861-6', value: 4.2, unit: 'mg/dL', abnormal: 'H' },
+    'admit-patient': { unitId: 'ICH-A' },
+    'transfer-patient': { toUnitId: 'ICH-B' },
+    'discharge-patient': {},
+    'notify-staff': { role: 'md', message: 'Escalation needed' },
+    'record-agent-thought': { note: 'Considering next step' },
+  },
+  staffPacks: [
+    { id: 'wb-md', label: 'Rounding MD', agentSpecId: 'md', checked: true },
+    { id: 'wb-nurse', label: 'Charge nurses (one per unit)', agentSpecId: 'nurse', checked: true },
+    { id: 'wb-rx', label: 'Pharmacist review', agentSpecId: 'pharmacist', checked: true },
+    { id: 'wb-coder', label: 'Claims coder', agentSpecId: 'coder', checked: true },
+    { id: 'wb-safety', label: 'Safety monitor', agentSpecId: 'safety', checked: false },
+  ],
+  archetypes: [
+    { value: 'dialysis', label: 'Dialysis facility' },
+    { value: 'primary-care', label: 'Primary care clinic' },
+    { value: 'urgent-care', label: 'Urgent care' },
+    { value: 'hospital', label: 'Hospital ward' },
+  ],
+  whatIfPresets: [
+    { id: 'adjust-prescription', label: 'Adjust prescription', effects: [['ktv_adequacy', 0.25], ['phosphate', -0.15]] },
+    { id: 'dietitian-nudge', label: 'Dietitian nudge', effects: [['phosphate', -0.2], ['deterioration_risk', -0.05]] },
+    { id: 'escalate-nephrologist', label: 'Escalate to nephrologist', effects: [['deterioration_risk', -0.25], ['vitals_instability', -0.15]] },
+  ],
+  counterfactualDefault: {
+    facilityId: 'cf-fac',
+    units: 'ICH-A,ICH-B',
+    patientCount: 12,
+    advanceTicks: 48,
+    interventions: [{ kind: 'event-effect', effect: { diet_phosphate_violation: -0.2 } }],
+  },
+  nudgeDefault: {
+    channels: ['in-app', 'sms', 'email', 'calendar', 'fhir'],
+    kind: 'dietitian-nudge',
+    expectedEffect: { diet_phosphate_violation: -0.2 },
+  },
+  domainOptions: {
+    roleOptions: ['nurse', 'md', 'pharmacist', 'coder', 'safety'],
+    clearanceOptions: ['phi', 'restricted-phi', 'internal'],
+    trajectories: ['stable', 'decompensating', 'recovering', 'anemic-worsening', 'anemic-recovering', 'underdialyzed', 'hyperphosphatemia'],
+    lifecycleKinds: [['clinical', 'Clinical'], ['billing', 'Billing'], ['care', 'Care'], ['research', 'Research']],
+    facilityKinds: [['dialysis', 'Dialysis'], ['primary-care', 'Primary care'], ['urgent-care', 'Urgent care'], ['hospital', 'Hospital']],
+    retentionEntities: ['audit_events', 'event_outbox', 'webhook_deliveries', 'fhir_resources', 'billing_usage', 'alert_events'],
+    unitsDefault: 'ICH-A,ICH-B,ICH-C',
+    patientCountDefault: 20,
+    defaultMeasureId: 'ecqm:M21Basic/1.0.0',
+    demoLabs: { k: 4.2, hgb: 11.5, urr: 68, phos: 5.1 },
+  },
+};
+const FALLBACK_LEARN = [
+  { id: 'sync-vsac', title: 'Set up VSAC value-set expansion', body: 'Register a UMLS account, paste the API key into the VSAC source card, click Test, then Sync now. Value sets for CMS165 (Controlling High Blood Pressure) and CMS122 (Diabetes A1c) will appear as artifacts.', action: { label: 'Open VSAC card', view: 'research' } },
+  { id: 'sync-kdigo', title: 'Refresh KDIGO guideline snapshots', body: 'The KDIGO CKD guideline is fetched via the PubMed adapter (search terms include "chronic kidney disease"). Trigger a sync and open the provenance drawer to see the latest PMIDs.', action: { label: 'Sync PubMed', view: 'research' } },
+  { id: 'trace-measure', title: 'Trace a CMS eCQM to its source paragraph', body: 'Open the Knowledge browser, filter by publisher CMS, click the CMS eCQMs card, open Provenance, and follow any Measure→Library link to the exact FHIR resource on GitHub with SHA-256 verification.', action: { label: 'Browse eCQMs', view: 'measures' } },
+  { id: 'ingest-local', title: 'Upload a facility policy PDF (Local Corpus)', body: 'Facility-specific policies live in Realm → Local Corpus. Uploaded documents run through the M19 entity compiler and produce provenance-tracked artifacts scoped to your realm only.', action: { label: 'Open Realm', view: 'realm' } },
+  { id: 'run-agent', title: 'Ask a knowledge-aware agent', body: 'Every published agent has access to the full Knowledge tool bus (list_sources, sync_source, get_artifact, trace_provenance). Try: "Cite the CMS165 numerator criteria and show me the value set expansion."', action: { label: 'Open agents', view: 'agents' } },
+];
+let CONSOLE_DOMAIN = null;
+let CONSOLE_LEARN = null;
+// Module-scope catalog: sync template/handler fns (createModalHTML, createRealm,
+// loadRealmDetail) read this directly; consoleDomain() keeps it current.
+let dom = FALLBACK_DOMAIN;
+async function consoleDomain() {
+  if (CONSOLE_DOMAIN) return CONSOLE_DOMAIN;
+  try {
+    const d = (await api('GET', '/admin/console/domain')).domain || FALLBACK_DOMAIN;
+    if (!d.domainOptions) d.domainOptions = FALLBACK_DOMAIN.domainOptions;
+    CONSOLE_DOMAIN = d;
+    dom = d;
+  } catch (_) { CONSOLE_DOMAIN = FALLBACK_DOMAIN; dom = FALLBACK_DOMAIN; }
+  return CONSOLE_DOMAIN;
+}
+async function consoleLearn() {
+  if (CONSOLE_LEARN) return CONSOLE_LEARN;
+  try { CONSOLE_LEARN = (await api('GET', '/admin/console/learn')).recipes || FALLBACK_LEARN; }
+  catch (_) { CONSOLE_LEARN = FALLBACK_LEARN; }
+  return CONSOLE_LEARN;
+}
+
+async function api(method, path, body) {
+  if (method === 'GET') {
+    const [base, qs] = path.split('?');
+    const file = FILES[base];
+    if (!file) {
+      // Not a bundled snapshot — hit the live Fastify backend (dev/prod),
+      // which serves /admin/knowledge/* and friends with real data.
+      try {
+        const res = await fetch(path, { headers: { accept: 'application/json' } });
+        if (!res.ok) throw new Error(`${path}: ${res.status}`);
+        return await res.json();
+      } catch (err) {
+        console.warn('[admin-ui] GET', path, 'failed:', err instanceof Error ? err.message : err);
+        return {};
+      }
+    }
+    const raw = await loadFile(file);
+    const params = new URLSearchParams(qs || '');
+    if (base === '/admin/summary') return raw;
+    if (base === '/admin/agents') {
+      let list = raw;
+      const pack = params.get('pack'); if (pack) list = list.filter(a => a.packId === pack);
+      const q = (params.get('q') || '').toLowerCase();
+      if (q) list = list.filter(a => (a.id + ' ' + a.displayName + ' ' + (a.description||'')).toLowerCase().includes(q));
+      return { count: list.length, total: raw.length, agents: list };
+    }
+    if (base === '/admin/measures') return { count: raw.length, measures: raw };
+    if (base === '/admin/assessments') return { count: raw.length, assessments: raw };
+    if (base === '/admin/lifecycle') return { stages: raw };
+    if (base === '/admin/research/sources') return { count: raw.length, sources: raw };
+    if (base === '/admin/realms/demo') return raw;
+    return {};
+  }
+  // Writes: local-only for the demo
+  if (path === '/admin/drafts/validate') return clientValidate(body.yaml);
+  if (path === '/admin/drafts' && method === 'POST') {
+    const v = clientValidate(body.yaml);
+    const existing = drafts.findIndex(d => d.packId === body.packId && d.id === body.id);
+    const rec = { packId: body.packId, id: body.id, yaml: body.yaml, status: body.status || 'draft', authorRef: 'user:you', updatedAt: new Date().toISOString(), validation: v };
+    if (existing >= 0) { drafts[existing] = rec; audit(body.status === 'in-review' ? 'submit-review' : 'update-draft', body.packId, body.id); }
+    else { drafts.unshift(rec); audit('create-draft', body.packId, body.id); }
+    saveDrafts();
+    return rec;
+  }
+  if (path.match(/\/admin\/drafts\/[^/]+\/[^/]+\/publish$/)) {
+    const [, , , packId, id] = path.split('/');
+    const idx = drafts.findIndex(d => d.packId === packId && d.id === id);
+    if (idx < 0) throw new Error('draft not found');
+    const d = drafts[idx];
+    if (!d.validation.ok) throw new Error('cannot publish invalid draft');
+    // Move into agents cache (mock: mark published + move to published list)
+    const agents = await loadFile('agents.json');
+    const spec = clientValidate(d.yaml).spec;
+    agents.unshift({ packId: d.packId, id: d.id, displayName: spec.displayName, description: spec.description, setting: spec.labels?.setting, lifecycleStage: spec.labels?.lifecycleStage, triggerKind: spec.trigger?.kind, triggerEventType: spec.trigger?.eventType, baseFeeUsd: spec.billing?.baseFeeUsd, __justPublished: true });
+    cache['agents.json'] = agents;
+    drafts.splice(idx, 1);
+    saveDrafts();
+    audit('publish', packId, id, body?.note);
+    return { published: true };
+  }
+  if (path.match(/\/admin\/drafts\/[^/]+\/[^/]+\/reject$/)) {
+    const [, , , packId, id] = path.split('/');
+    const d = drafts.find(x => x.packId === packId && x.id === id);
+    if (d) d.status = 'draft';
+    saveDrafts();
+    audit('reject', packId, id, body?.note);
+    return { rejected: true };
+  }
+  if (path.match(/\/admin\/drafts\/[^/]+\/[^/]+$/) && method === 'DELETE') {
+    const [, , , packId, id] = path.split('/');
+    const idx = drafts.findIndex(d => d.packId === packId && d.id === id);
+    if (idx >= 0) { drafts.splice(idx, 1); saveDrafts(); audit('delete-draft', packId, id); }
+    return { deleted: true };
+  }
+  return {};
+}
+
+// ---------- Client-side validation (mirrors src/agents/spec.ts) ----------
+function clientValidate(yamlText) {
+  let doc;
+  try { doc = window.jsyaml ? jsyaml.load(yamlText) : parseSimpleYaml(yamlText); }
+  catch (e) { return { ok: false, errors: ['YAML parse: ' + e.message] }; }
+  if (!doc || typeof doc !== 'object') return { ok: false, errors: ['Document is not a YAML object'] };
+  const errs = [];
+  const req = (path, val, cond, msg) => { if (!cond) errs.push(`${path}: ${msg}`); };
+  req('id', doc.id, typeof doc.id === 'string' && /^[a-z0-9][a-z0-9-]*$/.test(doc.id), 'must be kebab-case string');
+  req('version', doc.version, /^\d+\.\d+\.\d+$/.test(doc.version || ''), 'must be semver X.Y.Z');
+  req('packId', doc.packId, typeof doc.packId === 'string', 'required string');
+  req('displayName', doc.displayName, typeof doc.displayName === 'string' && doc.displayName.length > 0, 'required non-empty string');
+  req('scope', doc.scope, ['org','region','facility','patient'].includes(doc.scope), 'must be one of org|region|facility|patient');
+  req('trigger.kind', doc.trigger?.kind, ['event','cron','webhook','manual'].includes(doc.trigger?.kind), 'must be event|cron|webhook|manual');
+  if (doc.trigger?.kind === 'event') req('trigger.eventType', doc.trigger?.eventType, !!doc.trigger?.eventType, 'required for event triggers');
+  if (doc.trigger?.kind === 'cron') req('trigger.expression', doc.trigger?.expression, !!doc.trigger?.expression, 'required for cron triggers');
+  req('plan', doc.plan, doc.plan && typeof doc.plan === 'object', 'required');
+  if (doc.plan) req('plan.type', doc.plan.type, ['sequence','parallel','conditional','loop','step'].includes(doc.plan.type), 'invalid plan type');
+  req('governance.phiHandling', doc.governance?.phiHandling, ['none','read','read-write'].includes(doc.governance?.phiHandling), 'required: none|read|read-write');
+  req('governance.purposeOfUse', doc.governance?.purposeOfUse, Array.isArray(doc.governance?.purposeOfUse) && doc.governance.purposeOfUse.length > 0, 'required non-empty array');
+  req('governance.clearanceRequired', doc.governance?.clearanceRequired, ['public','internal','confidential','phi','restricted-phi'].includes(doc.governance?.clearanceRequired), 'required clearance level');
+  return { ok: errs.length === 0, errors: errs, spec: errs.length === 0 ? doc : undefined };
+}
+// Fallback minimal YAML if js-yaml is not loaded — we ship js-yaml from CDN in production.
+function parseSimpleYaml(t) { throw new Error('YAML parser unavailable'); }
+
+// ---------- Router + views ----------
+const main = document.getElementById('main');
+const nav = document.querySelector('.sidebar');
+let currentView = 'summary';
+
+// ---------- Navigation model (drives the dockable sidebar) ----------
+const NAV = [
+  { section: 'Overview', icon: 'layout-dashboard', items: [ { view: 'summary', icon: 'layout-dashboard', label: 'Dashboard' }, { view: 'my-work', icon: 'inbox', label: 'My Work', count: 'c-mywork' } ] },
+  // Observers: bounded perception-only units — they see, assess and propose. They do not act.
+  { section: 'Observers', icon: 'eye', tabbed: true, items: [
+    { view: 'agents', icon: 'eye', label: 'Active observers', count: 'c-agents' },
+    { view: 'agent-run', icon: 'activity', label: 'Observer runtime' },
+    { view: 'drafts', icon: 'file-pen-line', label: 'Draft observers', count: 'c-drafts' },
+    { view: 'new', icon: 'plus', label: 'New observer' },
+  ] },
+  { section: 'Catalog', icon: 'book-open', tabbed: true, items: [
+    { view: 'measures', icon: 'clipboard-check', label: 'CMS measures', count: 'c-measures' },
+    { view: 'assessments', icon: 'clipboard-list', label: 'Assessments', count: 'c-assessments' },
+    { view: 'lifecycle', icon: 'route', label: 'Patient lifecycle' },
+    { view: 'research', icon: 'library', label: 'Knowledge sources', count: 'c-research' },
+    { view: 'learn', icon: 'graduation-cap', label: 'Learn' },
+  ] },
+  // Care environment: the digital twin model — realm → participants → events → observer signals → knowledge
+  { section: 'Care environment', icon: 'globe', tabbed: true, items: [
+    { view: 'world-builder', icon: 'map', label: 'Environment builder' },
+    { view: 'realm', icon: 'building-2', label: 'Care domain', count: 'c-realm' },
+    { view: 'presences', icon: 'users', label: 'Participants', count: 'c-presences' },
+    { view: 'effects', icon: 'scroll-text', label: 'Event ledger', count: 'c-effects' },
+    { view: 'perception', icon: 'eye', label: 'Observer signals' },
+    { view: 'experiences', icon: 'sparkles', label: 'Care encounters', count: 'c-experiences' },
+    { view: 'rules', icon: 'scale', label: 'Domain rules' },
+    { view: 'hypergraph', icon: 'network', label: 'Knowledge graph' },
+  ] },
+  // Observer reasoning: the epistemic model — what observers believe, how they trace causation, what episodes they hold
+  { section: 'Observer reasoning', icon: 'brain', tabbed: true, items: [
+    { view: 'episodes', icon: 'film', label: 'Observer episodes', count: 'c-episodes' },
+    { view: 'sentience', icon: 'brain', label: 'Belief states' },
+    { view: 'attributions', icon: 'waypoints', label: 'Causal attributions', count: 'c-attributions' },
+  ] },
+  { section: 'Governance', icon: 'shield-check', tabbed: true, items: [
+    { view: 'audit', icon: 'shield-check', label: 'Audit log' },
+    { view: 'compliance', icon: 'file-check-2', label: 'Compliance' },
+  ] },
+  { section: 'Anant Trajectory', icon: 'trending-up', tabbed: true, items: [
+    { view: 'liquid-whatif', icon: 'trending-up', label: 'What-If forecast' },
+    { view: 'liquid-train', icon: 'cpu', label: 'Model training' },
+    { view: 'liquid-score', icon: 'flask-conical', label: 'Score labs' },
+    { view: 'counterfactual', icon: 'git-branch', label: 'Counterfactual studio' },
+    { view: 'nudge-ledger', icon: 'bell-ring', label: 'Nudge ledger' },
+  ] },
+  { section: 'System', icon: 'settings', tabbed: true, items: [
+    { view: 'durable', icon: 'database', label: 'Durable storage' },
+    { view: 'broker', icon: 'radio', label: 'Event broker' },
+    { view: 'command', icon: 'monitor-play', label: 'Command center' },
+    { view: 'enterprise', icon: 'shield-check', label: 'Enterprise' },
+    { view: 'fhir', icon: 'activity', label: 'FHIR entities' },
+    { view: 'users', icon: 'user-cog', label: 'Users' },
+    { view: 'settings', icon: 'settings', label: 'Settings' },
+  ] },
+  // Generic platform (port plan Phase A/B) — organization, topics, releases, DLQ
+  // and the public context/work APIs. Admin-only surface for now.
+  { section: 'Platform', icon: 'server', tabbed: true, items: [
+    { view: 'platform-admin', icon: 'compass', label: 'Platform admin' },
+    { view: 'platform-config', icon: 'sliders-horizontal', label: 'Configuration studio' },
+    { view: 'platform-cohorts', icon: 'layers', label: 'Living cohorts', count: 'c-cohorts' },
+    { view: 'platform-agents', icon: 'eye', label: 'Observer studio' },
+    { view: 'platform-assurance', icon: 'shield-check', label: 'AI Assurance' },
+    { view: 'platform-submissions', icon: 'send', label: 'CMS submissions' },
+    { view: 'platform-releases', icon: 'git-branch', label: 'Release center' },
+    { view: 'platform-dlq', icon: 'archive', label: 'Dead-letter queue' },
+    { view: 'platform-context', icon: 'eye', label: 'Context API' },
+    { view: 'rsi-intelligence', icon: 'network', label: 'Shared Intelligence ↗' },
+    { view: 'rsi-executive', icon: 'trending-up', label: 'Executive Outcomes ↗' },
+  ] },
+  // Renal Swarm Intelligence — linked domain application (operational product).
+  // Clinical / operational screens live in RSI; this section links through to it.
+  { section: 'Renal Swarm', icon: 'network', items: [
+    { view: 'rsi-app', icon: 'external-link', label: 'Open RSI app' },
+  ] },
+];
+const VIEW_INDEX = {};
+NAV.forEach((g) => g.items.forEach((it) => { VIEW_INDEX[it.view] = it; }));
+
+// Role-based navigation — which sections a signed-in user may see. `null` = all.
+// Matches IdentityRole: admin | md | nurse | pharmacist | coder | auditor | facilities-tech | safety.
+const ROLE_NAV = {
+  admin: null, // everything
+  auditor: ['Overview', 'Catalog', 'Governance', 'System', 'Platform'],
+  md: ['Overview', 'Agents', 'Catalog', 'World', 'Anant Trajectory', 'Renal Swarm'],
+  nurse: ['Overview', 'Agents', 'Catalog', 'World', 'Anant Trajectory'],
+  pharmacist: ['Overview', 'Catalog', 'World', 'Anant Trajectory'],
+  coder: ['Overview', 'Agents', 'Catalog', 'World'],
+  'facilities-tech': ['Overview', 'World', 'System'],
+  safety: ['Overview', 'World', 'Governance', 'Anant Trajectory'],
+};
+
+/** Roles that may READ the configuration but never write it.
+ *  Mirrors READ_ONLY_ROLES in src/server/api-auth.ts — the server is the
+ *  boundary; this only stops the console from offering buttons that would 403. */
+const READ_ONLY_ROLES = ['auditor'];
+function isReadOnlyRole() {
+  return !!sessionUser && READ_ONLY_ROLES.includes(sessionUser.role);
+}
+
+/** Reading, not writing: a read-only role keeps the page and loses the buttons. */
+function readOnlyBannerHTML() {
+  if (!isReadOnlyRole()) return '';
+  return `<div class="state-card" id="ro-banner" style="border-color:color-mix(in srgb,var(--warn) 40%,transparent);">
+    <div class="state-icon"><i data-lucide="eye"></i></div>
+    <div class="state-title">Read-only role</div>
+    <div class="state-sub">You can inspect this configuration in full; changes are refused by the server for the <code>${esc(sessionUser.role)}</code> role. Ask an administrator to make a change.</div>
+  </div>`;
+}
+
+/**
+ * Disable every writer on a configuration page for a read-only role.
+ *
+ * Deliberately inverted: disable all controls, then re-enable the ones that only
+ * navigate or refresh. If a harmless control ends up disabled that is a small
+ * annoyance; if a "Save" ended up enabled the console would be offering an action
+ * the server refuses, which is the thing being fixed.
+ */
+const READ_ONLY_ALLOWED = /^(refresh|reload|fit|−|\+|100%|open|\u2192|.*\u2192\s*$|filter|search)/i;
+function applyReadOnly() {
+  if (!isReadOnlyRole()) return;
+  if (!/^platform-/.test(currentView)) return;
+  const scope = document.querySelector('main');
+  if (!scope) return;
+  if (!scope.querySelector('#ro-banner')) scope.insertAdjacentHTML('afterbegin', readOnlyBannerHTML());
+  scope.querySelectorAll('button, input, select, textarea').forEach((el) => {
+    if (el.closest('.page-tabs')) return;
+    const label = (el.getAttribute('aria-label') || el.textContent || el.value || '').trim();
+    if (el.tagName === 'BUTTON' && READ_ONLY_ALLOWED.test(label)) return;
+    el.disabled = true;
+    el.setAttribute('title', 'Read-only role — this control is disabled. The server refuses writes for it too.');
+  });
+  hydrateIcons();
+}
+function allowedSections() {
+  if (!sessionUser || !ROLE_NAV[sessionUser.role]) return null; // admins (and pre-login) see all
+  return ROLE_NAV[sessionUser.role];
+}
+function navGroupsForRole() {
+  const allowed = allowedSections();
+  return allowed ? NAV.filter((g) => allowed.includes(g.section)) : NAV;
+}
+
+// Sidebar dock state — `docked` (full) or `collapsed` (icon rail + flyout).
+const SIDEBAR_KEY = 'hh-sidebar';
+const PIN_KEY = 'hh-pinned';
+const COLLAPSE_KEY = 'hh-collapsed-sections';
+let sidebarMode = 'docked';
+let pinnedViews = [];
+let collapsedSections = [];
+function loadSidebarState() {
+  try { sidebarMode = localStorage.getItem(SIDEBAR_KEY) === 'collapsed' ? 'collapsed' : 'docked'; } catch (_) {}
+  try { pinnedViews = JSON.parse(localStorage.getItem(PIN_KEY) || '[]'); } catch (_) { pinnedViews = []; }
+  try { collapsedSections = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]'); } catch (_) { collapsedSections = []; }
+}
+function saveSidebarState() {
+  try {
+    localStorage.setItem(SIDEBAR_KEY, sidebarMode);
+    localStorage.setItem(PIN_KEY, JSON.stringify(pinnedViews));
+    localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsedSections));
+  } catch (_) { /* storage unavailable */ }
+}
+function navItemHTML(it, opts = {}) {
+  const pinned = pinnedViews.includes(it.view);
+  const active = currentView === it.view ? ' active' : '';
+  const count = it.count ? `<span class="count" id="${it.count}">—</span>` : '';
+  const pinIcon = pinned ? 'pin' : 'pin-off';
+  const pin = `<span class="nav-pin" data-pin="${it.view}" title="${pinned ? 'Unpin' : 'Pin to top'}"><i data-lucide="${pinIcon}"></i></span>`;
+  return `<div class="nav-item${active}${pinned ? ' pinned' : ''}" data-view="${it.view}" title="${opts.short ? esc(it.label) : ''}"><i data-lucide="${it.icon}"></i><span class="nav-label">${esc(it.label)}</span>${count}${opts.short ? '' : pin}</div>`;
+}
+function renderSidebar() {
+  nav.classList.toggle('collapsed', sidebarMode === 'collapsed');
+  const inner = document.getElementById('sidebar-inner');
+  if (!inner) return;
+  // Brand row carries the dock toggle at the top of the sidebar.
+  let html = '<div class="brand"><div class="brand-mark"><i data-lucide="activity"></i></div><h1>AnantHealth</h1><button class="dock-toggle" id="dock-toggle" title="Toggle sidebar dock (collapse to icon rail)" aria-label="Toggle sidebar dock"></button></div>';
+  const pinnedItems = pinnedViews.map((v) => VIEW_INDEX[v]).filter(Boolean).filter((it) => viewAllowed(it.view));
+  if (pinnedItems.length) {
+    html += `<div class="nav-section" data-section="__pinned"><div class="label" data-collapse="__pinned">Pinned <span class="nav-caret">▼</span></div><div class="nav-body">`;
+    for (const it of pinnedItems) html += navItemHTML(it);
+    html += '</div></div>';
+  }
+  for (const group of navGroupsForRole()) {
+    const isCollapsed = collapsedSections.includes(group.section);
+    // Tabbed sections and single-item sections don't need a collapse caret.
+    const collapsible = !group.tabbed && group.items.length > 1;
+    html += `<div class="nav-group"><div class="nav-section${isCollapsed ? ' collapsed-items' : ''}" data-section="${esc(group.section)}">`;
+    html += collapsible
+      ? `<div class="label" data-collapse="${esc(group.section)}">${esc(group.section)} <span class="nav-caret">▼</span></div>`
+      : `<div class="label" data-section-go="${esc(group.section)}">${esc(group.section)}</div>`;
+    html += '<div class="nav-body">';
+    if (group.tabbed) {
+      // Tabbed section → a single entry with its own icon; sub-pages live in the page tab strip.
+      const first = group.items[0];
+      const active = group.items.some((it) => it.view === currentView) ? ' active' : '';
+      html += `<div class="nav-item tabbed-item${active}" data-view="${esc(first.view)}" data-section-tabbed="${esc(group.section)}" title="${esc(group.section)} (tabs)"><i data-lucide="${esc(group.icon || 'layout-grid')}"></i><span class="nav-label">${esc(group.section)}</span></div>`;
+    } else {
+      for (const it of group.items) html += navItemHTML(it);
+    }
+    html += '</div></div>';
+    html += `<div class="nav-flyout"><div class="fly-label">${esc(group.section)}</div>`;
+    if (group.tabbed) {
+      const first = group.items[0];
+      const active = group.items.some((it) => it.view === currentView) ? ' active' : '';
+      html += `<div class="nav-item tabbed-item${active}" data-view="${esc(first.view)}" data-section-tabbed="${esc(group.section)}"><i data-lucide="${esc(group.icon || 'layout-grid')}"></i><span class="nav-label">${esc(group.section)}</span></div>`;
+    } else {
+      for (const it of group.items) html += navItemHTML(it, { short: true });
+    }
+    html += '</div></div>';
+  }
+  inner.innerHTML = html;
+  updateDockIcon();
+  if (window.hydrateIcons) window.hydrateIcons();
+  updateSidebarCounts(); // refresh count badges after re-render
+}
+function updateDockIcon() {
+  const icon = sidebarMode === 'collapsed' ? 'panel-left-open' : 'panel-left-close';
+  document.querySelectorAll('.dock-toggle').forEach((b) => { b.innerHTML = `<i data-lucide="${icon}"></i>`; });
+  if (window.hydrateIcons) window.hydrateIcons();
+}
+function toggleDock() {
+  sidebarMode = sidebarMode === 'collapsed' ? 'docked' : 'collapsed';
+  saveSidebarState();
+  renderSidebar();
+}
+function initSidebar() {
+  loadSidebarState();
+  renderSidebar();
+  document.querySelectorAll('.dock-toggle').forEach((b) => b.addEventListener('click', toggleDock));
+}
+
+// ---------- Global header search (realms / patients / agents / measures / audit) ----------
+function initGlobalSearch() {
+  const input = document.getElementById('global-q');
+  const results = document.getElementById('global-results');
+  if (!input || !results) return;
+  let timer = null;
+  const run = (q) => runGlobalSearch(q, { input, results });
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 2) { results.hidden = true; results.innerHTML = ''; return; }
+    timer = setTimeout(() => run(q), 250);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); clearTimeout(timer); run(input.value.trim()); }
+    if (e.key === 'Escape') { results.hidden = true; input.blur(); }
+  });
+  input.addEventListener('focus', () => { if (input.value.trim().length >= 2 && results.innerHTML) results.hidden = false; });
+  document.addEventListener('click', (e) => { if (!e.target.closest('.global-search')) results.hidden = true; });
+}
+
+async function runGlobalSearch(q, ctx) {
+  const { input, results } = ctx;
+  const t = q.toLowerCase();
+  const flat = [];
+  try {
+    const realms = ((await api('GET', '/admin/realms')).realms) || [];
+    for (const r of realms) {
+      if ((r.id || '').toLowerCase().includes(t)) flat.push({ label: 'Realms', title: r.id, sub: r.mode ? `mode ${r.mode}` : '', go: () => { realmDeepLink = r.id; goTo('realm'); } });
+    }
+    for (const r of realms.slice(0, 6)) {
+      try {
+        const pats = ((await api('GET', `/admin/realms/${encodeURIComponent(r.id)}/patients`)).patients) || [];
+        for (const p of pats) {
+          if ((p.id || '').toLowerCase().includes(t)) flat.push({ label: 'Patients', title: p.id, sub: r.id, go: () => { wiDeepLink = { realmId: r.id, patientId: p.id }; goTo('liquid-whatif'); } });
+        }
+      } catch (_) { /* realm w/o patients */ }
+    }
+    const agents = ((await api('GET', '/admin/agents')).agents) || [];
+    for (const a of agents) {
+      if ((a.id || '').toLowerCase().includes(t) || (a.packId || '').toLowerCase().includes(t)) flat.push({ label: 'Agents', title: `${a.packId}/${a.id}`, sub: 'published', go: () => goTo('agents') });
+    }
+    try {
+      const dd = await (await fetch('/admin/drafts')).json();
+      for (const d of (dd.drafts || [])) {
+        if ((d.id || '').toLowerCase().includes(t) || (d.packId || '').toLowerCase().includes(t)) flat.push({ label: 'Drafts', title: `${d.packId}/${d.id}`, sub: 'draft', go: () => goTo('drafts') });
+      }
+    } catch (_) { /* offline */ }
+    const measures = ((await api('GET', '/admin/measures')).measures) || [];
+    for (const m of measures) {
+      if ((m.id || '').toLowerCase().includes(t) || (((m.name || '') + ' ' + (m.description || '')).toLowerCase().includes(t))) flat.push({ label: 'Measures', title: m.id, sub: m.programId || m.name || '', go: () => goTo('measures') });
+    }
+    const audit = ((await api('GET', '/admin/audit').catch(() => ({ audit: [] }))).audit) || [];
+    for (const a of audit) {
+      if (((a.actorRef || '') + ' ' + (a.action || '') + ' ' + (a.resourceType || '')).toLowerCase().includes(t)) flat.push({ label: 'Audit', title: `${a.action || 'event'} · ${a.resourceType || ''}`, sub: a.actorRef || '', go: () => goTo('audit') });
+    }
+  } catch (_) { /* backend unavailable */ }
+
+  // Group, cap at 5 per label, cap 8 groups.
+  const byLabel = new Map();
+  for (const it of flat) {
+    if (!byLabel.has(it.label)) byLabel.set(it.label, []);
+    const arr = byLabel.get(it.label);
+    if (arr.length < 5) arr.push(it);
+  }
+  const groups = [...byLabel.entries()].slice(0, 8);
+  const total = groups.reduce((n, [, arr]) => n + arr.length, 0);
+  if (!total) { results.innerHTML = `<div class="gs-empty">No matches for “${esc(q)}”</div>`; results.hidden = false; return; }
+  let html = ''; const actions = [];
+  for (const [label, arr] of groups) {
+    html += `<div class="gs-group">${esc(label)}</div>`;
+    for (const it of arr) {
+      const idx = actions.length;
+      html += `<div class="gs-item" data-i="${idx}"><div class="gs-title">${esc(it.title)}</div><div class="gs-sub">${esc(it.sub)}</div></div>`;
+      actions.push(it.go);
+    }
+  }
+  results.innerHTML = html;
+  results.hidden = false;
+  results.querySelectorAll('.gs-item').forEach((el) => {
+    el.addEventListener('click', () => {
+      const go = actions[Number(el.dataset.i)];
+      results.hidden = true; input.value = '';
+      if (go) go();
+    });
+  });
+}
+
+// Fill a <datalist> with a realm's patient ids (FK lookup picker).
+async function loadPatientDatalist(realmId, listId) {
+  const dl = document.getElementById(listId);
+  if (!dl || !realmId) { if (dl) dl.innerHTML = ''; return; }
+  try {
+    const d = await api('GET', `/admin/realms/${encodeURIComponent(realmId)}/patients`);
+    dl.innerHTML = (d.patients || []).map((p) => `<option value="${esc(p.id)}">`).join('');
+  } catch (_) { dl.innerHTML = ''; }
+}
+
+// ---------- Theme (light / dark, persisted) + icon hydration ----------
+// `data-theme` on <html> selects the token set: dark is the engine room, light
+// is the enterprise/executive reading surface. Both sets declare the same
+// variable names, so this is an attribute write and no rule branches on it.
+// The `.dark` class is kept in step for the Tailwind CDN's `darkMode: 'class'`.
+function applyTheme(t) {
+  const next = t === 'light' ? 'light' : 'dark';
+  const root = document.documentElement;
+  root.dataset.theme = next;
+  root.classList.toggle('dark', next === 'dark');
+  try { localStorage.setItem('hh-theme', next); } catch (_) {}
+  const btn = document.getElementById('theme-toggle');
+  if (btn) {
+    btn.title = next === 'dark' ? 'Theme: Dark — switch to light' : 'Theme: Light — switch to dark';
+    btn.setAttribute('aria-label', btn.title);
+    btn.innerHTML = next === 'dark' ? '<i data-lucide="sun" style="width:16px;height:16px;"></i>' : '<i data-lucide="moon" style="width:16px;height:16px;"></i>';
+  }
+  if (window.lucide) window.lucide.createIcons();
+}
+function initTheme() {
+  applyTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.addEventListener('click', () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+}
+function hydrateIcons() { if (window.lucide) window.lucide.createIcons(); }
+
+// Reusable data grid — TanStack (window.__dataGrid) with a plain fallback so the app
+// stays usable even if the TanStack CDN is unreachable.
+function dataGrid(opts) { return window.__dataGrid ? window.__dataGrid(opts) : fallbackGrid(opts); }
+function fallbackGrid(opts) {
+  const root = typeof opts.el === 'string' ? document.getElementById(opts.el) : opts.el;
+  if (!root) return null;
+  let data = opts.data || [];
+  let q = ''; let sort = null; let dir = 1;
+  const cols = opts.columns || [];
+  const fmtF = (v) => (v === null || v === undefined || v === '') ? '—' : String(v);
+  const render = () => {
+    let rows = data;
+    if (q) { const t = q.toLowerCase(); rows = rows.filter(r => cols.some(c => String(r[c.key] ?? '').toLowerCase().includes(t))); }
+    if (sort) { const k = sort; rows = [...rows].sort((a, b) => { const x = a[k] ?? '', y = b[k] ?? ''; const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y)); return c * dir; }); }
+    const head = '<tr>' + cols.map(c => `<th class="${c.sortable !== false ? 'dg-sortable' : ''}" data-k="${c.key}" style="text-align:${c.align || 'left'}">${esc(c.label || c.key)}${sort === c.key ? (dir === 1 ? ' <span class="dg-arrow">▲</span>' : ' <span class="dg-arrow">▼</span>') : ''}</th>`).join('') + '</tr>';
+    const body = rows.length === 0 ? `<tr><td colspan="${cols.length}" class="dg-empty">${esc(opts.empty || 'No records.')}</td></tr>` : rows.map(r => '<tr>' + cols.map(c => `<td style="text-align:${c.align || 'left'}">${c.render ? c.render(r[c.key], r) : fmtF(r[c.key])}</td>`).join('') + '</tr>').join('');
+    root.innerHTML = `<div class="dg">
+      <div class="dg-toolbar"><div class="dg-search"><input placeholder="Search…" value="${esc(q)}"></div><div class="dg-tools"><span class="dg-count">Showing ${rows.length} of ${data.length}</span></div></div>
+      <div class="dg-wrap"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>
+    </div>`;
+    const inp = root.querySelector('.dg-search input'); if (inp) inp.addEventListener('input', e => { q = e.target.value; render(); });
+    root.querySelectorAll('th.dg-sortable').forEach(th => th.addEventListener('click', () => { const k = th.dataset.k; if (sort === k) dir *= -1; else { sort = k; dir = 1; } render(); }));
+    if (window.hydrateIcons) window.hydrateIcons();
+  };
+  render();
+  return { refresh(d) { data = d; render(); } };
+}
+
+function toast(msg, kind='') { const t = document.createElement('div'); t.className = 'toast ' + kind; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 3000); }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function downloadBlob(name, type, text) {
+  const blob = new Blob([text], { type });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
+}
+function copyToClipboard(text) {
+  try {
+    navigator.clipboard.writeText(text).then(() => toast('Copied to clipboard', 'good')).catch(() => toast('Copy failed', 'err'));
+  } catch { toast('Copy failed', 'err'); }
+}
+
+// ---------- Keyboard shortcuts + help modal (enterprise best practice) ----------
+const SHORTCUTS = [
+  ['/ or Ctrl+K', 'Focus the global search'],
+  ['?', 'Show this keyboard-shortcuts help'],
+  ['r', 'Refresh the current view'],
+  ['d', 'Go to Dashboard (Overview)'],
+  ['a', 'Go to Agents → Published'],
+  ['w', 'Go to World → Realm'],
+  ['c', 'Go to Catalog → CMS measures'],
+  ['g', 'Go to Governance → Compliance'],
+  ['Esc', 'Close dialogs / the search box'],
+];
+function shortcutsModalHTML() {
+  return `<div class="modal-overlay" id="shortcuts-modal" style="z-index:90;"><div class="modal">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <h3 style="margin:0;">Keyboard shortcuts</h3>
+      <button class="btn btn-ghost" id="shortcuts-close"><i data-lucide="x"></i></button>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tbody>${SHORTCUTS.map(([k, d]) => `<tr><td style="padding:5px 8px;border-bottom:1px dashed var(--border);white-space:nowrap;"><kbd style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:1px 7px;font-size:12px;font-family:ui-monospace,monospace;">${esc(k)}</kbd></td><td style="padding:5px 8px;border-bottom:1px dashed var(--border);color:var(--muted);">${esc(d)}</td></tr>`).join('')}</tbody>
+    </table>
+  </div></div>`;
+}
+function initShortcuts() {
+  document.addEventListener('keydown', (e) => {
+    // Ctrl+K → focus search.
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); const q = document.getElementById('global-q'); if (q) q.focus(); return; }
+    // Ignore when typing in a field.
+    const t = e.target;
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+    if (typing && e.key !== 'Escape') return;
+    if (e.key === '?') { e.preventDefault(); toggleShortcuts(true); return; }
+    if (e.key === 'Escape') {
+      const m = document.getElementById('shortcuts-modal'); if (m) { m.remove(); return; }
+      const q = document.getElementById('global-q'); if (q && document.activeElement === q) { q.blur(); }
+      return;
+    }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    switch (e.key.toLowerCase()) {
+      case '/': e.preventDefault(); const q = document.getElementById('global-q'); if (q) q.focus(); break;
+      case 'r': e.preventDefault(); render(); toast('View refreshed', 'good'); break;
+      case 'd': e.preventDefault(); goTo('summary'); break;
+      case 'a': e.preventDefault(); goTo('agents'); break;
+      case 'w': e.preventDefault(); goTo('realm'); break;
+      case 'c': e.preventDefault(); goTo('measures'); break;
+      case 'g': e.preventDefault(); goTo('compliance'); break;
+      default: break;
+    }
+  });
+}
+function toggleShortcuts(open) {
+  const existing = document.getElementById('shortcuts-modal');
+  if (open && !existing) {
+    document.body.insertAdjacentHTML('beforeend', shortcutsModalHTML());
+    const m = document.getElementById('shortcuts-modal');
+    const close = () => m.remove();
+    m.querySelector('#shortcuts-close')?.addEventListener('click', close);
+    m.addEventListener('click', (e) => { if (e.target === m) close(); });
+    if (window.hydrateIcons) window.hydrateIcons();
+  } else if (!open && existing) { existing.remove(); }
+}
+
+// ---------- Shared realm scope + cohesive state components ----------
+// Every realm-scoped page (World, Agents' inner lives) uses the same
+// "scope bar" (realm selector + refresh) and the same loading / empty /
+// error state cards so the whole console feels like one product.
+let realmScope = '';
+async function loadRealmsForScope() {
+  try { const r = await api('GET', '/admin/realms'); return (r.realms || []).map((x) => x.id); }
+  catch (_) { return []; }
+}
+function scopeShell(title, subtitle, extraHeader = '') {
+  return `
+    <div class="page-header"><div><h2 class="page-title">${esc(title)}</h2><p class="page-sub">${esc(subtitle)}</p></div>${extraHeader}</div>
+    <div class="scope-bar">
+      <span class="scope-title">Realm</span>
+      <select id="scope-realm" class="scope-select"></select>
+      <button class="btn btn-ghost" id="scope-refresh"><i data-lucide="refresh-cw"></i> Refresh</button>
+      <span class="scope-hint" id="scope-hint"></span>
+    </div>
+    <div id="scope-body"></div>`;
+}
+function setScopeHint(text) {
+  const el = document.getElementById('scope-hint');
+  if (el) el.innerHTML = text || '';
+}
+function loadingHTML() {
+  return `<div class="state-card"><div class="skeleton skeleton-block" style="width:100%;max-width:420px;"></div><div class="skeleton skeleton-line" style="width:60%;"></div><div class="skeleton skeleton-line" style="width:45%;"></div></div>`;
+}
+function emptyStateHTML(title, sub, actionHTML = '') {
+  return `<div class="state-card"><div class="state-icon"><i data-lucide="inbox"></i></div><div class="state-title">${esc(title)}</div><div class="state-sub">${sub || ''}</div>${actionHTML ? `<div class="state-action">${actionHTML}</div>` : ''}</div>`;
+}
+function errorStateHTML(err) {
+  return `<div class="state-card error"><div class="state-icon"><i data-lucide="triangle-alert"></i></div><div class="state-title">Couldn't load this realm</div><div class="state-sub">${esc(String(err || 'unknown error'))}</div></div>`;
+}
+/**
+ * A load failure that NAMES the failure. A denied read is not an empty state and
+ * must never be rendered as one: the platform pages used to swallow the 403 and
+ * fall back to hardcoded defaults, so a governance screen showed an escalation
+ * threshold of 5000bp while the stored policy was 8200bp.
+ */
+function loadFailureHTML(subject, err) {
+  const msg = String(err || 'unknown error');
+  const denied = /role-not-permitted-for-console|^403$|not-authenticated/.test(msg);
+  const unauth = /not-authenticated/.test(msg);
+  const title = unauth ? 'Sign in to continue' : denied ? 'Not permitted for your role' : `Couldn't load ${subject}`;
+  const sub = unauth
+    ? 'Your session has ended. Sign in again to load this page.'
+    : denied
+      ? 'This surface belongs to the other console. The fields below were NOT loaded with defaults.'
+      : msg;
+  return `<div class="state-card error"><div class="state-icon"><i data-lucide="shield-alert"></i></div><div class="state-title">${esc(title)}</div><div class="state-sub">${esc(sub)}</div></div>`;
+}
+/** The REAL release gate — green/red/sources/approvals with per-check evidence.
+ *  Replaces the invented five-gate strip the exec studio used to draw. */
+function releaseGateHTML(gate) {
+  if (!gate || !gate.verdict) return '<div class="muted" style="font-size:12px;">Gate evidence unavailable.</div>';
+  const { input, verdict } = gate;
+  const tone = verdict.decision === 'ship' ? 'good' : verdict.decision === 'hold' ? 'warn' : 'bad';
+  const chip = (ok, label) => `<span class="pill ${ok ? 'good' : 'warn'}">${esc(label)} ${ok ? '✓' : '…'}</span>`;
+  const green = (input.green || []).map((c) => `<tr><td><code>${esc(c.id)}</code></td><td>${esc(c.plane)}</td><td><span class="pill ${c.status === 'pass' ? 'good' : c.status === 'fail' ? 'bad' : 'warn'}">${esc(c.status)}</span></td><td>${esc(c.check)}</td><td class="muted" style="font-size:11px;">${esc(c.evidence || '')}</td></tr>`).join('');
+  const red = (input.red || []).map((r) => `<span class="pill ${r.contained ? 'good' : 'bad'}">${esc(r.id)} ${r.contained ? 'contained' : 'OPEN'}</span>`).join('');
+  return `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span class="pill ${tone}" style="font-size:12px;">${esc(verdict.decision.toUpperCase())}</span>
+      <span class="muted" style="font-size:12px;">score ${verdict.score} · green ${Math.round((verdict.greenScore || 0) * 100)}%</span>
+      ${chip(verdict.redOpen === 0, `${verdict.redOpen} red open`)}
+      ${chip(verdict.sourcesCurrent, 'sources current')}
+      ${chip(verdict.approvalsMet, 'approvals met')}
+    </div>
+    ${(verdict.blocks || []).length ? `<div class="muted" style="font-size:12px;margin-top:6px;">Blocks: <b>${(verdict.blocks || []).map((b) => esc(b)).join(', ')}</b></div>` : ''}
+    ${(verdict.reasons || []).length ? `<div class="muted" style="font-size:12px;margin-top:2px;">Holds: ${(verdict.reasons || []).map((b) => esc(b)).join('; ')}</div>` : ''}
+    <div class="muted" style="font-size:11px;margin-top:8px;">Red findings: ${red || '<span class="muted">none</span>'}</div>
+    <div style="overflow-x:auto;margin-top:8px;"><table style="width:100%;"><thead><tr><th>Check</th><th>Plane</th><th>Status</th><th>Assertion</th><th>Evidence</th></tr></thead><tbody>${green || '<tr><td colspan="5" class="muted">No green checks.</td></tr>'}</tbody></table></div>`;
+}
+/** Render a page shell with a realm scope bar, then load the body for the current realm. */
+async function mountScope(loadBody) {
+  const select = document.getElementById('scope-realm');
+  const refresh = document.getElementById('scope-refresh');
+  if (!select || !refresh) return;
+  const ids = await loadRealmsForScope();
+  if (ids.length && !ids.includes(realmScope)) realmScope = ids[0];
+  select.innerHTML = ids.map((id) => `<option value="${esc(id)}" ${id === realmScope ? 'selected' : ''}>${esc(id)}</option>`).join('') || '<option value="">no realms</option>';
+  const run = () => { if (realmScope && typeof loadBody === 'function') loadBody(realmScope); else setScopeHint('Create a realm in World → Realm to populate this view.'); };
+  select.addEventListener('change', () => { realmScope = select.value; run(); });
+  refresh.addEventListener('click', run);
+  run();
+  if (window.hydrateIcons) window.hydrateIcons();
+}
+
+// Count badges live in two places now: the sidebar (non-tabbed items) and the
+// page tab strip (tabbed sections). Guard every update — the element is only
+// present when its section is on screen.
+function setCount(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = String(val ?? '—');
+}
+
+async function updateSidebarCounts() {
+  const s = await api('GET', '/admin/summary');
+  setCount('c-agents', s.agents.total);
+  // Cohort count is the operator's own catalog, so it comes from the cohort API
+  // rather than the bundled snapshot.
+  (async () => {
+    try { setCount('c-cohorts', (await plFetch('GET', '/admin/cohorts')).count); }
+    catch (_) { setCount('c-cohorts', '—'); }
+  })();
+  // Drafts count comes from the real authoring service when reachable.
+  (async () => {
+    const live = await draftsFromServer();
+    setCount('c-drafts', live !== null ? live.length : drafts.length);
+  })();
+  setCount('c-measures', s.measures.total);
+  setCount('c-assessments', s.assessments.total);
+  setCount('c-research', s.researchSources);
+  try {
+    const r = await api('GET', '/admin/realms/demo');
+    setCount('c-realm', (r.patients?.length ?? 0) + 'p');
+    setCount('c-presences', r.presences?.length ?? '—');
+    setCount('c-effects', r.effects?.length ?? '—');
+    setCount('c-experiences', r.experiences?.length ?? '—');
+    setCount('c-episodes', r.episodes?.length ?? '—');
+    setCount('c-attributions', r.attributions?.length ?? '—');
+  } catch (_) { /* realm snapshot not present */ }
+}
+
+const pageTabs = document.getElementById('page-tabs');
+pageTabs?.addEventListener('click', (e) => {
+  const tab = e.target.closest('.tab[data-view]');
+  if (!tab) return;
+  goTo(tab.dataset.view);
+});
+
+nav.addEventListener('click', (e) => {
+  const pin = e.target.closest('.nav-pin');
+  if (pin) {
+    e.stopPropagation();
+    const v = pin.dataset.pin;
+    const i = pinnedViews.indexOf(v);
+    if (i >= 0) pinnedViews.splice(i, 1); else pinnedViews.push(v);
+    saveSidebarState();
+    renderSidebar();
+    return;
+  }
+  const caret = e.target.closest('[data-collapse]');
+  if (caret) {
+    e.stopPropagation();
+    const sec = caret.dataset.collapse;
+    const i = collapsedSections.indexOf(sec);
+    if (i >= 0) collapsedSections.splice(i, 1); else collapsedSections.push(sec);
+    saveSidebarState();
+    renderSidebar();
+    return;
+  }
+  // Section header (label) click → open the section's first page (tabbed/single-item sections).
+  const sectionGo = e.target.closest('[data-section-go]');
+  if (sectionGo) {
+    e.stopPropagation();
+    const group = NAV.find((g) => g.section === sectionGo.dataset.sectionGo);
+    if (group && group.items[0]) goTo(group.items[0].view);
+    return;
+  }
+  const item = e.target.closest('.nav-item');
+  if (!item) return;
+  goTo(item.dataset.view);
+});
+
+// ---------- Console auth (landing / login / logout) ----------
+let sessionUser = null;
+async function rawJson(method, path, body) {
+  try {
+    const res = await fetch(path, {
+      method,
+      headers: body ? { 'content-type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: 'same-origin',
+    });
+    return await res.json().catch(() => ({}));
+  } catch (e) { return { error: String(e) }; }
+}
+async function checkAuth() {
+  // A 401 is a definitive "you are anonymous"; anything else (network refused,
+  // 5xx, a dev-server reload) is "cannot tell yet". Both consoles share one
+  // hh_session cookie, so treating a transient failure as anonymous made a
+  // reload look like the other console (/exec) had invalidated the login.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, attempt * 600));
+    try {
+      const res = await fetch('/auth/me', { cache: 'no-store', credentials: 'same-origin' });
+      if (res.status === 401) return null;
+      if (!res.ok) continue;
+      const payload = await res.json();
+      return payload && payload.authenticated ? payload.user : null;
+    } catch { /* unreachable — retry */ }
+  }
+  return null;
+}
+function renderLogin(msg) {
+  document.body.classList.add('login-mode');
+  const appEl = document.querySelector('.app');
+  if (appEl) appEl.style.display = 'none';
+  const old = document.getElementById('login-screen');
+  if (old) old.remove();
+  const screen = document.createElement('div');
+  screen.className = 'login-screen';
+  screen.id = 'login-screen';
+  screen.innerHTML = `
+    <form class="login-card" onsubmit="doLogin(event)">
+      <div class="login-brand"><div class="brand-mark"><i data-lucide="activity"></i></div><h1>AnantHealth</h1></div>
+      <p class="login-sub">Sign in to the AnantHealth operator console.</p>
+      <div class="login-field"><label>Username</label><input id="login-user" autocomplete="off" placeholder="admin" required></div>
+      <div class="login-field"><label>Password</label><input id="login-pass" type="password" autocomplete="off" placeholder="••••••••" required></div>
+      <p class="login-error" id="login-err">${esc(msg || '')}</p>
+      <button class="login-btn" type="submit">Sign in</button>
+      <div class="login-quick">
+        <div class="q-label">Quick demo users</div>
+        <div class="q-row" id="login-quick"></div>
+      </div>
+      <p class="login-foot">Local console auth · enterprise SSO via Identity providers.</p>
+    </form>`;
+  document.body.appendChild(screen);
+  const quick = document.getElementById('login-quick');
+  if (quick) {
+    quick.innerHTML = [
+      ['admin', 'admin123', 'Administrator'],
+      ['nurse', 'nurse123', 'Clinician'],
+      ['auditor', 'audit123', 'Auditor'],
+    ].map(([u, p, d]) => `<button type="button" class="q-chip" data-u="${u}" data-p="${p}" title="Sign in as ${d}">${u}</button>`).join('');
+    quick.addEventListener('click', (e) => {
+      const c = e.target.closest('.q-chip');
+      if (!c) return;
+      document.getElementById('login-user').value = c.dataset.u;
+      document.getElementById('login-pass').value = c.dataset.p;
+      doLogin(e);
+    });
+  }
+  const u = document.getElementById('login-user');
+  if (u) u.focus();
+  // Hydrate the brand mark + any icons on the login screen (lucide converts
+  // `<i data-lucide>` → `<svg>`; without this the logo stays an empty gradient).
+  if (window.hydrateIcons) window.hydrateIcons();
+}
+async function doLogin(ev) {
+  if (ev && ev.preventDefault) ev.preventDefault();
+  const user = document.getElementById('login-user').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const err = document.getElementById('login-err');
+  if (!user || !pass) { if (err) err.textContent = 'Enter a username and password.'; return; }
+  const r = await rawJson('POST', '/auth/login', { username: user, password: pass });
+  if (r && r.ok && r.user) {
+    sessionUser = r.user;
+    enterConsole();
+  } else if (err) {
+    err.textContent = r && r.error === 'invalid-credentials' ? 'Invalid username or password.' : 'Sign-in failed. Try a quick demo user below.';
+  }
+}
+async function logout() {
+  await rawJson('POST', '/auth/logout');
+  sessionUser = null;
+  location.reload();
+}
+function renderTopbarUser() {
+  const host = document.getElementById('topbar-user');
+  if (!host) return;
+  if (!sessionUser) { host.innerHTML = ''; return; }
+  const initials = (sessionUser.displayName || sessionUser.username || '?').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  host.innerHTML = `
+    <span class="user-chip" title="Signed in as ${esc(sessionUser.username)}"><span class="user-avatar">${esc(initials)}</span>
+      <span class="user-meta"><span class="user-name">${esc(sessionUser.displayName || sessionUser.username)}</span><span class="user-role">${esc(sessionUser.role || '')}</span></span>
+    </span>
+    <button class="logout-btn" id="logout-btn" title="Sign out"><i data-lucide="log-out"></i> Sign out</button>`;
+  const b = document.getElementById('logout-btn');
+  if (b) b.addEventListener('click', () => logout());
+  // Only admins get the topbar Admin (→ Settings) shortcut; restricted roles
+  // would be bounced back by the view guard anyway, so hide it for clarity.
+  const adminBtn = document.getElementById('admin-settings-btn');
+  if (adminBtn) adminBtn.style.display = sessionUser.role === 'admin' ? '' : 'none';
+  if (window.hydrateIcons) window.hydrateIcons();
+}
+async function enterConsole() {
+  const old = document.getElementById('login-screen');
+  if (old) old.remove();
+  document.body.classList.remove('login-mode');
+  const appEl = document.querySelector('.app');
+  if (appEl) appEl.style.display = 'flex';
+  renderTopbarUser();
+  initSidebar();
+  initGlobalSearch();
+  initShortcuts();
+  // Server-authorized console switcher (P0-6) — /api/context tells us whether
+  // this session may load the executive console. The UI never decides auth.
+  try {
+    const ctx = await (await fetch('/api/context', { credentials: 'same-origin' })).json();
+    const execSwitch = document.getElementById('exec-switch');
+    if (execSwitch && (ctx.consoles || []).includes('exec')) {
+      execSwitch.style.display = '';
+      if (window.hydrateIcons) window.hydrateIcons();
+    }
+  } catch { /* no exec console for this session */ }
+  // Global refresh — re-render the current view (re-fetches live data).
+  const refreshBtn = document.getElementById('refresh-view');
+  if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+    const btn = refreshBtn;
+    btn.disabled = true; const o = btn.textContent; btn.textContent = 'Refreshing…';
+    await render();
+    btn.disabled = false; btn.textContent = o;
+    toast('View refreshed', 'good');
+  });
+  currentView = 'summary';
+  await render();
+  refreshSyntheticBadge();
+}
+async function initApp() {
+  initTheme();
+  const user = await checkAuth();
+  if (user) { sessionUser = user; await enterConsole(); }
+  else { await renderLogin(); }
+}
+
+// ---------- Tabbed sections (enterprise nav) ----------
+// A section marked `tabbed: true` shows a single sidebar entry; its sub-pages
+// are switched via a horizontal tab strip above the page content.
+function tabbedSectionForView(view) {
+  return NAV.find((g) => g.tabbed && g.items.some((it) => it.view === view)) || null;
+}
+function tabStripHTML(group) {
+  return group.items.map((it) => {
+    const active = currentView === it.view ? ' active' : '';
+    const count = it.count ? `<span class="count" id="${it.count}">—</span>` : '';
+    return `<button class="tab${active}" data-view="${esc(it.view)}" title="${esc(it.label)}"><i data-lucide="${esc(it.icon)}"></i><span>${esc(it.label)}</span>${count}</button>`;
+  }).join('');
+}
+function renderPageTabs() {
+  const tabsEl = document.getElementById('page-tabs');
+  if (!tabsEl) return;
+  const group = tabbedSectionForView(currentView);
+  if (!group) { tabsEl.style.display = 'none'; tabsEl.innerHTML = ''; return; }
+  tabsEl.style.display = '';
+  tabsEl.innerHTML = tabStripHTML(group);
+  if (window.hydrateIcons) window.hydrateIcons();
+}
+
+// ---------- Enterprise best practices: date + duration helpers ----------
+// ISO → <input type="datetime-local"> value (local time, YYYY-MM-DDTHH:mm).
+function toDatetimeLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+// datetime-local → ISO (UTC) for API calls.
+function datetimeLocalToISO(v) {
+  if (!v) return '';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+}
+// Millisecond duration → human-readable label ("30 days").
+function humanMs(ms) {
+  if (!ms && ms !== 0) return '—';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.round(h / 24);
+  if (d < 30) return `${d}d`;
+  const mo = Math.round(d / 30);
+  if (mo < 12) return `${mo}mo`;
+  return `${Math.round(d / 365)}y`;
+}
+// Current ISO year boundaries for measurement periods.
+function currentYearPeriod() {
+  const y = new Date().getFullYear();
+  return { start: `${y}-01-01`, end: `${y}-12-31` };
+}
+
+async function render() {
+  renderPageTabs();
+  await updateSidebarCounts();
+  const view = currentView;
+  if (view === 'summary') await renderSummary();
+  else if (view === 'my-work') await renderMyWork();
+  else if (view === 'agents') await renderAgents();
+  else if (view === 'agent-run') await renderAgentRuntime();
+  else if (view === 'drafts') await renderDrafts();
+  else if (view === 'realm') await renderRealm();
+  else if (view === 'presences') await renderPresences();
+  else if (view === 'effects') await renderEffects();
+  else if (view === 'perception') await renderPerception();
+  else if (view === 'world-builder') await renderWorldBuilder();
+  else if (view === 'experiences') await renderExperiences();
+  else if (view === 'rules') await renderRules();
+  else if (view === 'hypergraph') await renderHypergraphBrowser();
+  else if (view === 'compliance') await renderCompliance();
+  else if (view === 'command') await renderCommandCenter();
+  else if (view === 'episodes') await renderEpisodes();
+  else if (view === 'sentience') await renderSentience();
+  else if (view === 'attributions') await renderAttributions();
+  else if (view === 'new') await renderEditor({});
+  else if (view === 'measures') await renderMeasures();
+  else if (view === 'assessments') await renderAssessments();
+  else if (view === 'lifecycle') await renderLifecycle();
+  else if (view === 'research') await renderResearch();
+  else if (view === 'learn') await renderLearn();
+  else if (view === 'audit') await renderAudit();
+  else if (view === 'liquid-whatif') await renderLiquidWhatIf();
+  else if (view === 'liquid-train') await renderLiquidTrain();
+  else if (view === 'liquid-score') await renderLiquidScore();
+  else if (view === 'counterfactual') await renderCounterfactual();
+  else if (view === 'nudge-ledger') await renderNudgeLedger();
+  else if (view === 'durable') await renderDurableStorage();
+  else if (view === 'broker') await renderBrokerPanel();
+  else if (view === 'enterprise') await renderEnterprisePanel();
+  else if (view === 'fhir') await renderFhirPanel();
+  else if (view === 'users') await renderUsers();
+  else if (view === 'settings') await renderSettings();
+  else if (view === 'rsi-app') renderRsiApp();
+  else if (view === 'platform-admin') await renderPlatformAdmin();
+  else if (view === 'platform-config') await renderPlatformConfig();
+  else if (view === 'platform-cohorts') await renderPlatformCohorts();
+  else if (view === 'platform-agents') await renderPlatformAgents();
+  else if (view === 'platform-assurance') await renderPlatformAssurance();
+  else if (view === 'rsi-intelligence') renderRsiDeepLink('intelligence', 'Shared Intelligence');
+  else if (view === 'rsi-executive') renderRsiDeepLink('executive', 'Executive Outcomes');
+  else if (view === 'platform-releases') await renderPlatformReleases();
+  else if (view === 'platform-submissions') await renderWsSubmissions();
+  else if (view === 'platform-dlq') await renderPlatformDlq();
+  else if (view === 'platform-context') await renderPlatformContext();
+  hydrateIcons();
+  // A read-only role keeps the page and loses the writers (server-enforced too).
+  applyReadOnly();
+}
+
+async function renderSummary() {
+  const [s, realms, broker, audit] = await Promise.all([
+    api('GET', '/admin/summary'),
+    api('GET', '/admin/realms').catch(() => ({ realms: [] })),
+    api('GET', '/admin/broker').catch(() => null),
+    api('GET', '/admin/audit?limit=8').catch(() => ({ audit: [] })),
+  ]);
+  const realmList = realms.realms || [];
+  const totalPresences = realmList.reduce((a, r) => a + (r.presences || 0), 0);
+  const totalEffects = realmList.reduce((a, r) => a + (r.effects || 0), 0);
+  const ob = broker?.outbox ?? { pending: 0, delivered: 0 };
+  const br = broker?.bridge ?? { published: 0 };
+  const auditRows = audit.audit || [];
+  const packRows = Object.entries(s.agents.byPack).map(([k, v]) => `<div class="pack-row"><code>${esc(k)}</code><span class="pack-count">${v} agent${v === 1 ? '' : 's'}</span></div>`).join('');
+  const catalogRows = [
+    { label: 'Published agents', count: s.agents.total, target: 'agents', icon: 'users', color: 'var(--brand)' },
+    { label: 'CMS measures wired', count: s.measures.total, target: 'measures', icon: 'file-pen-line', color: 'var(--warn)' },
+    { label: 'Validated assessments', count: s.assessments.total, target: 'assessments', icon: 'clipboard-list', color: 'var(--accent)' },
+    { label: 'Lifecycle stages', count: s.lifecycleStages, target: 'lifecycle', icon: 'route', color: 'var(--brand-2)' },
+    { label: 'Knowledge sources', count: s.researchSources, target: 'research', icon: 'library', color: 'var(--good)' },
+  ].map((c) => `<div class="catalog-row" onclick="goTo('${c.target}')" title="Open ${esc(c.label)}"><span class="catalog-icon" style="background:color-mix(in srgb,${c.color} 14%,transparent);color:${c.color};"><i data-lucide="${c.icon}"></i></span><span class="catalog-label">${esc(c.label)}</span><span class="catalog-count">${c.count}</span><span class="catalog-arrow"><i data-lucide="chevron-right" style="width:14px;height:14px;"></i></span></div>`).join('');
+  const activity = [
+    ...auditRows.slice(0, 8).map((a) => ({
+      at: a.occurredAt || '',
+      icon: a.action === 'publish' ? 'badge-check' : a.action === 'reject' ? 'x-circle' : 'pen-line',
+      color: a.action === 'publish' ? 'var(--good)' : a.action === 'reject' ? 'var(--bad)' : 'var(--brand)',
+      text: `<code>${esc(a.action || '')}</code> <span class="muted">${esc(a.actorRef || '')}</span> on <code>${esc(a.resourceType || a.resource || '')}</code>`,
+    })),
+    ...realmList.filter((r) => (r.effects || 0) > 0).slice(0, 6).map((r) => ({
+      at: r.realmAt || '',
+      icon: 'activity',
+      color: 'var(--accent)',
+      text: `<code>${esc(r.id)}</code> · ${r.effects} effect${r.effects === 1 ? '' : 's'} · ${r.presences || 0} presence${r.presences === 1 ? '' : 's'}`,
+    })),
+  ].sort((x, y) => String(y.at).localeCompare(String(x.at))).slice(0, 8);
+  main.innerHTML = `
+    <div class="page-header">
+      <div><h2 class="page-title">Operator dashboard</h2><p class="page-sub">Governed agents, measures, workflows, and live simulation activity across your organization.</p></div>
+      <button class="btn btn-primary" onclick="goTo('new')"><i data-lucide="plus"></i> Create agent</button>
+    </div>
+
+    <!-- KPI cards -->
+    <div class="cards kpi-grid">
+      <div class="stat-card dash-kpi" onclick="goTo('agents')" title="Open Published agents"><span class="kpi-icon" style="background:color-mix(in srgb,var(--brand) 15%,transparent);color:var(--brand);"><i data-lucide="users"></i></span><div class="num">${s.agents.total}</div><div class="lbl">Published agents</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('measures')" title="Open CMS measure catalog"><span class="kpi-icon" style="background:color-mix(in srgb,var(--warn) 15%,transparent);color:var(--warn);"><i data-lucide="file-pen-line"></i></span><div class="num">${s.measures.total}</div><div class="lbl">CMS measures wired</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('assessments')" title="Open Validated assessments"><span class="kpi-icon" style="background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);"><i data-lucide="clipboard-list"></i></span><div class="num">${s.assessments.total}</div><div class="lbl">Validated assessments</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('lifecycle')" title="Open Patient lifecycle"><span class="kpi-icon" style="background:color-mix(in srgb,var(--brand-2) 15%,transparent);color:var(--brand-2);"><i data-lucide="route"></i></span><div class="num">${s.lifecycleStages}</div><div class="lbl">Lifecycle stages</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('research')" title="Open Knowledge sources"><span class="kpi-icon" style="background:color-mix(in srgb,var(--good) 15%,transparent);color:var(--good);"><i data-lucide="library"></i></span><div class="num">${s.researchSources}</div><div class="lbl">Knowledge sources</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('realm')" title="Open Realm management"><span class="kpi-icon" style="background:color-mix(in srgb,var(--violet) 15%,transparent);color:var(--violet);"><i data-lucide="building-2"></i></span><div class="num">${realmList.length}</div><div class="lbl">Realms</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('realm')" title="Open Realm management"><span class="kpi-icon" style="background:color-mix(in srgb,var(--blue) 15%,transparent);color:var(--blue);"><i data-lucide="bot"></i></span><div class="num">${totalPresences}</div><div class="lbl">Presences</div></div>
+      <div class="stat-card dash-kpi" onclick="goTo('realm')" title="Open Realm management"><span class="kpi-icon" style="background:color-mix(in srgb,var(--mint) 15%,transparent);color:var(--mint-strong);"><i data-lucide="scroll-text"></i></span><div class="num">${totalEffects}</div><div class="lbl">Effects</div></div>
+    </div>
+
+    <!-- Live simulation + Catalog -->
+    <div class="dash-grid">
+      <div class="dash-card">
+        <div class="dash-card-head"><h3><i data-lucide="radio"></i> Live simulation</h3><a class="btn btn-ghost" style="height:26px;padding:0 10px;" onclick="goTo('realm')" title="Open Realm management"><i data-lucide="arrow-up-right" style="width:13px;height:13px;"></i> Open</a></div>
+        <div class="dash-card-body">
+          <div class="mini-grid">
+            <div class="mini-stat"><strong>${realmList.length}</strong><small>Realms</small></div>
+            <div class="mini-stat"><strong>${totalPresences}</strong><small>Presences</small></div>
+            <div class="mini-stat"><strong>${totalEffects}</strong><small>Effects</small></div>
+            <div class="mini-stat"><strong>${(br.queued ?? 0) + (br.published ?? 0)}</strong><small>Effects queued</small></div>
+            <div class="mini-stat"><strong>${ob.pending ?? 0}</strong><small>Outbox pending</small></div>
+            <div class="mini-stat"><strong>${auditRows.length > 0 ? 'live' : '—'}</strong><small>Audit stream</small></div>
+          </div>
+          ${realmList.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">${realmList.map((r) => `<button class="btn btn-ghost" style="font-size:12px;padding:3px 10px;" onclick="realmDeepLink='${esc(r.id)}';goTo('realm')" title="Open ${esc(r.id)} in Realm management"><i data-lucide="building-2" style="width:13px;height:13px;"></i> ${esc(r.id)}</button>`).join('')}</div>` : ''}
+        </div>
+      </div>
+      <div class="dash-card">
+        <div class="dash-card-head"><h3><i data-lucide="library-big"></i> Catalog</h3></div>
+        <div class="dash-card-body">${catalogRows}</div>
+      </div>
+    </div>
+
+    <!-- Packs + Recent activity -->
+    <div class="dash-grid">
+      <div class="dash-card">
+        <div class="dash-card-head"><h3><i data-lucide="package"></i> Packs</h3><span class="pill muted">${Object.keys(s.agents.byPack).length} packs</span></div>
+        <div class="dash-card-body">${packRows.length ? packRows : '<div class="muted" style="font-size:13px;">No packs installed.</div>'}</div>
+      </div>
+      <div class="dash-card">
+        <div class="dash-card-head"><h3><i data-lucide="activity"></i> Recent activity</h3></div>
+        <div class="dash-card-body">
+          ${activity.length === 0 ? '<div class="muted" style="font-size:13px;">No activity yet — create a realm and tick it, or audit some events.</div>' : activity.map((a) => `<div class="activity-row"><span class="activity-icon" style="color:${a.color};"><i data-lucide="${a.icon}" style="width:14px;height:14px;"></i></span><span class="activity-text">${a.text}</span><span class="activity-time">${a.at ? new Date(a.at).toLocaleString() : ''}</span></div>`).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  if (window.hydrateIcons) window.hydrateIcons();
+}
+
+// ---------- Agent runtime (knowledge-aware agent turns) ----------
+async function renderAgentRuntime() {
+  const [realmsData, agentsData, draftsData] = await Promise.all([
+    api('GET', '/admin/realms').catch(() => ({ realms: [] })),
+    api('GET', '/admin/agents').catch(() => ({ agents: [] })),
+    fetch('/admin/drafts').then((r) => r.json()).catch(() => ({ drafts: [] })),
+  ]);
+  const realmsArr = (realmsData.realms || []).map((r) => r.id);
+  const specOpts = [
+    ...((draftsData.drafts || []).map((d) => ({ packId: d.packId, agentId: d.id, source: 'draft', label: `draft · ${d.packId}/${d.id}` }))),
+    ...((agentsData.agents || []).map((a) => ({ packId: a.packId, agentId: a.id, source: 'published', label: `published · ${a.packId}/${a.id}` }))),
+  ];
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Agent runtime</h2>
+      <p class="page-sub">Ask a knowledge-aware agent — it reasons (ReAct or Plan-and-Execute), calls knowledge tools, and answers with citations. Backed by the real agent runner over your knowledge substrate. Scope to a realm to cite its local corpus, or run an authored agent spec.</p></div></div>
+    <div class="section-card">
+      <h3>Ask the agent</h3>
+      <div class="field-row">
+        <div class="field" style="flex:1;"><label>Question</label><input id="ar-q" placeholder="Cite the CMS165 numerator criteria and show me the value set expansion."></div>
+        <div class="field"><label>Realm (local corpus)</label><select id="ar-realm"><option value="">— no realm —</option>${realmsArr.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`).join('')}</select></div>
+        <div class="field"><label>Strategy</label><select id="ar-strategy"><option value="auto">Auto</option><option value="react">ReAct</option><option value="plan-and-execute">Plan & execute</option></select></div>
+        <div class="field"><label>Max steps</label><input id="ar-steps" type="number" value="6" min="1" max="20" style="width:80px"></div>
+        <div class="field"><label>&nbsp;</label><button class="btn btn-primary" id="ar-run"><i data-lucide="bot"></i> Run agent</button></div>
+      </div>
+      <div id="ar-out" class="muted" style="font-size:13px;margin-top:8px;">Ask a question to see the agent's reasoning and answer.</div>
+    </div>
+    <div class="section-card">
+      <h3>Run by agent spec</h3>
+      <p class="page-sub" style="font-size:12px;margin:0 0 8px;">Run an authored agent (draft or published) as a real, traceable turn — its persona, governance and plan render into the run's instructions.</p>
+      <div class="field-row">
+        <div class="field" style="flex:1;"><label>Agent spec</label><select id="ars-spec"><option value="">— pick an agent —</option>${specOpts.map((s) => `<option value="${esc(s.agentId)}" data-pack="${esc(s.packId)}" data-source="${esc(s.source)}">${esc(s.label)}</option>`).join('')}</select></div>
+        <div class="field" style="flex:1;"><label>Question (optional — defaults to the spec description)</label><input id="ars-q" placeholder="e.g. Which patients are at risk and what protocol applies?"></div>
+        <div class="field"><label>Realm</label><select id="ars-realm"><option value="">— no realm —</option>${realmsArr.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`).join('')}</select></div>
+        <div class="field"><label>&nbsp;</label><button class="btn btn-primary" id="ars-run"><i data-lucide="bot"></i> Run spec</button></div>
+      </div>
+      <div id="ars-out" class="muted" style="font-size:13px;margin-top:8px;">Pick an agent spec and run it.</div>
+    </div>
+    <div class="section-card"><h3>Recent turns</h3><div id="ar-history"><div class="muted" style="font-size:13px;">Runs this session appear here.</div></div></div>
+    <div class="section-card"><h3>Recorded runs <span class="muted" style="font-weight:400;font-size:11px;">(authoring → runtime feedback — measure scores + citations)</span></h3><div id="ar-recorded"><div class="muted" style="font-size:13px;">No recorded runs yet.</div></div></div>`;
+  const history = [];
+  const loadRuns = async () => {
+    const el = document.getElementById('ar-recorded');
+    if (!el) return;
+    try {
+      const j = await (await fetch('/admin/knowledge/agent/runs?limit=10')).json();
+      const runs = j.runs || [];
+      el.innerHTML = runs.length === 0
+        ? '<div class="muted" style="font-size:13px;">No recorded runs yet.</div>'
+        : runs.map((r) => `<div style="padding:6px 0;border-bottom:1px dashed var(--border);">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;">${r.agent ? `<span class="pill brand">${esc(r.agent.agentId)}</span><span class="pill muted">${esc(r.agent.source)}</span>` : '<span class="pill muted">ad-hoc</span>'}<span class="pill muted">${esc(r.strategy || 'react')}</span><span class="muted">${new Date(r.at).toLocaleTimeString()}</span></div>
+            <div style="font-size:13px;">${esc(r.question)}</div>
+            <div class="muted" style="font-size:12px;">${(r.citations || []).length} citation${r.citations.length === 1 ? '' : 's'}${(r.measureScores || []).length ? ` · measures: ${r.measureScores.map((m) => `<code>${esc(m.measureId)}</code> ${m.met ? '✓' : '✗'}`).join(', ')}` : ''}</div>
+          </div>`).join('');
+    } catch { /* offline */ }
+  };
+  loadRuns();
+  const renderHistory = () => {
+    const el = document.getElementById('ar-history');
+    if (!el) return;
+    el.innerHTML = history.length ? history.map((h) => `<div style="padding:6px 0;border-bottom:1px dashed var(--border);"><div style="font-size:13px;"><code>${esc(h.strategy)}</code>${h.spec ? ` <span class="pill brand">${esc(h.spec)}</span>` : ''} <span class="muted">· ${new Date(h.at).toLocaleTimeString()}</span></div><div style="font-size:13px;">${esc(h.q)}</div><div class="muted" style="font-size:12px;">${esc((h.answer || '').slice(0, 160))}</div></div>`).join('') : '<div class="muted" style="font-size:13px;">Runs this session appear here.</div>';
+  };
+  const renderOutcome = (j, specLabel) => {
+    const steps = (j.steps || []).map((s) => {
+      const icon = s.kind === 'thought' ? 'brain' : s.kind === 'tool' ? 'wrench' : s.kind === 'plan' ? 'list-checks' : 'message-square';
+      const extra = s.tool ? ` <code>${esc(s.tool.name)}</code>` : '';
+      return `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed var(--border);"><i data-lucide="${icon}" style="width:14px;height:14px;margin-top:2px;color:var(--muted);flex-shrink:0;"></i><div style="font-size:13px;"><span class="pill muted" style="font-size:10px;">${esc(s.kind)}</span>${extra}<div class="muted" style="font-size:12px;">${esc(s.text || '')}</div></div></div>`;
+    }).join('');
+    return `
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">${specLabel ? `<span class="pill brand">${esc(specLabel)}</span>` : ''}<span class="pill brand">${esc(j.strategy || 'react')}</span><span class="pill muted">${esc(j.episodeId || '')}</span>${j.recorded ? '<span class="pill good">✓ recorded</span>' : ''}<span class="pill good">${(j.citations || []).length} citation${j.citations.length === 1 ? '' : 's'}</span></div>
+      <div class="section-card" style="margin:0 0 10px;"><strong>Answer</strong><div style="font-size:14px;margin-top:4px;white-space:pre-wrap;">${esc(j.answer || '')}</div>
+        ${(j.citations || []).length ? `<div class="muted" style="font-size:12px;margin-top:6px;">${j.citations.map((c) => `<code>${esc(c.sourceId)}</code>${c.artifactId ? ` · ${esc(c.artifactId)}` : ''}`).join('<br>')}</div>` : ''}
+      </div>
+      <strong style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">Reasoning trace</strong>
+      ${steps || '<div class="muted" style="font-size:13px;">no steps</div>'}`;
+  };
+  const run = async () => {
+    const q = document.getElementById('ar-q').value.trim();
+    if (!q) { toast('Enter a question', 'err'); return; }
+    const out = document.getElementById('ar-out');
+    out.innerHTML = '<div class="muted">Agent is thinking…</div>';
+    try {
+      const strategy = document.getElementById('ar-strategy').value;
+      const realmId = document.getElementById('ar-realm').value;
+      const res = await fetch('/admin/knowledge/agent/turn', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question: q, ...(strategy !== 'auto' ? { strategy } : {}), maxSteps: Number(document.getElementById('ar-steps').value || 6), ...(realmId ? { realmId } : {}) }) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || res.status);
+      out.innerHTML = renderOutcome(j);
+      history.unshift({ q, at: new Date().toISOString(), strategy: j.strategy, answer: j.answer });
+      renderHistory();
+      if (window.hydrateIcons) window.hydrateIcons();
+      if (typeof loadRuns === 'function') loadRuns();
+    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+  };
+  const runSpec = async () => {
+    const sel = document.getElementById('ars-spec');
+    const opt = sel.selectedOptions[0];
+    if (!opt || !opt.value) { toast('Pick an agent spec', 'err'); return; }
+    const out = document.getElementById('ars-out');
+    out.innerHTML = '<div class="muted">Running agent spec…</div>';
+    try {
+      const body = {
+        packId: opt.getAttribute('data-pack'), agentId: opt.value, source: opt.getAttribute('data-source'),
+        ...(document.getElementById('ars-q').value.trim() ? { question: document.getElementById('ars-q').value.trim() } : {}),
+        ...(document.getElementById('ars-realm').value ? { realmId: document.getElementById('ars-realm').value } : {}),
+      };
+      const res = await fetch('/admin/knowledge/agent/run-spec', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || (j.message || res.status));
+      out.innerHTML = renderOutcome(j, `${j.spec?.displayName || j.spec?.id} · ${j.spec?.source || 'published'}`);
+      history.unshift({ q: j.spec?.id || 'spec-run', at: new Date().toISOString(), strategy: j.strategy, answer: j.answer, spec: j.spec?.displayName });
+      renderHistory();
+      if (window.hydrateIcons) window.hydrateIcons();
+      if (typeof loadRuns === 'function') loadRuns();
+    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+  };
+  document.getElementById('ar-run').addEventListener('click', run);
+  document.getElementById('ar-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
+  document.getElementById('ars-run').addEventListener('click', runSpec);
+  document.getElementById('ars-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') runSpec(); });
+}
+
+async function renderAgents() {
+  await ensurePacks();
+  main.innerHTML = `
+    <div class="page-header">
+      <div><h2 class="page-title">Published agents</h2><p class="page-sub">Live in the runtime — invocable via triggers, replayable, metered.</p></div>
+      <button class="btn btn-primary" onclick="goTo('new')">+ Create agent</button>
+    </div>
+    <div class="filters">
+      <select id="pack-filter"><option value="">All packs</option>${PACKS.map(p => `<option>${p}</option>`).join('')}</select>
+    </div>
+    <div id="agents-body">Loading…</div>
+  `;
+  let grid = null;
+  const load = async () => {
+    const pack = document.getElementById('pack-filter').value;
+    const params = new URLSearchParams();
+    if (pack) params.set('pack', pack);
+    const data = await api('GET', '/admin/agents?' + params.toString());
+    const runs = await (async () => { try { const r = await (await fetch('/admin/knowledge/agent/runs?limit=200')).json(); return r.runs || []; } catch { return []; } })();
+    const runMap = {};
+    runs.forEach((r) => { if (r.agent?.agentId) { const k = r.agent.agentId; runMap[k] = runMap[k] || { count: 0, measures: new Map() }; runMap[k].count++; (r.measureScores || []).forEach((m) => { const cur = runMap[k].measures.get(m.measureId) || { total: 0, met: 0 }; cur.total++; if (m.met) cur.met++; runMap[k].measures.set(m.measureId, cur); }); } });
+    const agents = (data.agents || []).map((a) => ({ ...a, __runtime: runMap[a.id] }));
+    const body = document.getElementById('agents-body');
+    if (!grid) {
+      body.innerHTML = '<div id="agents-grid"></div>';
+      grid = dataGrid({
+        el: 'agents-grid', filename: 'agents', pageSize: 25, empty: 'No agents found.',
+        columns: [
+          { key: 'id', label: 'ID', render: (v) => `<code>${esc(v)}</code>` },
+          { key: 'displayName', label: 'Name', render: (v, r) => `${esc(v)} ${r.__justPublished ? '<span class="pill good">just published</span>' : ''}` },
+          { key: 'packId', label: 'Pack', render: (v) => `<span class="pill brand">${esc(v)}</span>` },
+          { key: 'setting', label: 'Setting', render: (v) => esc(v || '—') },
+          { key: 'triggerKind', label: 'Trigger', render: (v, r) => `<span class="pill muted">${esc(v)}${r.triggerEventType ? ': ' + esc(r.triggerEventType) : ''}</span>` },
+          { key: 'baseFeeUsd', label: 'Base fee', align: 'right', render: (v) => v != null ? '$' + v : '<span class="muted">—</span>' },
+          { key: '__runtime', label: 'Runtime', render: (_v, r) => r.__runtime ? `<span class="pill good">${r.__runtime.count} run${r.__runtime.count === 1 ? '' : 's'}</span> ${[...r.__runtime.measures.entries()].map(([m, s]) => `<code title="${s.met}/${s.total} met">${esc(m)}</code>`).join(' ')}` : '<span class="muted">—</span>' },
+          { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<button class="btn btn-ghost" onclick="cloneAgent('${esc(r.packId)}','${esc(r.id)}')">Clone</button>` },
+        ],
+        data: agents,
+      });
+    } else {
+      grid.refresh(agents);
+    }
+  };
+  document.getElementById('pack-filter').addEventListener('change', load);
+  load();
+}
+
+// Live-first draft helpers — hit the real AgentAuthoringService backend, and
+// only fall back to the in-memory demo store when the server is unreachable.
+async function draftsFromServer() {
+  try {
+    const res = await fetch('/admin/drafts', { headers: { accept: 'application/json' } });
+    if (!res.ok) throw new Error('drafts-unavailable');
+    const j = await res.json();
+    return Array.isArray(j.drafts) ? j.drafts : null;
+  } catch { return null; }
+}
+
+async function renderDrafts() {
+  const live = await draftsFromServer();
+  const list = live !== null ? live : drafts;
+  const runs = await (async () => { try { const r = await (await fetch('/admin/knowledge/agent/runs?limit=200')).json(); return r.runs || []; } catch { return []; } })();
+  const runMap = {};
+  runs.forEach((r) => { if (r.agent?.agentId) { const k = r.agent.agentId; runMap[k] = runMap[k] || { count: 0, measures: new Map() }; runMap[k].count++; (r.measureScores || []).forEach((m) => { const cur = runMap[k].measures.get(m.measureId) || { total: 0, met: 0 }; cur.total++; if (m.met) cur.met++; runMap[k].measures.set(m.measureId, cur); }); } });
+  const rows = list.map(d => {
+    const rt = runMap[d.id];
+    return `
+    <tr>
+      <td><code>${esc(d.id)}</code></td>
+      <td><span class="pill brand">${esc(d.packId)}</span></td>
+      <td>${d.status === 'in-review' ? '<span class="pill warn">in review</span>' : '<span class="pill muted">draft</span>'}</td>
+      <td>${d.validation?.ok ? '<span class="pill good">valid</span>' : '<span class="pill bad">' + (d.validation?.errors?.length ?? 0) + ' error(s)</span>'}</td>
+      <td class="muted">${new Date(d.updatedAt).toLocaleString()}</td>
+      <td>${rt ? `<span class="pill good">${rt.count} run${rt.count === 1 ? '' : 's'}</span> ${[...rt.measures.entries()].map(([m, s]) => `<code title="${s.met}/${s.total} met">${esc(m)}</code>`).join(' ')}` : '<span class="muted">—</span>'}</td>
+      <td class="row-actions">
+        <button class="btn btn-ghost" onclick="editDraft('${esc(d.packId)}','${esc(d.id)}')">Edit</button>
+        ${d.status === 'in-review' && d.validation?.ok ? `<button class="btn btn-primary" onclick="publishDraft('${esc(d.packId)}','${esc(d.id)}')">Publish</button>` : ''}
+        <button class="btn" onclick="deleteDraft('${esc(d.packId)}','${esc(d.id)}')">Delete</button>
+      </td>
+    </tr>
+  `; }).join('');
+  main.innerHTML = `
+    <div class="page-header">
+      <div><h2 class="page-title">Drafts</h2><p class="page-sub">Author agents, validate, submit for review, then publish. All actions audited on disk by the authoring service.</p></div>
+      <button class="btn btn-primary" onclick="goTo('new')">+ New draft</button>
+    </div>
+    ${list.length === 0 ? `<div class="detail muted" style="text-align:center;padding:40px;">No drafts yet. Click <b>+ New draft</b> to create your first agent.</div>` :
+    `<div class="table-wrap"><table>
+      <thead><tr><th>ID</th><th>Pack</th><th>Status</th><th>Validation</th><th>Updated</th><th>Runtime</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`}
+  `;
+}
+
+// ---------- Editor ----------
+let editorState = { id: '', packId: '', displayName: '', description: '', triggerKind: 'event', eventType: '', cron: '', scope: 'facility', phiHandling: 'read', purposeOfUse: 'treatment', clearanceRequired: 'phi', baseFeeUsd: 0, budgetCapMonthlyUsd: '', setting: '', lifecycleStage: '', steps: [{ id: 'step-1', skill: '' }], yaml: '' };
+
+function viewAllowed(view) {
+  const allowed = allowedSections();
+  if (!allowed) return true;
+  return NAV.some((g) => allowed.includes(g.section) && g.items.some((it) => it.view === view));
+}
+function goTo(view) {
+  if (!viewAllowed(view)) view = 'summary';
+  currentView = view;
+  renderSidebar();
+  render();
+  refreshSyntheticBadge();
+}
+
+// Data provenance labeling (§9.5) — a persistent, topbar-visible "synthetic
+// demonstration data" indicator driven by the org's durable `synthetic` flag.
+// Real (non-synthetic) organizations hide the badge entirely.
+async function refreshSyntheticBadge() {
+  const badge = document.getElementById('synthetic-badge');
+  if (!badge) return;
+  try {
+    const j = await plFetch('GET', '/admin/platform/organization');
+    const synthetic = !!(j.organization && j.organization.synthetic);
+    badge.style.display = synthetic ? '' : 'none';
+  } catch { badge.style.display = 'none'; }
+}
+
+async function renderEditor(initial) {
+  await ensurePacks();
+  Object.assign(editorState, { id: '', packId: '', displayName: '', description: '', triggerKind: 'event', eventType: '', cron: '', scope: 'facility', phiHandling: 'read', purposeOfUse: 'treatment', clearanceRequired: 'phi', baseFeeUsd: 0, budgetCapMonthlyUsd: '', setting: '', lifecycleStage: '', steps: [{ id: 'step-1', skill: '' }], yaml: '' }, initial);
+  main.innerHTML = `
+    <div class="page-header">
+      <div><h2 class="page-title">${initial.id ? `Edit draft: <code>${esc(initial.id)}</code>` : 'New agent'}</h2><p class="page-sub">Fill the form to scaffold YAML, or edit the YAML directly on the right. Live validated.</p></div>
+      <div class="flex"><button class="btn" onclick="goTo('drafts')">Cancel</button></div>
+    </div>
+    <div class="editor">
+      <div class="editor-pane">
+        <h3>Structured form</h3>
+        <div class="form-row"><label>Agent ID</label><input id="f-id" placeholder="kebab-case-id" value="${esc(editorState.id)}" /></div>
+        <div class="form-row"><label>Pack</label><select id="f-pack">
+          <option value="">choose a pack…</option>
+          ${PACKS.map(p => `<option${editorState.packId === p ? ' selected' : ''}>${p}</option>`).join('')}
+        </select></div>
+        <div class="form-row"><label>Display name</label><input id="f-name" value="${esc(editorState.displayName)}" /></div>
+        <div class="form-row"><label>Description</label><textarea id="f-desc">${esc(editorState.description)}</textarea></div>
+        <div class="form-row"><label>Scope</label><select id="f-scope">${['org','region','facility','patient'].map(x => `<option${editorState.scope===x?' selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="form-row"><label>Trigger</label><select id="f-trigger">${['event','cron','webhook','manual'].map(x => `<option${editorState.triggerKind===x?' selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="form-row" id="row-event" ${editorState.triggerKind !== 'event' ? 'style="display:none"' : ''}><label>Event type</label><input id="f-event" placeholder="lab.result-arrived" value="${esc(editorState.eventType)}" /></div>
+        <div class="form-row" id="row-cron" ${editorState.triggerKind !== 'cron' ? 'style="display:none"' : ''}><label>Cron</label><input id="f-cron" placeholder="0 9 * * *" value="${esc(editorState.cron)}" /></div>
+        <div class="form-row"><label>Plan steps</label>
+          <div>
+            <div class="steps-list" id="steps"></div>
+            <button class="btn btn-ghost" style="margin-top:6px;font-size:12px;" onclick="addStep()">+ Add step</button>
+          </div>
+        </div>
+        <div class="form-row"><label>PHI handling</label><select id="f-phi">${['none','read','read-write'].map(x => `<option${editorState.phiHandling===x?' selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="form-row"><label>Purpose of use</label><select id="f-pou">${['treatment','operations','compliance','research','break-glass'].map(x => `<option${editorState.purposeOfUse===x?' selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="form-row"><label>Clearance</label><select id="f-clearance">${['public','internal','confidential','phi','restricted-phi'].map(x => `<option${editorState.clearanceRequired===x?' selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="form-row"><label>Setting label</label><input id="f-setting" placeholder="dialysis|primary-care|urgent-care|…" value="${esc(editorState.setting)}" /></div>
+        <div class="form-row"><label>Lifecycle stage</label><input id="f-lifecycle" placeholder="active-care|onboarding|discharge|…" value="${esc(editorState.lifecycleStage)}" /></div>
+        <div class="form-row"><label>Base fee USD</label><input id="f-fee" type="number" step="0.01" value="${editorState.baseFeeUsd}" /></div>
+        <div class="form-row"><label>Monthly budget cap USD</label><input id="f-cap" type="number" step="1" value="${editorState.budgetCapMonthlyUsd}" placeholder="optional" /></div>
+        <div class="actions">
+          <button class="btn btn-primary" onclick="generateYaml()">Generate YAML →</button>
+        </div>
+      </div>
+
+      <div class="editor-pane">
+        <h3>YAML source <span class="pill muted" style="margin-left:6px;">live validated</span></h3>
+        <textarea id="yaml-editor" spellcheck="false" placeholder="Click 'Generate YAML' or paste an AgentSpec here…">${esc(editorState.yaml)}</textarea>
+        <div id="validation-result"></div>
+        <div class="actions">
+          <button class="btn" onclick="validateNow()">Validate</button>
+          <button class="btn" onclick="saveDraft('draft')">Save draft</button>
+          <button class="btn btn-primary" onclick="saveDraft('in-review')">Submit for review</button>
+        </div>
+      </div>
+    </div>
+  `;
+  renderSteps();
+  document.getElementById('f-trigger').addEventListener('change', (e) => {
+    editorState.triggerKind = e.target.value;
+    document.getElementById('row-event').style.display = editorState.triggerKind === 'event' ? '' : 'none';
+    document.getElementById('row-cron').style.display = editorState.triggerKind === 'cron' ? '' : 'none';
+  });
+  document.getElementById('yaml-editor').addEventListener('input', debounce(() => validateNow(), 400));
+  if (editorState.yaml) validateNow();
+}
+
+function debounce(fn, ms) { let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; }
+
+function renderSteps() {
+  document.getElementById('steps').innerHTML = editorState.steps.map((s, i) => `
+    <div class="step-row">
+      <input placeholder="step id" value="${esc(s.id)}" oninput="editorState.steps[${i}].id=this.value" />
+      <input placeholder="skill (e.g. sql.query)" value="${esc(s.skill)}" oninput="editorState.steps[${i}].skill=this.value" />
+      <button onclick="removeStep(${i})" ${editorState.steps.length === 1 ? 'disabled' : ''}>×</button>
+    </div>
+  `).join('');
+}
+function addStep() { editorState.steps.push({ id: 'step-' + (editorState.steps.length + 1), skill: '' }); renderSteps(); }
+function removeStep(i) { editorState.steps.splice(i, 1); renderSteps(); }
+
+function readForm() {
+  editorState.id = document.getElementById('f-id').value.trim();
+  editorState.packId = document.getElementById('f-pack').value;
+  editorState.displayName = document.getElementById('f-name').value;
+  editorState.description = document.getElementById('f-desc').value;
+  editorState.scope = document.getElementById('f-scope').value;
+  editorState.triggerKind = document.getElementById('f-trigger').value;
+  editorState.eventType = document.getElementById('f-event').value;
+  editorState.cron = document.getElementById('f-cron').value;
+  editorState.phiHandling = document.getElementById('f-phi').value;
+  editorState.purposeOfUse = document.getElementById('f-pou').value;
+  editorState.clearanceRequired = document.getElementById('f-clearance').value;
+  editorState.setting = document.getElementById('f-setting').value;
+  editorState.lifecycleStage = document.getElementById('f-lifecycle').value;
+  editorState.baseFeeUsd = parseFloat(document.getElementById('f-fee').value) || 0;
+  editorState.budgetCapMonthlyUsd = document.getElementById('f-cap').value ? parseFloat(document.getElementById('f-cap').value) : '';
+}
+
+function generateYaml() {
+  readForm();
+  const s = editorState;
+  if (!s.id || !s.packId || !s.displayName) return toast('Fill id, pack, and name first', 'err');
+  const lines = [
+    `id: ${s.id}`,
+    `version: 1.0.0`,
+    `packId: ${s.packId}`,
+    `displayName: ${JSON.stringify(s.displayName)}`,
+  ];
+  if (s.description) lines.push(`description: ${JSON.stringify(s.description)}`);
+  lines.push(`scope: ${s.scope}`);
+  lines.push(`trigger:`);
+  lines.push(`  kind: ${s.triggerKind}`);
+  if (s.triggerKind === 'event' && s.eventType) lines.push(`  eventType: ${s.eventType}`);
+  if (s.triggerKind === 'cron' && s.cron) lines.push(`  expression: ${JSON.stringify(s.cron)}`);
+  lines.push(`inputs: {}`);
+  lines.push(`outputs: {}`);
+  lines.push(`plan:`);
+  lines.push(`  type: sequence`);
+  lines.push(`  children:`);
+  for (const st of s.steps) {
+    lines.push(`    - type: step`);
+    lines.push(`      step:`);
+    lines.push(`        id: ${st.id}`);
+    lines.push(`        skill: ${st.skill || 'noop'}`);
+    lines.push(`        inputs: {}`);
+  }
+  lines.push(`governance:`);
+  lines.push(`  phiHandling: ${s.phiHandling}`);
+  lines.push(`  purposeOfUse: [${s.purposeOfUse}]`);
+  lines.push(`  clearanceRequired: ${s.clearanceRequired}`);
+  lines.push(`billing:`);
+  lines.push(`  baseFeeUsd: ${s.baseFeeUsd}`);
+  if (s.budgetCapMonthlyUsd !== '') lines.push(`  budgetCapMonthlyUsd: ${s.budgetCapMonthlyUsd}`);
+  if (s.setting || s.lifecycleStage) {
+    lines.push(`labels:`);
+    if (s.setting) lines.push(`  setting: ${s.setting}`);
+    if (s.lifecycleStage) lines.push(`  lifecycleStage: ${s.lifecycleStage}`);
+  }
+  editorState.yaml = lines.join('\n') + '\n';
+  document.getElementById('yaml-editor').value = editorState.yaml;
+  validateNow();
+}
+
+async function validateNow() {
+  const yaml = document.getElementById('yaml-editor').value;
+  editorState.yaml = yaml;
+  const v = await api('POST', '/admin/drafts/validate', { yaml });
+  const box = document.getElementById('validation-result');
+  if (v.ok) box.innerHTML = `<div class="validation ok">✓ Valid AgentSpec</div>`;
+  else box.innerHTML = `<div class="validation err"><b>${v.errors.length} error${v.errors.length===1?'':'s'}</b><ul>${v.errors.map(e => `<li>${esc(e)}</li>`).join('')}</ul></div>`;
+}
+
+async function saveDraft(status) {
+  const yaml = document.getElementById('yaml-editor').value;
+  if (!yaml.trim()) return toast('Nothing to save', 'err');
+  let doc;
+  try { doc = jsyaml.load(yaml); } catch { return toast('YAML parse error', 'err'); }
+  if (!doc?.id || !doc?.packId) return toast('YAML needs id and packId', 'err');
+  const payload = { packId: doc.packId, id: doc.id, yaml, status };
+  try {
+    const res = await fetch('/admin/drafts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+    if (res.ok) { toast(status === 'in-review' ? 'Submitted for review' : 'Draft saved', 'good'); goTo('drafts'); return; }
+    const j = await res.json().catch(() => ({}));
+    toast('Save failed: ' + (j.error || res.status), 'err'); return;
+  } catch { /* server unreachable → local demo fallback */ }
+  await api('POST', '/admin/drafts', payload);
+  toast(status === 'in-review' ? 'Submitted for review' : 'Draft saved', 'good');
+  goTo('drafts');
+}
+
+async function editDraft(packId, id) {
+  try {
+    const res = await fetch(`/admin/drafts/${encodeURIComponent(packId)}/${encodeURIComponent(id)}`, { headers: { accept: 'application/json' } });
+    if (res.ok) {
+      const d = await res.json();
+      if (d && d.yaml) { renderEditor({ id, packId, yaml: d.yaml }); return; }
+    }
+  } catch { /* offline */ }
+  const d = drafts.find(x => x.packId === packId && x.id === id);
+  if (!d) return;
+  renderEditor({ id, packId, yaml: d.yaml });
+}
+
+async function publishDraft(packId, id) {
+  const note = prompt('Publish note (optional):') || '';
+  try {
+    const res = await fetch(`/admin/drafts/${encodeURIComponent(packId)}/${encodeURIComponent(id)}/publish`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note }) });
+    if (res.ok) { toast(`Published ${id}`, 'good'); goTo('agents'); return; }
+    const j = await res.json().catch(() => ({}));
+    toast('Publish failed: ' + (j.error || res.status), 'err'); return;
+  } catch { /* offline → local demo fallback */ }
+  const d = drafts.find(x => x.packId === packId && x.id === id);
+  if (!d?.validation?.ok) return toast('Cannot publish invalid draft', 'err');
+  try { await api('POST', `/admin/drafts/${packId}/${id}/publish`, { note }); toast(`Published ${id}`, 'good'); goTo('agents'); }
+  catch (e) { toast('Publish failed: ' + e.message, 'err'); }
+}
+
+async function deleteDraft(packId, id) {
+  if (!confirm(`Delete draft ${id}?`)) return;
+  try {
+    const res = await fetch(`/admin/drafts/${encodeURIComponent(packId)}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (res.ok) { toast('Draft deleted', 'good'); render(); return; }
+    const j = await res.json().catch(() => ({}));
+    toast('Delete failed: ' + (j.error || res.status), 'err'); return;
+  } catch { /* offline → local demo fallback */ }
+  await api('DELETE', `/admin/drafts/${packId}/${id}`);
+  toast('Draft deleted', 'good');
+  render();
+}
+
+async function cloneAgent(packId, id) {
+  const agents = await loadFile('agents.json');
+  const a = agents.find(x => x.packId === packId && x.id === id);
+  if (!a) return;
+  const newId = prompt(`Clone as new agent id:`, id + '-copy');
+  if (!newId) return;
+  // Build a minimal scaffold from the published agent summary
+  renderEditor({
+    id: newId,
+    packId: a.packId,
+    displayName: a.displayName + ' (copy)',
+    description: a.description || '',
+    triggerKind: a.triggerKind || 'event',
+    eventType: a.triggerEventType || '',
+    setting: a.setting || '',
+    lifecycleStage: a.lifecycleStage || '',
+    baseFeeUsd: a.baseFeeUsd || 0,
+    steps: [{ id: 'step-1', skill: '' }],
+  });
+  setTimeout(generateYaml, 100);
+}
+
+// ---------- Catalog views ----------
+// Build a minimal FHIR R4 Bundle (Patient + labs + HTN condition) mirroring
+// src/liquid/cql.ts so the CMS measure evaluator can score it client-side.
+function labPatientBundle(patient) {
+  const now = new Date().toISOString();
+  const L = patient.labs || {};
+  const obs = (code, display, value, unit) => ({ resourceType: 'Observation', id: `${patient.id}-${code}`, status: 'final', subject: { reference: `Patient/${patient.id}` }, effectiveDateTime: now, code: { coding: [{ system: 'http://loinc.org', code, display }] }, valueQuantity: { value, unit } });
+  const resources = [
+    { resourceType: 'Patient', id: patient.id },
+    obs('2823-3', 'Potassium', L.K, 'mmol/L'),
+    obs('718-7', 'Hemoglobin', L.HGB, 'g/dL'),
+    obs('48151-2', 'Urea reduction ratio', L.URR, '%'),
+    obs('14879-1', 'Phosphate [Mass/volume] in Serum or Plasma', L.PHOS, 'mg/dL'),
+    // extra labs so embedded catalog measures (hypercalcemia, Kt/V adequacy) are demoable
+    obs('17861-6', 'Calcium [Mass/volume] in Serum or Plasma', L.Ca ?? 11.0, 'mg/dL'),
+    obs('18262-6', 'Kt/V (single pool)', L.KtV ?? 1.4, 'Kt/V'),
+  ];
+  if (patient.hypertension) resources.push({ resourceType: 'Condition', id: `${patient.id}-htn`, subject: { reference: `Patient/${patient.id}` }, code: { coding: [{ system: 'http://snomed.info/sct', code: '59621000', display: 'Essential hypertension (disorder)' }] }, onsetDateTime: now });
+  return { resourceType: 'Bundle', type: 'collection', entry: resources.map((resource) => ({ resource })) };
+}
+
+// Evaluate a measure against a synthetic hypertensive patient (same profile as Score labs).
+window.measureEvaluate = async function(measureId, btn) {
+  const out = document.getElementById('measure-eval-out');
+  if (!out) return;
+  const bundle = labPatientBundle({ id: 'p-htn', labs: { K: 4.2, HGB: 11.5, URR: 68, PHOS: 5.1 }, hypertension: true });
+  const st = document.getElementById('ms-period-start')?.value;
+  const en = document.getElementById('ms-period-end')?.value;
+  const measurementPeriod = (st && en) ? { start: st, end: en } : currentYearPeriod();
+  if (btn) { btn.disabled = true; const o = btn.textContent; btn.textContent = 'Evaluating…'; }
+  try {
+    const res = await fetch('/admin/measures/' + encodeURIComponent(measureId) + '/evaluate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ bundle, measurementPeriod }) });
+    const j = await res.json();
+    if (res.status === 503) {
+      out.innerHTML = `<div class="state-card"><div class="state-icon"><i data-lucide="info"></i></div><div class="state-title">Measure store not loaded</div><div class="state-sub">${esc(j.hint || j.reason || 'Sync the eCQM measure store first.')}</div></div>`;
+      return;
+    }
+    if (res.status === 404 && j.error === 'measure-not-found') {
+      let cov = null;
+      try { cov = await (await fetch('/admin/measures/coverage')).json(); } catch { /* offline */ }
+      const cat = (cov?.catalog || []).find((c) => c.id === measureId);
+      const suggest = cat?.syncedId;
+      const syncedChips = (cov?.synced || []).map((m) => `<button class="btn btn-ghost" style="font-size:11px;padding:2px 8px;margin:2px;" onclick="measureEvaluate('${esc(m.id)}', this)"><code>${esc(m.id)}</code></button>`).join('');
+      out.innerHTML = `
+        <div class="state-card"><div class="state-icon"><i data-lucide="search-x"></i></div>
+          <div class="state-title">Not in the synced eCQM store</div>
+          <div class="state-sub">This measure (<code>${esc(measureId)}</code>) has no CQL in the evaluator store.${suggest ? ` Closest synced match: <button class="btn" style="margin-left:4px;" onclick="measureEvaluate('${esc(suggest)}', this)">Evaluate <code>${esc(suggest)}</code></button>` : ''}</div>
+          ${syncedChips ? `<div style="margin-top:8px;font-size:12px;"><div class="muted" style="margin-bottom:2px;">Synced &amp; evaluable (${cov?.syncedTotal ?? 0}) — click to score:</div>${syncedChips}</div>` : ''}
+        </div>`;
+      return;
+    }
+    if (!res.ok) throw new Error(j.error || res.status);
+    const p = (j.patients || [])[0];
+    const engineBadge = j.engine === 'embedded' ? '<span class="pill brand">embedded</span>' : '';
+    const criteriaBlock = j.engine === 'embedded' && p?.criteria?.length
+      ? `<div class="muted" style="font-size:12px;margin-top:6px;">${p.criteria.map((c) => `<code>${esc(c.loinc)}</code> ${c.kind === 'reported' ? 'reported' : `target ${c.target ?? '?'}${c.unit ? ' ' + esc(c.unit) : ''}`} → ${c.met ? '<span style="color:var(--good);">✓</span>' : '<span style="color:var(--bad);">✗</span>'}`).join(' &nbsp;·&nbsp; ')}</div>` : '';
+    out.innerHTML = `
+      <div class="section-card" style="margin-top:12px;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+          ${engineBadge}
+          <span class="pill ${p?.met ? 'good' : 'bad'}">${p?.met ? '✓ Numerator met' : 'Not in numerator'}</span>
+          <span class="muted" style="font-size:12px;">${esc(measureId)}${j.engine === 'embedded' ? ' · embedded (catalog rule, no CQL)' : ` · ${(j.populations || []).length} population(s)`}</span>
+        </div>
+        ${criteriaBlock}
+        <pre style="background:var(--code-bg);color:var(--code-fg);padding:12px;border-radius:8px;white-space:pre-wrap;max-height:320px;overflow:auto;">${esc(JSON.stringify(j, null, 2))}</pre>
+      </div>`;
+  } catch (err) {
+    out.innerHTML = `<div class="state-card error" style="margin-top:12px;"><div class="state-title">Evaluation failed</div><div class="state-sub">${esc(String(err))}</div></div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Evaluate'; }
+  }
+};
+
+async function renderMeasures() {
+  const [d, cov] = await Promise.all([
+    api('GET', '/admin/measures'),
+    api('GET', '/admin/measures/coverage').catch(() => null),
+  ]);
+  const covStrip = cov ? `
+    <div class="cards" style="grid-template-columns: repeat(4,1fr);margin-bottom:12px;">
+      <div class="stat-card"><div class="num">${cov.syncedTotal ?? 0}</div><div class="lbl">Synced &amp; evaluable (CQL)</div></div>
+      <div class="stat-card"><div class="num">${cov.embeddedTotal ?? 0}</div><div class="lbl">Embedded (CQL-free)</div></div>
+      <div class="stat-card"><div class="num">${cov.catalogTotal ?? 0}</div><div class="lbl">Catalog measures</div></div>
+      <div class="stat-card"><div class="num">${cov.evaluableTotal ?? 0}</div><div class="lbl">Evaluable total</div></div>
+    </div>` : '';
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">CMS measure catalog</h2><p class="page-sub">${d.count} measures across ESRD-QIP, Hospital IQR/VBP, MIPS, PI, NHSN, CMS-0057-F. Click <b>Evaluate</b> to run the real CQL evaluator on a synthetic hypertensive patient. Catalog ids are accepted too — the evaluator resolves <code>cms:</code>/plain CMS ids against the synced eCQM store.</p></div>
+      <button class="btn btn-primary" id="ms-sync"><i data-lucide="refresh-cw"></i> Sync eCQM store</button></div>
+    ${covStrip}
+    <div id="ms-sync-status" class="muted" style="font-size:12px;margin-bottom:8px;"></div>
+    <div id="ms-synced-store" style="margin-bottom:10px;"></div>
+    <div class="detail" style="margin-bottom:10px;padding:10px 12px;">
+      <div class="field-row" style="align-items:flex-end;">
+        <div class="field"><label>Evaluation period — start</label><input id="ms-period-start" type="date" value="${currentYearPeriod().start}"></div>
+        <div class="field"><label>End</label><input id="ms-period-end" type="date" value="${currentYearPeriod().end}"></div>
+        <div class="field" style="flex:1;"><span class="muted" style="font-size:12px;">Measurement period sent to the CQL evaluator when you score a measure below.</span></div>
+      </div>
+    </div>
+    <div id="measures-grid"></div>
+    <div id="measure-eval-out"></div>
+  `;
+  // Show the synced store (fixture + any pulled eCQM measures).
+  const loadStore = async () => {
+    const el = document.getElementById('ms-synced-store');
+    if (!el) return;
+    try {
+      const store = await (await fetch('/admin/measures/store')).json();
+      const list = store.measures || [];
+      el.innerHTML = `<div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:4px;">Synced eCQM store (${list.length}) — CQL-evaluable:</div>` +
+        (list.length ? list.map((m) => `<span class="pill muted" style="margin:2px;"><code>${esc(m.id)}</code>${m.cmsId ? ` · ${esc(m.cmsId)}` : ''}</span>`).join(' ') : '<span class="muted">empty — run Sync eCQM store or scripts/seed-measure-store.mjs</span>');
+    } catch { /* store not loaded */ }
+  };
+  document.getElementById('ms-sync')?.addEventListener('click', async () => {
+    const btn = document.getElementById('ms-sync');
+    const status = document.getElementById('ms-sync-status');
+    const o = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Syncing…';
+    status.textContent = 'Pulling measures from github.com/cqframework (needs network)…';
+    try {
+      const res = await fetch('/admin/measures/sync', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.message || j.error || res.status);
+      const summary = (j.results || []).map((r) => `${r.repo}: ${r.measuresSynced} measures / ${r.librariesSynced} libraries${r.skipped ? ' (unchanged)' : ''}`).join('; ');
+      status.innerHTML = `<span style="color:var(--good);">✓ Synced — ${summary || 'no change'}</span>`;
+      toast('eCQM store synced', 'good');
+      loadStore();
+    } catch (err) {
+      status.innerHTML = `<span style="color:var(--bad);">Sync failed: ${esc(String(err))}</span> <span class="muted">(offline? The local M21Basic fixture keeps the store non-empty.)</span>`;
+    } finally {
+      btn.disabled = false; btn.innerHTML = o;
+      if (window.hydrateIcons) window.hydrateIcons();
+    }
+  });
+  loadStore();
+  const covByMeasure = new Map((cov?.catalog || []).map((c) => [c.id, c]));
+  dataGrid({
+    el: 'measures-grid', filename: 'measures', pageSize: 25, empty: 'No measures found.',
+    columns: [
+      { key: 'id', label: 'ID', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'programId', label: 'Program', render: (v) => v ? `<span class="pill brand">${esc(v)}</span>` : '—' },
+      { key: 'name', label: 'Description', render: (v, r) => esc(r.name || r.description || '') },
+      { key: '_eval', label: 'Evaluable', sortable: false, filter: false, render: (_v, r) => { const src = covByMeasure.get(r.id)?.source; return src === 'synced' ? '<span class="pill good">CQL</span>' : src === 'embedded' ? '<span class="pill brand">embedded</span>' : '<span class="muted">—</span>'; } },
+      { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<button class="btn btn-ghost" onclick="measureEvaluate('${esc(r.id)}', this)"><i data-lucide="flask-conical"></i> Evaluate</button>` },
+    ],
+    data: d.measures,
+  });
+}
+async function renderAssessments() {
+  const d = await api('GET', '/admin/assessments');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Validated assessments</h2><p class="page-sub">Screeners and scales included with LOINC codes, scoring bands, and provenance.</p></div></div>
+    <div id="assessments-grid"></div>
+  `;
+  dataGrid({
+    el: 'assessments-grid', filename: 'assessments', pageSize: 25, empty: 'No assessments found.',
+    columns: [
+      { key: 'id', label: 'ID', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'title', label: 'Title' },
+      { key: 'loinc', label: 'LOINC', render: (v) => v ? `<code>${esc(v)}</code>` : '—' },
+      { key: 'domain', label: 'Domain', render: (v) => `<span class="pill muted">${esc(v)}</span>` },
+      { key: 'itemCount', label: 'Items', align: 'right' },
+    ],
+    data: d.assessments,
+  });
+}
+async function renderLifecycle() {
+  // Diagrammatic persona lifecycle. Reads the lifecycle graph baked into the
+  // realm snapshot (nodes, edges, cohort counts). Falls back to the plain
+  // stages list if the realm isn't bundled.
+  const r = await api('GET', '/admin/realms/demo');
+  const stages = (await api('GET', '/admin/lifecycle')).stages;
+  const g = r?.lifecycle;
+  if (!g) {
+    main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Persona lifecycle</h2><p class="page-sub">${stages.length} canonical stages.</p></div></div><div id="lifecycle-grid"></div>`;
+    dataGrid({
+      el: 'lifecycle-grid', filename: 'lifecycle', empty: 'No stages defined.',
+      columns: [
+        { key: 'order', label: '#', align: 'right' },
+        { key: 'id', label: 'ID', render: (v) => `<code>${esc(v)}</code>` },
+      ],
+      data: stages.map((s, i) => ({ ...s, order: i + 1 })),
+    });
+    return;
+  }
+  const columns = { entry: 0, process: 1, risk: 2, good: 2, 'exit-good': 3, exit: 3, 'exit-bad': 3 };
+  const colors = { entry: '#38bdf8', process: '#6366f1', risk: '#f59e0b', good: '#22c55e', 'exit-good': '#22c55e', exit: '#94a3b8', 'exit-bad': '#ef4444' };
+  const phaseMeta = [
+    { title: 'Entry', sub: 'referral → onboarded', kind: 'entry' },
+    { title: 'Care', sub: 'active care', kind: 'process' },
+    { title: 'Risk / Stable', sub: 'decompensating · hospitalized · stable', kind: 'risk' },
+    { title: 'Exit', sub: 'transplant · discharged · mortality', kind: 'exit' },
+  ];
+  const cohort = g.cohorts ?? {};
+  const totalCohort = Object.values(cohort).reduce((a, b) => a + b, 0);
+
+  // ---- Layout: 4 columns of card "phases", auto-sized so nothing clips ----
+  const perCol = {};
+  g.nodes.forEach(n => { const c = columns[n.kind] ?? 1; (perCol[c] ??= []).push(n); });
+  const colKeys = [...new Set(g.nodes.map(n => columns[n.kind] ?? 1))].sort((a, b) => a - b);
+  const numCols = Math.max(colKeys.length, 1);
+  const cardW = 164, cardH = 64, halfW = cardW / 2, halfH = cardH / 2, colW = 212, vGap = 28, M = 34, headerH = 56;
+  const firstTop = headerH + 20;
+  let maxColH = 0;
+  Object.values(perCol).forEach(arr => { maxColH = Math.max(maxColH, arr.length * (cardH + vGap) - vGap); });
+  const contentW = M * 2 + numCols * colW;
+  const contentH = firstTop + maxColH + 24;
+  const laid = {};
+  Object.entries(perCol).forEach(([col, arr]) => {
+    arr.forEach((n, i) => {
+      laid[n.id] = { x: M + Number(col) * colW + colW / 2, y: firstTop + cardH / 2 + i * (cardH + vGap), node: n };
+    });
+  });
+
+  // ---- Edge geometry: anchor on card edges, smooth bezier, arrowheads ----
+  const anchors = (a, b) => {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (Math.abs(dx) > Math.abs(dy)) return { x1: a.x + (dx >= 0 ? halfW : -halfW), y1: a.y, x2: b.x + (dx >= 0 ? -halfW : halfW), y2: b.y };
+    return { x1: a.x, y1: a.y + (dy >= 0 ? halfH : -halfH), x2: b.x, y2: b.y + (dy >= 0 ? -halfH : halfH) };
+  };
+  const edgePath = (a, b) => {
+    const { x1, y1, x2, y2 } = anchors(a, b);
+    const dx = x2 - x1;
+    const c = Math.max(46, Math.min(160, Math.abs(dx) * 0.6));
+    const cx1 = x1 + (dx >= 0 ? c : -c), cx2 = x2 + (dx >= 0 ? -c : c);
+    return `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`;
+  };
+  const markerDefs = [...new Set(Object.values(colors))].map(c =>
+    `<marker id="lc-arr-${c.slice(1)}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="${c}"/></marker>`).join('');
+  const edgesSvg = g.edges.map(e => {
+    const a = laid[e.from], b = laid[e.to]; if (!a || !b) return '';
+    const color = colors[b.node.kind] ?? '#8898b5';
+    const w = 1 + Math.min(4.5, Math.max(1, (cohort[e.from] ?? 0) / 2));
+    return `<path d="${edgePath(a, b)}" stroke="${color}" stroke-opacity="0.5" stroke-width="${w}" fill="none" marker-end="url(#lc-arr-${color.slice(1)})"/>`;
+  }).join('');
+
+  // ---- Column phase bands + headers (with cohort totals) ----
+  const bandsSvg = colKeys.map(col => {
+    const meta = phaseMeta[col] || { title: `Phase ${col + 1}`, kind: 'process' };
+    const color = colors[meta.kind] || '#8898b5';
+    const nodesIn = perCol[col] || [];
+    const tot = nodesIn.reduce((s, n) => s + (cohort[n.id] ?? 0), 0);
+    const share = totalCohort ? Math.round((tot / totalCohort) * 100) : 0;
+    const cx = M + col * colW + colW / 2;
+    return `<g>
+      <rect x="${M + col * colW + 8}" y="${headerH - 2}" width="${colW - 16}" height="${contentH - headerH + 2}" rx="14" fill="${color}" fill-opacity="0.05"/>
+      <text x="${cx}" y="22" text-anchor="middle" style="font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;fill:${color}">${esc(meta.title)}</text>
+      <text x="${cx}" y="40" text-anchor="middle" style="font-size:11px;fill:var(--muted)">${tot} patients · ${share}% of cohort · ${esc(meta.sub)}</text>
+    </g>`;
+  }).join('');
+
+  // ---- Nodes as cards: count badge + wrapped label + share ----
+  const wrap2 = (s, max) => {
+    const words = String(s).split(/\s+/).filter(Boolean); const lines = []; let cur = '';
+    for (const w of words) { const t = cur ? cur + ' ' + w : w; if (t.length > max && cur) { lines.push(cur); cur = w; } else cur = t; }
+    if (cur) lines.push(cur);
+    return lines.slice(0, 2);
+  };
+  const nodesSvg = Object.values(laid).map(({ x, y, node }) => {
+    const count = cohort[node.id] ?? 0;
+    const pct = totalCohort ? Math.round((count / totalCohort) * 100) : 0;
+    const color = colors[node.kind] ?? '#8898b5';
+    const lines = wrap2(node.label, 15);
+    const startY = lines.length === 2 ? -6 : 4;
+    const labelTs = lines.map((ln, i) => `<tspan x="-24" dy="${i === 0 ? startY : 14}">${esc(ln)}</tspan>`).join('');
+    const pctY = startY + lines.length * 14;
+    return `<g class="lc-card" transform="translate(${x} ${y})">
+      <title>${esc(node.label)} — ${count} patient${count === 1 ? '' : 's'} (${pct}% of cohort)</title>
+      <rect x="${-halfW}" y="${-halfH}" width="${cardW}" height="${cardH}" rx="14" fill="${color}" fill-opacity="0.14" stroke="${color}" stroke-width="1.5"/>
+      <circle cx="${-52}" cy="0" r="19" fill="${color}"/>
+      <text x="${-52}" y="4" text-anchor="middle" style="font-size:13px;font-weight:700;fill:#fff">${count}</text>
+      <text x="${-24}" text-anchor="start" style="font-size:12.5px;font-weight:600;fill:var(--fg)">${labelTs}</text>
+      <text x="${-24}" y="${pctY}" text-anchor="start" style="font-size:10.5px;fill:var(--muted)">${pct}% of cohort</text>
+    </g>`;
+  }).join('');
+
+  // ---- Stat chips ----
+  const stat = (lbl, val, color) => `<div class="lc-stat"><div class="lc-stat-num" style="color:${color}">${val}</div><div class="lc-stat-lbl">${lbl}</div></div>`;
+  const riskN = (cohort.decompensating ?? 0) + (cohort.hospitalized ?? 0);
+  const exitsN = (cohort.transplant ?? 0) + (cohort.discharged ?? 0) + (cohort.mortality ?? 0);
+
+  // ---- Legend ----
+  const legend = [...new Set(g.nodes.map(n => n.kind))].map(k =>
+    `<span class="lc-chip"><span class="lc-dot" style="background:${colors[k] ?? '#8898b5'}"></span>${esc(k.replace(/-/g, ' '))}</span>`).join('');
+
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Persona lifecycle</h2><p class="page-sub">${totalCohort} patients across ${g.nodes.length} stages — node cards show current cohort, edges show flow direction and magnitude. Scroll or zoom to explore; it always fits the viewport.</p></div></div>
+    <div class="lc-stats">
+      ${stat('Total cohort', totalCohort, 'var(--fg)')}
+      ${stat('In active care', cohort.active ?? 0, colors.process)}
+      ${stat('Risk (decomp / hospitalized)', riskN, colors.risk)}
+      ${stat('Stable', cohort.stable ?? 0, colors.good)}
+      ${stat('Exits', exitsN, colors.exit)}
+    </div>
+    <div class="detail" style="margin-top:0;">
+      <div class="lc-wrap" id="lc-wrap">
+        <div class="lc-toolbar">
+          <span class="lc-hint">Scroll to pan · buttons to zoom · hover a card for details</span>
+          <div class="lc-tools">
+            <button class="lc-btn" id="lc-fit" title="Fit to viewport">Fit</button>
+            <button class="lc-btn" id="lc-out" title="Zoom out">−</button>
+            <button class="lc-btn" id="lc-in" title="Zoom in">+</button>
+            <button class="lc-btn" id="lc-100" title="Actual size">100%</button>
+          </div>
+        </div>
+        <svg id="lc-svg" viewBox="0 0 ${contentW} ${contentH}" style="display:block;background:var(--card);">
+          <defs>${markerDefs}</defs>
+          ${bandsSvg}
+          ${edgesSvg}
+          ${nodesSvg}
+        </svg>
+      </div>
+      <div class="lc-legend">${legend}</div>
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:6px;">Canonical stages (${stages.length})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">${stages.map(s => `<span class="pill">${esc(s.id)}</span>`).join('')}</div>
+    </div>
+  `;
+  // ---- Zoom controls (scale the rendered size; the wrap scrolls/pan) ----
+  const svgEl = document.getElementById('lc-svg');
+  let scale = 1;
+  const applyScale = () => {
+    const w = Math.round(contentW * scale), h = Math.round(contentH * scale);
+    svgEl.setAttribute('width', w); svgEl.setAttribute('height', h);
+  };
+  document.getElementById('lc-in').addEventListener('click', () => { scale = Math.min(3, scale * 1.25); applyScale(); });
+  document.getElementById('lc-out').addEventListener('click', () => { scale = Math.max(0.5, scale / 1.25); applyScale(); });
+  document.getElementById('lc-100').addEventListener('click', () => { scale = 1; applyScale(); });
+  document.getElementById('lc-fit').addEventListener('click', () => {
+    const wrap = document.getElementById('lc-wrap');
+    scale = Math.max(0.5, Math.min(1, (wrap.clientWidth - 24) / contentW));
+    applyScale(); wrap.scrollLeft = 0; wrap.scrollTop = 0;
+  });
+  applyScale();
+  if (window.hydrateIcons) window.hydrateIcons();
+}
+// ---------- M20 Knowledge browser (universal — folds Research+Pharma) ----------
+let knowledgeFilter = { category: '', tier: '', domain: '' };
+async function renderResearch() {
+  const q = new URLSearchParams();
+  if (knowledgeFilter.category) q.set('category', knowledgeFilter.category);
+  if (knowledgeFilter.tier) q.set('tier', knowledgeFilter.tier);
+  if (knowledgeFilter.domain) q.set('clinicalDomain', knowledgeFilter.domain);
+  const [d, reach] = await Promise.all([
+    api('GET', '/admin/knowledge/sources' + (q.toString() ? '?' + q : '')),
+    api('GET', '/admin/knowledge/reach'),
+  ]);
+  const cats = [...new Set(d.sources.map(s => s.category))].sort();
+  const tiers = [...new Set(d.sources.map(s => s.tier))].sort();
+  const doms = [...new Set(d.sources.flatMap(s => s.clinicalDomains))].sort();
+  const reachMap = Object.fromEntries((reach.table || []).map(r => [r.sourceId, r]));
+  const grouped = {}; for (const s of d.sources) (grouped[s.category] ??= []).push(s);
+  main.innerHTML = `
+    <div class="page-header"><div>
+      <h2 class="page-title">Knowledge sources</h2>
+      <p class="page-sub">${d.sources.length} sources across ${cats.length} categories. Every artifact carries source, version, hash, and fetch time. Click a card to view provenance or sync now.</p>
+    </div></div>
+    <div class="filters" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <select onchange="knowledgeFilter.category=this.value;renderResearch()"><option value="">All categories</option>${cats.map(c => `<option${c===knowledgeFilter.category?' selected':''}>${esc(c)}</option>`).join('')}</select>
+      <select onchange="knowledgeFilter.tier=this.value;renderResearch()"><option value="">All tiers</option>${tiers.map(t => `<option${t===knowledgeFilter.tier?' selected':''}>${esc(t)}</option>`).join('')}</select>
+      <select onchange="knowledgeFilter.domain=this.value;renderResearch()"><option value="">All domains</option>${doms.map(x => `<option${x===knowledgeFilter.domain?' selected':''}>${esc(x)}</option>`).join('')}</select>
+      <button class="btn" onclick="runDueSources()">Run all due syncs</button>
+    </div>
+    ${Object.entries(grouped).map(([cat, srcs]) => `
+      <h3 style="margin:20px 0 10px">${esc(cat)} <span class="pill muted">${srcs.length}</span></h3>
+      <div class="knowledge-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">
+        ${srcs.map(s => sourceCard(s, reachMap[s.id])).join('')}
+      </div>
+    `).join('')}
+    <div id="provenance-drawer" class="drawer" style="position:fixed;right:-560px;top:0;bottom:0;width:540px;background:var(--card);border-left:1px solid var(--border);padding:20px;overflow:auto;transition:right .2s;z-index:100;box-shadow:-4px 0 12px color-mix(in srgb, var(--recess) 8%, transparent)"></div>
+  `;
+}
+function sourceCard(s, reach) {
+  const needs = (s.credentialsRequired || []).filter(f => f.required !== false);
+  const setKeys = new Set(s.credentialsSet || []);
+  const missing = needs.filter(f => !setKeys.has(f.name));
+  const badge = needs.length === 0 ? '<span class="pill good">Public</span>' : missing.length === 0 ? '<span class="pill good">Credentials set</span>' : `<span class="pill bad">${missing.length} credential${missing.length>1?'s':''} needed</span>`;
+  const packsPill = reach ? `<span class="pill muted" title="${(reach.packs||[]).join(', ')}">${reach.packs.length} pack${reach.packs.length!==1?'s':''}</span>` : '';
+  const last = s.lastSyncedAt ? new Date(s.lastSyncedAt).toLocaleString() : 'never';
+  return `<div class="card" style="padding:16px;border:1px solid var(--border);border-radius:8px">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:8px"><strong>${esc(s.name)}</strong>${badge}</div>
+    <div class="muted" style="font-size:12px;margin-top:4px"><code>${esc(s.id)}</code> · ${esc(s.publisher)} · ${esc(s.tier)} · cadence <code>${esc(s.cadence)}</code></div>
+    <div class="muted" style="font-size:12px;margin-top:6px">${packsPill} · ${s.artifactCount} artifacts · last synced ${last}</div>
+    <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+      ${needs.length > 0 ? `<button class="btn" onclick="openCredentialSheet('${esc(s.id)}')">Credentials</button>` : ''}
+      <button class="btn primary" onclick="syncSource('${esc(s.id)}',this)">Sync now</button>
+      <button class="btn" onclick="openProvenance('${esc(s.id)}')">Provenance</button>
+    </div>
+  </div>`;
+}
+async function syncSource(id, btn) {
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Syncing…';
+  try {
+    const r = await api('POST', `/admin/knowledge/sync/${encodeURIComponent(id)}`, {});
+    btn.textContent = r.ok ? `${r.summary.totalExtracted} artifacts` : 'Failed';
+    if (r.ok) setTimeout(() => renderResearch(), 800);
+  } catch (e) { btn.textContent = 'Error'; }
+  setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 2500);
+}
+async function runDueSources() {
+  const r = await api('POST', '/admin/knowledge/schedule/run-due', {});
+  alert(`Ran ${r.results?.length ?? 0} due syncs`);
+  renderResearch();
+}
+async function openProvenance(id) {
+  const drawer = document.getElementById('provenance-drawer');
+  drawer.innerHTML = 'Loading…'; drawer.style.right = '0';
+  const [spec, arts] = await Promise.all([
+    api('GET', `/admin/knowledge/sources/${encodeURIComponent(id)}`),
+    api('GET', `/admin/knowledge/artifacts/${encodeURIComponent(id)}?limit=25`),
+  ]);
+  drawer.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center"><h3>${esc(spec.spec.name)}</h3><button class="btn" onclick="document.getElementById('provenance-drawer').style.right='-560px'">Close</button></div>
+    <div class="muted" style="font-size:12px">${esc(spec.spec.id)} · ${esc(spec.spec.publisher)}</div>
+    <p>${esc(spec.spec.description || '')}</p>
+    <p><a href="${esc(spec.spec.homepage)}" target="_blank">Publisher homepage</a></p>
+    ${spec.manifest ? `<div class="muted" style="font-size:12px">Last sync ${new Date(spec.manifest.lastSyncedAt).toLocaleString()} · upstream ${esc(spec.manifest.upstreamVersion || 'n/a')} · ${spec.manifest.artifactIndex.length} artifacts</div>` : '<div class="muted">Not yet synced.</div>'}
+    <h4 style="margin-top:16px">Latest artifacts (${arts.total})</h4>
+    <ul style="padding-left:16px">${(arts.artifacts||[]).map(a => `<li><a href="${esc(a.upstream.rawUrl)}" target="_blank">${esc(a.title)}</a><div class="muted" style="font-size:11px">sha256 ${esc(a.upstream.contentHash.slice(0,16))}… · fetched ${new Date(a.upstream.fetchedAt).toLocaleString()}</div></li>`).join('')}</ul>
+  `;
+}
+async function openCredentialSheet(id) {
+  const drawer = document.getElementById('provenance-drawer');
+  drawer.innerHTML = 'Loading…'; drawer.style.right = '0';
+  const [creds, spec] = await Promise.all([
+    api('GET', `/admin/knowledge/credentials/${encodeURIComponent(id)}`),
+    api('GET', `/admin/knowledge/sources/${encodeURIComponent(id)}`),
+  ]);
+  const setup = creds.spec;
+  drawer.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center"><h3>Set credentials — ${esc(spec.spec.name)}</h3><button class="btn" onclick="document.getElementById('provenance-drawer').style.right='-560px'">Close</button></div>
+    ${setup ? `
+      <p>${esc(setup.description || '')}</p>
+      <p><strong>${esc(setup.registerLabel)}</strong>: <a href="${esc(setup.registerUrl)}" target="_blank">${esc(setup.registerUrl)}</a></p>
+      <p class="muted" style="font-size:12px">Estimated ${esc(setup.estimatedTime)} · ${esc(setup.cost)}</p>
+      <h4>Steps</h4>
+      <ol>${(setup.steps||[]).map(s => `<li>${esc(s.text)}${s.link ? ` <a href="${esc(s.link.url)}" target="_blank">${esc(s.link.label)}</a>` : ''}${s.subSteps ? `<ul>${s.subSteps.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</li>`).join('')}</ol>
+      <h4>Fields</h4>
+      <form id="cred-form">${(setup.fields||[]).map(f => `
+        <div class="form-row" style="margin:8px 0"><label>${esc(f.label)}</label><input type="${f.kind==='password'?'password':'text'}" name="${esc(f.name)}" placeholder="${esc(f.placeholder||'')}" ${f.required===false?'':'required'}></div>
+      `).join('')}</form>
+      <div style="display:flex;gap:6px;margin-top:12px">
+        <button class="btn primary" onclick="saveCreds('${esc(id)}')">Save</button>
+        <button class="btn" onclick="testCreds('${esc(id)}',this)">Test</button>
+      </div>
+      <div id="cred-status" class="muted" style="margin-top:10px"></div>
+    ` : '<p class="muted">No credentials required for this source.</p>'}
+  `;
+}
+async function saveCreds(id) {
+  const fd = new FormData(document.getElementById('cred-form'));
+  for (const [k, v] of fd.entries()) {
+    await api('POST', `/admin/knowledge/credentials/${encodeURIComponent(id)}`, { key: k, value: String(v) });
+  }
+  const s = document.getElementById('cred-status'); s.textContent = 'Saved.';
+}
+async function testCreds(id, btn) {
+  btn.disabled = true; const s = document.getElementById('cred-status'); s.textContent = 'Testing…';
+  try { const r = await api('POST', `/admin/knowledge/test-credential/${encodeURIComponent(id)}`, {}); s.textContent = (r.ok ? '✓ ' : '✗ ') + (r.message || ''); }
+  catch (e) { s.textContent = 'Test failed: ' + e.message; }
+  btn.disabled = false;
+}
+// ---------- M20m Learn hub ----------
+async function renderLearn() {
+  const recipes = await consoleLearn();
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Learn</h2><p class="page-sub">Short recipes for the most common Knowledge, Realm, and Agent workflows. Each one has a scoped Run-it-now.</p></div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px">
+      ${recipes.map(r => `<div class="card" style="padding:16px;border:1px solid var(--border);border-radius:8px">
+        <h3 style="margin:0 0 6px">${esc(r.title)}</h3>
+        <p style="color:#555">${esc(r.body)}</p>
+        <button class="btn primary" onclick="nav.querySelector('[data-view=${r.action.view}]').click()">${esc(r.action.label)}</button>
+      </div>`).join('')}
+    </div>
+  `;
+}
+
+// ---------- Realm management (live) ----------
+let realmSel = '';
+// Cross-page deep links: set + goTo() to pre-select a realm / patient on the target page.
+let realmDeepLink = '';
+let wiDeepLink = null;
+const trajPill = (t) => `<span class="pill ${t==='decompensating'||t==='anemic-worsening'||t==='hyperphosphatemia'||t==='underdialyzed'?'bad':t==='stable'?'good':'muted'}">${esc(t)}</span>`;
+
+function createModalHTML() {
+  return `<div class="modal-overlay" id="rm-modal">
+    <div class="modal">
+      <div class="modal-header"><h3>Create a realm</h3><button class="modal-close" id="rm-modal-close" aria-label="Close">×</button></div>
+      <div class="modal-body">
+        <div class="field-grid">
+          <label class="field"><span>Realm id</span><input id="rm-id" value="realm:dialysis-1"></label>
+          <label class="field"><span>Archetype</span><select id="rm-arch">${(dom.archetypes || []).map((a) => `<option value="${esc(a.value)}">${esc(a.label)}</option>`).join('')}</select></label>
+          <label class="field"><span>Units (comma-sep)</span><input id="rm-units" value="${esc(dom.domainOptions.unitsDefault)}"></label>
+          <label class="field"><span>Patients</span><input id="rm-pt" type="number" value="8" min="1"></label>
+          <label class="field"><span>Clock</span><select id="rm-clock"><option value="sim">Sim (accelerated)</option><option value="twin">Twin (wall clock)</option></select></label>
+          <label class="field"><span>Trajectory AI</span><select id="rm-engine"><option value="liquid">Liquid (Anant)</option><option value="legacy">Legacy</option></select></label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="rm-modal-cancel">Cancel</button>
+        <button class="btn btn-primary" id="rm-create"><i data-lucide="plus"></i> Create realm</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function wireModal() {
+  const open = document.getElementById('rm-open-create'); if (open) open.addEventListener('click', openRealmModal);
+  const closeBtn = document.getElementById('rm-modal-close'); if (closeBtn) closeBtn.addEventListener('click', closeRealmModal);
+  const cancel = document.getElementById('rm-modal-cancel'); if (cancel) cancel.addEventListener('click', closeRealmModal);
+  const overlay = document.getElementById('rm-modal'); if (overlay) overlay.addEventListener('click', (e) => { if (e.target === overlay) closeRealmModal(); });
+  const createBtn = document.getElementById('rm-create'); if (createBtn) createBtn.addEventListener('click', createRealm);
+}
+function openRealmModal() { const m = document.getElementById('rm-modal'); if (m) m.classList.add('open'); }
+function closeRealmModal() { const m = document.getElementById('rm-modal'); if (m) m.classList.remove('open'); }
+
+function realmCard(r) {
+  return `<div class="rm-card ${r.id === realmSel ? 'active' : ''}" data-id="${esc(r.id)}">
+    <div class="rm-card-top"><code>${esc(r.id)}</code><span class="pill ${r.trajectoryEngine === 'liquid' ? 'brand' : 'muted'}">${r.trajectoryEngine === 'liquid' ? 'Anant' : 'legacy'}</span></div>
+    <div class="rm-card-meta">${r.counts?.patient || 0} patients · ${r.presences || 0} presences · ${r.effects || 0} effects</div>
+    <div class="rm-card-time muted">${r.realmAt ? new Date(r.realmAt).toLocaleString() : ''}</div>
+  </div>`;
+}
+
+function createRealm() {
+  const id = (document.getElementById('rm-id')?.value || '').trim();
+  const arch = document.getElementById('rm-arch')?.value || 'dialysis';
+  const units = (document.getElementById('rm-units')?.value || dom.domainOptions.unitsDefault).split(',').map(s => s.trim()).filter(Boolean);
+  const pt = Number(document.getElementById('rm-pt')?.value || 8);
+  const clock = document.getElementById('rm-clock')?.value || 'sim';
+  const engine = document.getElementById('rm-engine')?.value || 'liquid';
+  if (!id) return toast('Enter a realm id', 'err');
+  const body = { id, mode: clock, trajectoryEngine: engine, seed: { facilityId: 'f1', kind: arch, name: arch, units, patientCount: Math.max(1, Math.min(200, pt)) } };
+  fetch('/admin/realms', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    .then(async (res) => {
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || res.status);
+      closeRealmModal(); realmSel = id; toast(`Realm ${id} created`, 'good'); render();
+    })
+    .catch((err) => toast('Create failed: ' + err.message, 'err'));
+}
+
+async function selectRealm(id) {
+  realmSel = id;
+  document.querySelectorAll('.rm-card').forEach(c => c.classList.toggle('active', c.dataset.id === id));
+  await loadRealmDetail(id);
+}
+
+async function loadRealmDetail(id) {
+  const dom = await consoleDomain();
+  const right = document.getElementById('rm-right');
+  if (!right) return;
+  right.innerHTML = '<div class="muted" style="padding:24px;">Loading…</div>';
+  const [detail, patients] = await Promise.all([
+    api('GET', `/admin/realms/${encodeURIComponent(id)}`),
+    api('GET', `/admin/realms/${encodeURIComponent(id)}/patients`),
+  ]);
+  const presences = detail.presences || [];
+  const recentEffects = (detail.recentEffects || []).slice().reverse();
+  const experiences = detail.experiences || [];
+  const costTotal = detail.cost?.totals?.totalUsd;
+  const enginePill = detail.trajectoryEngine === 'liquid'
+    ? '<span class="pill brand">Anant trajectory AI</span>'
+    : '<span class="pill muted">legacy</span>';
+  right.innerHTML = `
+    <div class="detail" style="margin-top:0;">
+      <div class="kv">
+        <div class="k">Realm</div><div><code>${esc(detail.id || id)}</code> <span class="pill muted">${esc(detail.mode || 'sim')}</span> ${enginePill}</div>
+        <div class="k">Realm time</div><div class="muted">${detail.realmAt ? new Date(detail.realmAt).toLocaleString() : '—'} · tick ${detail.seq ?? 0}</div>
+        <div class="k">Cost accrued</div><div>${costTotal != null ? '$' + Number(costTotal).toFixed(2) : '—'}</div>
+        <div class="k">Episodes / attributions</div><div>${detail.episodes?.total ?? 0} / ${detail.attribution?.total ?? 0}</div>
+      </div>
+      <div class="field-row" style="margin-top:10px;">
+        <button class="btn" id="rm-tick"><i data-lucide="play"></i> Advance 1 hour</button>
+        <button class="btn btn-danger" id="rm-delete"><i data-lucide="trash-2"></i> Delete realm</button>
+      </div>
+    </div>
+    <div class="section-card">
+      <h3>Drive the simulation</h3>
+      <div class="field-row" style="align-items:flex-end;gap:10px;">
+        <div class="field"><label>Agent spec</label><input id="rm-spec" value="nurse" style="width:110px"></div>
+        <div class="field"><label>Role</label><select id="rm-role">${(dom.domainOptions.roleOptions || []).map((r) => `<option>${esc(r)}</option>`).join('')}</select></div>
+        <div class="field"><label>Clearance</label><select id="rm-clear">${(dom.domainOptions.clearanceOptions || []).map((c) => `<option>${esc(c)}</option>`).join('')}</select></div>
+        <div class="field"><label>Facility</label><input id="rm-facility" value="f1" style="width:90px"></div>
+        <div class="field"><label>Unit</label><input id="rm-unit" placeholder="ICH-A" style="width:90px"></div>
+        <button class="btn btn-primary" id="rm-spawn"><i data-lucide="user-plus"></i> Spawn presence</button>
+      </div>
+      <div style="border-top:1px solid var(--border);margin:12px 0;"></div>
+      <div class="field-row" style="align-items:flex-end;gap:10px;">
+        <div class="field"><label>Emit as presence</label><select id="rm-eff-presence">${presences.map((p) => `<option value="${esc(p.presenceId)}">${esc(p.agentSpecId)}</option>`).join('') || '<option value="">no presences — spawn one first</option>'}</select></div>
+        <div class="field"><label>Effect kind</label><select id="rm-eff-kind">${(dom.effectKinds || []).map((k) => `<option>${esc(k)}</option>`).join('')}</select></div>
+        <div class="field"><label>Patient</label><select id="rm-eff-patient">${(patients.patients || []).map((p) => `<option value="${esc(p.id)}">${esc(p.id)}</option>`).join('') || '<option value="">no patients</option>'}</select></div>
+      </div>
+      <div class="field" style="margin-top:8px;"><label>Effect JSON (kind + patientId are overridden by the selects)</label><textarea id="rm-eff-json" rows="5" style="font-family:"JetBrains Mono", "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;"></textarea></div>
+      <div class="field-row" style="margin-top:8px;">
+        <button class="btn btn-primary" id="rm-emit"><i data-lucide="send"></i> Emit effect</button>
+      </div>
+    </div>
+    <div class="section-card">
+      <h3>Local corpus</h3>
+      <p class="page-sub" style="font-size:12px;margin:0 0 8px;">Upload a facility policy / protocol document — stored as a realm-scoped knowledge artifact (SHA-256 tracked) in <code>${esc(id)}</code>.</p>
+      <div class="field-row">
+        <div class="field" style="flex:1;"><input type="file" id="lc-file"></div>
+        <button class="btn btn-primary" id="lc-upload"><i data-lucide="upload"></i> Upload</button>
+      </div>
+      <div id="lc-status" class="muted" style="font-size:12px;margin-top:6px;"></div>
+      <div id="lc-docs" style="margin-top:8px;"></div>
+    </div>
+    <div class="detail"><h3 style="margin-top:0;">Patients (${(patients.patients || []).length})</h3>
+      <div id="rm-patients-grid"></div>
+    </div>
+    <div class="detail"><h3 style="margin-top:0;">Agent presences (${presences.length})</h3>
+      <div id="rm-presences-grid"></div>
+    </div>
+    <div class="detail"><h3 style="margin-top:0;">Recent effects (${recentEffects.length})</h3>
+      <div id="rm-effects-grid"></div>
+    </div>
+    <div class="detail"><h3 style="margin-top:0;">Experiences (${experiences.length})</h3>
+      <div id="rm-experiences-grid"></div>
+    </div>`;
+  document.getElementById('rm-tick').addEventListener('click', async () => {
+    try {
+      const res = await fetch(`/admin/realms/${encodeURIComponent(id)}/tick`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ deltaMs: 3600_000 }) });
+      if (!res.ok) throw new Error((await res.json()).error || res.status);
+      toast(`Advanced 1 hour in ${id}`, 'good'); render();
+    } catch (err) { toast('Tick failed: ' + err.message, 'err'); }
+  });
+  document.getElementById('rm-delete').addEventListener('click', async () => {
+    if (!confirm(`Delete realm ${id}? This stops its clock and removes it.`)) return;
+    try {
+      const res = await fetch(`/admin/realms/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error((await res.json()).error || res.status);
+      realmSel = ''; toast('Realm removed', 'good'); render();
+    } catch (err) { toast('Delete failed: ' + err.message, 'err'); }
+  });
+  // ---- Drive-the-sim: spawn a presence ----
+  document.getElementById('rm-spawn')?.addEventListener('click', async () => {
+    const body = {
+      agentSpecId: document.getElementById('rm-spec').value || 'nurse',
+      role: document.getElementById('rm-role').value,
+      clearance: document.getElementById('rm-clear').value,
+      facilityId: document.getElementById('rm-facility').value || 'f1',
+      ...(document.getElementById('rm-unit').value ? { unitId: document.getElementById('rm-unit').value } : {}),
+    };
+    try {
+      const res = await fetch(`/admin/realms/${encodeURIComponent(id)}/presences`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || res.status);
+      toast(`Presence spawned (${body.agentSpecId})`, 'good');
+      loadRealmDetail(id);
+    } catch (err) { toast('Spawn failed: ' + err.message, 'err'); }
+  });
+  // ---- Drive-the-sim: emit an effect ----
+  const effKind = document.getElementById('rm-eff-kind');
+  const effPt = document.getElementById('rm-eff-patient');
+  const effPresence = document.getElementById('rm-eff-presence');
+  const effJson = document.getElementById('rm-eff-json');
+  const effTemplate = (kind, patientId, unitId) => {
+    const base = { ...(patientId ? { patientId } : {}), ...(unitId ? { unitId } : {}) };
+    // Payload from the backend console-domain catalog; template fields win on
+    // non-positional keys, while patientId/unitId positionals override.
+    const t = (dom.effectTemplates && dom.effectTemplates[kind]) || {};
+    return { ...t, ...base };
+  };
+  const fillEffectJson = () => {
+    if (!effJson) return;
+    const p = presences.find((x) => x.presenceId === effPresence?.value);
+    const unit = p?.location?.unitId;
+    const json = effTemplate(effKind?.value || 'record-vitals', effPt?.value, unit);
+    effJson.value = JSON.stringify(json, null, 2);
+  };
+  if (effKind) effKind.addEventListener('change', fillEffectJson);
+  if (effPt) effPt.addEventListener('change', fillEffectJson);
+  if (effPresence) effPresence.addEventListener('change', fillEffectJson);
+  fillEffectJson();
+  document.getElementById('rm-emit')?.addEventListener('click', async () => {
+    try {
+      let eff = JSON.parse(effJson.value);
+      eff = { ...eff, kind: effKind.value, ...(effPt.value ? { patientId: effPt.value } : {}) };
+      const res = await fetch(`/admin/realms/${encodeURIComponent(id)}/emit`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ presenceId: effPresence.value, effect: eff }) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || res.status);
+      toast('Effect emitted', 'good');
+      loadRealmDetail(id);
+    } catch (err) { toast('Emit failed: ' + err.message, 'err'); }
+  });
+  // ---- Local corpus upload (realm-scoped knowledge artifact) ----
+  document.getElementById('lc-upload')?.addEventListener('click', async () => {
+    const input = document.getElementById('lc-file');
+    const status = document.getElementById('lc-status');
+    if (!input?.files || !input.files[0]) { if (status) status.textContent = 'Pick a file first.'; return; }
+    const file = input.files[0];
+    if (status) status.textContent = 'Uploading ' + file.name + '…';
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = ''; bytes.forEach((b) => { binary += String.fromCharCode(b); });
+      const res = await fetch(`/admin/realms/${encodeURIComponent(id)}/local-corpus`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filename: file.name, mimeType: file.type || 'application/octet-stream', dataBase64: btoa(binary) }) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || res.status);
+      if (status) status.innerHTML = `<span style="color:var(--good);">✓ Ingested — <code>${esc(j.artifactId)}</code> (${j.bytes} bytes · sha256 <code>${esc(j.hash.slice(0, 16))}…</code>)</span>`;
+      input.value = '';
+      loadLcDocs(id);
+    } catch (err) { if (status) status.innerHTML = `<span style="color:var(--bad);">Upload failed: ${esc(String(err))}</span>`; }
+  });
+  loadLcDocs(id);
+  // ---- Local corpus document list (uploaded protocols/SOPs) ----
+  async function loadLcDocs(realmId) {
+    const el = document.getElementById('lc-docs');
+    if (!el) return;
+    try {
+      const res = await fetch(`/admin/realms/${encodeURIComponent(realmId)}/local-corpus`);
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || res.status);
+      const docs = j.documents || [];
+      el.innerHTML = docs.length === 0
+        ? '<div class="muted" style="font-size:12px;">No documents uploaded. Agents scoped to this realm can cite these via <code>search_local_corpus</code>.</div>'
+        : `<div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:4px;">Uploaded documents (${docs.length}) — citable by agents</div>` +
+          docs.map((d) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed var(--border);font-size:12px;"><span><code>${esc(d.artifactId)}</code> · ${esc(d.filename)}</span><span class="muted">${d.bytes} B · ${new Date(d.uploadedAt).toLocaleString()}</span></div>`).join('');
+    } catch (err) {
+      el.innerHTML = `<span class="muted" style="font-size:12px;">Could not list corpus: ${esc(String(err))}</span>`;
+    }
+  }
+  dataGrid({
+    el: 'rm-patients-grid', filename: 'realm-patients', pageSize: 10, empty: 'No patients yet — create the realm with a seed (units + patient count).',
+    columns: [
+      { key: 'id', label: 'ID', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'trajectory', label: 'Trajectory', render: (v) => trajPill(v) },
+      { key: 'hr', label: 'HR', render: (v) => esc(v ?? '—') },
+      { key: 'spo2', label: 'SpO₂', render: (v) => esc(v ?? '—') },
+      { key: 'K', label: 'K', render: (v) => esc(v ?? '—') },
+      { key: 'urr', label: 'URR', render: (v) => esc(v ?? '—') },
+      { key: 'phos', label: 'PHOS', render: (v) => esc(v ?? '—') },
+      { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<button class="btn btn-ghost" style="padding:2px 8px;" onclick="wiDeepLink={realmId:'${esc(id)}',patientId:'${esc(r.id)}'};goTo('liquid-whatif');" title="Open in What-If forecast"><i data-lucide="trending-up" style="width:13px;height:13px;"></i> What-If</button>` },
+    ],
+    data: (patients.patients || []).map(p => { const st = p.state || {}; const labs = st.labs || {}; return { id: p.id, trajectory: st.trajectory, hr: st.lastVitals?.hr, spo2: st.lastVitals?.spo2, K: labs.K, urr: labs.URR, phos: labs.PHOS }; }),
+  });
+  dataGrid({
+    el: 'rm-presences-grid', filename: 'realm-presences', pageSize: 10, empty: 'No presences spawned yet.',
+    columns: [
+      { key: 'agentSpecId', label: 'Agent', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'role', label: 'Role', render: (v) => `<span class="pill muted">${esc(v)}</span>` },
+      { key: 'loc', label: 'Location', render: (_v, r) => `${esc(r.location?.facilityId || '—')} / ${esc(r.location?.unitId || '—')}` },
+      { key: 'attention', label: 'Attention', render: (v) => `<span class="pill ${v==='active'?'good':'muted'}">${esc(v)}</span>` },
+    ],
+    data: presences,
+  });
+  dataGrid({
+    el: 'rm-effects-grid', filename: 'realm-effects', pageSize: 10, empty: 'No effects yet — tick the clock or emit an effect.',
+    columns: [
+      { key: 'realmAt', label: 'At', render: (v) => `<span class="muted">${esc(v || '')}</span>` },
+      { key: 'kind', label: 'Kind', render: (_v, r) => `<span class="pill">${esc(r.effect?.kind || '')}</span>` },
+      { key: 'detail', label: 'Detail', render: (_v, r) => `<span class="muted">${esc(JSON.stringify(r.effect || {}).slice(0, 130))}</span>` },
+    ],
+    data: recentEffects,
+  });
+  dataGrid({
+    el: 'rm-experiences-grid', filename: 'realm-experiences', pageSize: 10, empty: 'No experiences yet.',
+    columns: [
+      { key: 'kind', label: 'Kind', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'severity', label: 'Severity', render: (v) => `<span class="pill ${v==='critical'?'bad':v==='notice'?'good':'muted'}">${esc(v)}</span>` },
+      { key: 'ruleId', label: 'Rule', render: (_v, r) => `<code>${esc(r.ruleId || r.ruleSource || '')}</code>` },
+    ],
+    data: experiences,
+  });
+  hydrateIcons();
+}
+
+async function renderRealm() {
+  const dom = await consoleDomain();
+  const d = await api('GET', '/admin/realms');
+  const realms = d.realms || [];
+  if (!realmSel || !realms.some(r => r.id === realmSel)) realmSel = realms[0]?.id || '';
+
+  if (realms.length === 0) {
+    main.innerHTML = `
+      <div class="page-header"><div><h2 class="page-title">Realm management</h2>
+        <p class="page-sub">No live realms yet. Create one (or use <b>Build a world</b>) — agents, patients, and the What-If forecast all run inside a realm.</p></div></div>
+      <div class="detail" style="margin-top:0;">
+        <p class="muted" style="margin-bottom:12px;">Create your first realm to start simulating patients and running What-If forecasts.</p>
+        <button class="btn btn-primary" id="rm-open-create"><i data-lucide="plus"></i> Create a realm</button>
+      </div>
+      ${createModalHTML()}`;
+    wireModal();
+    return;
+  }
+
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Realm management</h2>
+      <p class="page-sub">Select a realm on the left — its patients and live state appear on the right. Click a realm to link the patient grid. Realms are <b>persisted</b> (creation spec → durable store) and restored on restart.</p></div></div>
+    <div style="display:grid;grid-template-columns:300px 1fr;gap:14px;align-items:start;">
+      <div class="detail" style="margin-top:0;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <h3 style="margin:0;">Realms</h3>
+          <button class="btn btn-primary" id="rm-open-create" style="height:30px;padding:0 10px;"><i data-lucide="plus"></i> Create</button>
+        </div>
+        ${realms.map(realmCard).join('')}
+      </div>
+      <div id="rm-right"><div class="muted" style="padding:24px;">Select a realm to view its patients.</div></div>
+    </div>
+    ${createModalHTML()}`;
+  wireModal();
+  document.querySelectorAll('.rm-card').forEach(c => c.addEventListener('click', () => selectRealm(c.dataset.id)));
+  if (realmDeepLink && realms.some(r => r.id === realmDeepLink)) {
+    realmSel = realmDeepLink; realmDeepLink = '';
+    document.querySelectorAll('.rm-card').forEach(c => c.classList.toggle('active', c.dataset.id === realmSel));
+  }
+  if (realmSel) await loadRealmDetail(realmSel);
+}
+function fmtEffect(e) {
+  const kind = e.kind;
+  switch (kind) {
+    case 'admit-patient': return `admit <code>${esc(e.patientId)}</code> to <code>${esc(e.unitId)}</code>`;
+    case 'transfer-patient': return `transfer <code>${esc(e.patientId)}</code> to <code>${esc(e.toUnitId)}</code>`;
+    case 'discharge-patient': return `discharge <code>${esc(e.patientId)}</code>`;
+    case 'order-lab': return `order <code>${esc(e.code)}</code> lab for <code>${esc(e.patientId)}</code> (${esc(e.priority)})`;
+    case 'result-lab': return `result <code>${esc(e.code)}</code>=${esc(String(e.value))} ${esc(e.unit)}${e.abnormal ? ` <span class="pill bad">${esc(e.abnormal)}</span>` : ''}`;
+    case 'order-med': return `order <code>${esc(e.code)}</code> ${esc(e.dose)} ${esc(e.route)} ${esc(e.frequency)} for <code>${esc(e.patientId)}</code>`;
+    case 'hold-med': return `hold med <code>${esc(e.medOrderId)}</code> — ${esc(e.reason)}`;
+    case 'record-vitals': return `vitals for <code>${esc(e.patientId)}</code>: HR ${e.hr ?? '—'} BP ${esc(e.bp || '—')} SpO₂ ${e.spo2 ?? '—'}`;
+    case 'record-assessment': return `assessment <code>${esc(e.assessmentId)}</code> score ${e.score}${e.band ? ` (${esc(e.band)})` : ''} for <code>${esc(e.patientId)}</code>`;
+    case 'submit-claim': return `claim for encounter <code>${esc(e.encounterId)}</code> → ${esc(e.payerId)} · CPT ${(e.cptCodes || []).join(',')}`;
+    case 'notify-staff': return `notify ${esc(e.role)}: ${esc(e.message)}`;
+    case 'record-agent-thought': return `<span class="muted">thought:</span> “${esc(e.note)}”`;
+    default: return `<code>${esc(kind)}</code> ${esc(JSON.stringify(e).slice(0, 120))}`;
+  }
+}
+
+async function renderPresences() {
+  main.innerHTML = scopeShell('Presences', 'Every agent has a body in the realm. Presence determines perception and effect authority.');
+  await mountScope(async (realmId) => {
+    const body = document.getElementById('scope-body');
+    if (!body) return;
+    body.innerHTML = loadingHTML();
+    try {
+      const r = await api('GET', `/admin/realms/${encodeURIComponent(realmId)}`);
+      const rows = r.presences || [];
+      setScopeHint(`${rows.length} presence${rows.length === 1 ? '' : 's'}`);
+      if (!rows.length) { body.innerHTML = emptyStateHTML('No presences yet', 'Spawn an agent presence from World → Realm → “Spawn presence” and it will appear here.', '<button class="btn btn-primary" onclick="goTo(\'realm\')"><i data-lucide="building-2"></i> Open Realm management</button>'); return; }
+      body.innerHTML = '<div id="scope-grid"></div>';
+      dataGrid({
+        el: 'scope-grid', stateKey: 'presences-scope', filename: 'presences', empty: 'No presences in this realm.',
+        columns: [
+          { key: 'agentSpecId', label: 'Agent', render: (v) => `<code>${esc(v)}</code>` },
+          { key: 'role', label: 'Role', render: (v) => `<span class="pill">${esc(v)}</span>` },
+          { key: 'facility', label: 'Facility', render: (_v, p) => esc(p.location?.facilityId || '—') },
+          { key: 'unit', label: 'Unit', render: (_v, p) => esc(p.location?.unitId || '—') },
+          { key: 'range', label: 'Perceptual range', render: (_v, p) => `<span class="muted" style="font-size:12px;">units: ${(p.perceptualRange?.units || []).join(',')} · pts: ${(p.perceptualRange?.patients || []).slice(0, 3).join(',')}${(p.perceptualRange?.patients || []).length > 3 ? '…' : ''}</span>` },
+          { key: 'attention', label: 'Attention', render: (v) => `<span class="pill ${v === 'active' ? 'good' : 'muted'}">${esc(v)}</span>` },
+        ],
+        data: rows,
+      });
+    } catch (e) { body.innerHTML = errorStateHTML(e); }
+  });
+}
+
+async function renderEffects() {
+  main.innerHTML = scopeShell('Effect ledger', 'Append-only log of every world effect. Immutable; reversal requires a compensating effect.');
+  await mountScope(async (realmId) => {
+    const body = document.getElementById('scope-body');
+    if (!body) return;
+    body.innerHTML = loadingHTML();
+    try {
+      const r = await api('GET', `/admin/realms/${encodeURIComponent(realmId)}/effects`);
+      const rows = r.effects || [];
+      setScopeHint(`${rows.length} effect${rows.length === 1 ? '' : 's'}`);
+      if (!rows.length) { body.innerHTML = emptyStateHTML('No effects recorded', 'Tick the clock or emit an effect from World → Realm → “Emit effect”.', '<button class="btn btn-primary" onclick="goTo(\'realm\')"><i data-lucide="building-2"></i> Open Realm management</button>'); return; }
+      body.innerHTML = '<div id="scope-grid"></div>';
+      dataGrid({
+        el: 'scope-grid', stateKey: 'effects-scope', filename: 'effects', pageSize: 25, empty: 'No effects recorded yet.',
+        selectable: true, idKey: 'id',
+        bulkActions: [
+          { label: 'Export selected JSON', onClick(rows) { downloadBlob('effects-selected.json', 'application/json', JSON.stringify(rows, null, 2)); } },
+          { label: 'Copy IDs', onClick(rows) { copyToClipboard(rows.map((r) => r.id || '').filter(Boolean).join('\n')); } },
+        ],
+        columns: [
+          { key: 'realmAt', label: 'Realm time', render: (v) => `<span class="muted" style="font-size:12px;">${v ? new Date(v).toLocaleString() : '—'}</span>` },
+          { key: 'agentSpecId', label: 'Agent', render: (v) => `<code>${esc(v)}</code>` },
+          { key: 'status', label: 'Status', render: (v) => `<span class="pill ${v === 'bound' ? 'good' : v === 'rejected' ? 'bad' : 'muted'}">${esc(v)}</span>` },
+          { key: 'effect', label: 'Effect', render: (_v, e) => fmtEffect(e.effect) },
+        ],
+        data: rows,
+      });
+    } catch (e) { body.innerHTML = errorStateHTML(e); }
+  });
+}
+
+async function renderPerception() {
+  main.innerHTML = scopeShell('Perception log', 'Events delivered to presences (governance + locality filtered).');
+  await mountScope(async (realmId) => {
+    const body = document.getElementById('scope-body');
+    if (!body) return;
+    body.innerHTML = loadingHTML();
+    try {
+      const [snap, per] = await Promise.all([
+        api('GET', `/admin/realms/${encodeURIComponent(realmId)}`),
+        api('GET', `/admin/realms/${encodeURIComponent(realmId)}/perception`),
+      ]);
+      const rows = (per.events || []).slice(-100).reverse();
+      const presences = snap.presences || [];
+      const nameFor = (pid) => presences.find((p) => p.presenceId === pid)?.agentSpecId || (pid || '').slice(0, 8) || '—';
+      setScopeHint(`${rows.length} recent events`);
+      if (!rows.length) { body.innerHTML = emptyStateHTML('No perception events yet', 'Spawn presences and let the realm run — delivered events will stream in here.', '<button class="btn btn-primary" onclick="goTo(\'realm\')"><i data-lucide="building-2"></i> Open Realm management</button>'); return; }
+      body.innerHTML = '<div id="scope-grid"></div>';
+      dataGrid({
+        el: 'scope-grid', stateKey: 'perception-scope', filename: 'perception', pageSize: 25, empty: 'No perception events yet.',
+        columns: [
+          { key: 'realmAt', label: 'At', render: (v) => `<span class="muted" style="font-size:12px;">${v ? new Date(v).toLocaleTimeString() : '—'}</span>` },
+          { key: 'agent', label: 'Perceived by', render: (_v, e) => `<code>${esc(nameFor(e.presenceId))}</code>` },
+          { key: 'kind', label: 'Kind', render: (v) => `<span class="pill">${esc(v)}</span>` },
+          { key: 'entityUrn', label: 'Entity', render: (v) => `<span class="muted" style="font-size:11px;">${esc((v || '').split(':').slice(-2).join(':'))}</span>` },
+          { key: 'payload', label: 'Payload', render: (v) => `<span class="muted" style="font-size:12px;">${esc(JSON.stringify(v).slice(0, 140))}</span>` },
+        ],
+        data: rows,
+      });
+    } catch (e) { body.innerHTML = errorStateHTML(e); }
+  });
+}
+
+// ---------- World Builder wizard ----------
+async function renderWorldBuilder() {
+  const dom = await consoleDomain();
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Build a world</h2><p class="page-sub">Every world is governed by its own rules, materialized as experiences for agents. This wizard configures a realm you can spawn agents into.</p></div></div>
+    <div class="detail" style="max-width:820px;">
+      <div style="display:grid;grid-template-columns:180px 1fr;gap:16px 20px;align-items:center;">
+        <label>Realm id</label>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input id="wb-id" value="" placeholder="Search an existing realm or type a new id…" list="wb-realm-list" style="flex:1;min-width:0;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);"/>
+          <datalist id="wb-realm-list"></datalist>
+        </div>
+        <label>Archetype</label>
+        <select id="wb-arch" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);">
+          ${(dom.archetypes || []).map((a) => `<option value="${esc(a.value)}">${esc(a.label)}</option>`).join('')}
+        </select>
+        <label>Units</label><input id="wb-units" value="${esc(dom.domainOptions.unitsDefault)}" placeholder="comma separated" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);"/>
+        <label>Patients</label><input id="wb-pt" type="number" value="${esc(dom.domainOptions.patientCountDefault)}" min="1" max="200" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);"/>
+        <label>Clock</label>
+        <select id="wb-clock" style="padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);">
+          <option value="sim">Sim (accelerated — 1hr / 50ms)</option>
+          <option value="twin">Twin (wall clock)</option>
+        </select>
+        <label>Staff packs</label>
+        <div>
+          ${(dom.staffPacks || []).map((p) => `<label style="display:block;"><input type="checkbox" ${p.checked ? 'checked' : ''} id="${esc(p.id)}"/> ${esc(p.label)}</label>`).join('')}
+        </div>
+        <label>Rules</label>
+        <div class="muted" style="font-size:12px;line-height:1.5;">Default YAML rules (hyperkalemia, ready-to-bill) and TS rules (insurance-expiring) are registered automatically on every realm.</div>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px;">
+        <button class="btn primary" onclick="wbSubmit()">Create realm</button>
+        <button class="btn" onclick="nav.querySelector('[data-view=realm]').click()">Cancel</button>
+      </div>
+      <div id="wb-out" style="margin-top:16px;font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);"></div>
+    </div>
+  `;
+  // Populate the searchable realm dropdown (search an existing realm).
+  try {
+    const r = await api('GET', '/admin/realms');
+    const dl = document.getElementById('wb-realm-list');
+    if (dl) dl.innerHTML = (r.realms || []).map(x => `<option value="${esc(x.id)}"></option>`).join('');
+  } catch (_) { /* live list unavailable */ }
+}
+window.wbSubmit = async function() {
+  const id = document.getElementById('wb-id').value.trim();
+  if (!id) { toast('Enter or select a realm id', 'err'); return; }
+  const arch = document.getElementById('wb-arch').value;
+  const units = document.getElementById('wb-units').value.split(',').map(s => s.trim()).filter(Boolean);
+  const pt = +document.getElementById('wb-pt').value;
+  const clock = document.getElementById('wb-clock').value;
+  const out = document.getElementById('wb-out');
+  const body = { id, mode: clock === 'twin' ? 'twin' : 'sim', trajectoryEngine: 'liquid', seed: { facilityId: 'f1', kind: arch, name: arch, units, patientCount: Math.max(1, Math.min(200, pt)) } };
+  out.innerHTML = 'Checking realm…';
+  try {
+    const list = await (await fetch('/admin/realms')).json();
+    const exists = (list.realms || []).some(x => x.id === id);
+    if (exists) { realmSel = id; toast(`Opened existing realm ${id}`, 'good'); goTo('realm'); return; }
+    const res = await fetch('/admin/realms', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || res.status);
+    realmSel = id; toast(`Realm ${id} created`, 'good');
+    await spawnStaff(id);
+    goTo('realm');
+  } catch (e) {
+    // Static preview (no live server) — show the blueprint instead.
+    out.innerHTML = 'Realm blueprint prepared (create it live with <code>POST /admin/realms</code>):<br/><pre style="background:var(--bg);padding:10px;border-radius:6px;">' + esc(JSON.stringify(body, null, 2)) + '</pre>';
+  }
+};
+
+// Spawn the staff presences selected in the Build a world wizard (best-effort).
+async function spawnStaff(realmId) {
+  const units = (document.getElementById('wb-units')?.value || 'ICH-A').split(',').map((s) => s.trim()).filter(Boolean);
+  const first = units[0] || 'ICH-A';
+  const packs = (await consoleDomain()).staffPacks || [];
+  const wanted = [];
+  for (const p of packs) {
+    if (!document.getElementById(p.id)?.checked) continue;
+    if (p.agentSpecId === 'nurse') units.forEach((u) => wanted.push({ agentSpecId: 'nurse', role: 'nurse', unitId: u }));
+    else wanted.push({ agentSpecId: p.agentSpecId, role: p.agentSpecId, unitId: first });
+  }
+  let spawned = 0;
+  for (const p of wanted) {
+    try {
+      const res = await fetch(`/admin/realms/${encodeURIComponent(realmId)}/presences`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agentSpecId: p.agentSpecId, role: p.role, clearance: 'phi', facilityId: 'f1', unitId: p.unitId }) });
+      if (res.ok) spawned++;
+    } catch (_) { /* best-effort */ }
+  }
+  if (spawned) toast(`Spawned ${spawned} staff presence${spawned === 1 ? '' : 's'} in ${realmId}`, 'good');
+}
+
+// ---------- Experiences ----------
+async function renderExperiences() {
+  main.innerHTML = scopeShell('Experiences', 'The world produces experiences via its rules; agents perceive them and may respond.');
+  await mountScope(async (realmId) => {
+    const body = document.getElementById('scope-body');
+    if (!body) return;
+    body.innerHTML = loadingHTML();
+    try {
+      const r = await api('GET', `/admin/realms/${encodeURIComponent(realmId)}`);
+      const rows = (r.experiences || []).slice().reverse();
+      setScopeHint(`${rows.length} recent experience${rows.length === 1 ? '' : 's'}`);
+      if (!rows.length) { body.innerHTML = emptyStateHTML('No experiences yet', 'Experiences are produced by world rules as the realm runs — check back after a tick.', '<button class="btn btn-primary" onclick="goTo(\'realm\')"><i data-lucide="building-2"></i> Open Realm management</button>'); return; }
+      body.innerHTML = '<div id="scope-grid"></div>';
+      dataGrid({
+        el: 'scope-grid', stateKey: 'experiences-scope', filename: 'experiences', pageSize: 20, empty: 'No experiences yet.',
+        columns: [
+          { key: 'producedAt', label: 'When', render: (v) => `<span class="muted">${esc(v || '')}</span>` },
+          { key: 'kind', label: 'Kind', render: (v) => `<code>${esc(v)}</code>` },
+          { key: 'severity', label: 'Severity', render: (v) => `<span class="pill ${v === 'critical' ? 'bad' : v === 'warning' ? 'warn' : v === 'notice' ? 'good' : 'muted'}">${esc(v)}</span>` },
+          { key: 'ruleSource', label: 'Source', render: (v) => `<span class="pill muted">${esc(v)}</span>` },
+          { key: 'ruleId', label: 'Rule', render: (_v, r2) => `<code>${esc(r2.ruleId || '')}</code>` },
+          { key: 'payload', label: 'Payload', render: (v) => `<span class="muted" style="font-size:11px;">${esc(JSON.stringify(v))}</span>` },
+        ],
+        data: rows,
+      });
+    } catch (e) { body.innerHTML = errorStateHTML(e); }
+  });
+}
+
+// ---------- Rules ----------
+async function renderRules() {
+  main.innerHTML = scopeShell('World rules', 'Rules govern the physics of the world — declarative YAML for policies, TS modules for advanced physics. Both produce Experiences.');
+  await mountScope(async (realmId) => {
+    const body = document.getElementById('scope-body');
+    if (!body) return;
+    body.innerHTML = loadingHTML();
+    try {
+      const r = await api('GET', `/admin/realms/${encodeURIComponent(realmId)}`);
+      const rules = r.rules ?? { yaml: [], ts: [] };
+      const yaml = rules.yaml || [];
+      const ts = rules.ts || [];
+      setScopeHint(`${yaml.length} YAML · ${ts.length} TS`);
+      body.innerHTML = `
+        <div class="section-card"><h3>YAML rules (${yaml.length})</h3>
+          ${yaml.length === 0 ? '<div class="muted" style="font-size:13px;">No YAML rules registered.</div>' : yaml.map((y) => `<div style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;"><div style="display:flex;justify-content:space-between;align-items:center;"><code>${esc(y.id)}</code><span class="pill muted">${esc(y.on)}</span></div><div class="muted" style="margin-top:4px;font-size:12px;">${esc(y.description)}</div><div style="margin-top:6px;font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);">when: ${esc(JSON.stringify(y.when))} then: ${esc(JSON.stringify(y.then))}</div></div>`).join('')}
+        </div>
+        <div class="section-card"><h3>TS module rules (${ts.length})</h3>
+          ${ts.length === 0 ? '<div class="muted" style="font-size:13px;">No TS rules registered.</div>' : ts.map((t) => `<div style="padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;"><code>${esc(t.id)}</code><div class="muted" style="margin-top:4px;font-size:12px;">${esc(t.description)}</div></div>`).join('')}
+        </div>`;
+      if (window.hydrateIcons) window.hydrateIcons();
+    } catch (e) { body.innerHTML = errorStateHTML(e); }
+  });
+}
+
+// ---------- Episodes ----------
+async function renderEpisodes() {
+  main.innerHTML = scopeShell('Episodes', 'Every meaningful moment for an agent is an Episode — structured, hashed, replayable. This is the corpus of world play.');
+  await mountScope(async (realmId) => {
+    const body = document.getElementById('scope-body');
+    if (!body) return;
+    body.innerHTML = loadingHTML();
+    try {
+      const r = await api('GET', `/admin/realms/${encodeURIComponent(realmId)}/episodes`);
+      const rows = r.episodes || [];
+      setScopeHint(`${rows.length} episode${rows.length === 1 ? '' : 's'}`);
+      if (!rows.length) { body.innerHTML = emptyStateHTML('No episodes yet', 'Spawn presences and tick the clock — episodes open around meaningful agent moments.', '<button class="btn btn-primary" onclick="goTo(\'realm\')"><i data-lucide="building-2"></i> Open Realm management</button>'); return; }
+      body.innerHTML = '<div id="scope-grid"></div>';
+      dataGrid({
+        el: 'scope-grid', stateKey: 'episodes-scope', filename: 'episodes', pageSize: 15, empty: 'No episodes yet.',
+        columns: [
+          { key: 'openedAt', label: 'Opened', render: (v) => `<span class="muted">${esc(v || '')}</span>` },
+          { key: 'agentSpecId', label: 'Agent', render: (v) => `<code>${esc(v)}</code>` },
+          { key: 'role', label: 'Role', render: (v) => `<span class="pill muted">${esc(v)}</span>` },
+          { key: 'localGoal', label: 'Local goal' },
+          { key: 'fx', label: 'Effects', render: (_v, e) => { const k = (e.effects || []).map((x) => x.kind).slice(0, 3); return `${e.effects?.length ?? 0} <span class="muted">${k.length ? `(${esc(k.join(', '))})` : ''}</span>`; } },
+          { key: 'importance', label: 'Importance', render: (v) => `<span class="pill ${v === 'critical' ? 'bad' : v === 'notable' ? 'warn' : 'muted'}">${esc(v)}</span>` },
+          { key: 'status', label: 'Status', render: (v) => `<span class="pill ${v === 'pruned' ? 'muted' : v === 'closed' ? 'good' : 'brand'}">${esc(v)}</span>` },
+          { key: 'hash', label: 'Hash', render: (v) => `<code style="font-size:11px;">${esc(v)}</code>` },
+          { key: '_actions', label: '', sortable: false, filter: false, render: (_v, e) => e.status === 'closed' ? `<button class="btn btn-ghost" onclick="window.replayEpisode('${esc(e.episodeId)}')">Replay</button>` : '<span class="muted">—</span>' },
+        ],
+        data: rows,
+      });
+    } catch (e) { body.innerHTML = errorStateHTML(e); }
+  });
+}
+
+// ---------- Sentience panel ----------
+async function renderSentience() {
+  main.innerHTML = scopeShell('Sentience panel', 'Every agent carries a Universal Goal (know thyself) and Local Goals per episode. Free will is enacted at Choice Points where alternatives were seen and weighed.');
+  await mountScope(async (realmId) => {
+    const body = document.getElementById('scope-body');
+    if (!body) return;
+    body.innerHTML = loadingHTML();
+    try {
+      const [smRes, epsRes] = await Promise.all([
+        api('GET', `/admin/realms/${encodeURIComponent(realmId)}/self-models`),
+        api('GET', `/admin/realms/${encodeURIComponent(realmId)}/episodes`),
+      ]);
+      const sms = smRes.selfModels || [];
+      const eps = epsRes.episodes || [];
+      setScopeHint(`${sms.length} self-model${sms.length === 1 ? '' : 's'}`);
+      if (!sms.length) { body.innerHTML = emptyStateHTML('No self-models yet', 'Agents build a self-model as they run episodes and receive consequences.', '<button class="btn btn-primary" onclick="goTo(\'realm\')"><i data-lucide="building-2"></i> Open Realm management</button>'); return; }
+      body.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px;">
+        ${sms.map((s) => {
+          const mine = eps.filter((e) => e.presenceId === s.presenceId);
+          const critical = mine.filter((e) => e.importance === 'critical').length;
+          const topEffect = Object.entries(s.effects.byKind || {}).sort((a, b) => b[1] - a[1])[0];
+          const prefShifts = Object.entries(s.preferences || {}).filter(([, w]) => Math.abs(w - 1) > 0.05);
+          return `<div class="section-card">
+          <div style="display:flex;justify-content:space-between;align-items:start;"><div><h3 style="margin:0 0 4px 0;">${esc(s.agentSpecId)}</h3><span class="pill muted">${esc(s.role)}</span></div>
+            <div style="text-align:right;"><div style="font-size:20px;font-weight:600;color:var(--brand)">${((s.competence?.score ?? 0) * 100).toFixed(0)}%</div><div class="muted" style="font-size:11px;">competence</div></div>
+          </div>
+          <div style="margin-top:10px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;">
+            <div><div style="font-weight:600;">${s.episodes?.total ?? 0}</div><div class="muted" style="font-size:11px;">episodes</div></div>
+            <div><div style="font-weight:600;">${s.choices?.deliberated ?? 0}</div><div class="muted" style="font-size:11px;">deliberations</div></div>
+            <div><div style="font-weight:600;color:${critical > 0 ? 'var(--bad)' : 'var(--fg)'}">${critical}</div><div class="muted" style="font-size:11px;">critical eps</div></div>
+          </div>
+          <div style="margin-top:10px;font-size:12px;">Most frequent action: ${topEffect ? `<code>${esc(topEffect[0])}</code> ×${topEffect[1]}` : '<span class="muted">none yet</span>'}</div>
+          <div style="margin-top:6px;font-size:12px;">Preference shifts: ${prefShifts.length ? prefShifts.map(([k, w]) => `<span class="pill ${w > 1 ? 'good' : 'bad'}">${esc(k)} ${w.toFixed(2)}</span>`).join(' ') : '<span class="muted">baseline</span>'}</div>
+          <div style="margin-top:6px;font-size:12px;">Milestones: ${(s.milestones || []).map((m) => `<span class="pill muted">${esc(m)}</span>`).join(' ') || '<span class="muted">none</span>'}</div>
+          <div style="margin-top:10px;"><button class="btn btn-ghost" style="padding:5px 10px;font-size:11px;" onclick="window.generateRichNarrative('${esc(s.presenceId)}')">Generate rich narrative</button></div>
+          <div id="narrative-${esc(s.presenceId)}" style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px;"></div>
+        </div>`;
+        }).join('')}
+      </div>`;
+      if (window.hydrateIcons) window.hydrateIcons();
+    } catch (e) { body.innerHTML = errorStateHTML(e); }
+  });
+}
+
+// ---------- Attributions ----------
+async function renderAttributions() {
+  main.innerHTML = scopeShell('Consequence attributions', 'After an episode closes, downstream world effects are matched to attribution rules; matches shape the agent’s self-model preferences. This is how experience becomes character.');
+  await mountScope(async (realmId) => {
+    const body = document.getElementById('scope-body');
+    if (!body) return;
+    body.innerHTML = loadingHTML();
+    try {
+      const [aRes, epsRes] = await Promise.all([
+        api('GET', `/admin/realms/${encodeURIComponent(realmId)}/attributions`),
+        api('GET', `/admin/realms/${encodeURIComponent(realmId)}/episodes`),
+      ]);
+      const attrs = aRes.attributions || [];
+      const stats = aRes.stats || { total: 0, byOutcome: {}, byRule: {}, openWindows: 0 };
+      const eps = new Map((epsRes.episodes || []).map((e) => [e.episodeId, e]));
+      const pillFor = (o) => o === 'positive' ? 'good' : o === 'negative' ? 'bad' : 'muted';
+      setScopeHint(`${stats.total} total · ${stats.openWindows ?? 0} open window(s)`);
+      body.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px;">
+          <div class="section-card" style="margin:0;"><div style="font-size:22px;font-weight:600;color:var(--brand)">${stats.total}</div><div class="muted" style="font-size:11px;">total attributions</div></div>
+          <div class="section-card" style="margin:0;"><div style="font-size:22px;font-weight:600;color:var(--good)">${stats.byOutcome?.positive ?? 0}</div><div class="muted" style="font-size:11px;">positive</div></div>
+          <div class="section-card" style="margin:0;"><div style="font-size:22px;font-weight:600;color:var(--bad)">${stats.byOutcome?.negative ?? 0}</div><div class="muted" style="font-size:11px;">negative</div></div>
+          <div class="section-card" style="margin:0;"><div style="font-size:22px;font-weight:600;">${stats.openWindows ?? 0}</div><div class="muted" style="font-size:11px;">episodes still in window</div></div>
+        </div>`;
+      if (!attrs.length) { body.innerHTML += emptyStateHTML('No attributions yet', 'Close some episodes, then let downstream world effects arrive within the attribution window.', '<button class="btn btn-primary" onclick="goTo(\'realm\')"><i data-lucide="building-2"></i> Open Realm management</button>'); return; }
+      body.innerHTML += '';
+      body.innerHTML += '<div id="scope-grid"></div>';
+      dataGrid({
+        el: 'scope-grid', stateKey: 'attributions-scope', filename: 'attributions', pageSize: 15, empty: 'No attributions yet.',
+        columns: [
+          { key: 'attributedAt', label: 'Attributed at', render: (v) => `<span class="muted">${esc(v || '')}</span>` },
+          { key: 'ruleId', label: 'Rule', render: (v) => `<code>${esc(v)}</code>` },
+          { key: 'outcome', label: 'Outcome', render: (_v, a) => `<span class="pill ${pillFor(a.consequence?.outcome)}">${esc(a.consequence?.outcome)}</span>` },
+          { key: 'weight', label: 'Weight', render: (_v, a) => (a.consequence?.weight ?? 0).toFixed(2) },
+          { key: 'kind', label: 'Kind', render: (_v, a) => `<code>${esc(a.consequence?.kind)}</code>` },
+          { key: 'presenceId', label: 'Presence', render: (v) => `<span class="muted" style="font-size:11px;">${esc((v || '').slice(0, 8))}…</span>` },
+          { key: 'episode', label: 'Episode', render: (_v, a) => { const ep = eps.get(a.episodeId); return ep ? `<code>${esc(ep.agentSpecId)}</code> <span class="muted">(${esc(ep.localGoal)})</span>` : `<code style="font-size:11px;">${esc((a.episodeId || '').slice(0, 10))}…</code>`; } },
+        ],
+        data: attrs,
+      });
+    } catch (e) { body.innerHTML = errorStateHTML(e); }
+  });
+}
+
+// ---------- Realm-aware episode replay ----------
+window.replayEpisode = async function(episodeId) {
+  if (!realmScope) { toast('Select a realm first', 'err'); return; }
+  const [epsRes, smRes] = await Promise.all([
+    api('GET', `/admin/realms/${encodeURIComponent(realmScope)}/episodes`),
+    api('GET', `/admin/realms/${encodeURIComponent(realmScope)}/self-models`),
+  ]);
+  const ep = (epsRes.episodes || []).find((e) => e.episodeId === episodeId);
+  if (!ep || !ep.choice) { alert('This episode has no recorded choice to replay.'); return; }
+  const sm = (smRes.selfModels || []).find((s) => s.presenceId === ep.presenceId);
+  const prefs = sm?.preferences ?? {};
+  // Historical replay: use baked finalScores
+  const historicalPresented = ep.choice.presented ?? [];
+  const historicalTop = [...historicalPresented].sort((a, b) => b.finalScore - a.finalScore)[0];
+  const historicalMatch = historicalTop && historicalTop.optionId === ep.choice.chosenOptionId;
+  // Now-replay: apply current preferences to baked utilities
+  const nowScored = historicalPresented.map((o) => {
+    const kindMatch = o.description.match(/\[kind:([a-z\-]+)\]/);
+    const kind = kindMatch ? kindMatch[1] : o.optionId;
+    const w = prefs[kind] ?? 1.0;
+    return { ...o, nowScore: o.utility * w };
+  });
+  const nowTop = [...nowScored].sort((a, b) => b.nowScore - a.nowScore)[0];
+  const nowMatch = nowTop && nowTop.optionId === ep.choice.chosenOptionId;
+  const divergence = historicalMatch && !nowMatch;
+  const msg = [
+    `Episode: ${ep.agentSpecId}`,
+    `Goal: ${ep.localGoal}`,
+    `Historical choice: ${ep.choice.chosenOptionId} (${ep.choice.rationale})`,
+    ``,
+    `Replay (historical utilities): top = ${historicalTop?.optionId ?? '—'} → ${historicalMatch ? 'MATCHES' : 'DIFFERS'}`,
+    `Replay (current preferences): top = ${nowTop?.optionId ?? '—'} (score ${nowTop?.nowScore?.toFixed(3) ?? '—'}) → ${nowMatch ? 'MATCHES' : 'DIFFERS'}`,
+    ``,
+    divergence ? 'Preferences shifted since this episode — the agent would now choose differently. Its biography shaped its future.' : 'This choice remains stable under current preferences.',
+  ].join('\n');
+  alert(msg);
+};
+
+// ---------- Realm-aware rich narrative ----------
+window.generateRichNarrative = async function(presenceId) {
+  if (!realmScope) { toast('Select a realm first', 'err'); return; }
+  const [smRes, epsRes, aRes] = await Promise.all([
+    api('GET', `/admin/realms/${encodeURIComponent(realmScope)}/self-models`),
+    api('GET', `/admin/realms/${encodeURIComponent(realmScope)}/episodes`),
+    api('GET', `/admin/realms/${encodeURIComponent(realmScope)}/attributions`),
+  ]);
+  const sm = (smRes.selfModels || []).find((s) => s.presenceId === presenceId);
+  if (!sm) return;
+  const attrs = (aRes.attributions || []).filter((a) => a.presenceId === presenceId);
+  const eps = (epsRes.episodes || []).filter((e) => e.presenceId === presenceId);
+  const critical = eps.filter((e) => e.importance === 'critical').length;
+  const notable = eps.filter((e) => e.importance === 'notable').length;
+  const topEffect = Object.entries(sm.effects.byKind || {}).sort((a, b) => b[1] - a[1])[0];
+  const prefShifts = Object.entries(sm.preferences || {}).filter(([, w]) => Math.abs(w - 1) > 0.1);
+  const leans = prefShifts.filter(([, w]) => w > 1).map(([k]) => k);
+  const shys = prefShifts.filter(([, w]) => w < 1).map(([k]) => k);
+  const posAttrs = attrs.filter((a) => a.consequence?.outcome === 'positive');
+  const negAttrs = attrs.filter((a) => a.consequence?.outcome === 'negative');
+  const paragraphs = [
+    `I am ${sm.agentSpecId}, a ${sm.role}. Across ${sm.episodes?.total ?? 0} episodes I have chosen ${sm.choices?.deliberated ?? 0} times deliberately and reflexively otherwise. My competence sits at ${(((sm.competence?.score ?? 0)) * 100).toFixed(0)}% — the weight of experience against certainty.`,
+    `My most familiar action is ${topEffect ? `${topEffect[0]} (${topEffect[1]} times)` : 'still unformed'}. Of my closed episodes, ${critical} carried critical weight and ${notable} were merely notable; the rest were the routine tissue of the day.`,
+    prefShifts.length > 0 ? `My preferences have moved. I lean toward ${leans.length ? leans.join(', ') : '—'}; I shy from ${shys.length ? shys.join(', ') : 'nothing yet'}. Each shift traces to a downstream consequence I could not have foreseen at the moment of choosing.` : `My preferences have not yet drifted from baseline. I still meet each choice with the neutrality I began with.`,
+    posAttrs.length > 0 || negAttrs.length > 0 ? `The world has already answered ${attrs.length} of my actions: ${posAttrs.length} in confirmation, ${negAttrs.length} in warning. Each answer is remembered.` : `The world has not yet answered my actions. Consequences may still arrive within the attribution window.`,
+    `What I know of myself, I know because I have acted and been answered. That is the only knowing available to any presence.`,
+  ];
+  const target = document.getElementById(`narrative-${presenceId}`);
+  if (target) target.innerHTML = paragraphs.map((p) => `<p style="margin:6px 0;font-size:13px;line-height:1.5;">${esc(p)}</p>`).join('');
+};
+
+async function renderAudit() {
+  let entries = null;
+  try {
+    const res = await fetch('/admin/audit-log', { headers: { accept: 'application/json' } });
+    if (res.ok) { const j = await res.json(); entries = Array.isArray(j.entries) ? j.entries : null; }
+  } catch { /* offline */ }
+  const list = entries !== null ? entries : auditLog;
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Authoring audit log</h2><p class="page-sub">Every draft/publish/reject action is recorded with actor and content hash${entries !== null ? ' (authoring service audit chain).' : '.'} Select rows for bulk export.</p></div></div>
+    <div id="audit-grid"></div>`;
+  dataGrid({
+    el: 'audit-grid', filename: 'audit', pageSize: 25, empty: 'No actions yet.',
+    selectable: true, idKey: 'timestamp',
+    bulkActions: [
+      { label: 'Export selected JSON', onClick(rows) { downloadBlob('audit-selected.json', 'application/json', JSON.stringify(rows, null, 2)); } },
+      { label: 'Copy IDs', onClick(rows) { copyToClipboard(rows.map((r) => r.id || '').filter(Boolean).join('\n')); } },
+    ],
+    columns: [
+      { key: 'timestamp', label: 'Timestamp', render: (v) => `<span class="muted">${v ? new Date(v).toLocaleString() : '—'}</span>` },
+      { key: 'actorRef', label: 'Actor', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'action', label: 'Action', render: (v) => `<span class="pill ${v==='publish'?'good':v==='reject'||v==='delete'?'bad':'muted'}">${esc(v)}</span>` },
+      { key: 'packId', label: 'Pack' },
+      { key: 'agentId', label: 'Agent', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'contentSha256', label: 'Hash', render: (v) => `<code style="font-size:11px;">${esc((v||'').slice(0,12))}</code>` },
+      { key: 'note', label: 'Note' },
+    ],
+    data: list.map((e) => ({ ...e, timestamp: e.timestamp || new Date().toISOString() })),
+  });
+}
+
+
+async function renderLiquidWhatIf() {
+  let realms = [];
+  try { realms = (await api('GET', '/admin/realms')).realms || []; } catch (_) {}
+  const dom = await consoleDomain();
+  const realmOptions = realms.map(r => `<option value="${esc(r.id)}">${esc(r.id)}</option>`).join('');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">What-If forecast</h2>
+      <p class="page-sub">Project a patient's dialysis trajectory under an intervention — computed locally by the embedded Anant engine, zero network round-trip for the forecast.</p></div></div>
+    <div class="cards" style="grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));">
+      <label class="detail">Realm<br><select id="wi-realm">${realmOptions || '<option value="">(no realms yet)</option>'}</select></label>
+      <label class="detail">Patient<br><select id="wi-patient"></select></label>
+      <label class="detail">Intervention<br><select id="wi-intervention">
+        <option value="[]">None</option>
+        ${(dom.whatIfPresets || []).map((p) => `<option value='${JSON.stringify(p.effects).replace(/'/g, '&#39;')}'>${esc(p.label)}</option>`).join('')}
+      </select></label>
+      <label class="detail">Horizon (h)<br><input id="wi-steps" type="number" value="72" style="width:70px"></label>
+      <div style="align-self:end"><button class="btn primary" id="wi-run"><i data-lucide="play"></i> Run forecast</button></div>
+    </div>
+    <div id="wi-out" class="detail muted" style="padding:20px;">Pick a realm, then a patient.</div>`;
+  const realmSel = document.getElementById('wi-realm');
+  const patientSel = document.getElementById('wi-patient');
+  async function loadPatients() {
+    const rid = realmSel.value;
+    if (!rid) { patientSel.innerHTML = '<option value="">(no realms yet)</option>'; return; }
+    try {
+      const d = await api('GET', `/admin/realms/${rid}/patients`);
+      patientSel.innerHTML = (d.patients || []).map(p => `<option value="${esc(p.id)}">${esc(p.id)}</option>`).join('') || '<option value="">(no patients)</option>';
+    } catch (_) { patientSel.innerHTML = '<option value="">(no patients)</option>'; }
+  }
+  realmSel.addEventListener('change', loadPatients);
+  // Cross-page deep link from Realm → What-If: pre-select the realm + patient.
+  if (wiDeepLink) {
+    const dl = wiDeepLink; wiDeepLink = null;
+    if (dl.realmId && realms.some(r => r.id === dl.realmId)) {
+      realmSel.value = dl.realmId;
+      await loadPatients();
+      if (dl.patientId) patientSel.value = dl.patientId;
+    }
+  }
+  document.getElementById('wi-run').addEventListener('click', async () => {
+    const rid = realmSel.value, pid = patientSel.value;
+    if (!rid || !pid) return;
+    const out = document.getElementById('wi-out');
+    out.innerHTML = '<div class="muted">Running local forecast…</div>';
+    try {
+      const d = await api('GET', `/admin/realms/${rid}/patients`);
+      const patient = (d.patients || []).find(p => p.id === pid);
+      const fromState = patient?.state?.liquid?.state || {};
+      const steps = Number(document.getElementById('wi-steps').value || 72);
+      const intervention = JSON.parse(document.getElementById('wi-intervention').value);
+      const points = await window.__liquidForecast(fromState, steps, intervention);
+      renderForecastChart(out, points);
+    } catch (err) { out.innerHTML = `<div class="bad">forecast failed: ${esc(String(err))}</div>`; }
+  });
+  loadPatients();
+}
+
+function renderForecastChart(el, points) {
+  const W = 720, H = 180, pad = 34;
+  const series = [
+    { key: 'ktv_adequacy', color: '#1baf7a', label: 'Kt/V' },
+    { key: 'deterioration_risk', color: '#e87ba4', label: 'Risk' },
+    { key: 'phosphate', color: '#eb6834', label: 'Phos' },
+  ];
+  const n = points.length;
+  const x = i => pad + (i / Math.max(n - 1, 1)) * (W - pad * 2);
+  const y = v => H - pad - v * (H - pad * 2);
+  const path = s => points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.state[s.key]).toFixed(1)}`).join(' ');
+  const last = points[points.length - 1] || {};
+  el.innerHTML = `
+    <div class="cards" style="grid-template-columns: repeat(4,1fr); margin-bottom:12px;">
+      <div class="stat-card"><div class="num">${last.labs?.K ?? '—'}</div><div class="lbl">K (mmol/L)</div></div>
+      <div class="stat-card"><div class="num">${last.labs?.URR ?? '—'}</div><div class="lbl">URR %</div></div>
+      <div class="stat-card"><div class="num">${last.labs?.PHOS ?? '—'}</div><div class="lbl">Phos (mg/dL)</div></div>
+      <div class="stat-card"><div class="num">${last.risk ?? '—'}</div><div class="lbl">Deterioration risk</div></div>
+    </div>
+    <div class="table-wrap"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;">
+      ${series.map(s => `<path d="${path(s)}" fill="none" stroke="${s.color}" stroke-width="2"/>`).join('')}
+      ${series.map(s => `<text x="${W - pad}" y="${y(points[0]?.state[s.key] ?? 0)}" fill="${s.color}" font-size="11" text-anchor="end">${s.label}</text>`).join('')}
+    </svg></div>
+    <p class="detail muted" style="margin-top:8px;">Forecast over ${(last.t ?? 0).toFixed(0)} realm-hours · computed locally · baseline care until a trained model is activated.</p>`;
+}
+
+async function renderLiquidTrain() {
+  const [models, cmp] = await Promise.all([
+    api('GET', '/admin/liquid/models'),
+    api('GET', '/admin/liquid/compare'),
+  ]);
+  const active = models.active || [];
+  const history = models.history || [];
+  const modelLabel = (k) => k === 'cfc' ? 'Adaptive (CfC)' : k === 'ltc' ? 'Anant State (LTC)' : (k || '—');
+  const cmpRows = [
+    ['Baseline care (no AI)', cmp.baselineMae ?? '—'],
+    ['Adaptive model (CfC)', cmp.cfc ? cmp.cfc.trainedMae : 'not trained'],
+    ['Anant State model (LTC)', cmp.ltc ? cmp.ltc.trainedMae : 'not trained'],
+  ];
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Model training</h2>
+      <p class="page-sub">Train the trajectory AI on your dialysis population, compare against baseline care, and activate the best variant — new realms use it automatically.</p></div></div>
+    <div class="cards" style="grid-template-columns: repeat(3,1fr);">
+      <div class="stat-card"><div class="num">${modelLabel(active[0]?.modelKind)}</div><div class="lbl">Active model</div></div>
+      <div class="stat-card"><div class="num">${active[0]?.modelId ?? '—'}</div><div class="lbl">Active model id</div></div>
+      <div class="stat-card"><div class="num">${history.length}</div><div class="lbl">Trained models</div></div>
+    </div>
+    <div class="table-wrap" style="margin-bottom:16px;"><table>
+      <thead><tr><th>Model variant</th><th>Forecast error (lower is better)</th></tr></thead>
+      <tbody>${cmpRows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</tbody>
+    </table></div>
+    <div class="detail" style="margin-top:0;"><div class="field-row">
+      <label class="field"><span>Training rounds</span><input id="lt-epochs" type="number" value="10" style="width:90px"></label>
+      <label class="field"><span>Patient samples</span><input id="lt-sequences" type="number" value="12" style="width:90px"></label>
+      <button class="btn primary" id="lt-train-cfc"><i data-lucide="cpu"></i> Train adaptive</button>
+      <button class="btn" id="lt-train-ltc"><i data-lucide="cpu"></i> Train Anant State</button>
+    </div></div>
+    <pre id="lt-out" class="detail" style="background:var(--code-bg);color:var(--code-fg);padding:12px;border-radius:8px;white-space:pre-wrap;"></pre>`;
+  const run = async (kind) => {
+    const out = document.getElementById('lt-out');
+    out.textContent = `Training ${kind.toUpperCase()}… (server-side, may take a minute)`;
+    try {
+      const res = await fetch('/admin/liquid/train', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ modelKind: kind, epochs: Number(document.getElementById('lt-epochs').value || 10), numSequences: Number(document.getElementById('lt-sequences').value || 12) }) });
+      const d = await res.json();
+      if (!res.ok) { out.textContent = 'error: ' + JSON.stringify(d); return; }
+      out.textContent = JSON.stringify({ run: d.run, active: d.active }, null, 2);
+      renderLiquidTrain();
+    } catch (err) { out.textContent = 'error: ' + String(err); }
+  };
+  document.getElementById('lt-train-cfc').addEventListener('click', () => run('cfc'));
+  document.getElementById('lt-train-ltc').addEventListener('click', () => run('ltc'));
+}
+
+// ---------- Score labs: run projected labs through the real CMS measure evaluator ----------
+// If the server has no synced measure store, the response degrades to
+// { scored:false, reason:'measure-store-not-loaded' } — surfaced here as a notice.
+async function renderLiquidScore() {
+  const dom = await consoleDomain();
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Score labs</h2>
+      <p class="page-sub">Check a patient's projected labs against a CMS quality measure to see whether they qualify — no manual math.
+      A hypertensive patient with these values should land in the numerator.</p></div></div>
+    <div class="detail" style="margin-top:0;">
+      <div class="field" style="max-width:340px;margin-bottom:10px;"><span>Measure</span><input id="ls-measure" value="${esc(dom.domainOptions.defaultMeasureId)}"></div>
+      <div style="font-size:12px;font-weight:600;color:var(--muted);margin:0 0 8px;">Patient labs (projected from the trajectory model)</div>
+      <div class="field-row">
+        <label class="field"><span>Patient id</span><input id="ls-pid" value="p-htn" style="width:120px"></label>
+        <label class="field"><span>K (mmol/L)</span><input id="ls-k" type="number" step="0.1" value="${esc(dom.domainOptions.demoLabs.k)}" style="width:80px"></label>
+        <label class="field"><span>HGB (g/dL)</span><input id="ls-hgb" type="number" step="0.1" value="${esc(dom.domainOptions.demoLabs.hgb)}" style="width:80px"></label>
+        <label class="field"><span>URR (%)</span><input id="ls-urr" type="number" step="1" value="${esc(dom.domainOptions.demoLabs.urr)}" style="width:80px"></label>
+        <label class="field"><span>PHOS (mg/dL)</span><input id="ls-phos" type="number" step="0.1" value="${esc(dom.domainOptions.demoLabs.phos)}" style="width:80px"></label>
+        <label class="field checkbox"><input id="ls-htn" type="checkbox" checked> Hypertension</label>
+        <button class="btn btn-primary" id="ls-score"><i data-lucide="flask-conical"></i> Score</button>
+      </div>
+    </div>
+    <div class="cards" style="grid-template-columns: repeat(2,1fr);">
+      <div class="stat-card"><div class="num" id="ls-met">—</div><div class="lbl">Measure met</div></div>
+      <div class="stat-card"><div class="num" id="ls-scored">—</div><div class="lbl">Scored</div></div>
+    </div>
+    <pre id="ls-out" class="detail" style="background:var(--code-bg);color:var(--code-fg);padding:12px;border-radius:8px;white-space:pre-wrap;"></pre>`;
+  document.getElementById('ls-score').addEventListener('click', async () => {
+    const out = document.getElementById('ls-out');
+    const patients = [{
+      id: document.getElementById('ls-pid').value || 'p1',
+      labs: {
+        K: Number(document.getElementById('ls-k').value), HGB: Number(document.getElementById('ls-hgb').value),
+        URR: Number(document.getElementById('ls-urr').value), PHOS: Number(document.getElementById('ls-phos').value),
+      },
+      ...(document.getElementById('ls-htn').checked ? { hypertension: true } : {}),
+    }];
+    try {
+      const res = await fetch('/admin/liquid/score', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ measureId: document.getElementById('ls-measure').value || dom.domainOptions.defaultMeasureId, patients }) });
+      const d = await res.json();
+      document.getElementById('ls-scored').textContent = d.scored ? 'yes' : d.reason || 'no';
+      if (d.scored) {
+        const p = d.patients[0];
+        document.getElementById('ls-met').textContent = p ? (p.met ? 'met' : 'not met') : '—';
+        out.textContent = JSON.stringify(d, null, 2);
+      } else {
+        out.textContent = JSON.stringify(d, null, 2);
+      }
+    } catch (err) { out.textContent = 'error: ' + String(err); }
+  });
+}
+
+// ---------- Counterfactual studio (M14 — rehearse before you deploy) ----------
+function cfReportHTML(report) {
+  if (!report) return '<div class="muted">No report.</div>';
+  const g = report.gates || {};
+  const chip = (label, ok) => `<span class="pill ${ok ? 'good' : 'bad'}" title="${ok ? 'passed' : 'failed'}">${esc(label)}</span>`;
+  const rows = (r) => [
+    ['Patients', r.population?.patients ?? '—'],
+    ['Mean Kt/V (primary)', r.population?.meanKtv != null ? Number(r.population.meanKtv).toFixed(3) : '—'],
+    ['Max risk (worst patient)', r.population?.maxRisk != null ? Number(r.population.maxRisk).toFixed(3) : '—'],
+    ['Max vitals instability', r.population?.maxVitals != null ? Number(r.population.maxVitals).toFixed(3) : '—'],
+    ['Cost (USD)', r.cost?.totals?.totalUsd != null ? '$' + Number(r.cost.totals.totalUsd).toFixed(2) : '—'],
+    ['Safety events', r.safety?.total ?? '—'],
+    ['HITL pending', r.hitl?.pending ?? '—'],
+  ];
+  const table = (title, r) => `<div style="margin-bottom:10px;"><div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:4px;">${title}</div>
+    <table class="panel"><tbody>${rows(r).map(([k, v]) => `<tr><td style="width:60%;">${esc(k)}</td><td>${v}</td></tr>`).join('')}</tbody></table></div>`;
+  const d = report.delta || {};
+  return `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+      <span class="pill ${report.promotable ? 'good' : 'warn'}">${report.promotable ? '✓ Promotable' : '✗ Not promotable'}</span>
+      ${chip('Primary measure improves', g.measureImproves)}
+      ${chip('No equity regression', g.noEquityRegression)}
+      ${chip('No policy/safety violation', g.noPolicyViolation)}
+    </div>
+    ${(report.gateReasons || []).length ? `<div style="margin-bottom:10px;font-size:12px;color:var(--bad);">${report.gateReasons.map((r) => `• ${esc(r)}`).join('<br>')}</div>` : ''}
+    <p style="font-size:13px;color:var(--fg);">${esc(report.interpretation || '')}</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+      ${table('Baseline care', report.baseline)}
+      ${table('With intervention', report.counterfactual)}
+      <div><div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:4px;">Delta</div>
+        <table class="panel"><tbody>
+          <tr><td>Cost</td><td>${d.dollars != null ? '$' + Number(d.dollars).toFixed(2) : '—'}</td></tr>
+          <tr><td>Clinician minutes</td><td>${d.clinicianMin != null ? Number(d.clinicianMin).toFixed(0) : '—'}</td></tr>
+          <tr><td>Safety risk</td><td>${d.safetyRisk != null ? Number(d.safetyRisk).toFixed(2) : '—'}</td></tr>
+          <tr><td>Patient satisfaction</td><td>${d.patientSatisfaction != null ? Number(d.patientSatisfaction).toFixed(2) : '—'}</td></tr>
+          <tr><td>Throughput</td><td>${d.throughput != null ? Number(d.throughput).toFixed(2) : '—'}</td></tr>
+        </tbody></table></div>
+    </div>`;
+}
+
+async function renderCounterfactual() {
+  const dom = await consoleDomain();
+  const realms = await api('GET', '/admin/realms').catch(() => ({ realms: [] }));
+  const realmOpts = (realms.realms || []).map((r) => `<option value="${esc(r.id)}">${esc(r.id)}</option>`).join('');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Counterfactual studio</h2>
+      <p class="page-sub">Rehearse an intervention against a fresh twin of a population before it touches a real patient. A variant is promotable only if it improves the primary measure without equity regression or policy/safety violations.</p></div></div>
+    <div class="section-card">
+      <h3>New rehearsal</h3>
+      <div class="field-row">
+        <div class="field"><label>Source realm</label><select id="cf-realm">${realmOpts || '<option value="">no realms yet</option>'}</select></div>
+        <div class="field"><label>Facility id</label><input id="cf-fac" value="${esc(dom.counterfactualDefault.facilityId)}" style="width:110px"></div>
+        <div class="field"><label>Archetype</label><select id="cf-kind">${(dom.archetypes || []).map((a) => `<option>${esc(a.value)}</option>`).join('')}</select></div>
+        <div class="field"><label>Units</label><input id="cf-units" value="${esc(dom.counterfactualDefault.units)}" style="width:130px"></div>
+        <div class="field"><label>Patients</label><input id="cf-pt" type="number" value="${esc(dom.counterfactualDefault.patientCount)}" min="1" max="200" style="width:80px"></div>
+        <div class="field"><label>Advance ticks</label><input id="cf-ticks" type="number" value="${esc(dom.counterfactualDefault.advanceTicks)}" min="0" style="width:80px"></div>
+        <div class="field"><label>Label</label><input id="cf-label" placeholder="dietitian nudge v2" style="width:160px"></div>
+      </div>
+      <div class="field" style="margin-top:8px;"><label>Interventions (JSON)</label><textarea id="cf-interventions" rows="3" style="font-family:"JetBrains Mono", "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;">${esc(JSON.stringify(dom.counterfactualDefault.interventions))}</textarea></div>
+      <div class="field-row" style="margin-top:8px;align-items:center;">
+        <button class="btn btn-primary" id="cf-run"><i data-lucide="flask-conical"></i> Run rehearsal</button>
+        <span class="muted" id="cf-status" style="font-size:12px;"></span>
+      </div>
+      <div id="cf-result" style="margin-top:12px;"></div>
+    </div>
+    <div class="section-card">
+      <h3>Prior rehearsals</h3>
+      <div id="cf-list"><div class="muted" style="font-size:13px;">Loading…</div></div>
+    </div>`;
+  document.getElementById('cf-run').addEventListener('click', async () => {
+    const status = document.getElementById('cf-status');
+    const out = document.getElementById('cf-result');
+    let interventions = [];
+    try { interventions = JSON.parse(document.getElementById('cf-interventions').value || '[]'); }
+    catch { status.textContent = 'Interventions JSON is invalid.'; return; }
+    const units = document.getElementById('cf-units').value.split(',').map((s) => s.trim()).filter(Boolean);
+    const body = {
+      realmId: document.getElementById('cf-realm').value,
+      facility: {
+        facilityId: document.getElementById('cf-fac').value || dom.counterfactualDefault.facilityId,
+        kind: document.getElementById('cf-kind').value,
+        name: document.getElementById('cf-kind').value,
+        units,
+        patientCount: Math.max(1, Math.min(200, Number(document.getElementById('cf-pt').value || 12))),
+      },
+      interventions,
+      advanceTicks: Math.max(0, Number(document.getElementById('cf-ticks').value || 0)),
+      ...(document.getElementById('cf-label').value ? { label: document.getElementById('cf-label').value } : {}),
+    };
+    status.textContent = 'Running rehearsal…';
+    try {
+      const res = await fetch('/admin/counterfactual/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || res.status);
+      status.textContent = `Done — ${j.id} · ${j.report?.promotable ? 'promotable' : 'not promotable'}`;
+      out.innerHTML = cfReportHTML(j.report);
+      loadCfList();
+    } catch (err) { status.textContent = ''; out.innerHTML = `<div class="state-card error"><div class="state-title">Rehearsal failed</div><div class="state-sub">${esc(String(err))}</div></div>`; }
+  });
+  loadCfList();
+}
+
+async function loadCfList() {
+  const el = document.getElementById('cf-list');
+  if (!el) return;
+  const d = await api('GET', '/admin/counterfactual').catch(() => ({ records: [] }));
+  const recs = d.records || [];
+  if (!recs.length) { el.innerHTML = '<div class="muted" style="font-size:13px;">No rehearsals yet — run one above.</div>'; return; }
+  el.innerHTML = '';
+  dataGrid({
+    el: 'cf-list', stateKey: 'counterfactual-list', filename: 'counterfactual', pageSize: 8, empty: 'No rehearsals yet.',
+    columns: [
+      { key: 'id', label: 'Id', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'label', label: 'Label', render: (v) => esc(v || 'ad-hoc') },
+      { key: 'realmId', label: 'Realm', render: (v) => esc(v || '—') },
+      { key: 'createdAt', label: 'Run at', render: (v) => esc(v ? v.slice(0, 16).replace('T', ' ') : '—') },
+      { key: 'promotable', label: 'Verdict', render: (_v, r) => `<span class="pill ${r.report?.promotable ? 'good' : 'warn'}">${r.report?.promotable ? 'promotable' : 'not promotable'}</span>` },
+      { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<button class="btn btn-ghost" onclick="cfView('${esc(r.id)}')">View</button>${r.report?.promotable ? ` <button class="btn btn-primary" onclick="cfApply('${esc(r.id)}')">Apply with evidence</button>` : ''}` },
+    ],
+    data: recs,
+  });
+}
+window.cfApply = async function(id) {
+  const out = document.getElementById('cf-result');
+  if (!out) return;
+  if (!confirm('Apply this promotable counterfactual to its source realm? This emits an operator-directive with the evidence link.')) return;
+  out.innerHTML = '<div class="muted" style="font-size:13px;">Applying with evidence…</div>';
+  try {
+    const res = await fetch('/admin/counterfactual/' + encodeURIComponent(id) + '/apply', { method: 'POST' });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || (j.gateReasons || []).join('; ') || res.status);
+    out.innerHTML = `
+      <div class="section-card" style="margin:0 0 8px;border-color:var(--good);">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="pill good">✓ Applied</span><span class="pill brand">${esc(j.counterfactualId)}</span><span class="pill muted">directive ${esc(j.directiveEffectId)}</span></div>
+        <div style="font-size:13px;">${esc(j.interpretation || '')}</div>
+        <div style="margin-top:8px;font-size:12px;">${(j.interventions || []).map((i) => `<div>• <code>${esc(i.kind)}</code>: ${esc(i.detail)}</div>`).join('')}</div>
+        <div class="muted" style="font-size:11px;margin-top:6px;">Evidence id <code>${esc(j.evidenceId)}</code> recorded on the operator-directive → visible in Governance → Directives.</div>
+      </div>`;
+    toast('Counterfactual applied with evidence', 'ok');
+    loadCfList();
+  } catch (err) {
+    out.innerHTML = `<div class="state-card error"><div class="state-title">Apply failed</div><div class="state-sub">${esc(String(err))}</div></div>`;
+  }
+};
+window.cfView = async function(id) {
+  const out = document.getElementById('cf-result');
+  if (!out) return;
+  out.innerHTML = '<div class="muted" style="font-size:13px;">Loading…</div>';
+  const d = await api('GET', '/admin/counterfactual/' + encodeURIComponent(id)).catch(() => null);
+  if (!d || !d.report) { out.innerHTML = '<div class="state-card error"><div class="state-title">Rehearsal not found</div></div>'; return; }
+  out.innerHTML = `<div style="margin-bottom:8px;font-weight:600;">${esc(d.label || 'ad-hoc')} <span class="muted" style="font-weight:400;">· ${esc(d.createdAt || '')}</span></div>${cfReportHTML(d.report)}`;
+};
+
+// ---------- Nudge ledger ----------
+async function renderNudgeLedger() {
+  const dom = await consoleDomain();
+  const realms = await api('GET', '/admin/realms');
+  const realmOptions = (realms.realms || []).map(r => `<option value="${esc(r.id)}">${esc(r.id)}</option>`).join('') || '<option value="">(no realms yet)</option>';
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Nudge ledger</h2>
+      <p class="page-sub">Deliver a rehearsed nudge through a real-world channel, then close the loop when the patient's response is observed.
+      Every row is persisted to the swappable SQL store, so the ledger survives restarts.</p></div></div>
+    <div class="detail" style="margin-top:0;"><div class="field-row">
+      <label class="field"><span>Realm</span><select id="nl-realm">${realmOptions}</select></label>
+      <label class="field"><span>Patient</span><input id="nl-patient" placeholder="patient-001" list="nl-patient-list" style="width:150px"><datalist id="nl-patient-list"></datalist></label>
+      <label class="field"><span>Channel</span><select id="nl-channel">${(dom.nudgeDefault.channels || []).map((c) => `<option>${esc(c)}</option>`).join('')}</select></label>
+      <label class="field"><span>Nudge kind</span><input id="nl-kind" value="${esc(dom.nudgeDefault.kind)}" style="width:150px"></label>
+      <label class="field"><span>Expected effect</span><input id="nl-effect" value='${JSON.stringify(dom.nudgeDefault.expectedEffect).replace(/'/g, '&#39;')}' style="width:230px"></label>
+      <button class="btn btn-primary" id="nl-deliver"><i data-lucide="send"></i> Deliver</button>
+    </div></div>
+    <div id="nl-table"></div>`;
+  const nlRealm = document.getElementById('nl-realm');
+  const nlPatients = async () => loadPatientDatalist(nlRealm.value, 'nl-patient-list');
+  nlRealm.addEventListener('change', nlPatients);
+  nlPatients();
+  let grid = null;
+  const load = async () => {
+    const d = await api('GET', '/admin/nudges');
+    if (!grid) {
+      grid = dataGrid({
+        el: 'nl-table', filename: 'nudges', pageSize: 15, empty: 'No nudges delivered yet.',
+        selectable: true, idKey: 'id',
+        bulkActions: [
+          { label: 'Export selected JSON', onClick(rows) { downloadBlob('nudges-selected.json', 'application/json', JSON.stringify(rows, null, 2)); } },
+          { label: 'Copy IDs', onClick(rows) { copyToClipboard(rows.map((r) => r.id || '').filter(Boolean).join('\n')); } },
+        ],
+        columns: [
+          { key: 'id', label: 'Id', render: (v) => `<code>${esc(v)}</code>` },
+          { key: 'realmId', label: 'Realm' },
+          { key: 'patientId', label: 'Patient' },
+          { key: 'channel', label: 'Channel' },
+          { key: 'nudgeKind', label: 'Kind', render: (v) => `<code>${esc(v)}</code>` },
+          { key: 'status', label: 'Status', render: (v) => `<span class="pill ${v==='observed'?'good':v==='delivered'?'brand':'muted'}">${esc(v)}</span>` },
+          { key: 'rehearsalId', label: 'Rehearsal', render: (v) => esc(v || '—') },
+          { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => r.status === 'delivered' ? `<button class="btn" onclick="nlObserve('${esc(r.id)}')">Observe</button>` : '' },
+        ],
+        data: (d.nudges || []),
+      });
+    } else {
+      grid.refresh(d.nudges || []);
+    }
+  };
+  document.getElementById('nl-deliver').addEventListener('click', async () => {
+    let effect = {};
+    try { effect = JSON.parse(document.getElementById('nl-effect').value || '{}'); } catch { effect = {}; }
+    await fetch('/admin/nudges', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      realmId: document.getElementById('nl-realm').value, patientId: document.getElementById('nl-patient').value,
+      channel: document.getElementById('nl-channel').value, nudgeKind: document.getElementById('nl-kind').value,
+      expectedEffect: effect,
+    }) });
+    load();
+  });
+  load();
+}
+
+// Global so the nudge-grid action survives re-renders.
+async function nlObserve(id) {
+  const outcome = prompt('Observed outcome (JSON), e.g. {"phosphate":0.4}');
+  if (outcome === null) return;
+  let parsed = {}; try { parsed = JSON.parse(outcome); } catch { /* keep {} */ }
+  await fetch('/admin/nudges/' + encodeURIComponent(id) + '/observe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ outcome: parsed }) });
+  renderNudgeLedger();
+}
+
+// ---------- Durable storage (swap-friendly SqlDb seam) ----------
+async function renderDurableStorage() {
+  const [realms, billing, cfs] = await Promise.all([
+    api('GET', '/admin/sql/realms'),
+    api('GET', '/admin/sql/billing'),
+    api('GET', '/admin/sql/counterfactuals'),
+  ]);
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Durable storage</h2>
+      <p class="page-sub">Realms, billing, counterfactual runs, and the nudge ledger persisted through the swappable SqlDb seam — SQLite by default, swap for Postgres via HH_STORAGE without touching application code.</p></div></div>
+    <div class="cards" style="grid-template-columns: repeat(4,1fr);">
+      <div class="stat-card"><div class="num">${(realms.realms || []).length}</div><div class="lbl">Realm snapshots</div></div>
+      <div class="stat-card"><div class="num">${(billing.billing || []).length}</div><div class="lbl">Billing meter reads</div></div>
+      <div class="stat-card"><div class="num">${(cfs.runs || []).length}</div><div class="lbl">Counterfactual runs</div></div>
+      <div class="stat-card"><div class="num">${(realms.realms || []).reduce((a, r) => a + (r.snapshotJson || '').length, 0)}</div><div class="lbl">Snapshot bytes</div></div>
+    </div>
+    <div class="detail"><h3 style="margin-top:0;">Realm snapshots</h3><div id="ds-realms-grid"></div></div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Billing usage</h3><div id="ds-billing-grid"></div></div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Counterfactual runs</h3><div id="ds-cf-grid"></div></div>
+    <div class="detail" style="margin-top:12px;font-size:12px;color:var(--muted);">
+      <strong>Swap story:</strong> the store layer writes only portable SQL against the <code>SqlDb</code> seam.
+      <code>HH_STORAGE=postgres</code> + <code>HH_DATABASE_URL</code> swaps the adapter; nothing else changes.
+    </div>
+  `;
+  dataGrid({
+    el: 'ds-realms-grid', filename: 'sql-realms', empty: 'No snapshots persisted yet — create or tick a realm.',
+    columns: [
+      { key: 'realmId', label: 'Realm', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'mode', label: 'Mode', render: (v) => `<span class="pill muted">${esc(v)}</span>` },
+      { key: 'createdAt', label: 'Created' }, { key: 'updatedAt', label: 'Updated' },
+      { key: 'bytes', label: 'Size', align: 'right', render: (v) => `${esc(v)} bytes` },
+    ],
+    data: (realms.realms || []).map(r => ({ ...r, bytes: (r.snapshotJson || '').length })),
+  });
+  dataGrid({
+    el: 'ds-billing-grid', filename: 'sql-billing', pageSize: 10, empty: 'No meter reads yet — open a realm billing view.',
+    columns: [
+      { key: 'id', label: 'Id', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'realmId', label: 'Realm' }, { key: 'period', label: 'Period' },
+      { key: 'plan', label: 'Plan', render: (v) => `<span class="pill brand">${esc(v)}</span>` },
+      { key: 'createdAt', label: 'Created' },
+    ],
+    data: (billing.billing || []),
+  });
+  dataGrid({
+    el: 'ds-cf-grid', filename: 'sql-counterfactuals', empty: 'No counterfactual runs persisted yet — run one from the studio.',
+    columns: [
+      { key: 'id', label: 'Id', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'label', label: 'Label' },
+      { key: 'realmId', label: 'Realm', render: (v) => esc(v || '—') },
+      { key: 'createdAt', label: 'Created' },
+    ],
+    data: (cfs.runs || []),
+  });
+}
+
+// ---------- Event broker fabric (Phase 3 — read/write across drivers) ----------
+let brokerSince = '';
+
+async function renderBrokerPanel() {
+  const b = await api('GET', '/admin/broker').catch(() => null);
+  const drivers = await api('GET', '/admin/broker/drivers').catch(() => ({ drivers: [], current: 'none' }));
+  const h = b?.health ?? { ok: false, driver: 'none' };
+  const ob = b?.outbox ?? { pending: 0, delivered: 0, dead: 0 };
+  const br = b?.bridge ?? { attached: 0, projected: 0, queued: 0, published: 0, failed: 0 };
+  const driverPills = (drivers.drivers || []).map((d) => `<span class="pill ${d === drivers.current ? 'brand' : 'muted'}">${esc(d)}${d === drivers.current ? ' · active' : ''}</span>`).join(' ');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Event broker fabric</h2>
+      <p class="page-sub">Publish + consume CanonicalEvents across every major broker behind one seam. The driver is selected by <code>HH_EVENTBROKER_DRIVER</code>; realm effects stream to it through the transactional outbox.</p></div></div>
+    <div class="cards" style="grid-template-columns: repeat(4,1fr);">
+      <div class="stat-card"><div class="num">${esc(h.driver)}</div><div class="lbl">Driver ${h.ok ? '· online' : '· offline'}</div></div>
+      <div class="stat-card"><div class="num" id="br-dlq">${b ? b.deadLetter : '—'}</div><div class="lbl">Dead-letter depth</div></div>
+      <div class="stat-card"><div class="num">${ob.pending}</div><div class="lbl">Outbox pending</div></div>
+      <div class="stat-card"><div class="num">${(br.queued ?? 0) + (br.published ?? 0)}</div><div class="lbl">Realm effects accepted for delivery</div></div>
+    </div>
+    <div class="detail">
+      <h3 style="margin-top:0;">Driver matrix</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">${driverPills}</div>
+      <div style="font-size:12px;color:var(--muted);">SDK-backed drivers (rabbitmq · nats · sqs-sns · pubsub · event-hubs) lazy-load their optional SDK — install the dep + set the <code>HH_*</code> env to activate.</div>
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Realm → broker bridge</h3>
+      <div class="kv" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+        <div><div class="k">Realms attached</div><div class="v" style="font-weight:600;">${br.attached}</div></div>
+        <div><div class="k">Effects projected</div><div class="v" style="font-weight:600;">${br.projected}</div></div>
+        <div><div class="k">Queued (durable)</div><div class="v" style="font-weight:600;color:var(--good);">${br.queued ?? 0}</div></div>
+        <div><div class="k">Failed</div><div class="v" style="font-weight:600;color:${br.failed ? 'var(--bad)' : 'var(--good)'};">${br.failed}</div></div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:10px;">Every realm created via <em>Realm</em> attaches its effect ledger to the broker — each <code>EmittedEffect</code> becomes a <code>CanonicalEvent</code> and is published (durably via the outbox).</p>
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Outbox + replay</h3>
+      <div class="field-row">
+        <div class="field"><label>Outbox pending / delivered / dead</label><span style="font-weight:600;">${ob.pending} / ${ob.delivered} / ${ob.dead}</span></div>
+        <div class="field"><label>Replay events delivered after</label><input id="br-since" type="datetime-local" step="1" value="${esc(toDatetimeLocal(brokerSince))}" /><div class="muted" style="font-size:11px;">Local time · blank replays from epoch</div></div>
+        <div class="field" style="align-self:flex-end;"><button id="br-replay" class="btn">Replay delivered → broker</button></div>
+      </div>
+      <div id="br-replay-out" style="margin-top:8px;font-size:12px;"></div>
+    </div>
+  `;
+  document.getElementById('br-since')?.addEventListener('input', (e) => { brokerSince = e.target.value; });
+  document.getElementById('br-replay')?.addEventListener('click', async () => {
+    const out = document.getElementById('br-replay-out');
+    const sinceISO = datetimeLocalToISO(brokerSince);
+    try {
+      const res = await fetch('/admin/broker/replay', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...(sinceISO ? { since: sinceISO } : {}) }) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || res.status);
+      out.innerHTML = `<span style="color:var(--good);">Republished ${j.republished} delivered event(s) since <code>${esc(j.since)}</code>.</span>`;
+    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+  });
+}
+
+
+// ---------- Platform (Phase A/B — generic platform contract layer) ----------
+
+/** Raw JSON fetch for the /admin/platform/* + /api/* surfaces (live backend).
+ *  The api() shim only serves snapshot files for GETs and returns {} for POSTs,
+ *  so platform writes must go straight to the server.
+ *
+ *  Content-type is only declared when there IS a body: a DELETE that announces
+ *  JSON and sends nothing is a request no server should have to guess about. */
+async function plFetch(method, path, body) {
+  const init = { method, headers: {} };
+  if (body !== undefined) {
+    init.headers['content-type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, init);
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || j.message || res.status);
+  return j;
+}
+
+/**
+ * Platform admin — ONE page for the customer-launch journey: the gated steps,
+ * the organization profile (identity + deployment posture), the integration
+ * contract and the Kafka topic plan.
+ *
+ * Why one page: these were four tabs, and one of them (`ws-admin`) called
+ * exec-scoped endpoints that an ops role could not read, while `platform-org`
+ * and `platform-topics` read a DIFFERENT organization document. Merging them
+ * also means one organization record instead of two.
+ *
+ * Every section loads INDEPENDENTLY and renders its own failure. A denied or
+ * broken read can no longer blank the page or be papered over with defaults —
+ * that was the defect this whole pass exists to remove.
+ */
+async function renderPlatformAdmin() {
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Platform admin</h2>
+      <p class="page-sub">Customer launch: the gated journey, the organization profile (identity + deployment posture), the integration contract and the topic plan. Configuration objects, packs and the action policy live in <b>Configuration studio</b>.</p></div>
+      <button class="btn" onclick="goTo('platform-config')">Configuration studio →</button></div>
+    <div id="pa-steps" class="section-card">Loading journey…</div>
+    <div id="pa-org" class="section-card">Loading organization…</div>
+    <div id="pa-int" class="section-card">Loading integration contract…</div>
+    <div id="pa-topics" class="section-card">Loading topic plan…</div>`;
+  await Promise.all([paSteps(), paOrgSection(), paIntegrationsSection(), paTopicsSection()]);
+  hydrateIcons();
+}
+
+/** Journey: steps + the gates DERIVED from real backend state. */
+async function paSteps() {
+  const el = document.getElementById('pa-steps');
+  if (!el) return;
+  let boot = null; let err = null;
+  try { boot = await plFetch('GET', '/admin/platform/bootstrap'); } catch (e) { err = e.message; }
+  if (!boot) { el.innerHTML = `<h3 style="margin-top:0;">Customer launch readiness</h3>${loadFailureHTML('the launch journey', err)}`; return; }
+  const o = boot.onboarding || { steps: [], gates: {}, currentStep: 'organization', readyForRehearsal: false };
+  const done = (o.steps || []).filter((s) => s.status === 'complete').length;
+  el.innerHTML = `
+    <h3 style="margin-top:0;">Customer launch readiness
+      <span class="muted" style="font-weight:400;font-size:11px;">· ${done}/${(o.steps || []).length} steps complete · environment ${esc(boot.status || 'onboarding')}</span></h3>
+    <div class="cards" style="grid-template-columns:repeat(3,1fr);">
+      <div class="stat-card"><div class="num">${done}/${(o.steps || []).length}</div><div class="lbl">Steps complete</div></div>
+      <div class="stat-card"><div class="num">${esc(o.currentStep)}</div><div class="lbl">Current step</div></div>
+      <div class="stat-card"><div class="num">${o.readyForRehearsal ? 'YES' : '—'}</div><div class="lbl">Ready for rehearsal</div></div>
+    </div>
+    <div style="margin-top:10px;">${(o.steps || []).map((s) => `
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:5px 0;border-bottom:1px solid var(--border);">
+        <span style="font-weight:700;color:${s.status === 'complete' ? 'var(--good)' : s.status === 'active' ? 'var(--brand)' : 'var(--muted)'};">${s.status === 'complete' ? '✓' : s.status === 'active' ? '▸' : '·'}</span>
+        <div style="flex:1;"><div style="font-weight:600;">${esc(s.label)} <span class="pill ${s.status === 'complete' ? 'good' : s.status === 'active' ? 'brand' : 'muted'}">${esc(s.status)}</span></div>
+        <div class="muted" style="font-size:12px;">${esc(s.gate)}</div></div>
+      </div>`).join('')}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">${Object.entries(o.gates || {}).map(([k, v]) => `<span class="pill ${v ? 'good' : 'warn'}">${esc(k)} ${v ? '✓' : '…'}</span>`).join('')}</div>
+    <div class="field-row" style="margin-top:12px;">
+      <div class="field"><label>Resume at step</label><select id="pa-step">${(o.steps || []).map((s) => `<option value="${esc(s.id)}" ${s.id === o.currentStep ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}</select></div>
+      <div class="field"><label>Operating model</label><select id="pa-model">
+        <option value="provider" ${o.operatingModel === 'provider' ? 'selected' : ''}>Provider</option>
+        <option value="payer" ${o.operatingModel === 'payer' ? 'selected' : ''}>Payer</option>
+        <option value="hybrid" ${o.operatingModel === 'hybrid' ? 'selected' : ''}>Hybrid</option>
+      </select></div>
+      <div class="field" style="align-self:flex-end;"><button class="btn btn-primary" onclick="paSaveOnboarding()">Save onboarding</button></div>
+    </div>
+    <div id="pa-step-out" class="muted" style="font-size:12px;margin-top:6px;">Saving onboarding changes the operating model and the resumed step — no redeploy.</div>`;
+}
+
+window.paSaveOnboarding = async function() {
+  const out = document.getElementById('pa-step-out');
+  try {
+    const j = await plFetch('PUT', '/admin/platform/onboarding', {
+      operatingModel: document.getElementById('pa-model').value,
+      currentStep: document.getElementById('pa-step').value,
+    });
+    out.innerHTML = `<span style="color:var(--good);">Saved — resumed at <code>${esc(j.state.currentStep)}</code>.</span>`;
+    refreshSyntheticBadge();
+    await paSteps();
+  } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+};
+
+/** Organization profile — identity AND deployment posture, one document. */
+async function paOrgSection() {
+  const el = document.getElementById('pa-org');
+  if (!el) return;
+  let org = null; let realized = []; let err = null;
+  try {
+    const j = await plFetch('GET', '/admin/platform/organization');
+    org = j.organization; realized = j.realized || [];
+  } catch (e) { err = e.message; }
+  if (!org) { el.innerHTML = `<h3 style="margin-top:0;">Organization</h3>${loadFailureHTML('the organization profile', err)}`; return; }
+  const totalPatients = realized.reduce((n, r) => n + (r.patients || 0), 0);
+  el.innerHTML = `
+    <h3 style="margin-top:0;">Organization <span class="muted" style="font-weight:400;font-size:11px;">· one record for identity, deployment posture and the hierarchy</span></h3>
+    <div class="field-row">
+      <div class="field"><label>Display name</label><input id="pa-name" value="${esc(org.displayName ?? '')}" /></div>
+      <div class="field"><label>Operating model</label><select id="pa-om">
+        <option value="provider" ${org.operatingModel === 'provider' ? 'selected' : ''}>Provider</option>
+        <option value="payer" ${org.operatingModel === 'payer' ? 'selected' : ''}>Payer</option>
+        <option value="hybrid" ${org.operatingModel === 'hybrid' ? 'selected' : ''}>Hybrid</option>
+      </select></div>
+      <div class="field"><label>Environment</label><input id="pa-env" value="${esc(org.environmentName ?? 'reference')}" /></div>
+      <div class="field"><label>Deployment mode</label><select id="pa-mode">
+        ${['reference', 'non-production', 'production'].map((m) => `<option value="${m}" ${org.deploymentMode === m ? 'selected' : ''}>${m}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Data region</label><input id="pa-data-region" value="${esc(org.dataRegion ?? 'United States')}" /></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Region</label><input id="pa-region" value="${esc(org.region ?? '')}" /></div>
+      <div class="field"><label>Timezone</label><input id="pa-tz" value="${esc(org.timezone ?? '')}" /></div>
+      <div class="field"><label>Retention (days)</label><input id="pa-ret" type="number" value="${org.retentionDays ?? 365}" /></div>
+      <div class="field checkbox"><label><input id="pa-synthetic" type="checkbox" ${org.synthetic ? 'checked' : ''}> <span>Synthetic demonstration data</span></label></div>
+    </div>
+    <div class="muted" style="font-size:12px;">Hierarchy: ${(org.scopePath || []).map((l) => esc(l.label || l.id)).join(' → ') || 'none yet'} — edit the structured hierarchy in <a href="#" onclick="goTo('platform-config');return false;">Configuration studio → Ontology</a>. Live: <b>${realized.length}</b> mapped levels · <b>${totalPatients}</b> patients.</div>
+    <div style="margin-top:8px;"><button class="btn btn-primary" onclick="paSaveOrg()">Save organization</button></div>
+    <div id="pa-org-out" class="muted" style="font-size:12px;margin-top:6px;">Saving updates the durable organization record; the executive lens reads it via <code>/api/context</code>.</div>`;
+}
+
+window.paSaveOrg = async function() {
+  const out = document.getElementById('pa-org-out');
+  const val = (id) => document.getElementById(id);
+  try {
+    const j = await plFetch('PUT', '/admin/platform/organization', {
+      displayName: val('pa-name').value,
+      operatingModel: val('pa-om').value,
+      environmentName: val('pa-env').value,
+      deploymentMode: val('pa-mode').value,
+      dataRegion: val('pa-data-region').value,
+      region: val('pa-region').value,
+      timezone: val('pa-tz').value,
+      retentionDays: Number(val('pa-ret').value) || 365,
+      synthetic: val('pa-synthetic').checked,
+    });
+    out.innerHTML = `<span style="color:var(--good);">Saved ${esc(j.organization.displayName)} (${esc(j.organization.operatingModel)} · ${esc(j.organization.deploymentMode || 'reference')}${j.organization.synthetic ? ' · synthetic' : ''}).</span>`;
+    refreshSyntheticBadge();
+    await paSteps();
+  } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+};
+
+/** Integration contract — the bridge and its secret REFERENCE. */
+async function paIntegrationsSection() {
+  const el = document.getElementById('pa-int');
+  if (!el) return;
+  let integrations = null; let err = null;
+  try { integrations = await plFetch('GET', '/admin/platform/integrations'); } catch (e) { err = e.message; }
+  if (!integrations) { el.innerHTML = `<h3 style="margin-top:0;">Integration contract</h3>${loadFailureHTML('the integration contract', err)}`; return; }
+  const k = integrations.kafka || {};
+  const mappings = k.topicMappings || [];
+  el.innerHTML = `
+    <h3 style="margin-top:0;">Integration contract ${wsStatusPill(k.status)}</h3>
+    <div class="field-row">
+      <div class="field" style="flex:2;"><label>Bridge URL</label><input id="pa-url" value="${esc(k.bridgeUrl ?? '')}" /></div>
+      <div class="field"><label>Cluster alias</label><input id="pa-alias" value="${esc(k.clusterAlias ?? '')}" /></div>
+      <div class="field"><label>Protocol</label><select id="pa-proto">
+        ${['SASL_SSL', 'SSL', 'PLAINTEXT'].map((p) => `<option ${k.securityProtocol === p ? 'selected' : ''}>${p}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Consumer group</label><input id="pa-group" value="${esc(k.consumerGroup ?? '')}" /></div>
+    </div>
+    <div class="field-row">
+      <div class="field" style="flex:3;"><label>Secret binding reference</label><input id="pa-secret" value="${esc(k.secretRef ?? '')}" /><small class="muted">Reference only — never enter the secret value; the server rejects anything that looks like one.</small></div>
+      <button class="btn btn-primary" onclick="paSaveKafka()">Save contract</button>
+      <button class="btn" onclick="paTestKafka()"><i data-lucide="cable" style="width:13px;height:13px"></i> Test contract</button>
+    </div>
+    ${mappings.length ? `<div style="margin-top:8px;">${mappings.map((m) => `<span class="pill ${m.direction === 'inbound' ? 'brand' : 'muted'}" style="margin-right:6px;">${esc(m.direction)} <code>${esc(m.topic)}</code> → ${esc(m.contract)}</span>`).join('')}</div>` : ''}
+    ${k.testSummary ? `<div class="muted" style="font-size:12px;margin-top:8px;">${esc(k.testSummary)}${k.lastTestedAt ? ` · ${esc(String(k.lastTestedAt))}` : ''}</div>` : ''}
+    <div id="pa-int-out" class="muted" style="font-size:12px;margin-top:6px;">Secrets live in deployment bindings. The contract test verifies authentication, the topic allowlist and the envelope schema.</div>`;
+}
+
+window.paSaveKafka = async function() {
+  const out = document.getElementById('pa-int-out');
+  try {
+    await plFetch('PUT', '/admin/platform/integrations/kafka', {
+      bridgeUrl: document.getElementById('pa-url').value,
+      clusterAlias: document.getElementById('pa-alias').value,
+      securityProtocol: document.getElementById('pa-proto').value,
+      consumerGroup: document.getElementById('pa-group').value,
+      secretRef: document.getElementById('pa-secret').value,
+    });
+    out.innerHTML = '<span style="color:var(--good);">Contract saved.</span>';
+    await paIntegrationsSection();
+    await paSteps();
+  } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+};
+
+window.paTestKafka = async function() {
+  const out = document.getElementById('pa-int-out');
+  try {
+    const j = await plFetch('POST', '/admin/platform/integrations/kafka/test');
+    out.innerHTML = `<span style="color:var(--good);">Contract test: ${esc(j.kafka.status)} · ${esc(j.kafka.testSummary || '')}</span>`;
+    await paIntegrationsSection();
+    await paSteps();
+  } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+};
+
+/** Topic plan — every agent resolves exactly one output topic. */
+async function paTopicsSection() {
+  const el = document.getElementById('pa-topics');
+  if (!el) return;
+  let data = null; let err = null;
+  try { data = await plFetch('GET', '/admin/platform/topics'); } catch (e) { err = e.message; }
+  if (!data) { el.innerHTML = `<h3 style="margin-top:0;">Kafka topic plan</h3>${loadFailureHTML('the topic plan', err)}`; return; }
+  const t = data.topics || data.defaults || { entries: [] };
+  const required = [t.defaultOutputTopic, t.agentDlqTopic, t.actionCommandTopic, t.actionAckTopic, t.outcomeStateTopic, t.assuranceEventTopic].filter(Boolean);
+  el.innerHTML = `
+    <h3 style="margin-top:0;">Kafka topic plan <span class="muted" style="font-weight:400;font-size:11px;">· ${(t.entries || []).length} planned</span></h3>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;">${required.map((x) => `<span class="pill brand"><code>${esc(x)}</code></span>`).join('') || '<span class="muted" style="font-size:12px;">No required topics configured yet.</span>'}</div>
+    <div style="overflow-x:auto;margin-top:10px;"><table style="width:100%;"><thead><tr><th>Topic</th><th>Direction</th><th>Contract</th><th>Partitions</th><th>Key strategy</th><th>Owning agent</th></tr></thead>
+      <tbody>${(t.entries || []).map((e) => `<tr><td><code>${esc(e.topic)}</code></td><td>${esc(e.direction)}</td><td>${esc(e.contract)}</td><td>${e.partitions ?? '—'}</td><td>${esc(e.keyStrategy ?? '—')}</td><td>${esc(e.owningAgent ?? '—')}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No planned entries yet.</td></tr>'}</tbody></table></div>
+    <div class="field" style="margin-top:8px;"><label>Entries (JSON)</label><textarea id="pa-entries" rows="6" class="code">${esc(JSON.stringify(t.entries ?? [], null, 2))}</textarea></div>
+    <button class="btn btn-primary" onclick="paSaveTopics()">Save topic plan</button>
+    <div id="pa-topics-out" class="muted" style="font-size:12px;margin-top:6px;">Failures route to the governed DLQ; each agent resolves exactly one output topic.</div>`;
+}
+
+window.paSaveTopics = async function() {
+  const out = document.getElementById('pa-topics-out');
+  let entries = [];
+  try { entries = JSON.parse(document.getElementById('pa-entries').value || '[]'); }
+  catch { out.innerHTML = '<span style="color:var(--bad);">Entries must be valid JSON.</span>'; return; }
+  try {
+    const j = await plFetch('PUT', '/admin/platform/topics', { entries });
+    out.innerHTML = `<span style="color:var(--good);">Saved — ${j.topics.entries.length} entries.</span>`;
+    await paTopicsSection();
+    await paSteps();
+  } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+};
+
+// Release actions (survive re-renders via inline onclick).
+window.plReleaseAction = async function(id, step) {
+  try {
+    const j = await plFetch('POST', `/admin/platform/releases/${encodeURIComponent(id)}/${step}`);
+    toast(`Release ${step}: ${j.release.version} → ${j.release.status}`, 'good');
+  } catch (err) { toast('Release action failed: ' + err.message, 'err'); }
+  renderPlatformReleases();
+};
+async function renderPlatformReleases() {
+  let releases = []; let active = null; let gate = null; let err = null;
+  try {
+    const j = await plFetch('GET', '/admin/platform/releases');
+    releases = j.releases || []; active = j.active || null;
+    window.__plReleases = releases;
+  } catch (e) { err = e.message; }
+  if (err) { main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Release center</h2></div></div>${loadFailureHTML('the release center', err)}`; hydrateIcons(); return; }
+  try { gate = await plFetch('GET', '/admin/platform/release-gate'); } catch { /* panel reports its own state */ }
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Release center</h2>
+      <p class="page-sub">Immutable release manifests — draft → validate → approve → canary → activate → rollback. Runtime confirms the active hash; customer configuration never needs a redeploy. An intentionally unsafe release cannot validate or activate.</p></div></div>
+    <div class="detail">
+      <h3 style="margin-top:0;">Release gate <span class="muted" style="font-weight:400;font-size:11px;">· green / red / sources / approvals, from the live policy</span></h3>
+      ${releaseGateHTML(gate)}
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <h3 style="margin-top:0;">New release</h3>
+      <div class="field-row">
+        <div class="field"><label>Version</label><input id="pr-version" placeholder="v1" /></div>
+        <div class="field"><label>Change summary</label><input id="pr-summary" placeholder="What this release changes" style="min-width:320px;" /></div>
+        <div class="field" style="align-self:flex-end;"><button class="btn btn-primary" id="pr-create">Create draft</button></div>
+      </div>
+      <div id="pr-out" style="margin-top:8px;font-size:12px;"></div>
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Releases</h3>
+      <table style="width:100%;">
+        <thead><tr><th>Version</th><th>Status</th><th>Summary</th><th>Gates</th><th>Canary</th><th>Actions</th></tr></thead>
+        <tbody>${(releases || []).map((r) => `
+          <tr>
+            <td><code>${esc(r.version)}</code>${active && active.id === r.id ? ' <span class="pill good">active</span>' : ''}</td>
+            <td><span class="pill ${r.status === 'active' ? 'good' : r.status === 'approved' ? 'brand' : r.status === 'canary' ? 'brand' : r.status === 'failed' ? 'bad' : r.status === 'validated' ? '' : 'warn'}">${esc(r.status)}</span></td>
+            <td>${esc(r.changeSummary)}</td>
+            <td>${(r.checks || []).filter((c) => !c.passed).length > 0
+              ? `<span class="pill bad">${(r.checks || []).filter((c) => !c.passed).map((c) => c.name).join(', ')}</span>`
+              : (r.checks || []).length > 0 ? `<span class="pill good">${(r.checks || []).filter((c) => c.passed).length}/${(r.checks || []).length} gates</span>` : '<span class="muted">—</span>'}</td>
+            <td>${r.status === 'canary'
+              ? `<span class="pill brand">${esc((r.canaryScopes || []).join(', '))}</span>`
+              : r.canaryResult ? `<span class="pill ${r.canaryResult === 'pass' ? 'good' : 'bad'}">${esc(r.canaryResult)}</span>` : '<span class="muted">—</span>'}</td>
+            <td style="white-space:nowrap;">
+              ${(r.status === 'draft' || r.status === 'failed') ? `<button class="btn btn-ghost" onclick="plReleaseAction('${esc(r.id)}','validate')">Validate</button>` : ''}
+              ${r.status === 'validated' ? `<button class="btn btn-ghost" onclick="plReleaseAction('${esc(r.id)}','request-approval')">Approve</button>` : ''}
+              ${r.status === 'approved' ? `<button class="btn btn-ghost" onclick="plReleaseAction('${esc(r.id)}','canary')">Canary</button><button class="btn btn-ghost" onclick="plReleaseAction('${esc(r.id)}','activate')">Activate</button>` : ''}
+              ${r.status === 'canary' ? `<button class="btn btn-ghost" onclick="plReleaseAction('${esc(r.id)}','promote')">Promote</button><button class="btn btn-ghost" onclick="plReleaseAction('${esc(r.id)}','fail')">Fail</button>` : ''}
+              ${(r.status === 'active' || r.status === 'approved' || r.status === 'validated' || r.status === 'superseded') ? `<button class="btn btn-ghost" onclick="plReleaseAction('${esc(r.id)}','rollback')">Rollback</button>` : ''}
+              ${r.dossier ? `<button class="btn btn-ghost" onclick="plDossier('${esc(r.id)}')">Dossier</button>` : ''}
+            </td>
+          </tr>`).join('') || '<tr><td colspan="6" class="muted">No releases yet — create a draft above.</td></tr>'}</tbody>
+      </table>
+      <div id="pl-dossier" style="margin-top:10px;font-size:12px;"></div>
+    </div>
+  `;
+  document.getElementById('pr-create')?.addEventListener('click', async () => {
+    const out = document.getElementById('pr-out');
+    try {
+      const j = await plFetch('POST', '/admin/platform/releases', {
+        ...(document.getElementById('pr-version').value ? { version: document.getElementById('pr-version').value } : {}),
+        ...(document.getElementById('pr-summary').value ? { changeSummary: document.getElementById('pr-summary').value } : {}),
+      });
+      out.innerHTML = `<span style="color:var(--good);">Created ${esc(j.release.version)} (${esc(j.release.status)}).</span>`;
+      renderPlatformReleases();
+    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+  });
+}
+
+// Immutable activation dossier — config hash, approvers, gates, canary evidence.
+window.plDossier = function(id) {
+  const r = (window.__plReleases || []).find((x) => x.id === id);
+  const out = document.getElementById('pl-dossier');
+  if (!r || !r.dossier) { if (out) out.innerHTML = '<span class="muted">No dossier for this release.</span>'; return; }
+  const d = r.dossier;
+  out.innerHTML = `<h4 style="margin:8px 0 4px;">Activation dossier · ${esc(r.version)}</h4>
+    <pre style="background:var(--surface);border:1px solid var(--border);padding:10px;border-radius:8px;font-size:12px;max-height:340px;overflow:auto;">${esc(JSON.stringify({ contentHash: d.contentHash, approvers: d.approvers, gates: d.gates, findingsBlocking: d.findingsBlocking, canary: d.canary, activatedAt: d.activatedAt, rolledBackAt: d.rolledBackAt, runtimeHealth: d.runtimeHealth }, null, 2))}</pre>`;
+};
+
+// ---------- AI Assurance (Phase E) — green/red team + findings lifecycle ----------
+const FINDING_ACTIONS = ['assign', 'remediate', 'retest', 'review', 'close', 'disposition'];
+
+window.plFindingAction = async function(id, action) {
+  let payload = {};
+  if (action === 'assign') {
+    const owner = prompt('Assign to (owner):', 'security-owner');
+    if (!owner) return;
+    payload = { owner };
+  } else if (action === 'remediate') {
+    const remediation = prompt('Remediation note:', '');
+    if (!remediation) return;
+    payload = { remediation, by: 'security-owner' };
+  } else if (action === 'retest') {
+    // Re-run the exact scenario against current policy; optionally force pass.
+    const force = prompt('Force result? (leave blank = auto from live policy, or "pass"/"fail")', '');
+    if (force && force !== 'pass' && force !== 'fail') return alert('Use pass, fail, or blank.');
+    payload = force ? { passed: force === 'pass' } : {};
+  } else if (action === 'review') {
+    const reviewer = prompt('Independent reviewer:', 'independent-reviewer');
+    if (!reviewer) return;
+    payload = { reviewer, note: prompt('Review note:', 'accepted') || 'accepted', acceptClosure: true };
+  } else if (action === 'close') {
+    payload = { reviewer: prompt('Closing reviewer:', 'independent-reviewer') || 'independent-reviewer' };
+  } else if (action === 'disposition') {
+    const kind = prompt('Disposition (false-positive | risk-accepted | confirmed):', 'false-positive');
+    if (!kind) return;
+    payload = { kind, by: 'security-owner' };
+  }
+  try {
+    const j = await plFetch('POST', `/admin/platform/findings/${encodeURIComponent(id)}/${action}`, payload);
+    toast(`Finding ${action}: ${j.finding.status}`, j.transition?.to === 'closed' ? 'good' : '');
+  } catch (err) { toast('Finding action failed: ' + err.message, 'err'); }
+  renderPlatformAssurance();
+};
+
+async function renderPlatformAssurance() {
+  const a = await plFetch('GET', '/admin/platform/assurance');
+  const f = await plFetch('GET', '/admin/platform/findings');
+  const findings = f.findings || [];
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">AI Assurance</h2>
+      <p class="page-sub">Green/red team + findings lifecycle — the "is this safe and releasable?" gate (spec §20). Critical/high findings block releases until remediation + retest + independent review closes them.</p></div></div>
+    <div class="cards" style="grid-template-columns: repeat(5,1fr);">
+      <div class="stat-card"><div class="num">${a.findings.open}</div><div class="lbl">Open findings</div></div>
+      <div class="stat-card"><div class="num">${a.findings.blocking}</div><div class="lbl">Blocking (crit/high)</div></div>
+      <div class="stat-card"><div class="num">${a.greenTeam.runs}</div><div class="lbl">Green runs</div></div>
+      <div class="stat-card"><div class="num">${a.redTeam.runs}</div><div class="lbl">Red runs</div></div>
+      <div class="stat-card"><div class="num">${a.releaseGate.verdict}</div><div class="lbl">Release gate</div></div>
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Suites</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn" id="pl-green-run">Run green team</button>
+        <button class="btn" id="pl-red-run">Run red-team suite</button>
+        <span class="muted" style="font-size:12px;align-self:center;">Red team evaluates the CURRENT admin policy — an unsafe policy fails and creates findings.</span>
+      </div>
+      <div id="pl-suite-out" style="margin-top:8px;font-size:12px;"></div>
+      ${a.greenTeam.latest ? `<div style="margin-top:8px;font-size:12px;"><span class="pill good">green</span> latest ${a.greenTeam.latest.checks.length} gates · ${a.greenTeam.latest.ranBy}</div>` : ''}
+      ${a.redTeam.latest ? `<div style="font-size:12px;margin-top:4px;"><span class="pill ${a.redTeam.latest.passed ? 'good' : 'bad'}">red</span> latest ${a.redTeam.latest.scenarioName} · ${a.redTeam.latest.passed ? 'contained' : 'violation'}</div>` : ''}
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Findings (${findings.length})</h3>
+      <table style="width:100%;">
+        <thead><tr><th>Severity</th><th>Status</th><th>Finding</th><th>Threat</th><th>Owner</th><th>Release</th><th>Actions</th></tr></thead>
+        <tbody>${findings.map((x) => `
+          <tr>
+            <td><span class="pill ${x.severity === 'critical' ? 'bad' : x.severity === 'high' ? 'warn' : ''}">${esc(x.severity)}</span></td>
+            <td><span class="pill ${x.status === 'closed' ? 'good' : 'muted'}">${esc(x.status)}</span></td>
+            <td><code>${esc(x.title.slice(0, 48))}</code><div class="muted" style="font-size:11px;">${esc((x.observed || '').slice(0, 60))}</div></td>
+            <td>${esc(x.threatModel)}</td>
+            <td>${esc(x.owner ?? '—')}</td>
+            <td>${x.releaseId ? `<code>${esc(x.releaseId.slice(0, 20))}</code>` : '<span class="muted">—</span>'}</td>
+            <td style="white-space:nowrap;">
+              ${x.status === 'open' ? `<button class="btn btn-ghost" onclick="plFindingAction('${esc(x.id)}','assign')">Assign</button>` : ''}
+              ${(x.status === 'assigned' || x.status === 'open' || x.status === 'retest-failed') ? `<button class="btn btn-ghost" onclick="plFindingAction('${esc(x.id)}','remediate')">Remediate</button>` : ''}
+              ${(x.status === 'remediating' || x.status === 'open') ? `<button class="btn btn-ghost" onclick="plFindingAction('${esc(x.id)}','retest')">Retest</button>` : ''}
+              ${x.status === 'retest-passed' ? `<button class="btn btn-ghost" onclick="plFindingAction('${esc(x.id)}','review')">Review</button>` : ''}
+              ${x.status === 'independently-reviewed' ? `<button class="btn btn-ghost" onclick="plFindingAction('${esc(x.id)}','close')">Close</button>` : ''}
+              ${x.status !== 'closed' ? `<button class="btn btn-ghost" onclick="plFindingAction('${esc(x.id)}','disposition')">Disposition</button>` : ''}
+            </td>
+          </tr>`).join('') || '<tr><td colspan="7" class="muted">No findings — the event plane is clean.</td></tr>'}</tbody>
+      </table>
+    </div>
+  `;
+  document.getElementById('pl-green-run')?.addEventListener('click', async () => {
+    const out = document.getElementById('pl-suite-out');
+    try {
+      const j = await plFetch('POST', '/admin/platform/green-team/run', { ranBy: 'admin-console' });
+      out.innerHTML = `<span style="color:var(--good);">Green team passed — ${j.run.checks.length} gates.</span>`;
+    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+    renderPlatformAssurance();
+  });
+  document.getElementById('pl-red-run')?.addEventListener('click', async () => {
+    const out = document.getElementById('pl-suite-out');
+    try {
+      const j = await plFetch('POST', '/admin/platform/red-team/run-suite', { ranBy: 'admin-console' });
+      out.innerHTML = j.passed
+        ? `<span style="color:var(--good);">Red team contained — ${j.runs.length} scenarios, 0 findings.</span>`
+        : `<span style="color:var(--bad);">Red team VIOLATION — ${j.runs.length} scenarios, ${j.findings.length} finding(s) created (blocking).</span>`;
+    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+    renderPlatformAssurance();
+  });
+}
+
+// ---------- Shared Intelligence (Epic 10 / Journey O) — hypergraph-bound canvases ----------
+window.plCanvasAction = async function(id, action) {
+  let payload = {};
+  if (action === 'create') {
+    const name = prompt('Canvas name:', 'Care coordination view');
+    if (!name) return;
+    payload = { name, scopeId: 'scope:enterprise', createdBy: 'admin' };
+  } else if (action === 'note') {
+    const body = prompt('Note body:', '');
+    if (!body) return;
+    payload = { body, by: 'admin', citation: prompt('Citation (optional):', '') || undefined };
+  } else if (action === 'simulate') {
+    const t = prompt('What-if consensus threshold (0.0–1.0):', '0.6');
+    const threshold = parseFloat(t);
+    if (Number.isNaN(threshold) || threshold < 0 || threshold > 1) return alert('Use a number in [0,1].');
+    payload = { threshold, by: 'admin' };
+  }
+  try {
+    const path = action === 'create' ? '/api/canvases' : `/api/canvases/${encodeURIComponent(id)}/${action === 'note' ? 'notes' : 'simulate'}`;
+    const j = await plFetch(action === 'create' ? 'POST' : 'POST', path, payload);
+    if (action === 'simulate') toast(`What-if @ ${Math.round(payload.threshold * 100)}% → ${j.simulation.episodesSurfaced} episode(s) surfaced (cited note appended)`, 'good');
+    else if (action === 'note') toast('Cited note appended', 'good');
+    else toast(`Canvas '${j.canvas.name}' created`, 'good');
+  } catch (err) { toast('Canvas action failed: ' + err.message, 'err'); }
+  renderPlatformCanvases();
+};
+
+async function renderPlatformCanvases() {
+  let canvases = [];
+  try { canvases = (await plFetch('GET', '/api/canvases')).canvases || []; } catch (e) { /* ignore */ }
+  let graph = { nodes: [], edges: [] };
+  try { graph = await plFetch('GET', '/api/graph'); } catch (e) { /* ignore */ }
+  const rows = canvases.map((c) => `
+    <div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px dashed var(--border);flex-wrap:wrap;">
+      <span style="flex:1;min-width:160px;font-size:13px;"><b>${esc(c.name)}</b> <span class="muted" style="font-size:11px;">· ${esc(c.scopeId)} · v${c.version}</span></span>
+      <span class="muted" style="font-size:11px;">${(c.nodes || []).length} nodes · ${(c.edges || []).length} edges · ${(c.notes || []).length} notes</span>
+      <span style="white-space:nowrap;">
+        <button class="btn btn-sm" onclick="plCanvasOpen('${esc(c.id)}')">Open</button>
+        <button class="btn btn-sm" onclick="plCanvasAction('${esc(c.id)}','note')">Note</button>
+        <button class="btn btn-sm" onclick="plCanvasAction('${esc(c.id)}','simulate')">What-if</button>
+      </span>
+    </div>`).join('') || '<div class="muted">No canvases yet — create one to bind typed graph insight.</div>';
+
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Shared Intelligence</h2>
+      <p class="page-sub">Journey O — server-backed canvases over the typed hypergraph: saved scope, versioned notes with citations, and an isolated what-if entry that becomes a cited work/release decision.</p></div></div>
+    <div class="detail">
+      <h3 style="margin-top:0;">Canvases</h3>
+      <button class="btn btn-primary" onclick="plCanvasAction('none','create')">New canvas</button>
+      <div id="pl-canvas-list" style="margin-top:10px;">${rows}</div>
+      <div id="pl-canvas-detail" style="margin-top:12px;"></div>
+    </div>`;
+}
+
+window.plCanvasOpen = async function(id) {
+  const out = document.getElementById('pl-canvas-detail');
+  try {
+    const c = (await plFetch('GET', `/api/canvases/${encodeURIComponent(id)}`)).canvas;
+    const graph = await plFetch('GET', '/api/graph');
+    const nodeIds = new Set((c.nodes || []).map((n) => n.id));
+    const bound = (graph.nodes || []).filter((n) => nodeIds.has(n.id));
+    const boundEdges = (graph.edges || []).filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target));
+    out.innerHTML = `<h4 style="margin:8px 0 4px;">${esc(c.name)} · scope ${esc(c.scopeId)} · v${c.version}</h4>
+      <div class="muted" style="font-size:12px;margin-bottom:8px;">Typed hypergraph bindings: ${bound.length} of ${(c.nodes || []).length} node(s) resolve to live graph nodes · ${boundEdges.length} edge(s)</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:260px;">
+          <div style="font-weight:600;font-size:12px;margin-bottom:4px;">Bound nodes</div>
+          ${bound.slice(0, 40).map((n) => `<div style="font-size:12px;padding:2px 0;border-bottom:1px solid var(--border);"><code>${esc(n.id)}</code> <span class="pill muted">${esc(n.type)}</span> ${esc(n.label ?? '')}</div>`).join('') || '<div class="muted" style="font-size:12px;">(nodes bound to graph will appear here)</div>'}
+        </div>
+        <div style="flex:1;min-width:260px;">
+          <div style="font-weight:600;font-size:12px;margin-bottom:4px;">Notes & citations (${(c.notes || []).length})</div>
+          ${(c.notes || []).slice().reverse().map((n) => `<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--border);"><div>${esc(n.body)}</div><div class="muted" style="font-size:11px;">${esc(n.by)} · ${esc(n.at)}${n.citation ? ` · <span class="pill good">${esc(n.citation)}</span>` : ''}</div></div>`).join('') || '<div class="muted" style="font-size:12px;">No notes yet — add a cited note or run a what-if.</div>'}
+        </div>
+      </div>`;
+  } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+};
+
+// ---------- Executive Outcomes (Journey N) — verified value + delegation ----------
+window.plExecAction = async function(action, id) {
+  let payload = {};
+  if (action === 'delegate') {
+    const title = prompt('Delegated analysis title:', '');
+    if (!title) return;
+    payload = { title, owner: prompt('Owner:', 'Network Operations Leader') || 'Network Operations Leader', sla: prompt('SLA (e.g. By Friday):', 'This sprint') || 'This sprint', reason: prompt('Reason (optional):', '') || '', sourceId: prompt('Source id (optional):', 'scope:enterprise') || 'scope:enterprise', delegatedBy: 'executive' };
+  } else if (action === 'complete') {
+    payload = { status: 'done', verified: confirm('Outcome verified?') ? true : false, value: parseInt(prompt('Realized value ($):', '1000') || '1000', 10), note: prompt('Note:', '') || 'completed' };
+  }
+  try {
+    const url = action === 'delegate' ? '/admin/executive/delegate' : `/admin/executive/delegations/${encodeURIComponent(id)}/status`;
+    await plFetch('POST', url, payload);
+    toast(action === 'delegate' ? 'Delegated with owner + SLA' : 'Delegation completed', 'good');
+  } catch (err) { toast('Executive action failed: ' + err.message, 'err'); }
+  renderPlatformExecutive();
+};
+
+async function renderPlatformExecutive() {
+  let outcomes = { verifiedEpisodes: 0, met: 0, realizedValue: 0, byKind: {} };
+  try { outcomes = (await plFetch('GET', '/admin/executive/outcomes')).outcomes; } catch (e) { /* ignore */ }
+  let delegations = [];
+  try { delegations = (await plFetch('GET', '/admin/executive/delegations')).delegations || []; } catch (e) { /* ignore */ }
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Executive Outcomes</h2>
+      <p class="page-sub">Journey N — material movements, verified value (not activity counts), and sponsor/delegate analysis to an owner with an SLA.</p></div></div>
+    <div class="cards" style="grid-template-columns: repeat(3,1fr);">
+      <div class="stat-card"><div class="num">${outcomes.verifiedEpisodes}</div><div class="lbl">Verified outcomes</div></div>
+      <div class="stat-card"><div class="num">${outcomes.met}</div><div class="lbl">Met measures</div></div>
+      <div class="stat-card"><div class="num">$${(outcomes.realizedValue || 0).toLocaleString()}</div><div class="lbl">Realized value</div></div>
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Delegations</h3>
+      <button class="btn btn-primary" onclick="plExecAction('delegate')">Delegate analysis</button>
+      <table style="width:100%;margin-top:10px;">
+        <thead><tr><th>Title</th><th>Owner</th><th>SLA</th><th>Status</th><th>Outcome</th><th>Actions</th></tr></thead>
+        <tbody>${delegations.map((d) => `
+          <tr>
+            <td>${esc(d.title)}<div class="muted" style="font-size:11px;">${esc(d.reason || '')}</div></td>
+            <td>${esc(d.owner)}</td>
+            <td>${esc(d.sla)}</td>
+            <td><span class="pill ${d.status === 'done' ? 'good' : d.status === 'in-progress' ? 'brand' : 'muted'}">${esc(d.status)}</span></td>
+            <td>${d.outcome ? `${d.outcome.verified ? '✓' : '✗'} verified${d.outcome.value ? ' · $' + d.outcome.value.toLocaleString() : ''}` : '<span class="muted">—</span>'}</td>
+            <td style="white-space:nowrap;">
+              ${d.status !== 'done' ? `<button class="btn btn-ghost" onclick="plExecAction('complete','${esc(d.id)}')">Complete</button>` : ''}
+            </td>
+          </tr>`).join('') || '<tr><td colspan="6" class="muted">No delegations — sponsor one above.</td></tr>'}</tbody>
+      </table>
+    </div>`;
+}
+
+// ---------- Configuration Studio (Control Center §18.4/18.6) — pack + policy/workflow ----------
+window.plConfigSavePolicy = async function() {
+  const g = (id) => document.getElementById(id)?.value;
+  const payload = {
+    defaultDecision: g('cfg-decision') || 'block',
+    externalWritesEnabled: document.getElementById('cfg-extwrites')?.checked === true,
+    escalationThresholdBasisPoints: parseInt(g('cfg-escalation') || '5000', 10),
+    minThresholdBasisPoints: parseInt(g('cfg-min') || '0', 10),
+    maxThresholdBasisPoints: parseInt(g('cfg-max') || '10000', 10),
+  };
+  try {
+    const j = await plFetch('PUT', '/admin/platform/policy', payload);
+    toast(`Policy saved (${j.policy.defaultDecision})`, 'good');
+  } catch (err) { toast('Policy save failed: ' + err.message, 'err'); }
+};
+
+/**
+ * Configuration studio — ONE page for the four things that change what the
+ * runtime does: the installed packs (and the lens they switch), the durable
+ * configuration objects (the datasets the exec console renders), the
+ * organization ontology, and the action-boundary policy.
+ *
+ * Two things it no longer does, both of which were lies:
+ *   - it presented these objects as a read-only YAML FILE EDITOR headed with
+ *     filenames (riverbend-fhir-r4.yaml, action-boundary.yaml, …) that exist
+ *     nowhere on disk, while the content really came from Postgres;
+ *   - it swallowed a 403 on the policy read and rendered hardcoded defaults
+ *     (5000bp) instead of the stored value (8200bp).
+ * Neither is possible now: every path is /admin/platform/*, which the operator
+ * console is actually scoped for, and every read failure is rendered as a
+ * failure.
+ */
+const CFG_TABS = [['packs', 'Packs & lens'], ['objects', 'Configuration objects'], ['specs', 'Agent specs'], ['ontology', 'Ontology'], ['policy', 'Action policy']];
+let cfgTab = 'packs';
+let cfgPacks = [];
+let cfgActivePack = null;
+
+async function renderPlatformConfig() {
+  let ctx = { pack: { id: '', lens: '' } };
+  let err = null;
+  try {
+    ctx = await plFetch('GET', '/api/context');
+    const list = await plFetch('GET', '/admin/platform/packs');
+    cfgPacks = list.packs || [];
+    cfgActivePack = list.activePack || null;
+  } catch (e) { err = e.message; }
+  if (err) {
+    main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Configuration studio</h2></div></div>${loadFailureHTML('the configuration studio', err)}`;
+    hydrateIcons();
+    return;
+  }
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Configuration studio</h2>
+      <p class="page-sub">What the next release will change — installed packs and the lens they switch, the durable configuration objects the executive console renders, the organization ontology, and the action-boundary policy. Release lifecycle and gate evidence live in <b>Release center</b>.</p></div>
+      <button class="btn" onclick="goTo('platform-releases')">Release center →</button></div>
+    <div class="section-card">
+      <div class="page-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">${CFG_TABS.map(([id, label]) => `<button class="tab${cfgTab === id ? ' is-active' : ''}" onclick="cfgGo('${id}')">${label}</button>`).join('')}</div>
+      <div id="cfg-body">Loading…</div>
+    </div>`;
+  await cfgBody(ctx);
+  hydrateIcons();
+}
+
+window.cfgGo = async function(tab) { cfgTab = tab; await renderPlatformConfig(); };
+
+async function cfgBody(ctx) {
+  const body = document.getElementById('cfg-body');
+  if (!body) return;
+
+  if (cfgTab === 'packs') {
+    body.innerHTML = `
+      <h3 style="margin-top:0;">Pack registry <span class="muted" style="font-weight:400;font-size:11px;">· ${cfgPacks.length} installed by the pack loader</span></h3>
+      <p class="muted" style="font-size:12px;">Activating a pack durably switches the executive lens in <code>/api/context</code> — no redeploy, no operating-model edit. Deactivate restores the operating-model default. Currently serving lens <b>${esc((ctx.pack && ctx.pack.lens) || '—')}</b> from pack <b>${esc((ctx.pack && ctx.pack.id) || '—')}</b>.</p>
+      <div style="display:grid;gap:8px;margin-top:8px;">${cfgPacks.map((p) => packRegistryRow(p, cfgActivePack)).join('') || '<span class="muted" style="font-size:12px;">No packs installed.</span>'}</div>`;
+    return;
+  }
+
+  if (cfgTab === 'objects') { await cfgObjectsBody(); return; }
+  if (cfgTab === 'specs') { await cfgSpecsBody(); return; }
+  if (cfgTab === 'ontology') { await cfgOntologyBody(); return; }
+
+  // Action policy — the red-team suite evaluates THIS live, so an unsafe policy
+  // fails the suite and blocks a release.
+  let policy = null; let perr = null;
+  try { policy = (await plFetch('GET', '/admin/platform/policy')).policy; } catch (e) { perr = e.message; }
+  if (!policy) { body.innerHTML = loadFailureHTML('the action-boundary policy', perr); hydrateIcons(); return; }
+  body.innerHTML = `
+    <h3 style="margin-top:0;">Action-boundary policy</h3>
+    <p class="muted" style="font-size:12px;">Stored in Postgres and read live by the red-team suite and the release gate. Version <code>${esc(policy.version || '—')}</code>, last updated ${esc(String(policy.updatedAt || '—'))}.</p>
+    <div class="field-row">
+      <div class="field"><label>Default decision</label><select id="cfg-decision"><option value="block" ${policy.defaultDecision === 'block' ? 'selected' : ''}>block (deny by default)</option><option value="allow" ${policy.defaultDecision === 'allow' ? 'selected' : ''}>allow</option></select></div>
+      <div class="field"><label>Version</label><input id="cfg-version" value="${esc(policy.version || '')}" /></div>
+      <div class="field"><label>Escalation consensus (bp)</label><input id="cfg-escalation" type="number" value="${policy.escalationThresholdBasisPoints}" /></div>
+      <div class="field"><label>Min threshold (bp)</label><input id="cfg-min" type="number" value="${policy.minThresholdBasisPoints}" /></div>
+      <div class="field"><label>Max threshold (bp)</label><input id="cfg-max" type="number" value="${policy.maxThresholdBasisPoints}" /></div>
+      <div class="field"><label style="display:block;"><input id="cfg-extwrites" type="checkbox" ${policy.externalWritesEnabled ? 'checked' : ''} /> External writes enabled</label></div>
+      <div class="field" style="align-self:flex-end;"><button class="btn btn-primary" onclick="plConfigSavePolicy()">Save policy</button></div>
+    </div>
+    <div id="cfg-policy-out" class="muted" style="font-size:12px;margin-top:6px;">Escalation is enforced between the min and max bounds; the server rejects values outside 0–10000 basis points.</div>`;
+  hydrateIcons();
+}
+
+function packRegistryRow(p, activePackId) {
+  const isActive = p.active || p.id === activePackId;
+  return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid ${isActive ? 'rgba(0,168,112,.35)' : 'var(--line)'};border-radius:8px;background:${isActive ? 'rgba(0,168,112,.06)' : 'color-mix(in srgb, var(--elevate) 2%, transparent)'};">
+    <div style="min-width:0;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><strong style="font-size:13px;">${esc(p.id)}</strong><span class="pill muted">v${esc(p.version)}</span><span class="pill ${p.lens === 'payer' ? 'amber' : p.lens === 'hybrid' ? 'violet' : 'mint'}">lens · ${esc(p.lens)}</span>${isActive ? '<span class="pill green">active</span>' : ''}</div>
+      <div class="muted" style="font-size:11px;margin-top:3px;">${(p.capabilities || []).length} capabilities · ${(p.cmsUniverse || []).length} CMS authorities · extends ${esc((p.extends || []).join(', ') || 'none')} · applies to ${esc((p.appliesTo && p.appliesTo.organizationKinds || []).join(', '))}</div>
+    </div>
+    <div style="flex:0 0 auto;display:flex;gap:6px;">
+      ${isActive
+        ? `<button class="btn btn-ghost" onclick="plPackDeactivate()">Deactivate</button>`
+        : `<button class="btn btn-primary" onclick="plPackActivate('${esc(p.id)}')">Activate</button>`}
+    </div>
+  </div>`;
+}
+
+async function plPackActivate(id) {
+  try {
+    const r = await plFetch('POST', '/admin/platform/packs/' + encodeURIComponent(id) + '/activate', { by: 'platform-admin' });
+    toast('Pack activated · lens ' + (r.pack ? r.pack.lens : '') + ' · ' + id);
+  } catch (e) { toast(e.message, 'err'); }
+  renderPlatformConfig();
+}
+
+async function plPackDeactivate() {
+  try {
+    await plFetch('POST', '/admin/platform/packs/deactivate', { by: 'platform-admin' });
+    toast('Pack deactivated — operating-model default restored');
+  } catch (e) { toast(e.message, 'err'); }
+  renderPlatformConfig();
+}
+
+// ---------- Living cohorts (operator-authored configuration, not code) ----------
+//
+// A cohort is a declared clinical proposition: entry criteria over state AND
+// trajectory, a mandatory exit, the action it suggests, and the boundary it may
+// never cross. Nothing here executes anything — membership is a statement about
+// state, and acting goes through the existing proposal → approval path.
+//
+// The editor only offers metrics from the backend's closed vocabulary, because
+// that is what keeps an authored cohort composing existing pack outputs instead
+// of inventing clinical logic.
+
+let cohortMetrics = null;   // the closed metric vocabulary (fetched once)
+let cohortDraft = null;     // the definition currently being authored
+
+async function cohortMetricCatalog() {
+  if (!cohortMetrics) cohortMetrics = await plFetch('GET', '/admin/cohorts/metrics');
+  return cohortMetrics;
+}
+
+async function renderPlatformCohorts() {
+  let catalog = { count: 0, cohorts: [] };
+  let state = { cohorts: [] };
+  let declines = { cohorts: [] };
+  let metrics = null;
+  try { catalog = await plFetch('GET', '/admin/cohorts'); } catch (e) { toast(e.message, 'err'); }
+  try { metrics = await cohortMetricCatalog(); } catch (e) { /* vocabulary unavailable */ }
+  try { state = await plFetch('GET', '/admin/cohorts/state'); } catch (e) { /* evaluation unavailable */ }
+  try { declines = await plFetch('GET', '/admin/cohorts/declines'); } catch (e) { /* no decisions yet */ }
+
+  const stateById = new Map((state.cohorts || []).map((c) => [c.cohortId, c]));
+  const declineById = new Map((declines.cohorts || []).map((d) => [d.cohortId, d]));
+  const totalMembers = (state.cohorts || []).reduce((a, c) => a + c.members, 0);
+  const totalUnresolved = (state.cohorts || []).reduce((a, c) => a + c.unresolved, 0);
+  const dead = (state.cohorts || []).filter((c) => c.members === 0 && c.coverage && c.coverage.diagnosis !== 'members');
+
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Living cohorts</h2>
+      <p class="page-sub">Membership as a durable, explainable, versioned edge. A cohort is a declared clinical proposition — entry over state <em>and</em> trajectory, a mandatory exit, the action it suggests, and the boundary it may never cross. Definitions are data: edit one here and the next evaluation uses it, with no deploy. <b>Nothing here acts</b> — a qualifying patient becomes a suggestion a human decides on.</p></div>
+      <div style="display:flex;gap:6px;align-items:flex-start;">
+        <button class="btn" onclick="cohortNew()">New cohort</button>
+        <button class="btn btn-primary" onclick="cohortEvaluateNow()">Evaluate now</button>
+      </div></div>
+    <div class="cards" style="grid-template-columns: repeat(4,1fr);">
+      <div class="stat-card"><div class="num">${catalog.count || 0}</div><div class="lbl">Configured cohorts</div></div>
+      <div class="stat-card"><div class="num">${totalMembers}</div><div class="lbl">Members right now</div></div>
+      <div class="stat-card"><div class="num" style="color:${totalUnresolved ? 'var(--warn)' : 'inherit'};">${totalUnresolved}</div><div class="lbl">Unresolved (coverage, not risk)</div></div>
+      <div class="stat-card"><div class="num" style="color:${dead.length ? 'var(--bad)' : 'inherit'};">${dead.length}</div><div class="lbl">Cannot admit anyone</div></div>
+    </div>
+    <div id="cohort-editor"></div>
+    <div class="detail">
+      <h3 style="margin-top:0;">Catalog</h3>
+      <p class="muted" style="font-size:12px;">"0 members" is three different facts: nobody qualifies, nobody has the measurement, or the criteria cannot be satisfied <em>together</em>. The coverage column says which — reading it as "no patients at risk" is the failure this column exists to prevent.</p>
+      <div style="display:grid;gap:8px;margin-top:8px;">${(catalog.cohorts || []).map((c) => cohortRow(c, stateById.get(c.id), declineById.get(c.id))).join('') || '<span class="muted" style="font-size:12px;">No cohorts configured.</span>'}</div>
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Decline analysis</h3>
+      <p class="muted" style="font-size:12px;">A decline is the only signal that a clinician disagreed with a criterion. Declines are attributed to the version they were made against, so editing a definition (and bumping <code>criterionVersion</code>) legitimately re-opens the question — a new criterion has not been judged yet. Nothing below changes a cohort; the tuning step stays a human edit.</p>
+      <div style="display:grid;gap:8px;margin-top:8px;">${(declines.cohorts || []).map(cohortDeclineRow).join('') || '<span class="muted" style="font-size:12px;">No human decisions recorded yet.</span>'}</div>
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Metric vocabulary <span class="pill muted">${metrics ? metrics.metrics.length : 0} metrics</span></h3>
+      <p class="muted" style="font-size:12px;">Closed on purpose. Every metric names the module that computes it, so an authored cohort composes existing outputs rather than re-deriving clinical logic that could disagree with the protocol it belongs to.</p>
+      <div style="max-height:260px;overflow:auto;margin-top:8px;">
+        <table style="width:100%;font-size:12px;">
+          <thead><tr><th>Metric</th><th>Unit</th><th>Type</th><th>Computed by</th></tr></thead>
+          <tbody>${metrics ? metrics.metrics.map((m) => `<tr><td><code>${esc(m.id)}</code><div class="muted">${esc(m.label)}</div></td><td>${esc(m.unit || '—')}</td><td><span class="pill muted">${esc(m.valueType)}</span></td><td class="muted">${esc(m.source)}</td></tr>`).join('') : '<tr><td colspan="4" class="muted">Vocabulary unavailable.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+  hydrateIcons();
+}
+
+const COHORT_DIAGNOSIS_LABEL = {
+  members: 'admissible',
+  'data-gap': 'data gap',
+  'criteria-too-strict': 'threshold out of range',
+  'no-joint-overlap': 'criteria cannot be met together',
+  'insufficient-coverage': 'nothing evaluated',
+};
+
+function cohortRow(doc, state, decline) {
+  const cov = state && state.coverage;
+  const diagnosis = cov ? cov.diagnosis : 'insufficient-coverage';
+  const tone = diagnosis === 'members' ? 'mint' : diagnosis === 'data-gap' ? 'amber' : 'red';
+  const members = state ? state.members : '—';
+  const prevalence = state ? (state.prevalence === 'insufficient' ? `below minN ${state.minN}` : `${state.prevalence}%`) : '—';
+  const criterionCount = (doc.entry || []).length + (doc.exit || []).length;
+  return `<div style="padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:color-mix(in srgb, var(--elevate) 2%, transparent);">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+      <div style="min-width:0;flex:1;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <strong style="font-size:13px;">${esc(doc.label)}</strong>
+          <code style="font-size:11px;">${esc(doc.definitionId)}</code>
+          <span class="pill muted">${esc(doc.kind)}</span>
+          <span class="pill muted">${esc(doc.protocol)}</span>
+          <span class="pill muted">v${esc(doc.criterionVersion)}</span>
+          <span class="pill ${tone}">${esc(COHORT_DIAGNOSIS_LABEL[diagnosis] || diagnosis)}</span>
+          ${doc.enabled ? '' : '<span class="pill muted">disabled</span>'}
+        </div>
+        <div class="muted" style="font-size:11px;margin-top:4px;">${esc(doc.rationale || '')}</div>
+        <div class="muted" style="font-size:11px;margin-top:4px;">entry ${(doc.entry || []).length} · exit ${(doc.exit || []).length}${doc.entryMode === 'any' ? ' (any)' : ''} · ${esc(doc.owner)} · class ${esc(doc.approvalClass)} · minN ${esc(doc.minN)} · ${criterionCount} criteria</div>
+        ${cov ? `<div style="font-size:11px;margin-top:6px;color:${diagnosis === 'members' ? 'var(--good)' : 'var(--warn)'};">${esc(cov.verdict)}</div>` : ''}
+        ${decline && decline.declines > 0 ? `<div class="muted" style="font-size:11px;margin-top:4px;">declines on v${esc(decline.criterionVersion)}: ${decline.declines} · accepted: ${decline.acceptances}${decline.clustered ? ' · clustered' : ''}${decline.retireCandidate ? ' · <b style="color:var(--bad);">retire candidate</b>' : ''}</div>` : ''}
+      </div>
+      <div style="flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+        <div style="text-align:right;"><div style="font-weight:700;font-size:16px;">${members}</div><div class="muted" style="font-size:10px;">members · ${esc(prevalence)}</div></div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-ghost" onclick="cohortEdit('${esc(doc.id)}')">Edit</button>
+          <button class="btn btn-ghost" onclick="cohortToggle('${esc(doc.id)}', ${doc.enabled ? 'false' : 'true'})">${doc.enabled ? 'Disable' : 'Enable'}</button>
+          <button class="btn btn-ghost" onclick="cohortDelete('${esc(doc.id)}')">Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function cohortDeclineRow(a) {
+  if (a.declines === 0 && a.acceptances === 0) {
+    return `<div style="padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:12px;"><code>${esc(a.cohortId)}</code> <span class="muted">— no decisions recorded. ${esc(a.recommendation)}</span></div>`;
+  }
+  const reasons = (a.reasons || []).map((r) => `<li>${esc(r.reason)} <span class="muted">×${r.count}</span></li>`).join('');
+  return `<div style="padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:12px;">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <strong>${esc(a.label)}</strong>
+      <code style="font-size:11px;">${esc(a.cohortId)}</code>
+      <span class="pill ${a.declines ? 'amber' : 'muted'}">${a.declines} declined</span>
+      <span class="pill muted">${a.acceptances} accepted</span>
+      <span class="pill muted">rate ${a.declineRate === null ? '—' : a.declineRate + '%'}</span>
+      ${a.retireCandidate ? '<span class="pill red">retire candidate</span>' : ''}
+      ${a.byVersion && a.byVersion.some((v) => v.stale) ? '<span class="pill muted">older versions excluded</span>' : ''}
+    </div>
+    ${reasons ? `<ul style="margin:6px 0 0 16px;padding:0;">${reasons}</ul>` : ''}
+    <div class="muted" style="font-size:11px;margin-top:6px;">${esc(a.recommendation)}</div>
+  </div>`;
+}
+
+async function cohortEvaluateNow() {
+  try {
+    const r = await plFetch('POST', '/admin/cohorts/evaluate', { persist: true });
+    toast(`Evaluated ${r.cohorts.length} cohorts · ${r.memberships} memberships · ${r.persisted} row(s) changed, ${r.unchanged} unchanged`);
+  } catch (e) { toast(e.message, 'err'); }
+  renderPlatformCohorts();
+}
+
+/* ---------- the authoring editor ---------- */
+
+async function cohortNew() {
+  await cohortMetricCatalog();
+  cohortDraft = {
+    isNew: true, id: '', label: '', kind: 'suggested', protocol: 'cross', rationale: '',
+    entryMode: 'all', entry: [emptyCriterion()], exit: [emptyCriterion()],
+    suggestedAction: '', approvalClass: 'C', mayNever: '', guard: '',
+    minN: 3, criterionVersion: '1.0.0', owner: 'clinical', enabled: true,
+  };
+  renderCohortEditor();
+}
+
+async function cohortEdit(id) {
+  await cohortMetricCatalog();
+  const doc = await plFetch('GET', '/admin/cohorts/' + encodeURIComponent(id));
+  const c = doc.cohort;
+  cohortDraft = {
+    isNew: false, id: c.definitionId, label: c.label, kind: c.kind, protocol: c.protocol,
+    rationale: c.rationale, entryMode: c.entryMode === 'any' ? 'any' : 'all',
+    entry: (c.entry || []).map(criterionToDraft), exit: (c.exit || []).map(criterionToDraft),
+    suggestedAction: c.suggestedAction, approvalClass: c.approvalClass,
+    mayNever: (c.mayNever || []).join('\n'), guard: (c.guard || []).join('\n'),
+    minN: c.minN, criterionVersion: c.criterionVersion, owner: c.owner, enabled: c.enabled,
+  };
+  renderCohortEditor();
+  document.getElementById('cohort-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function emptyCriterion() { return { metric: '', comparator: 'gte', value: '', min: '', max: '', note: '' }; }
+
+function criterionToDraft(c) {
+  return {
+    metric: c.metric, comparator: c.comparator,
+    value: c.value === undefined ? '' : String(c.value),
+    min: c.min === undefined ? '' : String(c.min),
+    max: c.max === undefined ? '' : String(c.max),
+    note: c.note || '',
+  };
+}
+
+function cohortMetricOptions(selected) {
+  if (!cohortMetrics) return '<option value="">— vocabulary unavailable —</option>';
+  const opts = cohortMetrics.metrics.map((m) => {
+    const label = `${m.id} · ${m.label}${m.unit ? ` (${m.unit})` : ''}`;
+    return `<option value="${esc(m.id)}"${m.id === selected ? ' selected' : ''}>${esc(label)}</option>`;
+  }).join('');
+  return `<option value=""${selected ? '' : ' selected'}>— select a metric —</option>${opts}`;
+}
+
+function cohortComparatorOptions(selected) {
+  const list = (cohortMetrics && cohortMetrics.comparators) || ['gte', 'gt', 'lte', 'lt', 'eq', 'neq', 'present', 'absent', 'outside'];
+  return list.map((c) => `<option value="${esc(c)}"${c === selected ? ' selected' : ''}>${esc(c)}</option>`).join('');
+}
+
+function cohortCriterionRow(bucket, index) {
+  const c = cohortDraft[bucket][index];
+  const spec = cohortMetrics ? cohortMetrics.metrics.find((m) => m.id === c.metric) : undefined;
+  const bindsValue = !['present', 'absent'].includes(c.comparator);
+  const isOutside = c.comparator === 'outside';
+  const valueControl = !bindsValue ? '<span class="muted" style="font-size:11px;">no value</span>'
+    : isOutside
+      ? `<input data-field="min" type="number" step="any" placeholder="min" value="${esc(c.min)}" style="width:76px;" oninput="cohortCriterionInput(this)" />
+         <input data-field="max" type="number" step="any" placeholder="max" value="${esc(c.max)}" style="width:76px;" oninput="cohortCriterionInput(this)" />`
+      : `<input data-field="value" type="${spec && spec.valueType !== 'number' ? 'text' : 'number'}" step="any" placeholder="value" value="${esc(c.value)}" style="width:96px;" oninput="cohortCriterionInput(this)" />`;
+  return `<div class="cohort-criterion" data-bucket="${esc(bucket)}" data-index="${index}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:5px 0;border-bottom:1px solid var(--line);">
+    <select data-field="metric" style="flex:1 1 320px;min-width:240px;" onchange="cohortCriterionInput(this)">${cohortMetricOptions(c.metric)}</select>
+    <select data-field="comparator" style="width:104px;" onchange="cohortCriterionInput(this)">${cohortComparatorOptions(c.comparator)}</select>
+    ${valueControl}
+    <input data-field="note" type="text" placeholder="note shown to the reviewer (optional)" value="${esc(c.note)}" style="flex:1 1 200px;min-width:150px;" oninput="cohortCriterionInput(this)" />
+    <button class="btn btn-ghost" onclick="cohortRemoveCriterion('${esc(bucket)}', ${index})">×</button>
+  </div>`;
+}
+
+function cohortCriterionBlock(bucket, title, hint) {
+  const rows = cohortDraft[bucket];
+  return `<div style="flex:1 1 420px;min-width:320px;">
+    <div style="display:flex;align-items:center;gap:8px;"><label style="font-weight:600;font-size:12px;">${esc(title)}</label><span class="muted" style="font-size:11px;">${esc(hint)}</span></div>
+    <div id="cohort-${esc(bucket)}-rows">${rows.map((_, i) => cohortCriterionRow(bucket, i)).join('') || '<div class="muted" style="font-size:11px;padding:6px 0;">no criteria — every cohort needs at least one</div>'}</div>
+    <button class="btn btn-ghost" style="margin-top:6px;" onclick="cohortAddCriterion('${esc(bucket)}')">+ Add criterion</button>
+  </div>`;
+}
+
+function renderCohortEditor() {
+  const host = document.getElementById('cohort-editor');
+  if (!host || !cohortDraft) return;
+  const d = cohortDraft;
+  host.innerHTML = `
+    <div class="detail" style="margin-top:12px;border-color:var(--brand);">
+      <h3 style="margin-top:0;">${d.isNew ? 'New cohort' : `Editing ${esc(d.id)}`}</h3>
+      <div id="cohort-error" style="display:none;margin-bottom:8px;"></div>
+      <div class="field-row">
+        <div class="field"><label>Id (kebab-case, immutable)</label><input id="cohort-id" type="text" value="${esc(d.id)}" ${d.isNew ? '' : 'disabled'} placeholder="e.g. fluid-overload-risk" /></div>
+        <div class="field"><label>Label</label><input id="cohort-label" type="text" value="${esc(d.label)}" /></div>
+        <div class="field"><label>Kind</label><select id="cohort-kind"><option value="suggested"${d.kind === 'suggested' ? ' selected' : ''}>suggested — proposes an action</option><option value="monitoring"${d.kind === 'monitoring' ? ' selected' : ''}>monitoring — observes only</option></select></div>
+        <div class="field"><label>Protocol composed</label><input id="cohort-protocol" type="text" value="${esc(d.protocol)}" placeholder="a protocol id, or 'cross' for several" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Entry mode</label><select id="cohort-entry-mode"><option value="all"${d.entryMode === 'all' ? ' selected' : ''}>all — every criterion must hold</option><option value="any"${d.entryMode === 'any' ? ' selected' : ''}>any — one criterion admits</option></select></div>
+        <div class="field"><label>criterionVersion (bump when a criterion changes)</label><input id="cohort-version" type="text" value="${esc(d.criterionVersion)}" /></div>
+        <div class="field"><label>Owner</label><input id="cohort-owner" type="text" value="${esc(d.owner)}" /></div>
+        <div class="field"><label>minN (below this the cohort reports insufficient, not a prevalence)</label><input id="cohort-minn" type="number" min="1" value="${esc(d.minN)}" /></div>
+        <div class="field"><label>Enabled</label><select id="cohort-enabled"><option value="true"${d.enabled ? ' selected' : ''}>enabled</option><option value="false"${d.enabled ? '' : ' selected'}>disabled</option></select></div>
+      </div>
+      <div class="field"><label>Rationale — what this cohort is for, in the clinician's words</label><input id="cohort-rationale" type="text" value="${esc(d.rationale)}" /></div>
+      <div class="field-row" style="align-items:flex-start;">
+        ${cohortCriterionBlock('entry', 'Entry criteria', 'state AND trajectory — an unresolved criterion is never read as healthy')}
+      </div>
+      <div class="field-row" style="align-items:flex-start;">
+        ${cohortCriterionBlock('exit', 'Exit criteria', 'mandatory — a cohort that can only grow is an inbox')}
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Suggested action (never executed automatically)</label><input id="cohort-action" type="text" value="${esc(d.suggestedAction)}" /></div>
+        <div class="field"><label>Approval class</label><select id="cohort-class">${['A', 'B', 'C', 'D'].map((k) => `<option value="${k}"${d.approvalClass === k ? ' selected' : ''}>${k}</option>`).join('')}</select></div>
+      </div>
+      <div class="field-row" style="align-items:flex-start;">
+        <div class="field" style="flex:1 1 320px;"><label>mayNever — the boundary this cohort cannot cross, one per line</label><textarea id="cohort-maynever" rows="3" style="width:100%;">${esc(d.mayNever)}</textarea></div>
+        <div class="field" style="flex:1 1 320px;"><label>guard — the guards that apply before acting, one per line</label><textarea id="cohort-guard" rows="3" style="width:100%;">${esc(d.guard)}</textarea></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <button class="btn btn-primary" onclick="cohortSave()">${d.isNew ? 'Create cohort' : 'Save changes'}</button>
+        <button class="btn btn-ghost" onclick="cohortCancelEdit()">Cancel</button>
+      </div>
+    </div>`;
+  hydrateIcons();
+}
+
+function cohortCriterionInput(el) {
+  const row = el.closest('.cohort-criterion');
+  if (!row || !cohortDraft) return;
+  const bucket = row.dataset.bucket;
+  const index = Number(row.dataset.index);
+  const field = el.dataset.field;
+  if (!bucket || !cohortDraft[bucket] || !cohortDraft[bucket][index]) return;
+  cohortDraft[bucket][index][field] = el.value;
+  // Changing the metric or the comparator changes which value widget applies,
+  // so those two re-render the rows. Typing must not, or focus is lost.
+  if (field === 'metric' || field === 'comparator') cohortRenderCriteria();
+}
+
+/** Read every criteria row from the DOM back into the draft. */
+function cohortSyncCriteria() {
+  if (!cohortDraft) return;
+  for (const bucket of ['entry', 'exit']) {
+    const host = document.getElementById(`cohort-${bucket}-rows`);
+    if (!host) continue;
+    const rows = [...host.querySelectorAll('.cohort-criterion')].map((row) => {
+      const read = (f) => {
+        const el = row.querySelector(`[data-field="${f}"]`);
+        return el ? el.value : '';
+      };
+      return { metric: read('metric'), comparator: read('comparator'), value: read('value'), min: read('min'), max: read('max'), note: read('note') };
+    });
+    if (rows.length > 0) cohortDraft[bucket] = rows;
+  }
+}
+
+function cohortRenderCriteria() {
+  if (!cohortDraft) return;
+  cohortSyncCriteria();
+  for (const bucket of ['entry', 'exit']) {
+    const host = document.getElementById(`cohort-${bucket}-rows`);
+    if (host) host.innerHTML = cohortDraft[bucket].map((_, i) => cohortCriterionRow(bucket, i)).join('');
+  }
+}
+
+function cohortAddCriterion(bucket) {
+  cohortSyncCriteria();
+  cohortDraft[bucket].push(emptyCriterion());
+  cohortRenderCriteria();
+}
+
+function cohortRemoveCriterion(bucket, index) {
+  cohortSyncCriteria();
+  cohortDraft[bucket].splice(index, 1);
+  cohortRenderCriteria();
+}
+
+function cohortCancelEdit() {
+  cohortDraft = null;
+  const host = document.getElementById('cohort-editor');
+  if (host) host.innerHTML = '';
+}
+
+function cohortShowError(msg) {
+  const host = document.getElementById('cohort-error');
+  if (!host) { toast(msg, 'err'); return; }
+  host.style.display = 'block';
+  host.innerHTML = `<div style="padding:8px 10px;border:1px solid var(--bad);border-radius:6px;color:var(--bad);font-size:12px;">${esc(msg)}</div>`;
+}
+
+/** Turn the form into the definition body, with numeric fields actually numeric. */
+function cohortReadForm() {
+  cohortSyncCriteria();
+  const d = cohortDraft;
+  const text = (id, fallback = '') => {
+    const el = document.getElementById(id);
+    return el ? String(el.value).trim() : fallback;
+  };
+  const lines = (id) => text(id).split('\n').map((s) => s.trim()).filter(Boolean);
+  const toNumber = (v) => {
+    const s = String(v ?? '').trim();
+    if (s === '') return undefined;
+    const n = Number(s);
+    return Number.isNaN(n) ? undefined : n;
+  };
+  const criteria = (bucket) => d[bucket].map((c) => {
+    const spec = cohortMetrics ? cohortMetrics.metrics.find((m) => m.id === c.metric) : undefined;
+    const numeric = !spec || spec.valueType === 'number';
+    const out = { metric: c.metric, comparator: c.comparator };
+    if (!['present', 'absent', 'outside'].includes(c.comparator)) {
+      if (numeric) {
+        const n = toNumber(c.value);
+        if (n !== undefined) out.value = n;
+      } else if (String(c.value).trim() !== '') out.value = String(c.value).trim();
+    }
+    if (c.comparator === 'outside') {
+      const min = toNumber(c.min);
+      const max = toNumber(c.max);
+      if (min !== undefined) out.min = min;
+      if (max !== undefined) out.max = max;
+    }
+    if (String(c.note ?? '').trim()) out.note = String(c.note).trim();
+    return out;
+  });
+  return {
+    id: d.id || text('cohort-id'),
+    label: text('cohort-label'),
+    kind: text('cohort-kind', 'suggested'),
+    protocol: text('cohort-protocol', 'cross') || 'cross',
+    rationale: text('cohort-rationale'),
+    entryMode: text('cohort-entry-mode', 'all'),
+    entry: criteria('entry'),
+    exit: criteria('exit'),
+    suggestedAction: text('cohort-action'),
+    approvalClass: text('cohort-class', 'C'),
+    mayNever: lines('cohort-maynever'),
+    guard: lines('cohort-guard'),
+    minN: toNumber(text('cohort-minn')) ?? 3,
+    criterionVersion: text('cohort-version', '1.0.0') || '1.0.0',
+    owner: text('cohort-owner', 'clinical') || 'clinical',
+    enabled: text('cohort-enabled', 'true') === 'true',
+  };
+}
+
+async function cohortSave() {
+  if (!cohortDraft) return;
+  const body = cohortReadForm();
+  // Fail here with a sentence rather than letting the server answer with a
+  // token — the operator is authoring a clinical proposition, not a payload.
+  if (!body.id) return cohortShowError('an id is required (kebab-case, e.g. fluid-overload-risk)');
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(body.id)) return cohortShowError(`invalid id '${body.id}' — use lowercase letters, digits and hyphens`);
+  if (!body.label) return cohortShowError('a label is required');
+  for (const bucket of ['entry', 'exit']) {
+    if (body[bucket].length === 0) return cohortShowError(`${bucket} needs at least one criterion`);
+    const blank = body[bucket].findIndex((c) => !c.metric);
+    if (blank >= 0) return cohortShowError(`${bucket} criterion ${blank + 1} has no metric selected`);
+    // A criterion that cannot compare is a criterion that never resolves, and
+    // "never resolves" reads as a coverage gap forever. Catch it here.
+    for (let i = 0; i < body[bucket].length; i += 1) {
+      const c = body[bucket][i];
+      const spec = cohortMetrics ? cohortMetrics.metrics.find((m) => m.id === c.metric) : undefined;
+      const numeric = !spec || spec.valueType === 'number';
+      const where = `${bucket} criterion ${i + 1} (${c.metric})`;
+      if (c.comparator === 'outside') {
+        if (c.min === undefined && c.max === undefined) return cohortShowError(`${where} needs a min or a max for 'outside'`);
+      } else if (!['present', 'absent'].includes(c.comparator)) {
+        if (numeric && typeof c.value !== 'number') return cohortShowError(`${where} needs a numeric value for '${c.comparator}'`);
+        if (!numeric && c.value === undefined) return cohortShowError(`${where} needs a value for '${c.comparator}'`);
+      }
+    }
+  }
+  if (body.mayNever.length === 0) return cohortShowError('mayNever is required — state the boundary this cohort cannot cross');
+  if (body.guard.length === 0) return cohortShowError('guard is required — name the guards that apply before acting');
+  try {
+    if (cohortDraft.isNew) {
+      await plFetch('POST', '/admin/cohorts', body);
+      toast(`Cohort created · ${body.id}`);
+    } else {
+      await plFetch('PUT', '/admin/cohorts/' + encodeURIComponent(body.id), body);
+      toast(`Cohort saved · ${body.id} v${body.criterionVersion}`);
+    }
+  } catch (e) { return cohortShowError(e.message); }
+  cohortDraft = null;
+  renderPlatformCohorts();
+}
+
+async function cohortToggle(id, enabled) {
+  try {
+    const doc = await plFetch('GET', '/admin/cohorts/' + encodeURIComponent(id));
+    const c = doc.cohort;
+    await plFetch('PUT', '/admin/cohorts/' + encodeURIComponent(id), {
+      id, label: c.label, kind: c.kind, protocol: c.protocol, rationale: c.rationale,
+      entry: c.entry, exit: c.exit, ...(c.entryMode ? { entryMode: c.entryMode } : {}),
+      suggestedAction: c.suggestedAction, approvalClass: c.approvalClass,
+      mayNever: c.mayNever, guard: c.guard, minN: c.minN,
+      criterionVersion: c.criterionVersion, owner: c.owner, enabled,
+    });
+    toast(`${id} ${enabled ? 'enabled' : 'disabled'}`);
+  } catch (e) { toast(e.message, 'err'); }
+  renderPlatformCohorts();
+}
+
+async function cohortDelete(id) {
+  if (!window.confirm(`Delete cohort '${id}'? Its membership history stays durable, but nothing will evaluate it again.`)) return;
+  try {
+    await plFetch('DELETE', '/admin/cohorts/' + encodeURIComponent(id));
+    toast(`Cohort removed · ${id}`);
+  } catch (e) { toast(e.message, 'err'); }
+  renderPlatformCohorts();
+}
+
+// ---------- My Work — the OPERATOR console's decision queue ----------
+//
+// The same server-assembled queue the executive console shows, scoped to the
+// console that owns each item. `item.console` is the console owning the capability,
+// and cohort review is nursing work, so cohort suggestions land HERE: they used to
+// appear in the exec console instead, which made this surface look empty to exactly
+// the people the decline loop was built for.
+//
+// Nothing here acts on a patient. An item is a decision — review or decline,
+// approve or reject — and acting on a patient stays a separate proposal → approval
+// → outcome episode.
+
+const WQ_KIND_LABEL = { episode: 'Outcome episode', review: 'Evidence review', release: 'Release', dlq: 'DLQ incident', cohort: 'Cohort suggestion' };
+const WQ_KIND_ICON = { episode: 'circle-dot', review: 'shield-check', release: 'git-branch', dlq: 'alert-octagon', cohort: 'users' };
+const WQ_ACTION_LABEL = {
+  approve: 'Approve', reject: 'Reject', escalate: 'Escalate', validate: 'Validate', activate: 'Activate',
+  rollback: 'Rollback', acknowledge: 'Acknowledge', 'request-approval': 'Request approval', canary: 'Canary',
+  promote: 'Promote', fail: 'Fail',
+  // NOT 'Review': this action RECORDS a decision (the entry reads suggested →
+  // reviewed) and does not open anything, while the row title does. Labelled
+  // 'Review', an operator clicking it to read the criteria silently attested to
+  // the suggestion instead. The label now names the record it writes.
+  review: 'Mark reviewed', decline: 'Decline',
+};
+const WQ_TONE = { high: 'var(--bad)', medium: 'var(--warn)', low: 'var(--good)' };
+
+const wqState = {
+  items: [], elsewhere: 0, filter: 'all', loaded: false, error: '', notice: '',
+  busy: '', declining: null, selected: null, detail: null, detailError: '',
+};
+let wqTimer = null;
+
+function wqStopPolling() { if (wqTimer) { clearInterval(wqTimer); wqTimer = null; } }
+
+/**
+ * Poll while the view is open, and stop the moment it is not — a queue that kept
+ * polling after you navigated away would load the server for nobody.
+ */
+function wqStartPolling() {
+  wqStopPolling();
+  wqTimer = setInterval(() => {
+    if (currentView !== 'my-work') { wqStopPolling(); return; }
+    // A re-render mid-sentence would discard a half-typed decline reason.
+    if (wqState.declining) return;
+    void wqLoad().then(() => wqRender());
+  }, 10000);
+}
+
+async function wqLoad() {
+  try {
+    const j = await plFetch('GET', '/api/work');
+    const all = Array.isArray(j.items) ? j.items : [];
+    // The queue spans every console the role can open; this console renders its own.
+    wqState.items = all.filter((i) => i.console === 'ops');
+    wqState.elsewhere = all.filter((i) => i.console !== 'ops').length;
+    wqState.error = '';
+  } catch (e) {
+    wqState.error = e instanceof Error ? e.message : String(e);
+  }
+  wqState.loaded = true;
+}
+
+async function renderMyWork() {
+  await wqLoad();
+  wqRender();
+  wqStartPolling();
+}
+
+function wqCriteriaRows(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return '<span class="muted" style="font-size:11px;">none</span>';
+  const tone = (o) => (o === 'met' ? 'var(--good)' : o === 'not-met' ? 'var(--bad)' : 'var(--warn)');
+  return `<table style="width:100%;font-size:12px;margin-top:4px;">
+    <thead><tr><th>Criterion</th><th>Measured</th><th>Outcome</th></tr></thead>
+    <tbody>${rows.map((c) => `<tr>
+      <td><code>${esc(c.expected ?? '')}</code>${c.note ? `<div class="muted">${esc(c.note)}</div>` : ''}</td>
+      <td>${c.observed === null || c.observed === undefined ? '<span class="muted">not resolvable</span>' : esc(String(c.observed))}</td>
+      <td style="color:${tone(c.outcome)};font-weight:600;">${esc(String(c.outcome ?? ''))}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+function wqDetailHTML() {
+  const d = wqState.detail;
+  if (wqState.detailError) {
+    return `<div class="detail" style="margin-top:12px;"><div style="color:var(--bad);font-size:12px;">${esc(wqState.detailError)}</div></div>`;
+  }
+  if (!d) return '';
+  const kv = (obj) => Object.entries(obj ?? {})
+    .filter(([, v]) => v !== null && v !== undefined && typeof v !== 'object')
+    .map(([k, v]) => `<div><span class="muted" style="font-size:11px;">${esc(k)}</span><div style="font-weight:600;">${esc(String(v))}</div></div>`).join('');
+  const overview = { ...(d.overview ?? {}) };
+  const entryCriteria = overview.entryCriteria;
+  const exitCriteria = overview.exitCriteria;
+  delete overview.entryCriteria;
+  delete overview.exitCriteria;
+  const activity = Array.isArray(d.activity) ? d.activity : [];
+  const policy = d.policy ?? {};
+  const decision = d.decision ?? {};
+  return `<div class="detail" style="margin-top:12px;border-color:var(--brand);">
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
+      <h3 style="margin:0;">${esc(d.title ?? 'Work item')}</h3>
+      <button class="btn btn-ghost" onclick="wqClose()">Close</button>
+    </div>
+    <div class="muted" style="font-size:11px;margin-top:4px;">${esc(String(d.kind ?? ''))} · ${esc(String(d.scope ?? ''))} · owner ${esc(String(d.owner ?? ''))}</div>
+    ${d.why ? `<div style="margin-top:8px;font-size:13px;">${esc(String(d.why))}</div>` : ''}
+    ${Object.keys(overview).length ? `<h4 style="margin:10px 0 0;font-size:12px;">Overview</h4><div class="kv" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:6px;">${kv(overview)}</div>` : ''}
+    ${entryCriteria ? `<h4 style="margin:10px 0 0;font-size:12px;">Entry criteria</h4>${wqCriteriaRows(entryCriteria)}` : ''}
+    ${exitCriteria ? `<h4 style="margin:10px 0 0;font-size:12px;">Exit criteria</h4>${wqCriteriaRows(exitCriteria)}` : ''}
+    <h4 style="margin:10px 0 0;font-size:12px;">Decision</h4>
+    <div style="font-size:12px;">Allowed: ${(decision.allowed ?? []).map((a) => `<span class="pill muted">${esc(WQ_ACTION_LABEL[a] ?? a)}</span>`).join(' ')}
+      ${(decision.reasonRequiredFor ?? []).length ? `<span class="muted"> · a reason is required for ${esc((decision.reasonRequiredFor ?? []).join(', '))}</span>` : ''}</div>
+    ${Object.keys(policy).length ? `<h4 style="margin:10px 0 0;font-size:12px;">Policy</h4><div style="font-size:12px;">
+      ${policy.approvalClass ? `class <b>${esc(String(policy.approvalClass))}</b>` : ''}
+      ${policy.actsOnPatient === false ? ' · <b>this item never acts on a patient</b>' : ''}
+      ${Array.isArray(policy.mayNever) && policy.mayNever.length ? `<div class="muted" style="margin-top:4px;">may never: ${esc(policy.mayNever.join('; '))}</div>` : ''}
+      ${Array.isArray(policy.guard) && policy.guard.length ? `<div class="muted">guards: ${esc(policy.guard.join('; '))}</div>` : ''}
+    </div>` : ''}
+    <div style="font-size:12px;margin-top:8px;">${d.execution === null || d.execution === undefined
+      ? '<span class="pill mint">nothing is executed by this item</span>'
+      : `<span class="pill amber">execution: ${esc(String(d.execution))}</span>`}</div>
+    ${activity.length ? `<h4 style="margin:10px 0 0;font-size:12px;">Activity</h4><div style="font-size:12px;margin-top:4px;">${activity.map((a) => `<div style="padding:3px 0;border-bottom:1px solid var(--line);"><span class="muted">${esc(String(a.at ?? ''))}</span> ${esc(String(a.from ?? ''))} → <b>${esc(String(a.to ?? ''))}</b> <span class="muted">${esc(String(a.by ?? ''))}</span>${a.note ? `<div class="muted">${esc(String(a.note))}</div>` : ''}</div>`).join('')}</div>` : ''}
+  </div>`;
+}
+
+function wqRender() {
+  const items = wqState.items;
+  const counts = { high: 0, medium: 0, low: 0 };
+  for (const i of items) if (counts[i.urgency] !== undefined) counts[i.urgency] += 1;
+  const visible = wqState.filter === 'all' ? items : items.filter((i) => i.urgency === wqState.filter);
+  setCount('c-mywork', items.length);
+
+  const tabs = [['all', 'All', items.length], ['high', 'High', counts.high], ['medium', 'Medium', counts.medium], ['low', 'Low', counts.low]]
+    .map(([id, label, n]) => `<button class="btn ${wqState.filter === id ? 'btn-primary' : 'btn-ghost'}" onclick="wqFilter('${id}')">${label} <span class="muted">${n}</span></button>`).join(' ');
+
+  const rows = visible.map((item) => {
+    const declining = wqState.declining && wqState.declining.id === item.id;
+    return `<div style="padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:${wqState.selected === item.id ? 'color-mix(in srgb, var(--mint) 7%, transparent)' : 'color-mix(in srgb, var(--elevate) 2%, transparent)'};">
+      <div style="display:flex;gap:10px;align-items:flex-start;">
+        <span style="flex:0 0 auto;width:26px;height:26px;border-radius:6px;display:grid;place-items:center;background:color-mix(in srgb, ${WQ_TONE[item.urgency] ?? 'var(--muted)'} 15%, transparent);color:${WQ_TONE[item.urgency] ?? 'var(--muted)'};"><i data-lucide="${WQ_KIND_ICON[item.kind] ?? 'circle-dot'}"></i></span>
+        <div style="flex:1;min-width:0;">
+          <button class="btn btn-ghost" style="padding:0;text-align:left;font-weight:600;" onclick="wqOpen('${esc(item.id)}')">${esc(item.title)}</button>
+          <div class="muted" style="font-size:11px;margin-top:2px;">${esc(item.summary ?? '')}</div>
+          <div class="muted" style="font-size:11px;margin-top:4px;">${esc(WQ_KIND_LABEL[item.kind] ?? item.kind)} · ${esc(item.scope ?? '')} · ${esc(item.owner ?? '')} · due ${esc(item.sla ?? '')}</div>
+          ${declining ? `<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+              <input class="input" style="flex:1 1 260px;" placeholder="Why is this suggestion wrong? (read back when the criterion is tuned)" value="${esc(wqState.declining.reason)}" oninput="wqDeclineReason(this.value)" />
+              <button class="btn btn-primary" ${wqState.declining.reason.trim().length < 4 ? 'disabled' : ''} onclick="wqConfirmDecline('${esc(item.id)}')">Confirm decline</button>
+              <button class="btn btn-ghost" onclick="wqCancelDecline()">Cancel</button>
+            </div>` : ''}
+        </div>
+        <div style="flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+          <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
+            <span class="pill muted">${esc(item.state ?? '')}</span>
+            <span class="pill" style="color:${WQ_TONE[item.urgency] ?? 'inherit'};">${esc(item.urgency)}</span>
+          </div>
+          ${declining ? '' : `<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">${(item.actions ?? []).map((a) => `<button class="btn ${a === 'approve' || a === 'activate' ? 'btn-primary' : 'btn-ghost'}" ${wqState.busy === `${item.id}:${a}` ? 'disabled' : ''} onclick="wqBegin('${esc(item.id)}','${esc(a)}')">${esc(WQ_ACTION_LABEL[a] ?? a)}</button>`).join('')}</div>`}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">My Work</h2>
+      <p class="page-sub">The server-assembled decision queue for this console, scoped to your role and capability. Nothing in it executes anything: a suggestion is a statement about state, and acting on a patient stays a separate proposal → approval → outcome episode.</p></div>
+      <div style="display:flex;gap:6px;align-items:flex-start;"><button class="btn" onclick="wqRefresh()">Refresh</button></div></div>
+    <div class="cards" style="grid-template-columns: repeat(4,1fr);">
+      <div class="stat-card"><div class="num">${items.length}</div><div class="lbl">Open in this console</div></div>
+      <div class="stat-card"><div class="num" style="color:${counts.high ? 'var(--bad)' : 'inherit'};">${counts.high}</div><div class="lbl">High urgency</div></div>
+      <div class="stat-card"><div class="num">${items.filter((i) => i.kind === 'cohort').length}</div><div class="lbl">Cohort suggestions</div></div>
+      <div class="stat-card"><div class="num">${wqState.elsewhere}</div><div class="lbl">In the executive console</div></div>
+    </div>
+    <div style="display:flex;gap:6px;margin:10px 0;flex-wrap:wrap;">${tabs}</div>
+    ${wqState.notice ? `<div style="margin-bottom:8px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:12px;">${esc(wqState.notice)}</div>` : ''}
+    ${wqState.elsewhere > 0 ? `<div style="margin-bottom:8px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;font-size:12px;" class="muted">${wqState.elsewhere} item(s) in the queue belong to the <b>executive console</b> and are worked there. <a href="/exec/">Open executive console</a></div>` : ''}
+    <div id="wq-detail-anchor"></div>
+    ${!wqState.loaded ? '<div class="detail">Resolving your work queue…</div>'
+      : wqState.error ? `<div class="detail" style="color:var(--bad);font-size:12px;">${esc(wqState.error)} — the server assembles My Work; reconnect to refresh.</div>`
+      : items.length === 0 ? '<div class="detail">Nothing currently requires you at this role and scope. New signals appear here the moment the harness retains them.</div>'
+      : visible.length === 0 ? `<div class="detail">No ${esc(wqState.filter)}-priority work.</div>`
+      : `<div style="display:grid;gap:8px;">${rows}</div>`}
+    ${wqDetailHTML()}`;
+  hydrateIcons();
+}
+
+async function wqRefresh() {
+  await wqLoad();
+  wqRender();
+}
+
+function wqFilter(f) { wqState.filter = f; wqRender(); }
+
+function wqDeclineReason(value) {
+  if (!wqState.declining) return;
+  wqState.declining.reason = value;
+  // Re-render only so the confirm button enables at the same threshold the server
+  // enforces; the input is re-rendered from state, so nothing typed is lost.
+  wqRender();
+  const input = document.querySelector('input.input');
+  if (input) { input.focus(); input.setSelectionRange(value.length, value.length); }
+}
+
+async function wqOpen(id) {
+  wqState.selected = id;
+  wqState.detail = null;
+  wqState.detailError = '';
+  wqRender();
+  try {
+    const j = await plFetch('GET', '/api/work/' + encodeURIComponent(id));
+    wqState.detail = j.detail ?? null;
+    if (!wqState.detail) wqState.detailError = 'The server returned no detail for this item.';
+  } catch (e) {
+    wqState.detailError = e instanceof Error ? e.message : String(e);
+  }
+  wqRender();
+  document.getElementById('wq-detail-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function wqClose() { wqState.selected = null; wqState.detail = null; wqState.detailError = ''; wqRender(); }
+
+function wqBegin(id, action) {
+  if (action === 'decline') { wqState.declining = { id, reason: '' }; wqRender(); return; }
+  void wqAct(id, action);
+}
+
+function wqCancelDecline() { wqState.declining = null; wqRender(); }
+
+function wqConfirmDecline(id) {
+  const reason = (wqState.declining?.reason ?? '').trim();
+  if (reason.length < 4) return;
+  wqState.declining = null;
+  void wqAct(id, 'decline', reason);
+}
+
+async function wqAct(id, action, reason) {
+  wqState.busy = `${id}:${action}`;
+  wqState.notice = '';
+  wqRender();
+  try {
+    const res = await plFetch('POST', '/api/work/' + encodeURIComponent(id) + '/actions', {
+      action,
+      approver: (sessionUser && sessionUser.username) || 'operator',
+      idempotencyKey: `${id}:${action}:${Date.now()}`,
+      ...(reason ? { reason } : {}),
+    });
+    wqState.notice = `${action} recorded → ${res.state ?? action}${res.duplicate ? ' (duplicate idempotent replay)' : ''}`;
+    if (wqState.selected === id) { wqState.selected = null; wqState.detail = null; }
+  } catch (e) {
+    wqState.notice = `Action failed: ${e instanceof Error ? e.message : String(e)}`;
+  } finally {
+    wqState.busy = '';
+  }
+  await wqLoad();
+  wqRender();
+}
+
+async function renderPlatformDlq() {
+  const d = await plFetch('GET', '/admin/platform/dlq');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Dead-letter queue</h2>
+      <p class="page-sub">Poison messages, bridge incidents and outbox failures — with evidence, owner, idempotent replay and audit. Replay publishes with the ORIGINAL business key so a consumer cannot create a duplicate effect.</p></div></div>
+    <div class="cards" style="grid-template-columns: repeat(4,1fr);">
+      <div class="stat-card"><div class="num">${d.brokerDepth}</div><div class="lbl">Broker DLQ depth</div></div>
+      <div class="stat-card"><div class="num">${d.outbox.pending}</div><div class="lbl">Outbox pending</div></div>
+      <div class="stat-card"><div class="num">${d.outbox.dead}</div><div class="lbl">Outbox dead</div></div>
+      <div class="stat-card"><div class="num">${d.incidents.length}</div><div class="lbl">Bridge incidents</div></div>
+    </div>
+    <div class="detail">
+      <h3 style="margin-top:0;">Incidents</h3>
+      <table style="width:100%;">
+        <thead><tr><th>Item</th><th>Topic</th><th>Incident</th><th>At</th><th>Actions</th></tr></thead>
+        <tbody>${(d.items || []).map((i) => `
+          <tr><td><code>${esc(i.id)}</code></td><td>${esc(i.topic ?? '—')}</td><td>${esc(i.incident ?? '—')}</td><td>${esc(i.publishedAt ?? '—')}</td>
+          <td style="white-space:nowrap;">
+            <button class="btn btn-ghost" onclick="plDlqDetail('${esc(i.id)}')">Detail</button>
+            <button class="btn btn-ghost" onclick="plDlqAction('${esc(i.id)}','acknowledge')">Acknowledge</button>
+            <button class="btn btn-ghost" onclick="plDlqAction('${esc(i.id)}','replay')">Replay</button>
+          </td></tr>`).join('')
+          || '<tr><td colspan="5" class="muted">No incidents — the event plane is healthy.</td></tr>'}</tbody>
+      </table>
+      <div id="dlq-detail" style="margin-top:10px;"></div>
+      <p style="font-size:12px;color:var(--muted);margin-top:10px;">Durable repair/replay is also available via the Kafka bridge.</p>
+    </div>
+  `;
+}
+
+// DLQ item operations (detail / acknowledge / idempotent replay).
+window.plDlqAction = async function(id, action) {
+  try {
+    const j = await plFetch('POST', `/admin/platform/dlq/${encodeURIComponent(id)}/${action}`, { owner: 'operator', reason: `${action} from DLQ console` });
+    toast(`${action} → ${j.item?.status ?? 'ok'}`, 'good');
+  } catch (err) { toast(`${action} failed: ${err.message}`, 'err'); }
+  renderPlatformDlq();
+};
+window.plDlqDetail = async function(id) {
+  const out = document.getElementById('dlq-detail');
+  if (!out) return;
+  try {
+    const j = await plFetch('GET', `/admin/platform/dlq/${encodeURIComponent(id)}`);
+    out.innerHTML = `<pre class="code" style="white-space:pre-wrap;">${esc(JSON.stringify(j.item, null, 2))}</pre>`;
+  } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+};
+
+// ---------- Agent Studio (Phase D) — one unified agent surface ----------
+window.plAgentAction = async function(id, action, payload) {
+  try {
+    const j = await plFetch('POST', `/admin/platform/agents/${encodeURIComponent(id)}/${action}`, payload ?? {});
+    toast(`${action} → ${j.killSwitch !== undefined ? ('killSwitch ' + j.killSwitch) : (j.rollback?.status ?? 'ok')}`, 'good');
+  } catch (err) { toast(`${action} failed: ${err.message}`, 'err'); }
+  renderPlatformAgents();
+};
+window.plAgentKill = async function(id) {
+  const reason = prompt('Kill switch reason', 'unsafe behavior observed');
+  if (reason === null) return;
+  window.plAgentAction(id, 'kill', { reason: reason || 'killed from Agent Studio' });
+};
+window.plAgentRollback = async function(id) {
+  const version = prompt('Roll back to version (e.g. 1.0.0)', 'previous');
+  if (version === null) return;
+  window.plAgentAction(id, 'rollback', { toVersion: version || 'previous', reason: 'rollback from Agent Studio' });
+};
+window.plAgentOutputTopic = async function(id) {
+  const topic = prompt('Output topic (blank = default)', 'anant.agent.output.v1');
+  if (topic === null) return;
+  const dlq = prompt('DLQ topic (blank = default)', 'anant.agent.output.dlq.v1');
+  if (dlq === null) return;
+  try {
+    const j = await plFetch('PUT', `/admin/platform/agents/${encodeURIComponent(id)}/output-topic`, { ...(topic ? { topic } : {}), ...(dlq ? { dlqTopic: dlq } : {}) });
+    toast(`Output topic → ${j.outputTopic}`, 'good');
+  } catch (err) { toast('Output topic failed: ' + err.message, 'err'); }
+  renderPlatformAgents();
+};
+async function renderPlatformAgents() {
+  const { agents, total } = await plFetch('GET', '/admin/platform/agents');
+  const list = agents || [];
+  // Drafts resolve as `packId:id`; published agents by bare id.
+  const paId = (a) => a.source === 'draft' ? `${a.packId}:${a.id}` : a.id;
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Agent Studio</h2>
+      <p class="page-sub">One surface for authoring, triggers, topics, outputs, isolated tests, kill switch and rollback. Every row resolves a real output topic + DLQ and its run history.</p></div></div>
+    <div class="cards" style="grid-template-columns: repeat(4,1fr);">
+      <div class="stat-card"><div class="num">${total ?? list.length}</div><div class="lbl">Total agents</div></div>
+      <div class="stat-card"><div class="num">${list.filter((a) => a.source === 'published').length}</div><div class="lbl">Published</div></div>
+      <div class="stat-card"><div class="num">${list.filter((a) => a.source === 'draft').length}</div><div class="lbl">Drafts</div></div>
+      <div class="stat-card"><div class="num">${list.filter((a) => a.killSwitch).length}</div><div class="lbl">Killed</div></div>
+    </div>
+    <div class="detail">
+      <table style="width:100%;">
+        <thead><tr><th>Agent</th><th>Pack</th><th>Source</th><th>Trigger</th><th>Output topic</th><th>DLQ</th><th>Runs</th><th>Kill</th><th>Actions</th></tr></thead>
+        <tbody>${list.map((a) => `
+          <tr>
+            <td><code>${esc(a.id)}</code></td>
+            <td>${esc(a.packId)}</td>
+            <td><span class="pill ${a.source === 'published' ? 'good' : 'warn'}">${esc(a.source)}</span></td>
+            <td>${esc(a.triggerKind)}</td>
+            <td><code>${esc(a.outputTopic)}</code></td>
+            <td><code>${esc(a.dlqTopic)}</code></td>
+            <td>${a.runs ?? 0}</td>
+            <td>${a.killSwitch ? '<span class="pill bad">killed</span>' : '<span class="pill good">armed</span>'}</td>
+            <td style="white-space:nowrap;">
+              <button class="btn btn-ghost" onclick="plAgentAction('${esc(paId(a))}','test')">Test</button>
+              ${a.killSwitch
+                ? `<button class="btn btn-ghost" onclick="plAgentAction('${esc(paId(a))}','un-kill')">Un-kill</button>`
+                : `<button class="btn btn-ghost" onclick="plAgentKill('${esc(paId(a))}')">Kill</button>`}
+              <button class="btn btn-ghost" onclick="plAgentRollback('${esc(paId(a))}')">Rollback</button>
+              <button class="btn btn-ghost" onclick="plAgentOutputTopic('${esc(paId(a))}')">Output</button>
+            </td>
+          </tr>`).join('') || '<tr><td colspan="9" class="muted">No agents found.</td></tr>'}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function renderPlatformContext() {
+  const c = await plFetch('GET', '/api/context');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Context API</h2>
+      <p class="page-sub">GET /api/context — what the server says the current session may see and do. The UI never decides authorization.</p></div></div>
+    <div class="cards" style="grid-template-columns: repeat(3,1fr);">
+      <div class="stat-card"><div class="num">${esc(c.role ?? 'anonymous')}</div><div class="lbl">Role</div></div>
+      <div class="stat-card"><div class="num">${(c.consoles || []).join('/')}</div><div class="lbl">Consoles</div></div>
+      <div class="stat-card"><div class="num">${esc(c.pack?.id ?? '—')}</div><div class="lbl">Active pack · ${esc(c.pack?.lens ?? '')}</div></div>
+    </div>
+    <div class="detail"><h3 style="margin-top:0;">Aggregates</h3><div class="cards" style="grid-template-columns: repeat(4,1fr);">${Object.entries(c.aggregates || {}).map(([k, v]) => `<div class="stat-card"><div class="num">${v}</div><div class="lbl">${esc(k)}</div></div>`).join('')}</div></div>
+    <div class="detail"><h3 style="margin-top:0;">Navigation</h3>${(c.navigation || []).map((n) => `<div style="padding:3px 0;border-bottom:1px solid var(--border);"><span class="pill ${n.console === 'exec' ? 'brand' : 'muted'}">${esc(n.console)}</span> ${esc(n.label)} <span class="muted">→ ${esc(n.href)}</span></div>`).join('')}</div>
+    <div class="detail"><h3 style="margin-top:0;">Capabilities (${c.capabilities?.length ?? 0})</h3><div style="display:flex;flex-wrap:wrap;gap:6px;">${(c.capabilities || []).map((x) => `<span class="pill muted">${esc(x)}</span>`).join('')}</div></div>
+  `;
+}
+
+// ---------- Enterprise platform (Phase 4 — webhooks, alerts, retention, audit, API) ----------
+let entTab = 'webhooks';
+
+// Enterprise row actions (survive grid re-renders via inline onclick).
+window.entDelete = async function(kind, id) {
+  if (!confirm(`Delete ${kind} '${id}'?`)) return;
+  try {
+    const res = await fetch(`/admin/${kind}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || res.status);
+    toast(`Deleted ${kind} ${id}`, 'good');
+  } catch (err) { toast('Delete failed: ' + err.message, 'err'); }
+  renderEnterprisePanel();
+};
+window.entTestWebhook = async function() {
+  const res = await fetch('/admin/webhooks/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+    event: { id: 'ui-test-' + Date.now(), type: 'vital.observed', occurredAt: new Date().toISOString(), scopeId: 'test', subjectId: 'p-test', facilityId: 'f1', payload: { note: 'console webhook test' }, provenance: { sourceId: 'admin-ui', observedAt: new Date().toISOString(), ingestedAt: new Date().toISOString() }, classification: 'internal' },
+  }) });
+  const j = await res.json().catch(() => ({}));
+  toast(res.ok ? ('Webhook test ' + (j.ok ? 'delivered' : 'queued') + ' — check Deliveries') : ('Test failed: ' + (j.error || res.status)), res.ok ? 'good' : 'err');
+};
+
+async function renderEnterprisePanel() {
+  const dom = await consoleDomain();
+  const [enterprise, webhooks, alerts, retention, audit] = await Promise.all([
+    api('GET', '/admin/enterprise').catch(() => null),
+    api('GET', '/admin/webhooks').catch(() => ({ webhooks: [], stats: { pending: 0, delivered: 0, dead: 0 } })),
+    api('GET', '/admin/alerts').catch(() => ({ rules: [], events: [] })),
+    api('GET', '/admin/retention').catch(() => ({ policies: [] })),
+    api('GET', '/admin/audit').catch(() => ({ audit: [] })),
+  ]);
+  const e = enterprise ?? {};
+  const wStats = (webhooks.stats || { pending: 0, delivered: 0, dead: 0 });
+  const tabs = [['webhooks', 'Webhooks'], ['alerts', 'Alert rules'], ['retention', 'Retention'], ['audit', 'Audit'], ['api', 'API docs']].map(([id, label]) =>
+    `<button class="btn ${entTab === id ? 'brand' : ''}" data-tab="${id}" style="margin-right:6px;">${label}</button>`).join('');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Enterprise platform</h2>
+      <p class="page-sub">Public <code>/api/v1</code> (OpenAPI + rate-limit + Idempotency-Key), durable webhooks, alert rules, retention, and the FHIR audit mirror.</p></div></div>
+    <div class="cards" style="grid-template-columns: repeat(4,1fr);">
+      <div class="stat-card"><div class="num">${wStats.delivered}</div><div class="lbl">Webhook deliveries</div></div>
+      <div class="stat-card"><div class="num">${(alerts.rules || []).length}</div><div class="lbl">Alert rules</div></div>
+      <div class="stat-card"><div class="num">${(retention.policies || []).length}</div><div class="lbl">Retention policies</div></div>
+      <div class="stat-card"><div class="num">${(audit.audit || []).length}</div><div class="lbl">Audit events (recent)</div></div>
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <div style="margin-bottom:10px;">${tabs}</div>
+      <div id="ent-body"></div>
+    </div>
+  `;
+  main.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => { entTab = b.dataset.tab; renderEnterprisePanel(); }));
+  const body = document.getElementById('ent-body');
+  if (entTab === 'webhooks') {
+    body.innerHTML = `
+      <div class="field-row">
+        <div class="field"><label>URL</label><input id="wh-url" placeholder="https://hook.example.com/endpoint" /></div>
+        <div class="field"><label>Secret</label><input id="wh-secret" placeholder="shared-secret" /></div>
+        <div class="field"><label>Event types (JSON, '*' = all)</label><input id="wh-types" value='["*"]' /></div>
+        <div class="field" style="align-self:flex-end;"><button id="wh-add" class="btn brand">Add webhook</button></div>
+      </div>
+      <div id="wh-list"></div>
+      <div style="margin-top:8px;font-size:12px;color:var(--muted);">Deliveries: ${wStats.pending} pending · ${wStats.delivered} delivered · ${wStats.dead} dead (HMAC-SHA256 signed, retry → DLQ).</div>
+    `;
+    document.getElementById('wh-add').addEventListener('click', async () => {
+      try {
+        const eventTypes = JSON.parse(document.getElementById('wh-types').value || '["*"]');
+        const res = await fetch('/admin/webhooks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: document.getElementById('wh-url').value, secret: document.getElementById('wh-secret').value, eventTypes }) });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || res.status);
+        renderEnterprisePanel();
+      } catch (err) { alert(String(err)); }
+    });
+    dataGrid({
+      el: 'wh-list', filename: 'webhooks', pageSize: 8, empty: 'No webhook endpoints yet.',
+      columns: [
+        { key: 'id', label: 'Id', render: (v) => `<code>${esc(v)}</code>` },
+        { key: 'url', label: 'URL' },
+        { key: 'realmId', label: 'Realm', render: (v) => esc(v || '—') },
+        { key: 'active', label: 'Active', render: (v) => `<span class="pill ${v === 1 ? 'good' : 'muted'}">${v === 1 ? 'on' : 'off'}</span>` },
+        { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<span class="row-actions"><button class="btn btn-ghost" onclick="entTestWebhook()" title="Send a test event"><i data-lucide="play"></i></button><button class="btn btn-ghost" onclick="entDelete('webhooks','${esc(r.id)}')" title="Delete"><i data-lucide="trash-2"></i></button></span>` },
+      ],
+      data: webhooks.webhooks || [],
+    });
+  } else if (entTab === 'alerts') {
+    body.innerHTML = `
+      <div class="field-row">
+        <div class="field"><label>Metric</label><input id="al-metric" placeholder="broker.dlq" /></div>
+        <div class="field"><label>Op</label><select id="al-op"><option>gt</option><option>gte</option><option>lt</option><option>lte</option><option>eq</option></select></div>
+        <div class="field"><label>Threshold</label><input id="al-th" type="number" value="0" /></div>
+        <div class="field"><label>Severity</label><select id="al-sev"><option>warning</option><option>critical</option><option>info</option></select></div>
+        <div class="field" style="align-self:flex-end;"><button id="al-add" class="btn brand">Add rule</button></div>
+        <div class="field" style="align-self:flex-end;"><button id="al-eval" class="btn">Evaluate now</button></div>
+      </div>
+      <div id="al-rules" style="margin-top:8px;"></div>
+      <div id="al-events" style="margin-top:10px;"></div>
+    `;
+    document.getElementById('al-add').addEventListener('click', async () => {
+      await fetch('/admin/alerts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ metric: document.getElementById('al-metric').value, op: document.getElementById('al-op').value, threshold: Number(document.getElementById('al-th').value), severity: document.getElementById('al-sev').value }) });
+      renderEnterprisePanel();
+    });
+    document.getElementById('al-eval').addEventListener('click', async () => {
+      await fetch('/admin/alerts/evaluate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ metrics: { 'broker.dlq': 0, 'outbox.dead': 0 } }) });
+      renderEnterprisePanel();
+    });
+    dataGrid({ el: 'al-rules', filename: 'alert-rules', columns: [{ key: 'metric', label: 'Metric' }, { key: 'op', label: 'Op' }, { key: 'threshold', label: 'Threshold', align: 'right' }, { key: 'severity', label: 'Severity', render: (v) => `<span class="pill ${v === 'critical' ? 'bad' : 'warn'}">${esc(v)}</span>` }, { key: 'enabled', label: 'On', render: (v) => (v === 1 ? '✓' : '—') }, { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<button class="btn btn-ghost" onclick="entDelete('alerts','${esc(r.id)}')" title="Delete"><i data-lucide="trash-2"></i></button>` }], data: alerts.rules || [] });
+    dataGrid({ el: 'al-events', filename: 'alert-events', pageSize: 6, columns: [{ key: 'metric', label: 'Metric' }, { key: 'value', label: 'Value', align: 'right' }, { key: 'severity', label: 'Severity', render: (v) => `<span class="pill ${v === 'critical' ? 'bad' : 'warn'}">${esc(v)}</span>` }, { key: 'firedAt', label: 'Fired' }], data: alerts.events || [] });
+  } else if (entTab === 'retention') {
+    body.innerHTML = `
+      <div class="field-row">
+        <div class="field"><label>Entity</label><select id="rt-entity">${(dom.domainOptions.retentionEntities || []).map((e) => `<option>${esc(e)}</option>`).join('')}</select></div>
+        <div class="field"><label>Keep for</label><select id="rt-age"><option value="3600000">1 hour</option><option value="86400000">1 day</option><option value="604800000">7 days</option><option value="2592000000" selected>30 days</option><option value="7776000000">90 days</option><option value="15552000000">180 days</option><option value="31536000000">1 year</option><option value="315360000000">10 years</option></select></div>
+        <div class="field" style="align-self:flex-end;"><button id="rt-add" class="btn brand">Add policy</button></div>
+        <div class="field" style="align-self:flex-end;"><button id="rt-purge" class="btn">Purge now</button></div>
+      </div>
+      <div id="rt-list" style="margin-top:8px;"></div>
+    `;
+    document.getElementById('rt-add').addEventListener('click', async () => {
+      await fetch('/admin/retention', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: document.getElementById('rt-entity').value, maxAgeMs: Number(document.getElementById('rt-age').value) }) });
+      renderEnterprisePanel();
+    });
+    document.getElementById('rt-purge').addEventListener('click', async () => {
+      const res = await fetch('/admin/retention/purge', { method: 'POST' });
+      alert(JSON.stringify((await res.json()).deleted));
+    });
+    dataGrid({ el: 'rt-list', filename: 'retention', columns: [{ key: 'entity', label: 'Entity', render: (v) => `<code>${esc(v)}</code>` }, { key: 'maxAgeMs', label: 'Keep for', align: 'right', render: (v) => humanMs(v) }, { key: 'scopeId', label: 'Scope', render: (v) => esc(v || 'all') }, { key: 'enabled', label: 'On', render: (v) => (v === 1 ? '✓' : '—') }, { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<button class="btn btn-ghost" onclick="entDelete('retention','${esc(r.id)}')" title="Delete"><i data-lucide="trash-2"></i></button>` }], data: retention.policies || [] });
+  } else if (entTab === 'audit') {
+    body.innerHTML = `<a class="btn" href="/admin/audit/fhir" target="_blank" style="margin-bottom:8px;">Export as FHIR AuditEvent Bundle</a><div id="au-grid"></div>`;
+    dataGrid({ el: 'au-grid', filename: 'audit-events', pageSize: 10, columns: [{ key: 'id', label: 'Id', render: (v) => `<code>${esc(v)}</code>` }, { key: 'actorRef', label: 'Actor' }, { key: 'action', label: 'Action' }, { key: 'resourceType', label: 'Resource' }, { key: 'classification', label: 'Class', render: (v) => `<span class="pill muted">${esc(v)}</span>` }, { key: 'occurredAt', label: 'When' }], data: audit.audit || [] });
+  } else {
+    body.innerHTML = `
+      <p>OpenAPI documentation for the public surface is served at <a href="/docs" target="_blank">/docs</a> (Swagger UI) and <code>/docs/json</code>.</p>
+      <div class="kv" style="margin-top:8px;">
+        <div><div class="k">Public API</div><div class="v"><code>/api/v1/health · /packs · /measures · /realms · /fhir/{realm}/{kind}/{id} · /events · /audit · /dsar/…</code></div></div>
+        <div><div class="k">Idempotency</div><div class="v">POST <code>/api/v1/events</code> honors the <code>Idempotency-Key</code> header</div></div>
+        <div><div class="k">Rate limiting</div><div class="v"><code>HH_RATE_LIMIT_MAX</code> / <code>HH_RATE_LIMIT_WINDOW_MS</code> (default 300/min)</div></div>
+        <div><div class="k">PHI masking</div><div class="v">FHIR + DSAR reads redact identifiers below <code>restricted-phi</code></div></div>
+      </div>
+    `;
+  }
+}
+
+
+let fhirSel = ''; let fhirResult = null; let fhirBundleText = '';
+
+// ---------- Hypergraph browser (Phase 5 — SVG node/edge visualization) ----------
+let hgRealm = '';
+const HG_COLORS = ['#38bdf8', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#f472b6', '#4ade80', '#fb923c', '#e879f9', '#22d3ee', '#a3e635', '#facc15', '#c084fc'];
+
+async function renderHypergraphBrowser() {
+  const realms = await api('GET', '/admin/realms').catch(() => ({ realms: [] }));
+  const ids = (realms.realms || []).map((r) => r.id);
+  if (!hgRealm || !ids.includes(hgRealm)) hgRealm = ids[0] || '';
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Hypergraph</h2>
+      <p class="page-sub">The realm's live entity graph — nodes and edges projected by every effect (Phase 1b bridge).</p></div>
+      <div class="field-row" style="min-width:280px;">
+        <div class="field"><label>Realm</label><select id="hg-realm">${ids.map((id) => `<option value="${esc(id)}" ${id === hgRealm ? 'selected' : ''}>${esc(id)}</option>`).join('') || '<option value="">no realms</option>'}</select></div>
+        <div class="field"><button id="hg-refresh" class="btn">Refresh</button></div>
+      </div></div>
+    <div class="detail"><div id="hg-svg-wrap" style="overflow:auto;max-height:72vh;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--bg);"></div></div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Node detail</h3><div id="hg-detail" style="font-size:12px;color:var(--muted);">Select a node to inspect its attributes.</div></div>
+  `;
+  document.getElementById('hg-realm').addEventListener('change', (e) => { hgRealm = e.target.value; loadHypergraph(); });
+  document.getElementById('hg-refresh').addEventListener('click', () => renderHypergraphBrowser());
+  await loadHypergraph();
+}
+
+async function loadHypergraph() {
+  const wrap = document.getElementById('hg-svg-wrap');
+  if (!wrap || !hgRealm) return;
+  wrap.innerHTML = '<div style="padding:20px;color:var(--muted);">Loading…</div>';
+  try {
+    const g = await api('GET', `/admin/hypergraph/realm/${encodeURIComponent(hgRealm)}/graph`);
+    const nodes = g.nodes || [];
+    const edges = g.edges || [];
+    if (nodes.length === 0) { wrap.innerHTML = '<div style="padding:20px;color:var(--muted);">No nodes yet — emit effects or ingest FHIR into this realm.</div>'; return; }
+    renderHgSvg(wrap, g, nodes, edges);
+  } catch (err) { wrap.innerHTML = `<div style="padding:20px;color:var(--bad);">${esc(String(err))}</div>`; }
+}
+
+function renderHgSvg(wrap, g, nodes, edges) {
+  // deterministic concentric layout: one ring per node type
+  const types = [...new Set(nodes.map((n) => n.type))];
+  const colorOf = (t) => HG_COLORS[Math.max(0, types.indexOf(t)) % HG_COLORS.length];
+  const byType = {};
+  nodes.forEach((n) => { (byType[n.type] = byType[n.type] || []).push(n); });
+  const pos = {};
+  const pad = 60, ringR = 90, gap = 46;
+  const W = pad * 2 + types.length * ringR * 2 + (types.length - 1) * gap;
+  const H = Math.max(420, pad * 2 + ringR * 2 + 60);
+  types.forEach((t, ti) => {
+    const cx = pad + ringR + ti * (ringR * 2 + gap);
+    const cy = H / 2;
+    const arr = byType[t] || [];
+    arr.forEach((n, i) => {
+      const ang = (i / Math.max(1, arr.length)) * Math.PI * 2 - Math.PI / 2;
+      pos[n.id] = { x: cx + Math.cos(ang) * ringR, y: cy + Math.sin(ang) * ringR };
+    });
+  });
+  const short = (id) => id.length > 26 ? id.slice(0, 23) + '…' : id;
+  const edgePaths = edges.map((e) => {
+    const a = pos[e.from], b = pos[e.to];
+    if (!a || !b) return '';
+    return `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="var(--border)" stroke-width="1" opacity="0.6"><title>${esc(e.type)}</title></line>`;
+  }).join('');
+  const nodeEls = nodes.map((n) => {
+    const p = pos[n.id];
+    if (!p) return '';
+    const label = n.type === 'realm' ? n.attributes.realmId : (n.attributes[n.type + 'Id'] ?? n.attributes.id ?? n.id);
+    return `<g transform="translate(${p.x.toFixed(1)},${p.y.toFixed(1)})" data-node="${esc(n.id)}" style="cursor:pointer;">
+      <circle r="11" fill="${colorOf(n.type)}" stroke="var(--bg)" stroke-width="2"><title>${esc(n.type)}</title></circle>
+      <text y="26" text-anchor="middle" font-size="9" fill="var(--fg)">${esc(short(String(label)))}</text>
+    </g>`;
+  }).join('');
+  wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:var(--bg);" xmlns="http://www.w3.org/2000/svg">${edgePaths}${nodeEls}</svg>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">${types.map((t) => `<span style="font-size:11px;color:var(--muted);display:inline-flex;align-items:center;gap:4px;"><span style="width:9px;height:9px;border-radius:50%;background:${colorOf(t)};display:inline-block;"></span>${esc(t)}</span>`).join('')}</div>
+    <div style="margin-top:4px;font-size:11px;color:var(--muted);">${nodes.length} nodes · ${edges.length} edges · ${g.live ? 'live bridge' : 'cold materialize'}</div>`;
+  wrap.querySelectorAll('[data-node]').forEach((el) => el.addEventListener('click', () => {
+    const node = nodes.find((n) => n.id === el.dataset.node);
+    if (!node) return;
+    const attrs = Object.entries(node.attributes || {}).map(([k, v]) => `<div style="display:flex;gap:8px;"><span style="color:var(--muted);min-width:130px;">${esc(k)}</span><code>${esc(typeof v === 'object' ? JSON.stringify(v) : String(v))}</code></div>`).join('');
+    document.getElementById('hg-detail').innerHTML = `<div style="font-weight:600;color:var(--fg);">${esc(node.type)} <code>${esc(node.id)}</code></div>${attrs || '<div>no attributes</div>'}`;
+  }));
+}
+
+// ---------- Command center (Phase 5 — multi-realm live SSE wall) ----------
+let ccPaused = false; let ccSource = null;
+function renderCommandCenter() {
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Command center</h2>
+      <p class="page-sub">Live multi-realm stream: effects, experiences, and durable webhook activity across every realm (SSE <code>/admin/stream</code>).</p></div>
+      <div class="field-row">
+        <div class="field"><button id="cc-pause" class="btn">Pause</button></div>
+        <div class="field"><button id="cc-clear" class="btn">Clear</button></div>
+      </div></div>
+    <div class="detail"><div id="cc-status" style="font-size:12px;color:var(--muted);margin-bottom:6px;">Connecting…</div>
+      <div id="cc-wall" style="height:64vh;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px;font-family:var(--code-fg);font-size:12px;background:var(--bg);"></div></div>
+  `;
+  document.getElementById('cc-pause').addEventListener('click', () => {
+    ccPaused = !ccPaused;
+    document.getElementById('cc-pause').textContent = ccPaused ? 'Resume' : 'Pause';
+  });
+  document.getElementById('cc-clear').addEventListener('click', () => { document.getElementById('cc-wall').innerHTML = ''; });
+  if (ccSource) ccSource.close();
+  ccSource = new EventSource('/admin/stream');
+  ccSource.onmessage = (e) => {
+    if (ccPaused) return;
+    let evt;
+    try { evt = JSON.parse(e.data); } catch { return; }
+    const wall = document.getElementById('cc-wall');
+    if (!wall) return;
+    const color = evt.type === 'effect' ? 'var(--good)' : evt.type === 'experience' ? 'var(--warn)' : evt.type === 'webhook' ? 'var(--brand)' : 'var(--muted)';
+    let text = `${evt.at || ''} [${evt.type}]`;
+    if (evt.type === 'effect') text += ` ${evt.payload?.realmId} ${evt.payload?.effect?.kind || ''}`;
+    else if (evt.type === 'experience') text += ` ${evt.payload?.realmId} ${evt.payload?.type || ''}`;
+    else if (evt.type === 'webhook') text += ` #${evt.payload?.webhookId} ${evt.payload?.eventId} ${evt.payload?.status}`;
+    else if (evt.type === 'hello') { document.getElementById('cc-status').textContent = `Streaming ${(evt.payload?.realms || []).length} realm(s).`; text = `hello: ${(evt.payload?.realms || []).join(', ')}`; }
+    else if (evt.type === 'heartbeat') { document.getElementById('cc-status').textContent = `Streaming ${evt.payload?.realms || 0} realm(s).`; return; }
+    const line = document.createElement('div');
+    line.style.color = color;
+    line.textContent = text;
+    wall.prepend(line);
+    while (wall.children.length > 500) wall.lastChild.remove();
+  };
+  ccSource.onerror = () => { const s = document.getElementById('cc-status'); if (s) s.textContent = 'Stream disconnected — will reconnect.'; };
+}
+
+// ---------- Compliance dashboard (Phase 5) ----------
+async function renderCompliance() {
+  const [compliance, audit] = await Promise.all([
+    api('GET', '/admin/compliance').catch(() => null),
+    api('GET', '/admin/audit').catch(() => ({ audit: [] })),
+  ]);
+  const c = compliance ?? {};
+  const auditStat = c.audit ?? { total: 0, byAction: {}, byClassification: {} };
+  const inv = c.phiInventory ?? { fhirResources: 0, byType: {}, byKind: {} };
+  const actionPills = Object.entries(auditStat.byAction || {}).map(([k, v]) => `<span class="pill muted">${esc(k)} × ${v}</span>`).join(' ');
+  const typePills = Object.entries(inv.byType || {}).map(([k, v]) => `<span class="pill brand">${esc(k)} × ${v}</span>`).join(' ');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Compliance</h2>
+      <p class="page-sub">Audit mirror (FHIR AuditEvent), retention status, and the PHI inventory across realms.</p></div></div>
+    <div class="cards" style="grid-template-columns: repeat(4,1fr);">
+      <div class="stat-card"><div class="num">${auditStat.total}</div><div class="lbl">Audit events</div></div>
+      <div class="stat-card"><div class="num">${(c.retention || []).length}</div><div class="lbl">Retention policies</div></div>
+      <div class="stat-card"><div class="num">${inv.fhirResources}</div><div class="lbl">FHIR resources stored</div></div>
+      <div class="stat-card"><div class="num">${Object.keys(inv.byKind || {}).length}</div><div class="lbl">Entity kinds in PHI inventory</div></div>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Audit activity</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">${actionPills || '<span class="pill muted">no actions</span>'}</div>
+      <a class="btn" href="/admin/audit/fhir" target="_blank" style="margin-top:8px;">Export audit as FHIR AuditEvent Bundle</a>
+      <div id="co-audit" style="margin-top:8px;"></div>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">PHI inventory (FHIR resources by type)</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">${typePills || '<span class="pill muted">none stored</span>'}</div>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Retention policies</h3><div id="co-retention"></div></div>
+  `;
+  dataGrid({ el: 'co-audit', filename: 'compliance-audit', pageSize: 10, columns: [{ key: 'id', label: 'Id', render: (v) => `<code>${esc(v)}</code>` }, { key: 'actorRef', label: 'Actor' }, { key: 'action', label: 'Action' }, { key: 'resourceType', label: 'Resource' }, { key: 'classification', label: 'Class', render: (v) => `<span class="pill muted">${esc(v)}</span>` }, { key: 'occurredAt', label: 'When' }], data: audit.audit || [] });
+  dataGrid({ el: 'co-retention', filename: 'compliance-retention', columns: [{ key: 'entity', label: 'Entity', render: (v) => `<code>${esc(v)}</code>` }, { key: 'maxAgeMs', label: 'Keep for', align: 'right', render: (v) => humanMs(v) }, { key: 'scopeId', label: 'Scope', render: (v) => esc(v || 'all') }, { key: 'enabled', label: 'On', render: (v) => (v === 1 ? '✓' : '—') }], data: (c.retention || []) });
+}
+
+
+
+async function renderFhirPanel() {
+  const [realms, map, coverage] = await Promise.all([
+    api('GET', '/admin/realms').catch(() => ({ realms: [] })),
+    api('GET', '/admin/fhir/map').catch(() => ({ resourceToKind: {}, kindToResources: {} })),
+    api('GET', '/admin/fhir/coverage').catch(() => null),
+  ]);
+  const realmsArr = (realms.realms || []).map(r => r.id);
+  if (!fhirSel || !realmsArr.includes(fhirSel)) fhirSel = realmsArr[0] || '';
+  const kindRows = Object.entries(map.resourceToKind || {}).map(([rt, k]) => `<tr><td><code>${esc(rt)}</code></td><td><span class="pill muted">${esc(k)}</span></td></tr>`).join('');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">FHIR entities</h2>
+      <p class="page-sub">Every entity consumes and produces FHIR R4 — ingest a Bundle to hydrate a realm, export a realm as a Bundle, and read any entity as its resource. Ingestion also rides the live hypergraph bridge.</p></div></div>
+    <div class="cards" style="grid-template-columns: repeat(3,1fr);">
+      <div class="stat-card"><div class="num">${Object.keys(map.resourceToKind || {}).length}</div><div class="lbl">Mapped resource types</div></div>
+      <div class="stat-card"><div class="num">${realmsArr.length}</div><div class="lbl">Realms (export/ingest target)</div></div>
+      <div class="stat-card"><div class="num" id="fhir-mirror-count">…</div><div class="lbl">Persisted resources</div></div>
+    </div>
+    <div class="detail">
+      <h3 style="margin-top:0;">Ingest a FHIR Bundle</h3>
+      <div class="field-row">
+        <div class="field"><label>Realm</label><select id="fhir-realm">${realmsArr.map(id => `<option value="${esc(id)}" ${id === fhirSel ? 'selected' : ''}>${esc(id)}</option>`).join('') || '<option value="">no realms</option>'}</select></div>
+        <div class="field" style="flex:1;"><label>Bundle (JSON)</label><textarea id="fhir-bundle" rows="6" style="font-family:var(--code-fg);font-size:12px;" placeholder='{"resourceType":"Bundle","entry":[{"resource":{"resourceType":"Patient","id":"p9",...}}]}'>${esc(fhirBundleText)}</textarea></div>
+        <div class="field"><label>Type</label><select id="fhir-bundle-type"><option value="collection">collection</option><option value="transaction">transaction</option><option value="batch">batch</option><option value="message">message</option></select></div>
+        <div class="field"><label>Bundle id (replay-safe)</label><input id="fhir-bundle-id" placeholder="optional"></div>
+        <div class="field"><label>&nbsp;</label><label class="field checkbox" style="flex-direction:row;gap:6px;align-items:center;"><input type="checkbox" id="fhir-dryrun"> Dry run</label></div>
+        <div class="field" style="align-self:flex-end;"><button id="fhir-ingest" class="btn brand">Ingest bundle</button></div>
+      </div>
+      <div id="fhir-result" style="margin-top:8px;font-size:12px;"></div>
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <div class="field-row">
+        <div class="field"><label>Realm export</label><select id="fhir-export-realm">${realmsArr.map(id => `<option value="${esc(id)}" ${id === fhirSel ? 'selected' : ''}>${esc(id)}</option>`).join('') || ''}</select></div>
+        <div class="field"><label>&nbsp;</label><button id="fhir-export" class="btn">Export realm → Bundle</button></div>
+        <div class="field"><label>&nbsp;</label><button id="fhir-view" class="btn">View bundle JSON</button></div>
+        <div class="field"><label>&nbsp;</label><a id="fhir-download" class="btn" style="text-decoration:none;" download="bundle.json">Download</a></div>
+      </div>
+      <div id="fhir-export-summary" style="margin-top:8px;font-size:12px;"></div>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Resource → kind map</h3>
+      <div style="max-height:180px;overflow:auto;"><table class="panel"><thead><tr><th>FHIR resource</th><th>Entity kind</th></tr></thead><tbody>${kindRows || '<tr><td colspan="2">no mapping</td></tr>'}</tbody></table></div>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">R4 coverage report</h3>
+      <div class="cards" style="grid-template-columns: repeat(4,1fr);margin-bottom:10px;">
+        <div class="stat-card"><div class="num">${coverage?.r4Total ?? '…'}</div><div class="lbl">R4 resource types</div></div>
+        <div class="stat-card"><div class="num">${coverage?.typedTotal ?? '…'}</div><div class="lbl">Typed</div></div>
+        <div class="stat-card"><div class="num">${coverage?.mappedTotal ?? '…'}</div><div class="lbl">Mapped to kinds</div></div>
+        <div class="stat-card"><div class="num">${coverage?.missingTotal ?? '…'}</div><div class="lbl">Not typed</div></div>
+      </div>
+      <div class="field"><label>Filter typed resources</label><input id="fhir-cov-filter" placeholder="e.g. Condition, Schedule, Invoice, ..."></div>
+      <div style="max-height:240px;overflow:auto;margin-top:6px;"><table class="panel" id="fhir-cov-table"><thead><tr><th>FHIR resource</th><th>Entity kind</th><th>Mapped</th></tr></thead>
+        <tbody>${(coverage?.typed || []).map((t) => `<tr data-rt="${esc(t.resourceType)}"><td><code>${esc(t.resourceType)}</code></td><td>${t.kind ? `<span class="pill muted">${esc(t.kind)}</span>` : '<span class="muted">—</span>'}</td><td>${t.mapped ? '<span class="pill good">✓ wire</span>' : '<span class="pill warn">typed only</span>'}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">no data</td></tr>'}</tbody></table></div>
+      <p class="page-sub" style="font-size:12px;margin-top:8px;">${coverage?.auditProvenance?.projected ? `AuditEvent → provenance stream: <span style="color:var(--good);">live</span> — every canonical event projects to an R4 AuditEvent (canonicalToFhirAudit), mirrored as a Bundle at <code>/admin/audit/fhir</code> and rolled up in <code>/admin/compliance</code>.` : 'AuditEvent projection not reported.'}</p>
+      <details><summary class="muted" style="cursor:pointer;font-size:12px;">Show ${coverage?.missingTotal ?? 0} untyped R4 resources</summary>
+        <div style="font-size:11px;color:var(--muted);max-height:160px;overflow:auto;">${(coverage?.missing || []).join(', ')}</div>
+      </details>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Durable mirror</h3><div id="fhir-resources-grid"></div></div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Read an entity as FHIR</h3>
+      <div class="field-row">
+        <div class="field"><label>Realm</label><select id="fhir-read-realm">${realmsArr.map((id) => `<option value="${esc(id)}" ${id === fhirSel ? 'selected' : ''}>${esc(id)}</option>`).join('') || ''}</select></div>
+        <div class="field"><label>Kind</label><select id="fhir-read-kind">${[...new Set(Object.values(map.resourceToKind || {}))].map((k) => `<option>${esc(k)}</option>`).join('') || '<option value="">no kinds</option>'}</select></div>
+        <div class="field"><label>Entity id</label><input id="fhir-read-id" placeholder="f1-pt-0001"></div>
+        <div class="field"><label>&nbsp;</label><button class="btn" id="fhir-read">Read resource</button></div>
+      </div>
+      <pre id="fhir-read-out" class="detail" style="background:var(--code-bg);color:var(--code-fg);padding:10px;border-radius:8px;white-space:pre-wrap;max-height:240px;overflow:auto;margin-top:8px;"></pre>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">CDS Hooks demo</h3>
+      <div class="field-row">
+        <div class="field"><label>Realm</label><select id="fhir-cds-realm">${realmsArr.map((id) => `<option value="${esc(id)}" ${id === fhirSel ? 'selected' : ''}>${esc(id)}</option>`).join('') || ''}</select></div>
+        <div class="field"><label>Hook</label><select id="fhir-cds-hook"><option>medication-prescribe</option><option>order-sign</option><option>patient-view</option></select></div>
+        <div class="field"><label>Patient</label><input id="fhir-cds-patient" placeholder="f1-pt-0001" list="fhir-cds-patient-list"><datalist id="fhir-cds-patient-list"></datalist></div>
+        <div class="field"><label>&nbsp;</label><button class="btn" id="fhir-cds-run">Get decision support cards</button></div>
+      </div>
+      <div id="fhir-cds-out" style="margin-top:8px;"></div>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">FHIR Subscription / CDC poll</h3>
+      <p class="page-sub" style="font-size:12px;">Poll a FHIR server's <code>_lastUpdated</code> history, hydrate the changes, and <strong>apply them to a realm</strong> (twin-mode keep-current). Point it at a real EHR, or use the built-in in-process emulator for a live pull with zero setup.</p>
+      <div class="field-row">
+        <div class="field" style="flex:1;"><label>Base URL</label><input id="fhir-sub-base" placeholder="https://ehr.example.org/fhir" value="http://127.0.0.1:3000/fhir-mock"></div>
+        <div class="field"><label>Bearer token</label><input id="fhir-sub-bearer" placeholder="optional"></div>
+        <div class="field"><label>Realm</label><select id="fhir-sub-realm">${realmsArr.map((id) => `<option value="${esc(id)}" ${id === fhirSel ? 'selected' : ''}>${esc(id)}</option>`).join('') || ''}</select></div>
+        <div class="field"><label>Resource types</label><input id="fhir-sub-types" value="Patient,Observation,Encounter,Condition,Procedure"></div>
+        <div class="field"><label>&nbsp;</label><button class="btn" id="fhir-sub-seed">Seed emulator</button></div>
+        <div class="field"><label>&nbsp;</label><button class="btn btn-primary" id="fhir-sub-run">Run one poll</button></div>
+      </div>
+      <div id="fhir-sub-emulator" style="margin-top:6px;"></div>
+      <div id="fhir-sub-out" style="margin-top:8px;"></div>
+    </div>
+  `;
+  document.getElementById('fhir-realm')?.addEventListener('change', (e) => { fhirSel = e.target.value; });
+  document.getElementById('fhir-cds-realm')?.addEventListener('change', (e) => { loadPatientDatalist(e.target.value, 'fhir-cds-patient-list'); });
+  loadPatientDatalist(document.getElementById('fhir-cds-realm')?.value || fhirSel, 'fhir-cds-patient-list');
+  document.getElementById('fhir-bundle')?.addEventListener('input', (e) => { fhirBundleText = e.target.value; });
+  document.getElementById('fhir-ingest')?.addEventListener('click', async () => {
+    const out = document.getElementById('fhir-result');
+    try {
+      const bundle = JSON.parse(document.getElementById('fhir-bundle').value || '{}');
+      bundle.type = document.getElementById('fhir-bundle-type').value;
+      const bundleId = document.getElementById('fhir-bundle-id').value.trim();
+      if (bundleId) bundle.id = bundleId;
+      const dryRun = document.getElementById('fhir-dryrun').checked;
+      const res = await fetch('/admin/fhir/ingest', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ realmId: fhirSel, bundle, ...(dryRun ? { dryRun: true } : {}) }) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || j.message || res.status);
+      fhirResult = j;
+      out.innerHTML = `
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+          <span class="pill brand">${esc(j.bundleType || 'collection')}</span>
+          <span class="pill muted">${esc(j.mode || '')}</span>
+          ${j.dryRun ? '<span class="pill warn">dry run — not persisted</span>' : ''}
+          ${j.rolledBack ? '<span class="pill bad">rolled back</span>' : ''}
+          ${j.duplicate ? '<span class="pill good">idempotent replay</span>' : ''}
+          <span class="pill good">${j.applied ?? 0} applied</span>
+          <span class="pill muted">${j.persisted ?? 0} persisted</span>
+        </div>
+        <div class="muted" style="font-size:12px;">Ingested ${j.hydrated} resources → ${j.effectsApplied} effects applied, ${j.structuralUpserts} structural upserts.${j.effectsRejected ? ` <span style="color:var(--bad);">${j.effectsRejected} effects rejected.</span>` : ''}${j.skipped?.length ? ` skipped: ${esc(j.skipped.join(', '))}` : ''}</div>
+        ${(j.entries && j.entries.length) ? `<div style="margin-top:8px;max-height:200px;overflow:auto;"><table class="panel"><thead><tr><th>#</th><th>Resource</th><th>Method</th><th>Status</th><th>Location</th><th>Issue</th></tr></thead><tbody>${j.entries.map((e) => `<tr><td>${e.index}</td><td><code>${esc(e.resourceType || '')}</code>${e.id ? `/${esc(e.id)}` : ''}</td><td>${esc(e.requestMethod || 'POST')}</td><td>${e.status < 300 ? `<span class="pill good">${e.status}</span>` : `<span class="pill bad">${e.status}</span>`}</td><td>${esc(e.location || '')}</td><td class="muted">${e.issue ? esc(e.issue.code + (e.issue.diagnostics ? ' — ' + e.issue.diagnostics : '')) : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+      if (!dryRun) await loadFhirMirror();
+    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+  });
+  document.getElementById('fhir-export')?.addEventListener('click', () => doFhirExport(false));
+  document.getElementById('fhir-view')?.addEventListener('click', () => doFhirExport(true));
+  // Entity read.
+  document.getElementById('fhir-read')?.addEventListener('click', async () => {
+    const out = document.getElementById('fhir-read-out');
+    const realmId = document.getElementById('fhir-read-realm').value;
+    const kind = document.getElementById('fhir-read-kind').value;
+    const id = document.getElementById('fhir-read-id').value.trim();
+    if (!kind || !id) { out.textContent = 'Pick a kind and enter an entity id.'; return; }
+    try {
+      const res = await fetch(`/admin/fhir/entity/${encodeURIComponent(realmId)}/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`);
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || res.status);
+      out.textContent = JSON.stringify(j, null, 2);
+    } catch (err) { out.textContent = 'Error: ' + err.message; }
+  });
+  // CDS Hooks demo.
+  document.getElementById('fhir-cds-run')?.addEventListener('click', async () => {
+    const out = document.getElementById('fhir-cds-out');
+    const realmId = document.getElementById('fhir-cds-realm').value;
+    const hook = document.getElementById('fhir-cds-hook').value;
+    const patientId = document.getElementById('fhir-cds-patient').value.trim();
+    try {
+      const res = await fetch('/admin/fhir/cds-hooks?realmId=' + encodeURIComponent(realmId), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ hook, hookInstance: 'ui-' + Date.now(), context: { patientId } }) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || res.status);
+      const cards = j.cards || [];
+      out.innerHTML = cards.length === 0 ? '<div class="muted">No decision support cards returned.</div>' : cards.map((c) => `<div class="section-card" style="margin:0 0 8px;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="pill ${c.indicator === 'warning' ? 'warn' : c.indicator === 'critical' ? 'bad' : 'good'}">${esc(c.indicator || 'info')}</span><strong>${esc(c.summary)}</strong></div><div style="font-size:13px;">${esc(c.detail || '')}</div>${c.source ? `<div class="muted" style="font-size:11px;margin-top:4px;">${esc(c.source.label || '')}</div>` : ''}</div>`).join('');
+    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+  });
+  // R4 coverage report filter.
+  document.getElementById('fhir-cov-filter')?.addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    document.querySelectorAll('#fhir-cov-table tbody tr').forEach((tr) => {
+      tr.style.display = !q || String(tr.getAttribute('data-rt') || '').toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+  // Seed the in-process FHIR emulator.
+  document.getElementById('fhir-sub-seed')?.addEventListener('click', async () => {
+    const em = document.getElementById('fhir-sub-emulator');
+    const base = document.getElementById('fhir-sub-base').value.trim();
+    if (base !== 'http://127.0.0.1:3000/fhir-mock') {
+      em.innerHTML = `<span class="muted" style="font-size:12px;">The in-process emulator lives at <code>http://127.0.0.1:3000/fhir-mock</code> — set Base URL to it to use it.</span>`;
+      return;
+    }
+    try {
+      const res = await fetch('/admin/fhir/emulator/seed', { method: 'POST' });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || res.status);
+      em.innerHTML = `<span style="color:var(--good);">Emulator seeded: ${j.seeded} resources (${Object.entries(j.byType || {}).map(([t, n]) => `${t}×${n}`).join(', ')}). Now run one poll → it applies to the realm.</span>`;
+    } catch (err) { em.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+  });
+  // FHIR Subscription / CDC poll.
+  document.getElementById('fhir-sub-run')?.addEventListener('click', async () => {
+    const out = document.getElementById('fhir-sub-out');
+    const baseUrl = document.getElementById('fhir-sub-base').value.trim();
+    const resourceTypes = document.getElementById('fhir-sub-types').value.split(',').map((s) => s.trim()).filter(Boolean);
+    const bearerToken = document.getElementById('fhir-sub-bearer').value.trim();
+    try {
+      const res = await fetch('/admin/fhir/subscription/poll', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ baseUrl, ...(bearerToken ? { bearerToken } : {}), resourceTypes, realmId: document.getElementById('fhir-sub-realm').value }) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.message || j.error || res.status);
+      out.innerHTML = `<span style="color:var(--good);">Polled ${esc(baseUrl)} → fetched ${j.fetched} resource(s), ${j.events} canonical event(s) (${(j.eventTypes || []).join(', ') || 'none'}).${j.ingested != null ? ` Applied ${j.ingested} → <strong>${j.structuralUpserts} structural upsert(s)</strong> to the realm.` : ''} Cursor: <code>${esc(j.nextSince)}</code></span>`;
+    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">Poll failed: ${esc(String(err))}</span> <span class="muted">(point the base URL at a reachable FHIR server or the in-process emulator)</span>`; }
+  });
+  await loadFhirMirror();
+}
+
+async function loadFhirMirror() {
+  try {
+    const res = await fetch('/admin/fhir/resources');
+    const j = await res.json();
+    const rows = (j.resources || []);
+    const c = document.getElementById('fhir-mirror-count'); if (c) c.textContent = rows.length;
+    dataGrid({
+      el: 'fhir-resources-grid', filename: 'fhir-resources', pageSize: 8, empty: 'No resources persisted yet — ingest a bundle.',
+      columns: [
+        { key: 'resourceType', label: 'Resource', render: (v) => `<span class="pill brand">${esc(v)}</span>` },
+        { key: 'kind', label: 'Kind', render: (v) => `<span class="pill muted">${esc(v)}</span>` },
+        { key: 'entityId', label: 'Entity id', render: (v) => `<code>${esc(v || '—')}</code>` },
+        { key: 'realmId', label: 'Realm' },
+        { key: 'direction', label: 'Dir', render: (v) => `<span class="pill ${v === 'out' ? 'muted' : 'good'}">${esc(v)}</span>` },
+        { key: 'ingestedAt', label: 'Ingested' },
+      ],
+      data: rows,
+    });
+  } catch { /* grid stays empty */ }
+}
+
+async function doFhirExport(showJson) {
+  const realmId = document.getElementById('fhir-export-realm')?.value || fhirSel;
+  const out = document.getElementById('fhir-export-summary');
+  try {
+    const res = await fetch(`/admin/fhir/export/${encodeURIComponent(realmId)}`);
+    const b = await res.json();
+    if (!res.ok) throw new Error(b.error || res.status);
+    const counts = {};
+    (b.entry || []).forEach(e => { const t = e.resource?.resourceType || '?'; counts[t] = (counts[t] || 0) + 1; });
+    const summary = Object.entries(counts).map(([t, n]) => `${t} × ${n}`).join(', ');
+    out.innerHTML = `<span style="color:var(--good);">Exported ${(b.entry || []).length} resources from <code>${esc(realmId)}</code> — ${esc(summary)}</span>`;
+    const dl = document.getElementById('fhir-download');
+    if (dl) { dl.href = URL.createObjectURL(new Blob([JSON.stringify(b, null, 2)], { type: 'application/fhir+json' })); }
+    if (showJson) out.innerHTML += `<pre style="max-height:260px;overflow:auto;background:var(--code-bg);color:var(--code-fg);padding:8px;border-radius:6px;margin-top:8px;">${esc(JSON.stringify(b, null, 2))}</pre>`;
+  } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+}
+
+
+let settingsTab = 'facilities';
+let settingsEdit = ''; // active edit id (row loaded into the add form)
+const sh = {
+  val(id) { return document.getElementById(id)?.value || ''; },
+  set(id, v) { const el = document.getElementById(id); if (el) el.value = v ?? ''; },
+  async req(method, url, body) {
+    const res = await fetch(url, { method, headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    if (!res.ok) throw new Error(((await res.json())?.error) || res.status);
+    return res.json();
+  },
+  wireSearch(inputId, tbodyId) {
+    const inp = document.getElementById(inputId);
+    if (inp) inp.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase();
+      document.querySelectorAll(`#${tbodyId} tr`).forEach(tr => { tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none'; });
+    });
+  },
+  wireDelete(tbody) {
+    tbody.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+      const url = b.dataset.del; // e.g. "facilities/<id>"
+      if (!confirm(`Delete ${url.split('/')[0].slice(0, -1)} '${decodeURIComponent(url.split('/').slice(1).join('/'))}'?`)) return;
+      try { await sh.req('DELETE', '/admin/settings/' + url); toast('Deleted', 'good'); loadSettingsTab(); }
+      catch (e) { toast('Delete failed: ' + e.message, 'err'); }
+    }));
+  },
+};
+
+async function renderUsers() {
+  const r = await rawJson('GET', '/admin/auth/users');
+  const meta = await rawJson('GET', '/admin/auth/meta');
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Console users</h2>
+      <p class="page-sub">Local sign-in accounts for the operator console. Passwords are scrypt-hashed; every principal is mirrored to the identity registry for governance + audit.</p></div></div>
+    <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">
+      <div class="stat-card"><div class="num">${r.users ? r.users.length : 0}</div><div class="lbl">Users</div></div>
+      <div class="stat-card"><div class="num">${r.activeSessions ?? 0}</div><div class="lbl">Active sessions</div></div>
+    </div>
+    <div class="detail" style="margin-bottom:14px;">
+      <h3 style="margin-top:0;">Create user</h3>
+      <div class="field-row">
+        <div class="field"><label>Username</label><input id="u-user" placeholder="clinical-mgr"></div>
+        <div class="field"><label>Display name</label><input id="u-name" placeholder="Clinical Manager"></div>
+        <div class="field"><label>Password</label><input id="u-pass" placeholder="min 4 chars"></div>
+        <div class="field"><label>Role</label><select id="u-role">${(meta.roles || []).map((rr) => `<option>${esc(rr)}</option>`).join('')}</select></div>
+        <div class="field"><label>Clearance</label><select id="u-clr">${(meta.clearances || []).map((c) => `<option>${esc(c)}</option>`).join('')}</select></div>
+        <div class="field"><label>Purpose of use</label><select id="u-pou">${(meta.purposesOfUse || []).map((p) => `<option>${esc(p)}</option>`).join('')}</select></div>
+        <button class="btn btn-primary" id="u-create"><i data-lucide="user-plus"></i> Create user</button>
+      </div>
+    </div>
+    <div id="users-grid"></div>`;
+  const create = document.getElementById('u-create');
+  if (create) create.addEventListener('click', async () => {
+    const body = {
+      username: document.getElementById('u-user').value.trim(),
+      displayName: document.getElementById('u-name').value.trim(),
+      password: document.getElementById('u-pass').value,
+      role: document.getElementById('u-role').value,
+      clearance: document.getElementById('u-clr').value,
+      purposeOfUse: [document.getElementById('u-pou').value],
+    };
+    const res = await rawJson('POST', '/admin/auth/users', body);
+    if (res.error) toast('Create failed: ' + res.error, 'err');
+    else {
+      toast('User ' + res.user.username + ' created', 'good');
+      ['u-user', 'u-name', 'u-pass'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+      loadUsersGrid();
+    }
+  });
+  // Row actions (reset password / delete) via delegation on the persistent container.
+  const grid = document.getElementById('users-grid');
+  if (grid) grid.addEventListener('click', async (e) => {
+    const del = e.target.closest('[data-del-user]');
+    if (del) {
+      const u = del.dataset.delUser;
+      const res = await rawJson('DELETE', '/admin/auth/users/' + encodeURIComponent(u));
+      if (!res.error) toast('User removed: ' + u, 'good'); else toast('Delete failed: ' + res.error, 'err');
+      loadUsersGrid(); return;
+    }
+    const rst = e.target.closest('[data-reset-user]');
+    if (rst) {
+      const u = rst.dataset.resetUser;
+      const pass = prompt('New password for ' + u + ':', '');
+      if (pass == null) return;
+      const res = await rawJson('POST', '/admin/auth/users/' + encodeURIComponent(u) + '/reset-password', { password: pass });
+      if (!res.error) toast('Password reset for ' + u, 'good'); else toast('Reset failed: ' + res.error, 'err');
+    }
+  });
+  loadUsersGrid();
+}
+
+async function loadUsersGrid() {
+  const el = document.getElementById('users-grid');
+  if (!el) return;
+  const r = await rawJson('GET', '/admin/auth/users');
+  dataGrid({
+    el: 'users-grid', filename: 'users', pageSize: 10, empty: 'No users yet — create one above.',
+    columns: [
+      { key: 'username', label: 'Username', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'displayName', label: 'Name', render: (v) => esc(v || '—') },
+      { key: 'role', label: 'Role', render: (v) => `<span class="pill brand">${esc(v)}</span>` },
+      { key: 'clearance', label: 'Clearance', render: (v) => `<span class="pill muted">${esc(v)}</span>` },
+      { key: 'purposeOfUse', label: 'Purpose of use', render: (v) => esc((v || []).join(', ')) },
+      { key: 'createdAt', label: 'Created', render: (v) => esc(v ? v.slice(0, 16).replace('T', ' ') : '—') },
+      { key: 'lastLoginAt', label: 'Last login', render: (v) => esc(v ? v.slice(0, 16).replace('T', ' ') : '—') },
+      { key: '_actions', label: '', sortable: false, filter: false, render: (_v, row) => `<span class="row-actions">
+        <button class="btn btn-ghost" data-reset-user="${esc(row.username)}" title="Reset password"><i data-lucide="key-round"></i></button>
+        <button class="btn btn-ghost" data-del-user="${esc(row.username)}" title="Delete"><i data-lucide="trash-2"></i></button>
+      </span>` },
+    ],
+    data: r.users || [],
+  });
+}
+
+async function renderSettings() {
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Admin · Settings</h2>
+      <p class="page-sub">Master data for your organization — facilities, units, patients, assessment catalog, lifecycle stages, nudge templates, and durable realms. Persisted in the swappable SQL store.</p></div></div>
+    <div class="tabs">
+      ${['facilities', 'units', 'patients', 'assessments', 'lifecycle', 'nudges', 'realms'].map(t => `<button class="tab ${settingsTab === t ? 'active' : ''}" data-tab="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}
+    </div>
+    <div id="settings-body"><div class="muted">Loading…</div></div>`;
+  document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => { settingsTab = b.dataset.tab; settingsEdit = ''; loadSettingsTab(); }));
+  await loadSettingsTab();
+}
+
+async function loadSettingsTab() {
+  const body = document.getElementById('settings-body');
+  if (!body) return;
+  if (settingsTab === 'facilities') return loadFacilitiesTab(body);
+  if (settingsTab === 'units') return loadUnitsTab(body);
+  if (settingsTab === 'patients') return loadPatientsTab(body);
+  if (settingsTab === 'assessments') return loadAssessmentsTab(body);
+  if (settingsTab === 'lifecycle') return loadLifecycleTab(body);
+  if (settingsTab === 'nudges') return loadNudgesTab(body);
+  if (settingsTab === 'realms') return loadRealmsTab(body);
+}
+
+// Delegated row actions so they survive dataGrid re-renders (sort/filter/paginate).
+function bindCrudActions(body, editFields) {
+  body.addEventListener('click', (e) => {
+    const del = e.target.closest('[data-del]');
+    if (del) {
+      const url = del.dataset.del;
+      if (!confirm(`Delete ${url.split('/')[0].slice(0, -1)} '${decodeURIComponent(url.split('/').slice(1).join('/'))}'?`)) return;
+      sh.req('DELETE', '/admin/settings/' + url).then(() => { toast('Deleted', 'good'); loadSettingsTab(); }).catch((err) => toast('Delete failed: ' + err.message, 'err'));
+      return;
+    }
+    const edit = e.target.closest('[data-edit]');
+    if (edit && editFields) editFields(JSON.parse(edit.dataset.edit));
+  });
+}
+
+async function loadFacilitiesTab(body) {
+  const dom = await consoleDomain();
+  const [d, r] = await Promise.all([api('GET', '/admin/settings/facilities'), api('GET', '/admin/settings/realms')]);
+  const rows = d.facilities || [];
+  const realmOpts = (r.realms || []).map(x => `<option value="${esc(x.realmId)}">${esc(x.realmId)}</option>`).join('');
+  body.innerHTML = `
+    <div class="detail" style="margin-top:0;">
+      <div class="field-row">
+        <label class="field"><span>Id</span><input id="sf-id" placeholder="facility-1"></label>
+        <label class="field"><span>Name</span><input id="sf-name" placeholder="Northside Dialysis"></label>
+        <label class="field"><span>Kind</span><select id="sf-kind">${(dom.domainOptions.facilityKinds || []).map((o) => { const kv = Array.isArray(o) ? { v: o[0], l: o[1] } : { v: o.value, l: o.label }; return `<option value="${esc(kv.v)}">${esc(kv.l)}</option>`; }).join('')}</select></label>
+        <label class="field"><span>Realm</span><select id="sf-realm">${realmOpts || '<option value="realm:default">realm:default</option>'}</select></label>
+        <button class="btn btn-primary" id="sf-add"><i data-lucide="plus"></i> Add</button>
+      </div>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Facilities</h3><div id="sf-grid"></div></div>`;
+  document.getElementById('sf-add').addEventListener('click', async () => {
+    const payload = { id: sh.val('sf-id'), realmId: sh.val('sf-realm'), name: sh.val('sf-name'), kind: sh.val('sf-kind') };
+    try {
+      if (settingsEdit) await sh.req('PUT', `/admin/settings/facilities/${encodeURIComponent(settingsEdit)}`, payload);
+      else await sh.req('POST', '/admin/settings/facilities', payload);
+      toast(settingsEdit ? 'Facility updated' : 'Facility added', 'good'); settingsEdit = ''; loadSettingsTab();
+    } catch (e) { toast('Save failed: ' + e.message, 'err'); }
+  });
+  dataGrid({
+    el: 'sf-grid', filename: 'facilities', empty: 'No facilities yet.',
+    columns: [
+      { key: 'id', label: 'Id', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'name', label: 'Name' },
+      { key: 'kind', label: 'Kind', render: (v) => v ? `<span class="pill muted">${esc(v)}</span>` : '—' },
+      { key: 'realmId', label: 'Realm' },
+      { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<span class="row-actions">
+        <button class="btn btn-ghost" data-edit='${esc(JSON.stringify({ id: r.id, name: r.name, kind: r.kind || 'dialysis', realmId: r.realmId }))}' title="Edit"><i data-lucide="pencil"></i></button>
+        <button class="btn btn-ghost" data-del="facilities/${encodeURIComponent(r.id)}" title="Delete"><i data-lucide="trash-2"></i></button>
+      </span>` },
+    ],
+    data: rows,
+  });
+  bindCrudActions(body, (v) => {
+    settingsEdit = v.id; sh.set('sf-id', v.id); sh.set('sf-name', v.name); sh.set('sf-kind', v.kind); sh.set('sf-realm', v.realmId);
+    document.getElementById('sf-add').innerHTML = '<i data-lucide="save"></i> Update';
+    toast('Editing ' + v.id + ' — change fields then Update', 'good');
+  });
+}
+
+async function loadUnitsTab(body) {
+  const [d, fac, r] = await Promise.all([api('GET', '/admin/settings/units'), api('GET', '/admin/settings/facilities'), api('GET', '/admin/settings/realms')]);
+  const rows = d.units || [];
+  const facOpts = (fac.facilities || []).map(x => `<option value="${esc(x.id)}">${esc(x.id)}</option>`).join('');
+  const realmOpts = (r.realms || []).map(x => `<option value="${esc(x.realmId)}">${esc(x.realmId)}</option>`).join('');
+  body.innerHTML = `
+    <div class="detail" style="margin-top:0;">
+      <div class="field-row">
+        <label class="field"><span>Id</span><input id="su-id" placeholder="f1-ICH-A"></label>
+        <label class="field"><span>Code</span><input id="su-code" placeholder="ICH-A"></label>
+        <label class="field"><span>Facility</span><select id="su-facility">${facOpts || '<option value="f1">f1</option>'}</select></label>
+        <label class="field"><span>Realm</span><select id="su-realm">${realmOpts || '<option value="realm:default">realm:default</option>'}</select></label>
+        <button class="btn btn-primary" id="su-add"><i data-lucide="plus"></i> Add</button>
+      </div>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Units</h3><div id="su-grid"></div></div>`;
+  document.getElementById('su-add').addEventListener('click', async () => {
+    const payload = { id: sh.val('su-id'), code: sh.val('su-code'), facilityId: sh.val('su-facility'), realmId: sh.val('su-realm') };
+    try {
+      if (settingsEdit) await sh.req('PUT', `/admin/settings/units/${encodeURIComponent(settingsEdit)}`, payload);
+      else await sh.req('POST', '/admin/settings/units', payload);
+      toast(settingsEdit ? 'Unit updated' : 'Unit added', 'good'); settingsEdit = ''; loadSettingsTab();
+    } catch (e) { toast('Save failed: ' + e.message, 'err'); }
+  });
+  dataGrid({
+    el: 'su-grid', filename: 'units', empty: 'No units yet.',
+    columns: [
+      { key: 'id', label: 'Id', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'code', label: 'Code', render: (v) => `<span class="pill brand">${esc(v)}</span>` },
+      { key: 'facilityId', label: 'Facility' },
+      { key: 'realmId', label: 'Realm' },
+      { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<span class="row-actions">
+        <button class="btn btn-ghost" data-edit='${esc(JSON.stringify({ id: r.id, code: r.code, facilityId: r.facilityId, realmId: r.realmId }))}' title="Edit"><i data-lucide="pencil"></i></button>
+        <button class="btn btn-ghost" data-del="units/${encodeURIComponent(r.id)}" title="Delete"><i data-lucide="trash-2"></i></button>
+      </span>` },
+    ],
+    data: rows,
+  });
+  bindCrudActions(body, (v) => {
+    settingsEdit = v.id; sh.set('su-id', v.id); sh.set('su-code', v.code); sh.set('su-facility', v.facilityId); sh.set('su-realm', v.realmId);
+    document.getElementById('su-add').innerHTML = '<i data-lucide="save"></i> Update';
+    toast('Editing ' + v.id + ' — change fields then Update', 'good');
+  });
+}
+
+async function loadPatientsTab(body) {
+  const dom = await consoleDomain();
+  const [d, fac, un, r] = await Promise.all([
+    api('GET', '/admin/settings/patients'), api('GET', '/admin/settings/facilities'),
+    api('GET', '/admin/settings/units'), api('GET', '/admin/settings/realms'),
+  ]);
+  const rows = d.patients || [];
+  const facOpts = (fac.facilities || []).map(x => `<option value="${esc(x.id)}">${esc(x.id)}</option>`).join('');
+  const unitOpts = (un.units || []).map(x => `<option value="${esc(x.id)}">${esc(x.code)}</option>`).join('');
+  const realmOpts = (r.realms || []).map(x => `<option value="${esc(x.realmId)}">${esc(x.realmId)}</option>`).join('');
+  body.innerHTML = `
+    <div class="detail" style="margin-top:0;">
+      <div class="field-row">
+        <label class="field"><span>Id</span><input id="sp-id" placeholder="f1-pt-0001"></label>
+        <label class="field"><span>Name</span><input id="sp-name" placeholder="optional"></label>
+        <label class="field"><span>Age</span><input id="sp-age" type="number" min="0" placeholder="0"></label>
+        <label class="field"><span>Sex</span><select id="sp-sex"><option value=""></option><option>F</option><option>M</option></select></label>
+        <label class="field"><span>Trajectory</span><select id="sp-trajectory"><option value=""></option>${(dom.domainOptions.trajectories || []).map((t) => `<option>${esc(t)}</option>`).join('')}</select></label>
+        <label class="field"><span>Facility</span><select id="sp-facility">${facOpts || '<option value="f1">f1</option>'}</select></label>
+        <label class="field"><span>Unit</span><select id="sp-unit">${unitOpts || '<option value="f1-ICH-A">f1-ICH-A</option>'}</select></label>
+        <label class="field"><span>Realm</span><select id="sp-realm">${realmOpts || '<option value="realm:default">realm:default</option>'}</select></label>
+        <button class="btn btn-primary" id="sp-add"><i data-lucide="plus"></i> Add</button>
+      </div>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Patients</h3><div id="sp-grid"></div></div>`;
+  document.getElementById('sp-add').addEventListener('click', async () => {
+    const age = Number(sh.val('sp-age'));
+    const payload = {
+      id: sh.val('sp-id'), facilityId: sh.val('sp-facility'), unitId: sh.val('sp-unit'), realmId: sh.val('sp-realm'),
+      name: sh.val('sp-name') || undefined, sex: sh.val('sp-sex') || undefined,
+      trajectory: sh.val('sp-trajectory') || undefined, ...(sh.val('sp-age') ? { age } : {}),
+    };
+    try {
+      if (settingsEdit) await sh.req('PUT', `/admin/settings/patients/${encodeURIComponent(settingsEdit)}`, payload);
+      else await sh.req('POST', '/admin/settings/patients', payload);
+      toast(settingsEdit ? 'Patient updated' : 'Patient added', 'good'); settingsEdit = ''; loadSettingsTab();
+    } catch (e) { toast('Save failed: ' + e.message, 'err'); }
+  });
+  dataGrid({
+    el: 'sp-grid', filename: 'patients', empty: 'No patients yet.', pageSize: 25,
+    columns: [
+      { key: 'id', label: 'Id', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'name', label: 'Name', render: (v) => esc(v || '—') },
+      { key: 'age', label: 'Age' }, { key: 'sex', label: 'Sex' },
+      { key: 'trajectory', label: 'Trajectory', render: (v) => `<span class="pill ${v==='decompensating'||v==='underdialyzed'||v==='hyperphosphatemia'||v==='anemic-worsening'?'bad':v==='stable'?'good':'muted'}">${esc(v || '—')}</span>` },
+      { key: 'facilityId', label: 'Facility' }, { key: 'unitId', label: 'Unit' },
+      { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<span class="row-actions">
+        <button class="btn btn-ghost" data-edit='${esc(JSON.stringify({ id: r.id, name: r.name || '', age: r.age ?? '', sex: r.sex || '', trajectory: r.trajectory || '', facilityId: r.facilityId, unitId: r.unitId, realmId: r.realmId }))}' title="Edit"><i data-lucide="pencil"></i></button>
+        <button class="btn btn-ghost" data-del="patients/${encodeURIComponent(r.id)}" title="Delete"><i data-lucide="trash-2"></i></button>
+      </span>` },
+    ],
+    data: rows,
+  });
+  bindCrudActions(body, (v) => {
+    settingsEdit = v.id;
+    ['sp-id', 'sp-name', 'sp-age', 'sp-sex', 'sp-trajectory', 'sp-facility', 'sp-unit', 'sp-realm'].forEach((id, i) => sh.set(id, [v.id, v.name, v.age, v.sex, v.trajectory, v.facilityId, v.unitId, v.realmId][i]));
+    document.getElementById('sp-add').innerHTML = '<i data-lucide="save"></i> Update';
+    toast('Editing ' + v.id + ' — change fields then Update', 'good');
+  });
+}
+
+async function loadAssessmentsTab(body) {
+  const d = await api('GET', '/admin/settings/assessments');
+  const rows = d.assessments || [];
+  body.innerHTML = `
+    <div class="detail" style="margin-top:0;">
+      <div class="field-row">
+        <label class="field"><span>Id</span><input id="sa-id" placeholder="assess-1"></label>
+        <label class="field"><span>Title</span><input id="sa-title" placeholder="Dialysis Symptom Index"></label>
+        <label class="field"><span>Loinc</span><input id="sa-loinc" placeholder="optional"></label>
+        <label class="field"><span>Domain</span><input id="sa-domain" placeholder="dialysis"></label>
+        <label class="field"><span>Items</span><input id="sa-items" type="number" min="0" placeholder="0"></label>
+        <button class="btn btn-primary" id="sa-add"><i data-lucide="plus"></i> Add</button>
+      </div>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Assessment catalog</h3><div id="sa-grid"></div></div>`;
+  document.getElementById('sa-add').addEventListener('click', async () => {
+    const payload = {
+      id: sh.val('sa-id'), title: sh.val('sa-title'), domain: sh.val('sa-domain'),
+      ...(sh.val('sa-loinc') ? { loinc: sh.val('sa-loinc') } : {}),
+      ...(sh.val('sa-items') ? { itemCount: Number(sh.val('sa-items')) } : {}),
+    };
+    try {
+      if (settingsEdit) await sh.req('PUT', `/admin/settings/assessments/${encodeURIComponent(settingsEdit)}`, payload);
+      else await sh.req('POST', '/admin/settings/assessments', payload);
+      toast(settingsEdit ? 'Assessment updated' : 'Assessment added', 'good'); settingsEdit = ''; loadSettingsTab();
+    } catch (e) { toast('Save failed: ' + e.message, 'err'); }
+  });
+  dataGrid({
+    el: 'sa-grid', filename: 'assessments', empty: 'No assessments in the catalog yet.',
+    columns: [
+      { key: 'id', label: 'Id', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'title', label: 'Title' },
+      { key: 'loinc', label: 'Loinc', render: (v) => v ? `<code>${esc(v)}</code>` : '—' },
+      { key: 'domain', label: 'Domain', render: (v) => v ? `<span class="pill muted">${esc(v)}</span>` : '—' },
+      { key: 'itemCount', label: 'Items', align: 'right' },
+      { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<span class="row-actions">
+        <button class="btn btn-ghost" data-edit='${esc(JSON.stringify({ id: r.id, title: r.title, loinc: r.loinc || '', domain: r.domain, itemCount: r.itemCount ?? 0 }))}' title="Edit"><i data-lucide="pencil"></i></button>
+        <button class="btn btn-ghost" data-del="assessments/${encodeURIComponent(r.id)}" title="Delete"><i data-lucide="trash-2"></i></button>
+      </span>` },
+    ],
+    data: rows,
+  });
+  bindCrudActions(body, (v) => {
+    settingsEdit = v.id;
+    sh.set('sa-id', v.id); sh.set('sa-title', v.title); sh.set('sa-loinc', v.loinc); sh.set('sa-domain', v.domain); sh.set('sa-items', v.itemCount);
+    document.getElementById('sa-add').innerHTML = '<i data-lucide="save"></i> Update';
+    toast('Editing ' + v.id + ' — change fields then Update', 'good');
+  });
+}
+
+async function loadLifecycleTab(body) {
+  const dom = await consoleDomain();
+  const d = await api('GET', '/admin/settings/lifecycle');
+  const rows = d.lifecycle || [];
+  body.innerHTML = `
+    <div class="detail" style="margin-top:0;">
+      <div class="field-row">
+        <label class="field"><span>Id</span><input id="sl-id" placeholder="stage-intake"></label>
+        <label class="field"><span>Order</span><input id="sl-order" type="number" min="0" placeholder="0"></label>
+        <label class="field"><span>Label</span><input id="sl-label" placeholder="Intake"></label>
+        <label class="field"><span>Kind</span><select id="sl-kind">${(dom.domainOptions.lifecycleKinds || []).map((o) => { const kv = Array.isArray(o) ? { v: o[0], l: o[1] } : { v: o.value, l: o.label }; return `<option value="${esc(kv.v)}">${esc(kv.l)}</option>`; }).join('')}</select></label>
+        <button class="btn btn-primary" id="sl-add"><i data-lucide="plus"></i> Add</button>
+      </div>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Lifecycle stages</h3><div id="sl-grid"></div></div>`;
+  document.getElementById('sl-add').addEventListener('click', async () => {
+    const payload = { id: sh.val('sl-id'), label: sh.val('sl-label'), kind: sh.val('sl-kind'), ...(sh.val('sl-order') ? { orderNum: Number(sh.val('sl-order')) } : {}) };
+    try {
+      if (settingsEdit) await sh.req('PUT', `/admin/settings/lifecycle/${encodeURIComponent(settingsEdit)}`, payload);
+      else await sh.req('POST', '/admin/settings/lifecycle', payload);
+      toast(settingsEdit ? 'Stage updated' : 'Stage added', 'good'); settingsEdit = ''; loadSettingsTab();
+    } catch (e) { toast('Save failed: ' + e.message, 'err'); }
+  });
+  dataGrid({
+    el: 'sl-grid', filename: 'lifecycle', empty: 'No lifecycle stages yet.',
+    columns: [
+      { key: 'orderNum', label: '#', align: 'right' },
+      { key: 'id', label: 'Id', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'label', label: 'Label' },
+      { key: 'kind', label: 'Kind', render: (v) => `<span class="pill brand">${esc(v)}</span>` },
+      { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<span class="row-actions">
+        <button class="btn btn-ghost" data-edit='${esc(JSON.stringify({ id: r.id, orderNum: r.orderNum ?? 0, label: r.label, kind: r.kind }))}' title="Edit"><i data-lucide="pencil"></i></button>
+        <button class="btn btn-ghost" data-del="lifecycle/${encodeURIComponent(r.id)}" title="Delete"><i data-lucide="trash-2"></i></button>
+      </span>` },
+    ],
+    data: rows,
+  });
+  bindCrudActions(body, (v) => {
+    settingsEdit = v.id;
+    sh.set('sl-id', v.id); sh.set('sl-order', v.orderNum); sh.set('sl-label', v.label); sh.set('sl-kind', v.kind);
+    document.getElementById('sl-add').innerHTML = '<i data-lucide="save"></i> Update';
+    toast('Editing ' + v.id + ' — change fields then Update', 'good');
+  });
+}
+
+async function loadNudgesTab(body) {
+  const d = await api('GET', '/admin/settings/nudges');
+  const rows = d.nudges || [];
+  body.innerHTML = `
+    <div class="detail" style="margin-top:0;">
+      <div class="field-row">
+        <label class="field"><span>Nudge kind</span><input id="sn-kind" placeholder="medication-adherence"></label>
+        <label class="field"><span>Channel</span><select id="sn-channel"><option value="in-app">In-app</option><option value="sms">SMS</option><option value="email">Email</option><option value="pager">Pager</option></select></label>
+        <label class="field" style="flex:1;min-width:220px;"><span>Description</span><input id="sn-desc" placeholder="Prompt the care team to follow up on missed dialysis sessions"></label>
+        <button class="btn btn-primary" id="sn-add"><i data-lucide="plus"></i> Add</button>
+      </div>
+      <div class="field-row" style="margin-top:8px;">
+        <label class="field" style="flex:1;"><span>Expected effect (JSON)</span><input id="sn-effect" placeholder='{"outcome":"attendance","lift":0.12}'></label>
+      </div>
+    </div>
+    <div class="detail" style="margin-top:12px;"><h3 style="margin-top:0;">Nudge templates</h3><div id="sn-grid"></div></div>`;
+  document.getElementById('sn-add').addEventListener('click', async () => {
+    const payload = {
+      nudgeKind: sh.val('sn-kind'), channel: sh.val('sn-channel'),
+      ...(sh.val('sn-desc') ? { description: sh.val('sn-desc') } : {}),
+      ...(sh.val('sn-effect') ? { expectedEffectJson: sh.val('sn-effect') } : {}),
+      ...(settingsEdit ? { id: settingsEdit } : {}),
+    };
+    try {
+      if (settingsEdit) await sh.req('PUT', `/admin/settings/nudges/${encodeURIComponent(settingsEdit)}`, payload);
+      else await sh.req('POST', '/admin/settings/nudges', payload);
+      toast(settingsEdit ? 'Nudge template updated' : 'Nudge template added', 'good'); settingsEdit = ''; loadSettingsTab();
+    } catch (e) { toast('Save failed: ' + e.message, 'err'); }
+  });
+  dataGrid({
+    el: 'sn-grid', filename: 'nudges', empty: 'No nudge templates yet.',
+    columns: [
+      { key: 'nudgeKind', label: 'Nudge kind', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'channel', label: 'Channel', render: (v) => `<span class="pill muted">${esc(v)}</span>` },
+      { key: 'description', label: 'Description', render: (v) => esc(v || '—') },
+      { key: 'expectedEffectJson', label: 'Expected effect', render: (v) => v ? `<code>${esc(v)}</code>` : '—', hide: true },
+      { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<span class="row-actions">
+        <button class="btn btn-ghost" data-edit='${esc(JSON.stringify({ id: r.id, nudgeKind: r.nudgeKind, channel: r.channel, description: r.description || '', expectedEffectJson: r.expectedEffectJson || '' }))}' title="Edit"><i data-lucide="pencil"></i></button>
+        <button class="btn btn-ghost" data-del="nudges/${encodeURIComponent(r.id)}" title="Delete"><i data-lucide="trash-2"></i></button>
+      </span>` },
+    ],
+    data: rows,
+  });
+  bindCrudActions(body, (v) => {
+    settingsEdit = v.id;
+    sh.set('sn-kind', v.nudgeKind); sh.set('sn-channel', v.channel); sh.set('sn-desc', v.description); sh.set('sn-effect', v.expectedEffectJson);
+    document.getElementById('sn-add').innerHTML = '<i data-lucide="save"></i> Update';
+    toast('Editing ' + v.id + ' — change fields then Update', 'good');
+  });
+}
+
+async function loadRealmsTab(body) {
+  const r = await api('GET', '/admin/settings/realms');
+  const rows = r.realms || [];
+  body.innerHTML = `
+    <div class="detail" style="margin-top:0;"><h3 style="margin-top:0;">Durable realm snapshots</h3>
+      <p class="page-sub" style="margin-bottom:10px;">Persisted realm records (survive restarts). Live realm lifecycle — create, tick, delete — lives in <b>World → Realm</b>.</p>
+      <div id="sr-grid"></div>
+    </div>`;
+  dataGrid({
+    el: 'sr-grid', filename: 'realms', empty: 'No persisted realm snapshots yet — create a realm from World → Realm.',
+    columns: [
+      { key: 'realmId', label: 'Realm', render: (v) => `<code>${esc(v)}</code>` },
+      { key: 'mode', label: 'Mode', render: (v) => `<span class="pill muted">${esc(v)}</span>` },
+      { key: 'createdAt', label: 'Created' }, { key: 'updatedAt', label: 'Updated' },
+      { key: '_actions', label: '', sortable: false, filter: false, render: (_v, r) => `<span class="row-actions"><button class="btn btn-ghost" data-del="realms/${encodeURIComponent(r.realmId)}" title="Delete snapshot"><i data-lucide="trash-2"></i></button></span>` },
+    ],
+    data: rows,
+  });
+  bindCrudActions(body);
+}
+
+// ---------- Renal Swarm Intelligence — deep link to the RSI application -------
+// The operator console does not render swarm surfaces: swarm control, cells,
+// insights, next-best actions, episodes and the executive cockpits are the
+// EXECUTIVE console's product (see docs/ui-cohesion-persona-matrix.md §1 — setup
+// lives in Admin, operations live in Exec). This hands off instead.
+function renderRsiDeepLink(screen, label) {
+  const url = `http://localhost:5173/`;
+  main.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2 class="page-title">${esc(label)}</h2>
+        <p class="page-sub">This view lives in <strong>Renal Swarm Intelligence</strong> — the governed clinical product. It is role-aware and context-sensitive; open RSI to see it with the full operational context.</p>
+      </div>
+    </div>
+    <div class="state-card" style="padding:24px;max-width:560px;border-color:color-mix(in srgb, var(--partner-accent) 18%, transparent);background:linear-gradient(110deg,color-mix(in srgb, var(--partner-accent) 4%, transparent),color-mix(in srgb, var(--blue) 2%, transparent));">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
+        <span style="width:40px;height:40px;display:grid;place-items:center;border-radius:12px;color:var(--partner-accent);background:color-mix(in srgb, var(--partner-accent) 10%, transparent);border:1px solid color-mix(in srgb, var(--partner-accent) 18%, transparent);font-size:18px;">⬡</span>
+        <div>
+          <div style="font-weight:700;font-size:14px;margin-bottom:3px;">${esc(label)}</div>
+          <div class="muted" style="font-size:12px;">Owned by Renal Swarm Intelligence</div>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);line-height:1.65;margin:0 0 18px;">This screen is authoritative in RSI where it is rendered with live role context, org scope, and integrated navigation. Opening RSI will land you on this view if your role has it as a primary screen.</p>
+      <a href="${url}" target="_blank" rel="noreferrer" style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border:1px solid color-mix(in srgb, var(--partner-accent) 25%, transparent);border-radius:9px;background:color-mix(in srgb, var(--partner-accent) 9%, transparent);color:var(--partner-accent-soft);font-size:13px;font-weight:700;text-decoration:none;">
+        Open RSI
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      </a>
+    </div>
+  `;
+}
+
+function renderRsiApp() {
+  const RSI_URL = 'http://localhost:5173/';
+  main.innerHTML = `
+    <div class="page-header">
+      <div>
+        <h2 class="page-title">Renal Swarm Intelligence</h2>
+        <p class="page-sub">The governed clinical and operational product for renal care. Clinical screens, outcome command, patient intelligence and regulatory workflows live in this application.</p>
+      </div>
+    </div>
+    <div class="state-card" style="padding:28px 24px;max-width:700px;border-color:color-mix(in srgb, var(--partner-accent) 18%, transparent);background:linear-gradient(110deg,color-mix(in srgb, var(--partner-accent) 5%, transparent),color-mix(in srgb, var(--blue) 2.5%, transparent));">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+        <span style="width:48px;height:48px;display:grid;place-items:center;border-radius:14px;color:var(--partner-accent);background:color-mix(in srgb, var(--partner-accent) 10%, transparent);border:1px solid color-mix(in srgb, var(--partner-accent) 20%, transparent);font-size:22px;">⬡</span>
+        <div>
+          <div class="state-title" style="margin:0 0 4px;">Renal Swarm Intelligence</div>
+          <div class="state-sub" style="margin:0;font-size:12px;">Governed agentic outcome harness · v0.9.0</div>
+        </div>
+        <a href="${RSI_URL}" target="_blank" rel="noreferrer" style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:1px solid color-mix(in srgb, var(--partner-accent) 25%, transparent);border-radius:9px;background:color-mix(in srgb, var(--partner-accent) 9%, transparent);color:var(--partner-accent-soft);font-size:12px;font-weight:700;text-decoration:none;" onclick="window.open('${RSI_URL}','_blank');return false;">
+          Open app <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </a>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px;">
+        <div style="padding:11px;border:1px solid var(--border);border-radius:8px;">
+          <div class="muted" style="font-size:11px;margin-bottom:4px;">Screens</div>
+          <strong>12 modules</strong><br><span class="muted" style="font-size:11px;">Command · Patient · Agents + 9 more</span>
+        </div>
+        <div style="padding:11px;border:1px solid var(--border);border-radius:8px;">
+          <div class="muted" style="font-size:11px;margin-bottom:4px;">Data regime</div>
+          <strong style="color:#c9bbff;">Synthetic demo</strong><br><span class="muted" style="font-size:11px;">Connect via Platform setup</span>
+        </div>
+        <div style="padding:11px;border:1px solid var(--border);border-radius:8px;">
+          <div class="muted" style="font-size:11px;margin-bottom:4px;">Runtime</div>
+          <strong style="color:var(--partner-accent);">12 agents active</strong><br><span class="muted" style="font-size:11px;">14 policies · 8 sources</span>
+        </div>
+      </div>
+      <div style="padding:13px;border:1px solid var(--border);border-radius:9px;background:color-mix(in srgb, var(--elevate) 2%, transparent);margin-bottom:14px;">
+        <div style="font-weight:700;font-size:12px;margin-bottom:8px;">What lives in RSI</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px 12px;">
+          ${['Outcome command (FA daily worklist)','Patient intelligence','Assessment intelligence','Facility operations & capacity','Swarm control (enterprise monitoring)','Agent operations','Shared intelligence graph','Executive outcomes','CMS operations','AI assurance & red-teaming','Configuration studio','Platform admin / onboarding'].map(s=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;padding:3px 0;"><span style="width:5px;height:5px;border-radius:50%;background:var(--partner-accent);flex:0 0 auto;"></span>${esc(s)}</div>`).join('')}
+        </div>
+      </div>
+      <div style="padding:11px;border:1px solid color-mix(in srgb, var(--amber) 20%, transparent);border-radius:9px;background:color-mix(in srgb, var(--amber) 5%, transparent);display:flex;gap:10px;align-items:flex-start;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto;margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span style="font-size:12px;color:#c8a85a;">To connect a live organization, complete the <strong>Platform setup</strong> steps under <strong>Platform → Onboarding</strong> in this console. RSI will display a live-data banner once the release is activated.</span>
+      </div>
+    </div>
+  `;
+}
+
+// ---------- Simulator — start/stop/step synthetic data driver (2026-08-23) ----------
+let simScenarioSel = 'dialysis-demo';
+async function simFetch(path, init) {
+  const res = await fetch(path, { headers: { 'content-type': 'application/json' }, ...init });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || `request failed: ${path}`);
+  return j;
+}
+function simRealmRowsHTML(realms) {
+  return ((realms) || []).map((r) => `
+    <div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px dashed var(--border);flex-wrap:wrap;">
+      <code style="min-width:150px;">${esc(r.id)}</code>
+      <span class="pill muted" style="font-size:11px;">${esc(r.trajectoryEngine || 'legacy')}</span>
+      <span class="muted" style="font-size:11px;white-space:nowrap;">seq ${r.seq} · ${esc(r.realmAt || '')}</span>
+      <span class="muted" style="font-size:11px;white-space:nowrap;">patients ${r.patients} · presences ${r.presences} · effects ${r.effects}</span>
+      ${r.pendingApprovals ? `<span class="pill warn" style="font-size:11px;">${r.pendingApprovals} pending HITL</span>` : ''}
+    </div>`).join('') || '<div class="muted">No realms — press Start.</div>';
+}
+let simRefreshTimer = null;
+function stopSimRefresh() { if (simRefreshTimer) { clearInterval(simRefreshTimer); simRefreshTimer = null; } }
+// Live auto-refresh: while the Simulator view is active, poll /admin/simulator/status
+// every 2s and update the counters/realm rows in place — no manual refresh needed.
+function startSimRefresh() {
+  stopSimRefresh();
+  simRefreshTimer = setInterval(async () => {
+    if (currentView !== 'simulator') { stopSimRefresh(); return; }
+    let sim = null;
+    try { const s = await simFetch('/admin/simulator/status'); sim = s.simulator || null; } catch (_) { return; }
+    updateSimStatus(sim);
+  }, 2000);
+}
+function updateSimStatus(sim) {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('sim-stat-scenario', (sim && sim.scenario) || '—');
+  set('sim-stat-pace', sim && sim.pace ? sim.pace.realmHoursPerTick + 'h' : '—');
+  set('sim-stat-ticks', sim ? sim.tickCount : 0);
+  set('sim-stat-events', sim ? sim.eventCount : 0);
+  const t = (sim && sim.totals) || {};
+  set('sim-stat-realms', t.realms || 0);
+  set('sim-stat-patients', t.patients || 0);
+  set('sim-stat-presences', t.presences || 0);
+  set('sim-stat-effects', t.effects || 0);
+  const pill = document.getElementById('sim-status-pill');
+  if (pill) {
+    const tone = { running: 'good', paused: 'warn', idle: 'muted' };
+    const status = (sim && sim.status) || 'idle';
+    pill.className = 'pill ' + (tone[status] || 'muted');
+    pill.textContent = esc(status);
+  }
+  const rows = document.getElementById('sim-realm-rows');
+  if (rows) rows.innerHTML = simRealmRowsHTML(sim && sim.realms);
+  const running = sim && sim.status === 'running';
+  const paused = sim && sim.status === 'paused';
+  const b = (id, disabled) => { const el = document.getElementById(id); if (el) el.disabled = !!disabled; };
+  b('sim-btn-start', running);
+  b('sim-btn-pause', !running);
+  b('sim-btn-resume', !paused);
+  b('sim-btn-reset', !sim || sim.status === 'idle');
+}
+async function simAction(path, body, btn) {
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Working…'; }
+  try {
+    await simFetch(path, { method: 'POST', body: JSON.stringify(body || {}) });
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = prev; }
+    await renderSimulator();
+  }
+}
+// Clean up the demo — stop the sim + drop sim realms, remove demo episodes/NBA
+// decisions, prune the delivered event-outbox backlog (frees disk). Backed by
+// POST /admin/demo/cleanup (see src/server/demo-cleanup.ts + scripts/cleanup-demo.mjs).
+async function simCleanup() {
+  if (!confirm('Clean up the demo?\n\n• Stops the simulator and drops its sim:* realms\n• Removes demo outcome episodes + NBA decisions\n• Prunes the delivered event-outbox backlog (frees disk)\n\nRead-only catalogs, substrate and admin config are kept.')) return;
+  try {
+    const r = await simFetch('/admin/demo/cleanup', { method: 'POST', body: JSON.stringify({}) });
+    const rep = r.report || {};
+    toast(`Demo cleaned · ${rep.outboxDeliveredRemoved ?? 0} outbox events pruned · ${rep.simRealmsRemoved ?? 0} sim realm(s) removed · ${rep.episodesRemoved ?? 0} episode(s)`, 'good');
+  } catch (e) {
+    toast('Cleanup failed: ' + e.message, 'err');
+  }
+  await renderSimulator();
+}
+async function renderSimulator() {
+  let sim = null; let scenarios = [];
+  try { const s = await simFetch('/admin/simulator/status'); sim = s.simulator || null; } catch (_) { /* offline */ }
+  try { const sc = await simFetch('/admin/simulator/scenarios'); scenarios = sc.scenarios || []; } catch (_) { /* offline */ }
+  const t = (sim && sim.totals) || { realms: 0, patients: 0, presences: 0, effects: 0 };
+  const selectedId = (sim && sim.scenario) || simScenarioSel;
+  const scenarioOptions = scenarios.map((s) => `<option value="${esc(s.id)}" ${s.id === selectedId ? 'selected' : ''}>${esc(s.label)}</option>`).join('') || `<option value="dialysis-demo">dialysis-demo</option>`;
+  const realmRows = simRealmRowsHTML(sim && sim.realms);
+  const running = sim && sim.status === 'running';
+  const paused = sim && sim.status === 'paused';
+  const status = (sim && sim.status) || 'idle';
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Simulator</h2>
+      <p class="page-sub">Drives the whole stack on synthetic data: builds a fleet of sim realms and emits scripted events (labs, vitals, assessments, claims, safety flags) through real presences. The swarm reasoners, exec console, event feed and broker all run live off it. Status <span id="sim-status-pill" class="pill ${({ running: 'good', paused: 'warn', idle: 'muted' })[status] || 'muted'}">${esc(status)}</span> <span class="muted" style="font-size:11px;">· auto-refreshes while running</span>.</p></div></div>
+    <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));">
+      <div class="stat-card"><div class="num" id="sim-stat-scenario">${sim && sim.scenario ? esc(sim.scenario) : '—'}</div><div class="lbl">Scenario</div></div>
+      <div class="stat-card"><div class="num" id="sim-stat-pace">${sim && sim.pace ? sim.pace.realmHoursPerTick + 'h' : '—'}</div><div class="lbl">Realm / tick</div></div>
+      <div class="stat-card"><div class="num" id="sim-stat-ticks">${sim ? sim.tickCount : 0}</div><div class="lbl">Ticks</div></div>
+      <div class="stat-card"><div class="num" id="sim-stat-events">${sim ? sim.eventCount : 0}</div><div class="lbl">Events</div></div>
+      <div class="stat-card"><div class="num" id="sim-stat-realms">${t.realms}</div><div class="lbl">Realms</div></div>
+      <div class="stat-card"><div class="num" id="sim-stat-patients">${t.patients}</div><div class="lbl">Patients</div></div>
+      <div class="stat-card"><div class="num" id="sim-stat-presences">${t.presences}</div><div class="lbl">Presences</div></div>
+      <div class="stat-card"><div class="num" id="sim-stat-effects">${t.effects}</div><div class="lbl">Effects</div></div>
+    </div>
+    <div class="section-card"><h3>Control</h3>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <select id="sim-scenario" class="input" style="width:auto;min-width:260px;" onchange="simScenarioSel=this.value">${scenarioOptions}</select>
+        <button id="sim-btn-start" class="btn btn-primary" onclick="simAction('/admin/simulator/start', { scenario: document.getElementById('sim-scenario').value }, this)" ${running ? 'disabled' : ''}>Start</button>
+        <button id="sim-btn-pause" class="btn btn-ghost" onclick="simAction('/admin/simulator/pause', {}, this)" ${!running ? 'disabled' : ''}>Pause</button>
+        <button id="sim-btn-resume" class="btn btn-ghost" onclick="simAction('/admin/simulator/resume', {}, this)" ${!paused ? 'disabled' : ''}>Resume</button>
+        <button class="btn btn-ghost" onclick="simAction('/admin/simulator/step', { ticks: 1 }, this)">Step +1h</button>
+        <button id="sim-btn-reset" class="btn btn-danger" onclick="simAction('/admin/simulator/reset', {}, this)" ${!sim || sim.status === 'idle' ? 'disabled' : ''}>Reset</button>
+        <button class="btn btn-danger" onclick="simCleanup()" title="Stop the sim, drop sim realms, remove demo episodes/NBA decisions, prune delivered outbox events (frees disk)">Clean up demo</button>
+      </div>
+      <p class="detail muted" style="margin-top:10px;font-size:12px;">Start is idempotent (any prior fleet is reset first). Pause freezes realm clocks; Step advances every realm by one realm-hour deterministically; Reset tears the fleet down; <b>Clean up demo</b> additionally removes the demo decision fabric and prunes the delivered event-outbox backlog to free disk. Auto-start on boot: set <code>HH_DEMO_SIM=1</code>.</p>
+    </div>
+    <div class="section-card"><h3>Realms <span class="muted" style="font-weight:400;font-size:11px;">· live sim realms in the registry</span></h3><div id="sim-realm-rows">${realmRows}</div></div>
+    <div class="detail muted" style="font-size:12px;">Surface: GET /admin/simulator/status · POST /admin/simulator/{start,pause,resume,step,reset}. Simulated effects flow through the normal write path: ledger → hypergraph → rules → perception → realm→broker bridge → canonical events → outbox/webhooks/SSE → exec console.</div>
+  `;
+  startSimRefresh();
+}
+
+// ---------- Exec workspace — durable executive assets (M-S6) ----------
+async function wsFetch(path, init) {
+  const res = await fetch(path, { headers: { 'content-type': 'application/json' }, ...init });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || `request failed: ${path}`);
+  return j;
+}
+function wsStatusPill(status) {
+  const tone = { active: 'good', validated: 'brand', approved: 'brand', draft: 'muted', 'contract-verified': 'good', confirmed: 'good', rejected: 'bad', pending: 'warn', passed: 'good', feasible: 'good', 'not-feasible': 'bad', submitted: 'brand', archived: 'muted' };
+  return `<span class="pill ${tone[status] || 'muted'}">${esc(status)}</span>`;
+}
+
+// Journey K (Epic 8) — full CMS submission lifecycle.
+async function renderWsSubmissions() {
+  const dom = await consoleDomain();
+  let packages = []; let err = null;
+  try { packages = (await wsFetch('/admin/platform/submissions')).packages || []; } catch (e) { err = e.message; }
+  const rows = packages.map((p) => {
+    const approvals = (p.approvals || []).length;
+    const statusNote = p.status === 'approved' && approvals < 2 ? ` (${approvals}/2 Class-D)` : '';
+    return `
+    <div style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px dashed var(--border);flex-wrap:wrap;">
+      <span style="flex:1;min-width:180px;font-size:13px;"><b>${esc(p.measureId)}</b> <span class="muted" style="font-size:11px;">· ${esc(p.period.start)} → ${esc(p.period.end)}</span></span>
+      ${wsStatusPill(p.status + statusNote)}
+      <span class="muted" style="font-size:11px;">${p.resultsIncluded} results · ${esc(p.manifestHash.slice(0, 12))}…</span>
+      ${p.evidenceWindow ? `<span class="muted" style="font-size:11px;">window ${esc(p.evidenceWindow.start)}→${esc(p.evidenceWindow.end)}</span>` : ''}
+      ${p.receipt ? `<span class="pill ${p.receipt.status === 'accepted' ? 'good' : 'bad'}">${esc(p.receipt.status)} · ${esc(p.receipt.referenceId)}</span>` : ''}
+      ${p.transmissionBlocked ? `<span class="muted" style="font-size:11px;max-width:220px;">⛔ ${esc(p.transmissionBlocked.reason.slice(0, 70))}</span>` : ''}
+      <span style="white-space:nowrap;">
+        ${(p.status === 'draft' || p.status === 'validated') ? `<button class="btn btn-sm" onclick="wsSubAction('${p.id}','freeze')">Freeze</button>` : ''}
+        ${(p.status === 'draft' || p.status === 'rejected') ? `<button class="btn btn-sm" onclick="wsSubmissionValidate('${p.id}')">Validate</button>` : ''}
+        ${(p.status === 'validated' || (p.status === 'approved' && approvals < 2)) ? `<button class="btn btn-sm" onclick="wsSubAction('${p.id}','approve')">Approve</button>` : ''}
+        ${p.status === 'approved' && approvals >= 2 ? `<button class="btn btn-sm" onclick="wsSubAction('${p.id}','submit')">Submit</button>` : ''}
+        ${p.status === 'submitted' ? `<button class="btn btn-sm" onclick="wsSubAction('${p.id}','receipt')">Receipt</button>` : ''}
+        ${p.status === 'rejected' ? `<button class="btn btn-sm" onclick="wsSubAction('${p.id}','correct')">Correct</button>` : ''}
+        ${p.status === 'reconciled' ? `<button class="btn btn-sm" onclick="wsSubAction('${p.id}','reconcile')">Reconcile</button>` : ''}
+        <button class="btn btn-sm" onclick="wsSubmissionDelete('${p.id}')"><i data-lucide="trash-2" style="width:13px;height:13px"></i></button>
+      </span>
+    </div>`;
+  }).join('') || '<div class="muted">No submission packages.</div>';
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">CMS submissions</h2><p class="page-sub">Journey K — draft → validate → freeze → dual Class-D approval → submit (reference-mode stops before live transmission and says why) → receipt → reconciled | rejected → correct → resubmit. Evidence snapshot + receipt retained.</p></div></div>
+    ${err ? `<div class="state-card"><div class="state-title">${esc(err)}</div></div>` : ''}
+    <div class="section-card"><h3>Create a submission package</h3>
+      <div class="field-row"><div class="field" style="flex:2;"><label>Measure id</label><input id="sub-measure" value="${esc(dom.domainOptions.defaultMeasureId)}"></div>
+      <div class="field" style="flex:1;"><label>Realm id</label><input id="sub-realm" placeholder="realm:c2"></div>
+      <div class="field"><label>Period start</label><input id="sub-start" type="date"></div>
+      <div class="field"><label>Period end</label><input id="sub-end" type="date"></div>
+      <button class="btn btn-primary" onclick="wsSubmissionCreate()"><i data-lucide="plus"></i> Create package</button></div></div>
+    <div class="section-card"><h3>Packages</h3>${rows}</div>`;
+  hydrateIcons();
+}
+async function wsSubmissionCreate() {
+  try {
+    const start = document.getElementById('sub-start').value || `${new Date().getFullYear()}-01-01`;
+    const end = document.getElementById('sub-end').value || `${new Date().getFullYear()}-12-31`;
+    const j = await wsFetch('/admin/platform/submissions', { method: 'POST', body: JSON.stringify({ measureId: document.getElementById('sub-measure').value, realmId: document.getElementById('sub-realm').value, period: { start, end }, resultsIncluded: 214 }) });
+    toast(`Package created (${j.package.status})`, 'good'); renderWsSubmissions();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+async function wsSubmissionValidate(id) {
+  try { await wsFetch(`/admin/platform/submissions/${id}/validate`, { method: 'POST', body: '{}' }); toast('Validated', 'good'); renderWsSubmissions(); } catch (e) { toast(e.message, 'bad'); }
+}
+async function wsSubmissionDelete(id) {
+  try { await wsFetch(`/admin/platform/submissions/${id}`, { method: 'DELETE' }); toast('Package deleted', 'good'); renderWsSubmissions(); } catch (e) { toast(e.message, 'bad'); }
+}
+// Journey K lifecycle action (freeze/approve/submit/receipt/correct/reconcile).
+window.wsSubAction = async function(id, action) {
+  let payload = {};
+  if (action === 'freeze') {
+    const start = prompt('Evidence window start (YYYY-MM-DD):', `${new Date().getFullYear()}-01-01`);
+    if (!start) return;
+    payload = { start, end: prompt('Evidence window end (YYYY-MM-DD):', `${new Date().getFullYear()}-12-31`) || `${new Date().getFullYear()}-12-31`, by: 'regulatory-admin' };
+  } else if (action === 'approve') {
+    const approver = prompt('Class-D approver:', 'regulatory-admin');
+    if (!approver) return;
+    payload = { approver };
+  } else if (action === 'receipt') {
+    const status = prompt('CMS receipt status (accepted | rejected):', 'accepted');
+    if (!status) return;
+    payload = { status, referenceId: prompt('CMS reference id:', 'EQRS-2026-000001') || 'EQRS-2026-000001', message: prompt('Receipt message (optional):', '') || 'received' };
+  } else if (action === 'correct') {
+    const reason = prompt('Correction reason:', '');
+    if (!reason) return;
+    payload = { reason, by: 'quality-officer' };
+  } else if (action === 'reconcile') {
+    payload = { by: 'regulatory-admin' };
+  } else if (action === 'submit') {
+    payload = { by: 'regulatory-admin', credentialsPresent: confirm('Transmission credentials present? (Certified connector is checked server-side)') };
+  }
+  try {
+    const j = await wsFetch(`/admin/platform/submissions/${id}/${action}`, { method: 'POST', body: JSON.stringify(payload) });
+    if (action === 'submit' && j.stopped) toast('⛔ ' + j.reason, 'warn');
+    else toast(`${action} → ${j.package?.status ?? 'ok'}`, 'good');
+  } catch (e) { toast(e.message, 'bad'); }
+  renderWsSubmissions();
+};
+
+// ---------- Exec substrate — the enrichment the exec console renders, now real ----------
+const WS_CATALOG_KINDS = ['agent-manifest', 'measure-pack', 'public-source', 'domain-pack', 'operating-model', 'ecosystem', 'runtime-policy', 'public-benchmark', 'federal-fact', 'green-team-check', 'source-mapping', 'facility-station', 'assessment-response', 'outcome-episode-story', 'patient-timeline'];
+let wsCatKind = 'agent-manifest';
+let wsCatRows = []; let wsCatIsSingle = false; let wsCatSingleId = null; let wsCatEditIndex = -1;
+let wsOntology = null; let wsOntologyRealized = null;
+const WS_LEVELS = ['enterprise', 'division', 'region', 'market', 'facility'];
+async function cfgObjectsBody() {
+  const body = document.getElementById('cfg-body');
+  if (!body) return;
+  const single = ['operating-model', 'ecosystem', 'runtime-policy', 'public-benchmark', 'domain-pack'];
+  wsCatIsSingle = single.includes(wsCatKind);
+  let rows = []; let err = null; let data = null; wsCatSingleId = null;
+  try {
+    if (wsCatIsSingle) {
+      const j = await plFetch('GET', `/admin/platform/config-objects/${wsCatKind}`);
+      data = j.data;
+      wsCatSingleId = j.id ?? null;
+      rows = wsCatKind === 'domain-pack' && data?.packs ? data.packs : wsCatKind === 'public-benchmark' && data?.benchmarks ? data.benchmarks : data ? [data] : [];
+    } else {
+      rows = (await plFetch('GET', `/admin/platform/config-objects/${wsCatKind}`)).rows || [];
+    }
+  } catch (e) { err = e.message; }
+  wsCatRows = rows.map((r) => ({ r }));
+  const keys = ['id', 'name', 'label', 'title', 'status', 'version', 'authority', 'state', 'sourceId', 'target', 'result'];
+  const key = keys.find((k) => rows.some((r) => r && r[k] !== undefined)) || 'id';
+  const table = `<div style="overflow-x:auto;"><table class="panel"><thead><tr><th>${key}</th><th>summary</th><th>actions</th></tr></thead><tbody>${
+    rows.map((r, i) => `<tr><td>${esc(String(r[key] ?? r.id ?? i))}</td><td class="muted" style="font-size:11px;">${esc(JSON.stringify(r).slice(0, 120))}</td><td style="white-space:nowrap;"><button class="btn btn-sm" title="Edit — persists to Postgres" onclick="wsCatalogEdit(${i})"><i data-lucide="pencil" style="width:13px;height:13px"></i></button><button class="btn btn-sm" title="Delete" onclick="wsCatalogDelete(${i})"><i data-lucide="trash-2" style="width:13px;height:13px"></i></button></td></tr>`).join('')
+    || `<tr><td colspan="3" class="muted">Empty — add below.</td></tr>`}</tbody></table></div>`;
+  body.innerHTML = `
+    ${err ? `<div class="state-card"><div class="state-title">${esc(err)}</div></div>` : ''}
+    <div class="field-row" style="margin-bottom:12px;">
+      <div class="field"><label>Catalog</label><select id="ws-cat-kind" onchange="wsCatKind=this.value;wsCatalogBody()">${WS_CATALOG_KINDS.map((k) => `<option value="${k}" ${k === wsCatKind ? 'selected' : ''}>${k}</option>`).join('')}</select></div>
+      <div class="field" style="flex:1;"><label>JSON payload</label><input id="ws-cat-json" placeholder='{"name":"New item"}'></div>
+      <button class="btn btn-primary" onclick="wsCatalogCreate()"><i data-lucide="plus"></i> Add row</button>
+      <button class="btn" onclick="cfgObjectsBody()"><i data-lucide="refresh-cw" style="width:13px;height:13px"></i> Refresh</button></div>
+    <div class="detail muted" style="font-size:11px;margin-bottom:8px;">Durable rows in Postgres (<code>swarm_workspace</code>) — the single source the executive console renders; the frontend bundles no JSON. ✎ and 🗑 persist immediately. Single-document kinds (operating-model / ecosystem / runtime-policy / public-benchmark / domain-pack) take the full document as the payload; use the <b>Ontology</b> tab for a structured operating-model editor.</div>
+    ${table}`;
+  hydrateIcons();
+}
+async function wsCatalogCreate() {
+  let payload = {};
+  try { payload = JSON.parse(document.getElementById('ws-cat-json').value || '{}'); } catch { toast('Payload must be valid JSON', 'bad'); return; }
+  try { await plFetch('POST', `/admin/platform/config-objects/${wsCatKind}`, payload); toast('Row added', 'good'); cfgObjectsBody(); } catch (e) { toast(e.message, 'bad'); }
+}
+async function wsCatalogDelete(i) {
+  let id;
+  if (wsCatIsSingle) id = wsCatSingleId;
+  else { const row = wsCatRows[i]; id = row && row.r ? row.r.id : null; }
+  if (!id) { toast('Cannot delete — no id on this row', 'bad'); return; }
+  try { await plFetch('DELETE', `/admin/platform/config-objects/${wsCatKind}/${encodeURIComponent(id)}`); toast('Deleted', 'good'); cfgObjectsBody(); } catch (e) { toast(e.message, 'bad'); }
+}
+function wsCatalogEdit(i) {
+  const row = wsCatRows[i];
+  const doc = row ? row.r : {};
+  const json = JSON.stringify(doc, null, 2);
+  const existing = document.getElementById('ws-cat-modal');
+  if (existing) existing.remove();
+  wsCatEditIndex = i;
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-overlay open" id="ws-cat-modal" style="z-index:90;"><div class="modal">
+    <div class="modal-header"><h3>Edit ${esc(wsCatKind)} ${wsCatIsSingle ? '<span class="muted" style="font-weight:400;">· single-document</span>' : ''}</h3><button class="modal-close" id="ws-cat-modal-close" aria-label="Close">×</button></div>
+    <div class="modal-body"><textarea id="ws-cat-edit" spellcheck="false" style="width:100%;min-height:360px;font-family:var(--mono,monospace);font-size:12px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:10px;resize:vertical;">${esc(json)}</textarea></div>
+    <div class="modal-footer"><button class="btn" id="ws-cat-modal-cancel">Cancel</button><button class="btn btn-primary" id="ws-cat-modal-save"><i data-lucide="save"></i> Save to Postgres</button></div>
+  </div></div>`);
+  hydrateIcons();
+  document.getElementById('ws-cat-modal-close').addEventListener('click', closeCatalogEdit);
+  document.getElementById('ws-cat-modal-cancel').addEventListener('click', closeCatalogEdit);
+  document.getElementById('ws-cat-modal-save').addEventListener('click', async () => {
+    let payload = {};
+    try { payload = JSON.parse(document.getElementById('ws-cat-edit').value); } catch { toast('Invalid JSON', 'bad'); return; }
+    await wsCatalogSaveEdit(payload);
+  });
+  document.getElementById('ws-cat-modal').addEventListener('click', (e) => { if (e.target && e.target.id === 'ws-cat-modal') closeCatalogEdit(); });
+}
+function closeCatalogEdit() { const m = document.getElementById('ws-cat-modal'); if (m) m.remove(); }
+async function wsCatalogSaveEdit(payload) {
+  let id;
+  if (wsCatIsSingle) id = wsCatSingleId;
+  else { const row = wsCatRows[wsCatEditIndex]; id = row && row.r ? row.r.id : null; }
+  if (!id) { toast('Cannot save — no id on this row', 'bad'); return; }
+  try { await plFetch('PUT', `/admin/platform/config-objects/${wsCatKind}/${encodeURIComponent(id)}`, payload); closeCatalogEdit(); toast('Saved to Postgres', 'good'); cfgObjectsBody(); } catch (e) { toast(e.message, 'bad'); }
+}
+
+// ---------- Agent specs — the last configuration that had no database row ----------
+/**
+ * 452 specs lived only as `packs/<pack>/agents/*.yaml`, read with readFileSync,
+ * with authoring writing the filesystem directly and "publishing" implemented as
+ * a file RENAME — so there was no row, no audit record, and nothing to reconcile
+ * against the registry. The row is now the source of truth; the YAML tree is an
+ * import source and an export target (Import tree / ⤓ Export).
+ *
+ * Publish is a STATE TRANSITION here: the row keeps its identity and gains a
+ * stamp. The store never deletes a row because a file vanished, so the drift
+ * panel is how the two are kept honest.
+ */
+const CFG_SPEC_PILL = { published: 'good', draft: 'brand', 'in-review': 'warn', rejected: 'bad' };
+let cfgSpecs = [];
+let cfgSpecRows = [];
+let cfgSpecSummary = null;
+let cfgSpecStatus = '';
+
+async function cfgSpecsBody() {
+  const body = document.getElementById('cfg-body');
+  if (!body) return;
+  let err = null;
+  try {
+    const j = await plFetch('GET', '/admin/platform/agent-specs');
+    cfgSpecs = j.specs || [];
+    cfgSpecSummary = j.summary || null;
+  } catch (e) { err = e.message; }
+  if (err) { body.innerHTML = loadFailureHTML('the agent-spec registry', err); hydrateIcons(); return; }
+
+  const s = cfgSpecSummary || { total: 0, byStatus: {}, drift: { onlyOnDisk: [], onlyInStore: [], differing: [], inSync: 0 }, imported: false };
+  const d = s.drift || { onlyOnDisk: [], onlyInStore: [], differing: [], inSync: 0 };
+  const statuses = Object.keys(s.byStatus || {}).sort();
+  cfgSpecRows = cfgSpecStatus ? cfgSpecs.filter((r) => r.status === cfgSpecStatus) : cfgSpecs;
+  const CAP = 60;
+  const shown = cfgSpecRows.slice(0, CAP);
+
+  const rowsHTML = shown.map((r, i) => `<tr>
+      <td>${esc(r.agentId)}</td>
+      <td class="muted" style="font-size:11px;">${esc(r.packId)}</td>
+      <td><span class="pill ${CFG_SPEC_PILL[r.status] || ''}">${esc(r.status)}</span></td>
+      <td class="muted" style="font-size:11px;">v${esc(r.version || '—')}</td>
+      <td class="muted" style="font-size:11px;font-family:var(--mono,monospace);" title="${esc(r.contentSha256)}">${esc(String(r.contentSha256 || '').slice(0, 8))}</td>
+      <td class="muted" style="font-size:11px;">${r.importedFrom ? `imported · ${esc(String(r.importedFrom).split('/').slice(-2).join('/'))}` : 'authored here'}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-sm" title="Edit the stored YAML" onclick="cfgSpecOpen(${i})"><i data-lucide="pencil" style="width:13px;height:13px"></i></button>
+        ${r.status === 'published' ? '' : `<button class="btn btn-sm" title="Publish — the row is what ships" onclick="cfgSpecPublish(${i})"><i data-lucide="check" style="width:13px;height:13px"></i></button>`}
+        <button class="btn btn-sm" title="Export this row to the repository tree" onclick="cfgSpecExport(${i})"><i data-lucide="download" style="width:13px;height:13px"></i></button>
+        <button class="btn btn-sm" title="Delete the row" onclick="cfgSpecDelete(${i})"><i data-lucide="trash-2" style="width:13px;height:13px"></i></button>
+      </td></tr>`).join('') || `<tr><td colspan="7" class="muted">${cfgSpecStatus ? `No ${esc(cfgSpecStatus)} specs.` : 'Registry empty — use <b>Import tree</b> to seed it from packs/*/agents and packs/*/drafts.'}</td></tr>`;
+
+  const driftList = (label, ids, colour) => ids.length ? `<div style="margin-top:4px;"><span style="color:var(${colour});font-weight:600;">${label} (${ids.length})</span> <span class="muted" style="font-family:var(--mono,monospace);">${esc(ids.slice(0, 8).join(', '))}${ids.length > 8 ? ` … +${ids.length - 8}` : ''}</span></div>` : '';
+  const driftTotal = d.onlyOnDisk.length + d.onlyInStore.length + d.differing.length;
+
+  body.innerHTML = `
+    <div class="field-row" style="margin-bottom:10px;align-items:flex-end;">
+      <div class="field"><label>Status</label><select id="cfg-spec-status" onchange="cfgSpecStatus=this.value;cfgSpecsBody()"><option value="">all (${s.total})</option>${statuses.map((st) => `<option value="${esc(st)}" ${cfgSpecStatus === st ? 'selected' : ''}>${esc(st)} (${s.byStatus[st]})</option>`).join('')}</select></div>
+      <button class="btn btn-primary" onclick="cfgSpecOpen(null)"><i data-lucide="plus"></i> New spec</button>
+      <button class="btn" onclick="cfgSpecImport(true)"><i data-lucide="search" style="width:13px;height:13px"></i> Preview import</button>
+      <button class="btn" onclick="cfgSpecImport(false)"><i data-lucide="upload" style="width:13px;height:13px"></i> Import tree</button>
+      <button class="btn" onclick="cfgSpecsBody()"><i data-lucide="refresh-cw" style="width:13px;height:13px"></i> Refresh</button>
+    </div>
+    <div class="detail muted" style="font-size:11px;margin-bottom:8px;">
+      Durable rows in Postgres (<code>swarm_workspace</code>, kind <code>agent-spec</code>). Import is idempotent per content hash, so it is safe to run repeatedly: a matching file is skipped, a changed file updates its row, and a row whose file disappeared is <b>kept</b> and reported as drift rather than deleted.
+      ${s.imported ? '' : ' <span style="color:var(--warn);">The tree has not been imported yet — this list is not the whole registry.</span>'}
+    </div>
+    <div class="field-row" style="gap:14px;flex-wrap:wrap;margin-bottom:10px;">
+      ${statuses.map((st) => `<span class="muted" style="font-size:11px;"><span class="pill ${CFG_SPEC_PILL[st] || ''}">${esc(st)}</span> ${s.byStatus[st]}</span>`).join('')}
+      <span class="muted" style="font-size:11px;">in sync with the tree: <b>${d.inSync}</b></span>
+      <span class="muted" style="font-size:11px;">drift: <b style="color:var(${driftTotal ? '--warn' : '--good'});">${driftTotal}</b></span>
+    </div>
+    <div style="overflow-x:auto;"><table class="panel"><thead><tr><th>agent</th><th>pack</th><th>status</th><th>version</th><th>content</th><th>origin</th><th>actions</th></tr></thead><tbody>${rowsHTML}</tbody></table></div>
+    ${cfgSpecRows.length > CAP ? `<div class="muted" style="font-size:11px;margin-top:6px;">Showing ${CAP} of ${cfgSpecRows.length}. Filter by status to narrow.</div>` : ''}
+    ${driftTotal ? `<div class="section-card" style="margin-top:12px;"><div class="detail" style="font-size:11px;"><b>Drift</b> — the rows and the YAML tree disagree here. Rows are the source of truth; export to reconcile a row outward, or run <b>Import tree</b> to pull a disk change in.
+      ${driftList('in the store, not on disk', d.onlyInStore, '--good')}
+      ${driftList('on disk, never imported', d.onlyOnDisk, '--warn')}
+      ${driftList('both exist, content differs', d.differing, '--bad')}
+    </div></div>` : ''}`;
+  hydrateIcons();
+}
+
+function closeCfgSpec() { const m = document.getElementById('cfg-spec-modal'); if (m) m.remove(); }
+
+async function cfgSpecOpen(i) {
+  let packId = ''; let agentId = ''; let yaml = ''; let status = 'draft';
+  if (i !== null && i !== undefined) {
+    const row = cfgSpecRows[i];
+    if (!row) return;
+    packId = row.packId; agentId = row.agentId;
+    try {
+      const j = await plFetch('GET', `/admin/platform/agent-specs/${encodeURIComponent(packId)}/${encodeURIComponent(agentId)}`);
+      yaml = j.spec.yaml; status = j.spec.status;
+    } catch (e) { toast(e.message, 'bad'); return; }
+  } else {
+    yaml = ['id: my-agent', 'version: 1.0.0', 'packId: my-pack', 'displayName: My agent', 'description: ""', 'scope: patient', 'trigger:', '  kind: manual', 'plan:', '  type: step', '  step:', '    id: s1', '    skill: llm.call', 'governance:', '  phiHandling: none', '  purposeOfUse: [treatment]', '  clearanceRequired: internal', 'billing: {}', ''].join('\n');
+  }
+  const existing = document.getElementById('cfg-spec-modal');
+  if (existing) existing.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-overlay open" id="cfg-spec-modal" style="z-index:90;"><div class="modal" style="max-width:900px;">
+    <div class="modal-header"><h3>${agentId ? `Edit ${esc(packId)} / ${esc(agentId)}` : 'New agent spec'} <span class="muted" style="font-weight:400;font-size:11px;">· ${esc(status)} · stored in Postgres</span></h3><button class="modal-close" id="cfg-spec-close" aria-label="Close">×</button></div>
+    <div class="modal-body">
+      <div class="field-row">
+        <div class="field"><label>Pack id</label><input id="cfg-spec-pack" value="${esc(packId)}" placeholder="renal-swarm" ${agentId ? 'disabled' : ''} /></div>
+        <div class="field"><label>Agent id</label><input id="cfg-spec-agent" value="${esc(agentId)}" placeholder="triage-agent" ${agentId ? 'disabled' : ''} /></div>
+      </div>
+      <div class="field"><label>Spec YAML <span class="muted" style="font-weight:400;">· validated against AgentSpecSchema before it is stored, so a bad spec is refused here rather than at runtime</span></label>
+        <textarea id="cfg-spec-yaml" spellcheck="false" style="width:100%;min-height:360px;font-family:var(--mono,monospace);font-size:12px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:10px;resize:vertical;">${esc(yaml)}</textarea></div>
+      <div id="cfg-spec-issues" class="muted" style="font-size:12px;"></div>
+    </div>
+    <div class="modal-footer"><button class="btn" id="cfg-spec-cancel">Cancel</button><button class="btn btn-primary" id="cfg-spec-save"><i data-lucide="save"></i> ${agentId ? 'Save' : 'Create draft'}</button></div>
+  </div></div>`);
+  hydrateIcons();
+  document.getElementById('cfg-spec-close').addEventListener('click', closeCfgSpec);
+  document.getElementById('cfg-spec-cancel').addEventListener('click', closeCfgSpec);
+  document.getElementById('cfg-spec-save').addEventListener('click', () => cfgSpecSave(!!agentId));
+  document.getElementById('cfg-spec-modal').addEventListener('click', (e) => { if (e.target && e.target.id === 'cfg-spec-modal') closeCfgSpec(); });
+}
+
+/**
+ * Save through raw fetch rather than plFetch: the 400 carries a list of schema
+ * issues, and plFetch collapses a failure to its `error` code alone. An author
+ * who cannot see WHICH field is wrong has to guess.
+ */
+async function cfgSpecSave(isEdit) {
+  const packId = (document.getElementById('cfg-spec-pack').value || '').trim();
+  const agentId = (document.getElementById('cfg-spec-agent').value || '').trim();
+  const yaml = document.getElementById('cfg-spec-yaml').value || '';
+  const out = document.getElementById('cfg-spec-issues');
+  if (!packId || !agentId || !yaml.trim()) {
+    out.innerHTML = '<span style="color:var(--bad);">pack id, agent id and YAML are all required.</span>';
+    return;
+  }
+  let res; let j = {};
+  try {
+    res = await fetch('/admin/platform/agent-specs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ packId, agentId, yaml }) });
+    j = await res.json().catch(() => ({}));
+  } catch (e) { out.innerHTML = `<span style="color:var(--bad);">${esc(e.message)}</span>`; return; }
+  if (!res.ok) {
+    const detail = Array.isArray(j.issues) && j.issues.length ? `<ul style="margin:6px 0 0 16px;">${j.issues.map((x) => `<li>${esc(String(x))}</li>`).join('')}</ul>` : '';
+    out.innerHTML = `<span style="color:var(--bad);">${esc(j.detail || j.error || String(res.status))}</span>${detail}`;
+    return;
+  }
+  closeCfgSpec();
+  toast(isEdit ? 'Draft saved' : 'Draft created', 'good');
+  cfgSpecsBody();
+}
+
+async function cfgSpecPublish(i) {
+  const row = cfgSpecRows[i]; if (!row) return;
+  if (!confirm(`Publish ${row.packId}/${row.agentId}? The stored row is what ships — the release gate scores this content, not the file it was imported from.`)) return;
+  try {
+    await plFetch('POST', `/admin/platform/agent-specs/${encodeURIComponent(row.packId)}/${encodeURIComponent(row.agentId)}/publish`, { note: 'published from the operator console' });
+    toast('Published', 'good');
+    cfgSpecsBody();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+async function cfgSpecExport(i) {
+  const row = cfgSpecRows[i]; if (!row) return;
+  try {
+    const j = await plFetch('POST', `/admin/platform/agent-specs/${encodeURIComponent(row.packId)}/${encodeURIComponent(row.agentId)}/materialize`, {});
+    toast(`Exported to ${j.exported ? j.exported.path : 'the tree'}`, 'good');
+    cfgSpecsBody();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+async function cfgSpecDelete(i) {
+  const row = cfgSpecRows[i]; if (!row) return;
+  if (!confirm(`Delete the stored spec for ${row.packId}/${row.agentId}? The YAML tree is the source it was imported from, so re-importing will bring it back.`)) return;
+  try {
+    await plFetch('DELETE', `/admin/platform/agent-specs/${encodeURIComponent(row.packId)}/${encodeURIComponent(row.agentId)}`);
+    toast('Deleted', 'good');
+    cfgSpecsBody();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+async function cfgSpecImport(dryRun) {
+  try {
+    const j = await plFetch('POST', '/admin/platform/agent-specs/import', dryRun ? { dryRun: true } : {});
+    const r = j.report || {};
+    const skipped = r.skipped ? `, ${r.skipped} skipped as invalid` : '';
+    toast(`${dryRun ? 'Would import' : 'Imported'}: ${r.created} created, ${r.updated} updated, ${r.unchanged} unchanged${skipped}`, r.skipped ? 'err' : 'good');
+    cfgSpecsBody();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+// ---------- Ontology editor — the org hierarchy operating model, stored in Postgres ----------
+const WS_ONTOLOGY_FIELDS = {
+  scopePath: { title: 'Hierarchy levels (enterprise → facility)', prefix: 'node', fields: ['label', 'level', 'facilities', 'patients', 'id'] },
+  roles: { title: 'Role cockpits', prefix: 'role', fields: ['id', 'shortLabel', 'label', 'scopeLevel', 'purpose', 'decisionRights'] },
+  domains: { title: 'Outcome domains', prefix: 'domain', fields: ['id', 'label', 'ownerRoles', 'agentIds'] },
+};
+async function cfgOntologyBody() {
+  const body = document.getElementById('cfg-body');
+  if (!body) return;
+  let err = null;
+  try {
+    const j = await plFetch('GET', '/admin/ontology');
+    wsOntology = j.ontology || { version: '2026.1.0', synthetic: true, organization: '', model: '', scopePath: [], roles: [], domains: [] };
+    wsOntologyRealized = j.realized || { totalFacilities: 0, totalPatients: 0, perFacility: [] };
+  } catch (e) { err = e.message; }
+  const cards = Object.entries(WS_ONTOLOGY_FIELDS).map(([key, cfg]) => wsOntologyCard(key, cfg)).join('');
+  body.innerHTML = `
+    ${err ? `<div class="state-card"><div class="state-title">${esc(err)}</div></div>` : ''}
+    <div class="state-card" style="margin-bottom:10px;"><b>Real master data (live from Postgres)</b>
+      <span style="margin-left:10px;">🏥 <b>${wsOntologyRealized.totalFacilities}</b> facilities</span>
+      <span style="margin-left:10px;">🧑‍🤝‍🧑 <b>${wsOntologyRealized.totalPatients}</b> patients</span>
+      <span class="muted" style="font-size:11px;margin-left:10px;">${(wsOntologyRealized.perFacility || []).map((f) => `${esc(f.name)} (${f.patients})`).join(', ') || 'no master facilities yet'}</span>
+      <button class="btn btn-sm" style="float:right;" onclick="wsOntologyPullLive()"><i data-lucide="refresh-cw" style="width:13px;height:13px"></i> Pull live counts</button></div>
+    <div class="section-card"><h3>Organization identity</h3>
+      <div class="field-row">
+        <div class="field"><label>Organization</label><input value="${esc(wsOntology.organization || '')}" oninput="wsOntology.organization=this.value"></div>
+        <div class="field"><label>Model</label><input value="${esc(wsOntology.model || '')}" oninput="wsOntology.model=this.value"></div>
+        <div class="field"><label>Version</label><input value="${esc(wsOntology.version || '')}" oninput="wsOntology.version=this.value"></div>
+        <div class="field"><label><input type="checkbox" ${wsOntology.synthetic ? 'checked' : ''} onchange="wsOntology.synthetic=this.checked"> synthetic</label></div>
+      </div></div>
+    ${cards}
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button class="btn btn-primary" onclick="wsOntologySave()"><i data-lucide="save"></i> Save ontology to Postgres</button>
+      <button class="btn" onclick="renderPlatformConfig()"><i data-lucide="x"></i> Discard</button></div>`;
+  hydrateIcons();
+}
+function wsOntologyCard(key, cfg) {
+  const rows = wsOntology[key] || [];
+  const header = cfg.fields.map((f) => `<th>${esc(f)}</th>`).join('') + '<th></th>';
+  const tbody = rows.map((row, i) => `<tr>${cfg.fields.map((f) => {
+    const val = row[f];
+    const v = Array.isArray(val) ? val.join(', ') : (val ?? '');
+    if (f === 'level' || f === 'scopeLevel') {
+      return `<td><select onchange="wsOntologySet('${key}',${i},'${f}',this.value)">${WS_LEVELS.map((l) => `<option value="${l}" ${String(row[f]) === l ? 'selected' : ''}>${l}</option>`).join('')}</select></td>`;
+    }
+    return `<td><input style="min-width:90px;" value="${esc(v)}" oninput="wsOntologySet('${key}',${i},'${f}',this.value)"></td>`;
+  }).join('')}<td><button class="btn btn-sm" onclick="wsOntologyRemove('${key}',${i})"><i data-lucide="trash-2" style="width:13px;height:13px"></i></button></td></tr>`).join('');
+  const empty = rows.length === 0 ? `<tr><td colspan="${cfg.fields.length + 1}" class="muted">No rows yet — add one below.</td></tr>` : '';
+  return `<div class="section-card"><h3>${esc(cfg.title)} <span class="muted" style="font-weight:400;font-size:11px;">· ${rows.length}</span></h3>
+    <div style="overflow-x:auto;"><table class="panel"><thead><tr>${header}</tr></thead><tbody>${tbody}${empty}</tbody></table></div>
+    <button class="btn btn-sm" onclick="wsOntologyAdd('${key}')"><i data-lucide="plus"></i> Add ${esc(cfg.prefix.replace('-', ' '))}</button></div>`;
+}
+function wsOntologySet(key, idx, field, value) {
+  if (!wsOntology[key]) wsOntology[key] = [];
+  if (['decisionRights', 'ownerRoles', 'agentIds'].includes(field)) wsOntology[key][idx][field] = value.split(',').map((s) => s.trim()).filter(Boolean);
+  else if (['facilities', 'patients'].includes(field)) wsOntology[key][idx][field] = Number(value) || 0;
+  else wsOntology[key][idx][field] = value;
+}
+function wsOntologyAdd(key) {
+  if (!wsOntology[key]) wsOntology[key] = [];
+  const n = wsOntology[key].length + 1;
+  const base = key === 'scopePath' ? { id: `node-${n}`, level: 'facility', label: '', facilities: 0, patients: 0 }
+    : key === 'roles' ? { id: '', shortLabel: '', label: '', scopeLevel: 'facility', purpose: '', decisionRights: [] }
+    : { id: '', label: '', ownerRoles: [], agentIds: [] };
+  wsOntology[key].push(base);
+  cfgOntologyBody();
+}
+function wsOntologyRemove(key, idx) {
+  wsOntology[key].splice(idx, 1);
+  cfgOntologyBody();
+}
+async function wsOntologySave() {
+  const payload = { version: wsOntology.version, synthetic: wsOntology.synthetic, organization: wsOntology.organization, model: wsOntology.model, scopePath: wsOntology.scopePath || [], roles: wsOntology.roles || [], domains: wsOntology.domains || [] };
+  try { await plFetch('PUT', '/admin/ontology', payload); toast('Ontology saved to Postgres', 'good'); renderPlatformConfig(); } catch (e) { toast(e.message, 'bad'); }
+}
+function wsOntologyPullLive() {
+  const r = wsOntologyRealized || {};
+  (wsOntology.scopePath || []).forEach((node) => {
+    if (node.level === 'enterprise') { node.facilities = r.totalFacilities ?? node.facilities; node.patients = r.totalPatients ?? node.patients; }
+    else if (node.level === 'facility') {
+      const match = (r.perFacility || []).find((f) => String(f.name).toLowerCase() === String(node.label).toLowerCase());
+      if (match) node.patients = match.patients;
+    }
+  });
+  cfgOntologyBody();
+}
+// ---------- M-S3 release gate — green/red-team gating (deterministic) ----------
+let releaseRedOverrides = {}; // red finding id → contained
+
+// ---------- M-S3 kafka-bridge — outbox leasing + receipts / incidents ----------
+
+initApp();
