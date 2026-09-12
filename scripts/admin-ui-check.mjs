@@ -61,21 +61,32 @@ const ONLY = arg('--views', '');
  * partially usable either: a tabbed sidebar section renders ONE element with a
  * `data-view`, so the DOM exposes 11 of the 48 views.
  *
- * So discovery reads the render dispatch from the console's source, which is
- * complete and stable, and which is the set the operator can reach (every NAV
- * view id has exactly one dispatch case — verified separately).
+ * So discovery reads the console's source, which is complete and stable, and which
+ * is the set the operator can reach (every NAV view id has exactly one entry —
+ * verified separately).
+ *
+ * S3 replaced the 48-branch `if/else` dispatch with `registerView('id', fn)`, so the
+ * scanner now reads the registry first and keeps the old `view === 'id'` pattern as a
+ * second source. The DOM fallback still exists for diagnosis, but it is NO LONGER
+ * silent: a partial walk that reports "clean" is worse than a loud failure, because
+ * 11 green views read exactly like 48 green views. Below MIN_VIEWS we refuse to pass.
  */
+const MIN_VIEWS = 30;
+
 async function discoverViews(page) {
+  const fromRegistry = [];
   const fromDispatch = [];
   for (const url of [`${BASE}/admin/ui/js/app.js`, `${BASE}/admin/ui/`]) {
     const text = await (await page.request.get(url)).text().catch(() => '');
+    for (const m of text.matchAll(/registerView\('([a-z0-9-]+)'/g)) fromRegistry.push(m[1]);
     for (const m of text.matchAll(/view === '([a-z0-9-]+)'/g)) fromDispatch.push(m[1]);
   }
+  if (fromRegistry.length) return { views: [...new Set(fromRegistry)], source: 'view registry (source)' };
   if (fromDispatch.length) return { views: [...new Set(fromDispatch)], source: 'render dispatch (source)' };
 
   const fromDom = await page.evaluate(() =>
     [...document.querySelectorAll('[data-view]')].map((el) => el.getAttribute('data-view')).filter(Boolean));
-  if (fromDom.length) return { views: [...new Set(fromDom)], source: 'rendered sidebar' };
+  if (fromDom.length) return { views: [...new Set(fromDom)], source: 'rendered sidebar (PARTIAL)' };
 
   return { views: [], source: 'none' };
 }
@@ -182,6 +193,16 @@ async function run() {
     console.error(pageErrors.slice(0, 3).join('\n') || '(no page errors captured)');
     await browser.close();
     process.exit(1);
+  }
+  // A partial walk is not a pass. If discovery degraded (e.g. the registry was renamed
+  // and nothing in the source matched any more), the run would otherwise report a small
+  // number of green views and exit 0 — the most dangerous possible outcome for a gate.
+  if (!ONLY && views.length < MIN_VIEWS) {
+    console.error(`Discovered only ${views.length} views from ${source}, below the ${MIN_VIEWS} floor.`);
+    console.error('This means discovery degraded, not that the console has fewer views.');
+    console.error('Fix the source pattern above, or pass --views a,b,c to walk an explicit list.');
+    await browser.close();
+    process.exit(2);
   }
   // An unknown view id does not throw: render() falls through to its default and
   // the operator sees the dashboard. A walk over such an id would report "clean"

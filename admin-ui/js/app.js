@@ -31,6 +31,7 @@
  *
  *******************************************************************************/
 
+import { goTo, registerView, render } from './core/router.js';
 import { S } from './state.js';
 import { api, consoleDomain, drafts } from './core/api.js';
 import { checkAuth, rawJson, renderTopbarUser } from './core/auth.js';
@@ -433,62 +434,57 @@ async function initApp() {
 
 // Current ISO year boundaries for measurement periods.
 
-async function render() {
-  renderPageTabs();
-  await updateSidebarCounts();
-  const view = S.currentView;
-  if (view === 'summary') await renderSummary();
-  else if (view === 'my-work') await renderMyWork();
-  else if (view === 'agents') await renderAgents();
-  else if (view === 'agent-run') await renderAgentRuntime();
-  else if (view === 'drafts') await renderDrafts();
-  else if (view === 'realm') await renderRealm();
-  else if (view === 'presences') await renderPresences();
-  else if (view === 'effects') await renderEffects();
-  else if (view === 'perception') await renderPerception();
-  else if (view === 'world-builder') await renderWorldBuilder();
-  else if (view === 'experiences') await renderExperiences();
-  else if (view === 'rules') await renderRules();
-  else if (view === 'hypergraph') await renderHypergraphBrowser();
-  else if (view === 'compliance') await renderCompliance();
-  else if (view === 'command') await renderCommandCenter();
-  else if (view === 'episodes') await renderEpisodes();
-  else if (view === 'sentience') await renderSentience();
-  else if (view === 'attributions') await renderAttributions();
-  else if (view === 'new') await renderEditor({});
-  else if (view === 'measures') await renderMeasures();
-  else if (view === 'assessments') await renderAssessments();
-  else if (view === 'lifecycle') await renderLifecycle();
-  else if (view === 'research') await renderResearch();
-  else if (view === 'learn') await renderLearn();
-  else if (view === 'audit') await renderAudit();
-  else if (view === 'liquid-whatif') await renderLiquidWhatIf();
-  else if (view === 'liquid-train') await renderLiquidTrain();
-  else if (view === 'liquid-score') await renderLiquidScore();
-  else if (view === 'counterfactual') await renderCounterfactual();
-  else if (view === 'nudge-ledger') await renderNudgeLedger();
-  else if (view === 'durable') await renderDurableStorage();
-  else if (view === 'broker') await renderBrokerPanel();
-  else if (view === 'enterprise') await renderEnterprisePanel();
-  else if (view === 'fhir') await renderFhirPanel();
-  else if (view === 'users') await renderUsers();
-  else if (view === 'settings') await renderSettings();
-  else if (view === 'rsi-app') renderRsiApp();
-  else if (view === 'platform-admin') await renderPlatformAdmin();
-  else if (view === 'platform-config') await renderPlatformConfig();
-  else if (view === 'platform-cohorts') await renderPlatformCohorts();
-  else if (view === 'platform-agents') await renderPlatformAgents();
-  else if (view === 'platform-assurance') await renderPlatformAssurance();
-  else if (view === 'rsi-intelligence') renderRsiDeepLink('intelligence', 'Shared Intelligence');
-  else if (view === 'rsi-executive') renderRsiDeepLink('executive', 'Executive Outcomes');
-  else if (view === 'platform-releases') await renderPlatformReleases();
-  else if (view === 'platform-submissions') await renderWsSubmissions();
-  else if (view === 'platform-dlq') await renderPlatformDlq();
-  else if (view === 'platform-context') await renderPlatformContext();
-  hydrateIcons();
-  // A read-only role keeps the page and loses the writers (server-enforced too).
-  applyReadOnly();
-}
+/* View registry — the dispatch that used to live here is now a map in
+ * core/router.js. Registering the functions this file already imports is what
+ * lets the router stop importing views, which is what removed the cycle. */
+registerView('summary', renderSummary);
+registerView('my-work', renderMyWork);
+registerView('agents', renderAgents);
+registerView('agent-run', renderAgentRuntime);
+registerView('drafts', renderDrafts);
+registerView('realm', renderRealm);
+registerView('presences', renderPresences);
+registerView('effects', renderEffects);
+registerView('perception', renderPerception);
+registerView('world-builder', renderWorldBuilder);
+registerView('experiences', renderExperiences);
+registerView('rules', renderRules);
+registerView('hypergraph', renderHypergraphBrowser);
+registerView('compliance', renderCompliance);
+registerView('command', renderCommandCenter);
+registerView('episodes', renderEpisodes);
+registerView('sentience', renderSentience);
+registerView('attributions', renderAttributions);
+registerView('new', () => renderEditor({}));
+registerView('measures', renderMeasures);
+registerView('assessments', renderAssessments);
+registerView('lifecycle', renderLifecycle);
+registerView('research', renderResearch);
+registerView('learn', renderLearn);
+registerView('audit', renderAudit);
+registerView('liquid-whatif', renderLiquidWhatIf);
+registerView('liquid-train', renderLiquidTrain);
+registerView('liquid-score', renderLiquidScore);
+registerView('counterfactual', renderCounterfactual);
+registerView('nudge-ledger', renderNudgeLedger);
+registerView('durable', renderDurableStorage);
+registerView('broker', renderBrokerPanel);
+registerView('enterprise', renderEnterprisePanel);
+registerView('fhir', renderFhirPanel);
+registerView('users', renderUsers);
+registerView('settings', renderSettings);
+registerView('rsi-app', renderRsiApp);
+registerView('platform-admin', renderPlatformAdmin);
+registerView('platform-config', renderPlatformConfig);
+registerView('platform-cohorts', renderPlatformCohorts);
+registerView('platform-agents', renderPlatformAgents);
+registerView('platform-assurance', renderPlatformAssurance);
+registerView('rsi-intelligence', () => renderRsiDeepLink('intelligence', 'Shared Intelligence'));
+registerView('rsi-executive', () => renderRsiDeepLink('executive', 'Executive Outcomes'));
+registerView('platform-releases', renderPlatformReleases);
+registerView('platform-submissions', renderWsSubmissions);
+registerView('platform-dlq', renderPlatformDlq);
+registerView('platform-context', renderPlatformContext);
 
 // ---------- Agent runtime (knowledge-aware agent turns) ----------
 
@@ -496,14 +492,6 @@ async function render() {
 // only fall back to the in-memory demo store when the server is unreachable.
 
 // ---------- Editor ----------
-
-function goTo(view) {
-  if (!viewAllowed(view)) view = 'summary';
-  S.currentView = view;
-  renderSidebar();
-  render();
-  refreshSyntheticBadge();
-}
 
 // Data provenance labeling (§9.5) — a persistent, topbar-visible "synthetic
 // demonstration data" indicator driven by the org's durable `synthetic` flag.
