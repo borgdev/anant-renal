@@ -34,12 +34,31 @@ export interface EpisodeApproval {
   approvalClass: ApprovalClass;
 }
 
+/**
+ * What a command actually DOES in the patient's record.
+ *
+ * Without this, a dispatched command was a verb with no amount: the episode said
+ * `titrate-med` and the recommended dose never left the recommendation. The draft
+ * is authored by the PACK (it owns the clinical reasoning) and carried through the
+ * proposal, so neither the console nor the dispatcher invents a dose.
+ */
+export interface EpisodeOrder {
+  /** The governed effect to emit (`order-med`, `order-lab`, …). */
+  effect: WorldEffectKind;
+  /** The effect's own payload — `order-med` needs code/dose/route/frequency. */
+  payload: Record<string, unknown>;
+}
+
 export interface EpisodeCommand {
   commandId: string;
   action: WorldEffectKind;
   idempotencyKey: string;
   at: string;
   ack?: { at: string; by: string };
+  /** The order this command places, when the pack drafted one. */
+  order?: EpisodeOrder;
+  /** Where it was dispatched (set once the effect is in the ledger). */
+  dispatched?: { effectId: string; orderUrn?: string; realmId: string; presenceId: string; at: string; replayed?: boolean };
 }
 
 export interface OutcomeEpisode {
@@ -47,6 +66,9 @@ export interface OutcomeEpisode {
   kind: string;
   subject: string;
   scopeType: ScopeType;
+  /** The realm the subject lives in. A patient id is only unique WITHIN a realm,
+   *  so a dispatch that cannot name its realm fails closed rather than guessing. */
+  realmId?: string;
   state: OutcomeState;
   openedAt: string;
   transitions: EpisodeTransition[];
@@ -54,7 +76,21 @@ export interface OutcomeEpisode {
   proposal?: CellProposal;
   approval?: EpisodeApproval;
   command?: EpisodeCommand;
-  measureResult?: { measureId: string; met: boolean; at: string };
+  /**
+   * What verified the outcome.
+   *
+   * `measure` is the cohort-level contract (a CMS/eCQM measure result).
+   * `patient-outcome` is THIS patient's own response — forecast vs observed. The
+   * two answer different questions, and a clinician acting on one patient needs the
+   * second: a measure can move at facility level while this patient goes the other way.
+   */
+  measureResult?: {
+    measureId: string;
+    met: boolean;
+    at: string;
+    kind?: 'measure' | 'patient-outcome';
+    detail?: string;
+  };
   /** P2/P4 — DST evidence-fusion readout (recomputed on addEvidence). */
   evidenceFusion?: EpisodeEvidenceFusion;
   /** P2 — advisory evidence strength vs the resolve gate. */
@@ -112,6 +148,36 @@ export function computeDossierHash(e: OutcomeEpisode): string {
   })).digest('hex');
 }
 
+/**
+ * A pack may state its order ONCE, on the proposal payload, and have the command
+ * pick it up. Two places to author an order is one place too many — the second one
+ * drifts, and the version that drifts is the one nobody reads.
+ */
+export function orderFromProposal(proposal: CellProposal | undefined): EpisodeOrder | undefined {
+  const draft = (proposal?.payload as { order?: unknown } | undefined)?.order;
+  if (!draft || typeof draft !== 'object') return undefined;
+  const candidate = draft as { effect?: unknown; payload?: unknown };
+  if (typeof candidate.effect !== 'string') return undefined;
+  const payload = candidate.payload;
+  return {
+    effect: candidate.effect as WorldEffectKind,
+    payload: payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {},
+  };
+}
+
+/** The governed action the pack's proposal performs (`payload.action`). */
+export function actionFromProposal(proposal: CellProposal | undefined): WorldEffectKind | undefined {
+  const action = (proposal?.payload as { action?: unknown } | undefined)?.action;
+  return typeof action === 'string' ? (action as WorldEffectKind) : undefined;
+}
+
+/** The realm a proposal belongs to. The clinical bridge stamps every finding with
+ *  one, which is how an episode opened from it knows where its order belongs. */
+export function realmIdFromProposal(proposal: CellProposal | undefined): string | undefined {
+  const realmId = (proposal?.payload as { realmId?: unknown } | undefined)?.realmId;
+  return typeof realmId === 'string' && realmId.length > 0 ? realmId : undefined;
+}
+
 function contentTypeWeight(t: string | undefined): number {
   switch (t) {
     case 'fact': return 0.7;
@@ -165,12 +231,13 @@ export class OutcomeEpisodeCoordinator {
   private commandKeys = new Set<string>();
   constructor(private readonly opts: OutcomeEpisodeOptions = {}) {}
 
-  open(input: { kind: string; subject: string; scopeType: ScopeType }): OutcomeEpisode {
+  open(input: { kind: string; subject: string; scopeType: ScopeType; realmId?: string }): OutcomeEpisode {
     const episode: OutcomeEpisode = {
       episodeId: `out-${randomUUID().slice(0, 8)}`,
       kind: input.kind,
       subject: input.subject,
       scopeType: input.scopeType,
+      ...(input.realmId !== undefined ? { realmId: input.realmId } : {}),
       state: 'Observed',
       openedAt: new Date().toISOString(),
       transitions: [{ from: 'Observed', to: 'Observed', at: new Date().toISOString(), by: 'harness' }],
@@ -198,12 +265,20 @@ export class OutcomeEpisodeCoordinator {
 
   /** Return the existing open episode for (kind, subject, scopeType) or open one —
    * gives episodes a STABLE identity across polls instead of churning on each read. */
-  getOrOpen(input: { kind: string; subject: string; scopeType: ScopeType }): OutcomeEpisode {
+  getOrOpen(input: { kind: string; subject: string; scopeType: ScopeType; realmId?: string }): OutcomeEpisode {
     const existing = [...this.episodes.values()].find(
       (e) => e.kind === input.kind && e.subject === input.subject && e.scopeType === input.scopeType
         && !['Resolved', 'Rejected', 'Escalated'].includes(e.state),
     );
-    return existing ?? this.open(input);
+    if (existing) {
+      // A later call that KNOWS the realm fills in an episode opened without one.
+      if (existing.realmId === undefined && input.realmId !== undefined) {
+        existing.realmId = input.realmId;
+        this.commit(existing);
+      }
+      return existing;
+    }
+    return this.open(input);
   }
 
   /** Restore a previously-persisted episode (durability hydrate). */
@@ -260,13 +335,33 @@ export class OutcomeEpisodeCoordinator {
     return this.move(id, decision === 'approved' ? 'Coordinating' : 'Rejected', approver, decision === 'approved' ? 'approved command' : 'human rejects');
   }
 
-  dispatchCommand(id: string, action: WorldEffectKind): OutcomeEpisode {
+  dispatchCommand(id: string, action: WorldEffectKind, opts: { order?: EpisodeOrder; realmId?: string } = {}): OutcomeEpisode {
     const e = this.episodes.get(id);
     if (!e) throw new Error(`outcome-episode-not-found: ${id}`);
     const idempotencyKey = `out:${e.episodeId}:${action}`;
     if (this.commandKeys.has(idempotencyKey)) throw new Error('idempotency-conflict: command already dispatched');
     this.commandKeys.add(idempotencyKey);
-    e.command = { commandId: `cmd-${randomUUID().slice(0, 8)}`, action, idempotencyKey, at: new Date().toISOString() };
+    // Prefer the draft the pack authored; fall back to the proposal's, so a pack
+    // that states its order once (on the proposal) does not have to state it twice.
+    const drafted = opts.order ?? orderFromProposal(e.proposal);
+    e.command = {
+      commandId: `cmd-${randomUUID().slice(0, 8)}`,
+      action,
+      idempotencyKey,
+      at: new Date().toISOString(),
+      ...(drafted !== undefined ? { order: drafted } : {}),
+    };
+    if (opts.realmId !== undefined) e.realmId = opts.realmId;
+    this.commit(e);
+    return e;
+  }
+
+  /** Record where the command landed in the patient's record (called by the dispatcher). */
+  recordDispatch(id: string, dispatched: NonNullable<EpisodeCommand['dispatched']>): OutcomeEpisode {
+    const e = this.episodes.get(id);
+    if (!e) throw new Error(`outcome-episode-not-found: ${id}`);
+    if (!e.command) throw new Error(`no-command-to-record: ${id}`);
+    e.command.dispatched = dispatched;
     this.commit(e);
     return e;
   }
@@ -278,10 +373,20 @@ export class OutcomeEpisodeCoordinator {
     return this.move(id, 'Verifying', by, 'acknowledgements arrive');
   }
 
-  verify(id: string, measureResult: { measureId: string; met: boolean }, by = 'measure-evaluator'): OutcomeEpisode {
+  verify(
+    id: string,
+    measureResult: { measureId: string; met: boolean; kind?: 'measure' | 'patient-outcome'; detail?: string },
+    by = 'measure-evaluator',
+  ): OutcomeEpisode {
     const e = this.episodes.get(id);
     if (!e) throw new Error(`outcome-episode-not-found: ${id}`);
-    e.measureResult = { ...measureResult, at: new Date().toISOString() };
+    e.measureResult = {
+      measureId: measureResult.measureId,
+      met: measureResult.met,
+      at: new Date().toISOString(),
+      ...(measureResult.kind !== undefined ? { kind: measureResult.kind } : {}),
+      ...(measureResult.detail !== undefined ? { detail: measureResult.detail } : {}),
+    };
     // P2 — with dstGates an unmet outcome escalates (never resolves on a failed measure).
     if (this.opts.dstGates && !measureResult.met) {
       return this.move(id, 'Escalated', by, 'outcome not met — escalated');

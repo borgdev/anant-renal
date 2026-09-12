@@ -73,6 +73,7 @@ import {
   temperatureRuleScore, INFECTION_MODEL_TARGET_AUROC,
 } from '../swarm/infection-model.js';
 import { buildRenalCohort, renalPatientInputs, attributePatientIdFromOrder } from '../swarm/renal-cohort.js';
+import { clinicalNbaState, infectionFindings, INFECTION_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
 import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
 
 export interface InfectionRouteOptions {
@@ -313,7 +314,9 @@ export async function registerInfectionRoutes(app: FastifyInstance, opts: Infect
   });
 
   app.get('/admin/swarm/infection/state', async () => {
-    const windows = liveInfectionWindows(patientSource(), eventSource());
+    const patients = patientSource();
+    const realmOf = new Map(patients.map((p) => [p.id, p.realmId]));
+    const windows = liveInfectionWindows(patients, eventSource());
     const evaluated = windows.map((w) => ({
       patientId: w.patientId,
       __displayFacility: w.facilityId ?? null,
@@ -324,6 +327,24 @@ export async function registerInfectionRoutes(app: FastifyInstance, opts: Infect
       coverage: infectionRecommendCovered(w).coverage,
       preventionSignature: preventionDeterminismSignature(preventionPlan(w)),
     }));
+    const actions = clinicalNbaState({
+      protocol: 'infection',
+      insightKind: 'infection.bsi.proposal',
+      cells: INFECTION_CELLS,
+      consumedBy: INFECTION_CONSUMED_BY,
+      actionMap: INFECTION_CLINICAL_ACTIONS,
+      findings: infectionFindings(
+        evaluated.map((e, i) => {
+          const realmId = realmOf.get(e.patientId);
+          const facilityId = windows[i]?.facilityId;
+          return {
+            rec: e.recommendation,
+            ...(facilityId !== undefined ? { facilityId } : {}),
+            ...(realmId !== undefined ? { realmId } : {}),
+          };
+        }),
+      ),
+    });
     return {
       generatedAt: NOW(),
       source: 'realm-ledger',
@@ -343,6 +364,7 @@ export async function registerInfectionRoutes(app: FastifyInstance, opts: Infect
         coverageBlocked: evaluated.filter((e) => !e.coverage.covered).length,
       },
       windows: evaluated,
+      actions: clinicalActionsPayload(actions),
     };
   });
 

@@ -6,6 +6,7 @@
 // types keep them apart and the labels say which is which.
 
 import { responseOrThrow } from "./session";
+import type { RankedActionsPayload } from "./ranked-actions";
 
 export interface InfectionFeature { id: string; label: string; unit: string; min: number; max: number; relevance: number }
 
@@ -188,6 +189,7 @@ export interface InfectionStateView {
     coverage: InfectionCoverageVerdict;
     preventionSignature: string;
   }>;
+  actions?: RankedActionsPayload;
 }
 
 export interface InfectionArtifactStatus {

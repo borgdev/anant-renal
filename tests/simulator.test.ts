@@ -201,6 +201,25 @@ describe('SimulatorController lifecycle', () => {
     expect(RealmRegistry.get('sim:test-a')!.clock.seq).toBe(seqAtPause); // no auto-tick in test mode
   });
 
+  /**
+   * The status and the seq above can both look perfect while the fleet is dead.
+   * `realm.stop()` detaches the clock listener that runs the ambient processes, and
+   * `start()` used to restart only the clock — so one pause/resume cycle left a
+   * fleet that ticked forever and produced no clinical data, with every page derived
+   * from it silently frozen. This asserts the OUTCOME, not the wiring.
+   */
+  it('a resumed fleet still produces events', async () => {
+    await sim.start('dialysis-basic', { autoRun: false });
+    const first = sim.step(3);
+    expect(first.events, 'the fleet emitted nothing BEFORE the pause — the test would prove nothing').toBeGreaterThan(0);
+
+    sim.pause();
+    sim.resume();
+
+    const second = sim.step(3);
+    expect(second.events, 'the resumed fleet emitted nothing: the realm lost its ambient pipeline on stop()').toBeGreaterThan(0);
+  });
+
   it('reset tears the fleet down and returns to idle', async () => {
     await sim.start('dialysis-basic', { autoRun: false });
     sim.step(2);

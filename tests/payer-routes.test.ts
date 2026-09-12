@@ -123,9 +123,13 @@ describe('payer proof pack', () => {
     const res = await app.inject({ method: 'GET', url: '/api/work', headers: { cookie: cookie(admin) } });
     expect(res.statusCode).toBe(200);
     const items = res.json().items;
-    // My Work titles render kind dashes as spaces ("care gap closure · member:m-1042").
-    expect(items.some((i: { title: string }) => i.title.includes('care gap closure'))).toBe(true);
-    expect(items.some((i: { title: string }) => i.title.includes('authorization review'))).toBe(true);
+    // My Work titles are clinical problem words now ("Care gap closure · member:m-1042"),
+    // not the raw kind id with dots swapped for spaces. Compared case-insensitively,
+    // and the raw id must not leak into a title a clinician reads.
+    const titles = (items as Array<{ title: string }>).map((i) => i.title.toLowerCase());
+    expect(titles.some((t) => t.includes('care gap closure'))).toBe(true);
+    expect(titles.some((t) => t.includes('authorization review'))).toBe(true);
+    expect(titles.every((t) => !t.includes('care.gap') && !t.includes('authorization.review'))).toBe(true);
   });
 
   it('payer demo is idempotent — re-seeding does not churn episodes', async () => {
@@ -157,7 +161,7 @@ describe('payer proof pack', () => {
 
     // My Work no longer lists payer episodes.
     const work = await app.inject({ method: 'GET', url: '/api/work', headers: { cookie: cookie(admin) } });
-    expect(work.json().items.some((i: { title: string }) => i.title.includes('care gap closure'))).toBe(false);
+    expect(work.json().items.some((i: { title: string }) => i.title.toLowerCase().includes('care gap closure'))).toBe(false);
   });
 
   it('unauth /admin/swarm/payer/* is blocked (401)', async () => {

@@ -44,6 +44,7 @@ import {
   type QipTieInView,
 } from "../lib/adequacy";
 import type { NavigationId } from "../lib/types";
+import RankedActionsPanel from "./ranked-actions-panel";
 
 type Props = { onNavigate?: (id: NavigationId) => void };
 
@@ -247,6 +248,13 @@ export default function AdequacyCds({ onNavigate }: Props) {
           detail={validation?.report.metrics ? `corr ${validation.report.metrics.head.correlation ?? "—"} · prior MAE ${validation.report.metrics.referencePrior.mae ?? "—"}` : "no artifact"}
         />
       </section>
+
+      <RankedActionsPanel
+        payload={state?.actions}
+        protocol="adequacy"
+        emptyHint="Every evaluated window was in the Kt/V band or blocked by the IDH/telemetry guardrail. A clearance change is never worth a crash, so no adequacy action was warranted."
+      />
+
 
       <section className="pc-panel">
         <div className="pc-panel-head">

@@ -1287,3 +1287,279 @@ button.drillable-surface:not(:disabled):hover { border-color: color-mix(in srgb,
   .assurance-slice-head, .assurance-slice-row { grid-template-columns: minmax(0,1fr) 40px auto auto; }
   .assurance-burden-head, .assurance-burden-row { grid-template-columns: minmax(0,1fr) 48px 60px auto; }
 }
+
+/* ---------- ranked next-best actions (ONE board, every protocol page) ----------
+   Tokens only: no literal colour, so the board follows the theme and the light
+   registry the rest of the console already uses. */
+.ra-panel { margin-top: 14px; }
+.ra-summary { display: flex; flex-wrap: wrap; gap: 6px 8px; margin: 10px 0 12px; }
+.ra-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2);
+  font-size: 11px; color: var(--muted);
+}
+.ra-chip strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.ra-warn, .ra-blocked {
+  display: flex; gap: 8px; align-items: flex-start; margin: 0 0 10px;
+  padding: 9px 11px; border-radius: 8px; font-size: 11px; line-height: 1.5;
+}
+.ra-warn {
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, var(--line));
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  color: var(--text);
+}
+.ra-warn svg { color: var(--amber); flex: 0 0 auto; margin-top: 1px; }
+.ra-blocked {
+  border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line));
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+  color: var(--text);
+}
+.ra-blocked svg { color: var(--bad); flex: 0 0 auto; margin-top: 1px; }
+.ra-blocked-list { margin: 6px 0 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px; color: var(--muted); }
+.ra-warn code, .ra-blocked code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--mint); }
+
+.ra-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ra-row { border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); overflow: hidden; }
+.ra-row.is-approval { border-color: color-mix(in srgb, var(--amber) 40%, var(--line)); }
+.ra-row.is-highlight { border-color: color-mix(in srgb, var(--mint) 55%, var(--line)); background: color-mix(in srgb, var(--mint) 7%, var(--surface-2)); }
+.ra-row-main {
+  width: 100%; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto auto auto auto;
+  gap: 10px; align-items: center; padding: 9px 12px; border: 0; background: transparent;
+  text-align: left; cursor: pointer; color: inherit; font: inherit;
+}
+.ra-row-main:hover { background: var(--elevate); }
+.ra-rank {
+  width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--mint) 14%, transparent); color: var(--mint);
+  font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.ra-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ra-title strong { font-size: 12px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ra-title small { font-size: 10px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ra-value { font-size: 11px; color: var(--mint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ra-due { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+.ra-detail { border-top: 1px solid var(--line); padding: 11px 12px; background: var(--surface); display: flex; flex-direction: column; gap: 10px; }
+.ra-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.ra-dst { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line); }
+.ra-dst strong { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--violet-soft, var(--violet)); }
+.ra-dst span { font-size: 11px; color: var(--muted); }
+.ra-dst.is-absent { color: var(--faint); font-size: 11px; }
+.ra-bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; align-items: end; }
+.ra-bars small { display: block; font-size: 10px; color: var(--faint); margin-bottom: 3px; }
+.ra-score { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--text); }
+.ra-evidence ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ra-evidence li { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 11px; color: var(--muted); }
+.ra-evidence code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--mint); }
+.ra-evidence em { font-style: normal; font-size: 10px; color: var(--faint); border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; }
+.ra-empty { padding: 14px; border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--surface-2); }
+.ra-empty strong { display: block; font-size: 12px; color: var(--text); margin-bottom: 4px; }
+.ra-empty p { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.55; }
+.ra-empty-foot { margin-top: 6px !important; color: var(--faint) !important; }
+.ra-foot { margin: 10px 0 0; font-size: 11px; color: var(--faint); }
+
+@media (max-width: 760px) {
+  .ra-row-main { grid-template-columns: 24px minmax(0, 1fr) auto; }
+  .ra-row-main .ra-due, .ra-row-main .tag:nth-last-child(1) { display: none; }
+}
+
+/* ---------- fleet board: source strip + protocol provenance ---------- */
+.ra-refresh {
+  display: inline-flex; align-items: center; gap: 5px; margin-left: auto;
+  padding: 4px 10px; border: 1px solid var(--line-strong); border-radius: 999px;
+  background: var(--surface-2); color: var(--muted); font: inherit; font-size: 11px; cursor: pointer;
+}
+.ra-refresh:hover:not(:disabled) { color: var(--text); border-color: color-mix(in srgb, var(--mint) 45%, var(--line-strong)); }
+.ra-refresh:disabled { opacity: .55; cursor: progress; }
+.ra-loading { display: flex; align-items: center; gap: 8px; padding: 12px; color: var(--muted); font-size: 11px; }
+.ra-spin { animation: ra-spin 1.1s linear infinite; }
+@keyframes ra-spin { to { transform: rotate(360deg); } }
+
+.ra-src-strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.ra-src {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start; min-width: 148px;
+  padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2);
+  text-align: left; font: inherit; cursor: pointer;
+}
+.ra-src:hover:not(:disabled) { background: var(--elevate); }
+.ra-src:disabled { cursor: default; }
+.ra-src strong { font-size: 11px; color: var(--text); }
+.ra-src span { font-size: 10px; color: var(--faint); }
+.ra-src em { font-style: normal; font-size: 10px; padding: 1px 6px; border-radius: 999px; margin-top: 2px; }
+.ra-src em.is-gap { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
+.ra-src em.is-blocked { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+.ra-src.is-ok { border-color: color-mix(in srgb, var(--mint) 30%, var(--line)); }
+.ra-src.is-empty span { color: var(--muted); }
+.ra-src.is-gap { border-color: color-mix(in srgb, var(--amber) 40%, var(--line)); }
+.ra-src.is-blocked, .ra-src.is-down { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.ra-src.is-blocked span, .ra-src.is-down span { color: var(--bad); }
+
+.ra-prov {
+  font-style: normal; color: var(--mint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ---------- adoption: is the ranking being used, and why not ----------
+   The panel reports what the ledger can prove. `not measured` is rendered with
+   the same weight as a measured value on purpose: an unaudited number that looks
+   authoritative is worse than an honest gap. */
+.ra-panel-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.ra-panel-actions .ra-refresh { margin-left: 0; }
+.ra-metrics {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px; margin: 12px 0 4px;
+}
+.ra-reading { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ra-reading li { display: flex; gap: 7px; align-items: flex-start; font-size: 11px; line-height: 1.55; color: var(--muted); }
+.ra-reading li svg { flex: 0 0 auto; margin-top: 2px; color: var(--mint); }
+.ra-clusters { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.ra-section-head {
+  display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text);
+  text-transform: none; letter-spacing: 0;
+}
+.ra-section-head svg { color: var(--muted); }
+.ra-cluster {
+  display: flex; align-items: center; gap: 9px; padding: 7px 10px; font-size: 11px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2);
+}
+.ra-cluster-count {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--amber); font-variant-numeric: tabular-nums; flex: 0 0 auto;
+}
+.ra-cluster-reason { color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ra-cluster .ra-technical { margin-left: auto; }
+.ra-bar { display: flex; flex-direction: column; gap: 4px; }
+.ra-bar-label { font-size: 10px; color: var(--faint); }
+.ra-bar-value { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ra-note {
+  display: flex; gap: 7px; align-items: flex-start; margin: 14px 0 0;
+  font-size: 10px; line-height: 1.55; color: var(--faint);
+}
+.ra-note svg { flex: 0 0 auto; margin-top: 2px; }
+
+/* ---------- the decision curve, inside the approval ----------
+   One shared scale across candidates: a per-row scale would make a 0.2 g/dL
+   difference look like a crash, which is the opposite of what the curve is for. */
+.ra-traj {
+  display: flex; flex-direction: column; gap: 7px; padding: 10px 11px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2);
+}
+.ra-traj.is-absent { border-style: dashed; }
+.ra-traj.is-absent p { margin: 0; font-size: 11px; line-height: 1.55; color: var(--muted); }
+.ra-traj-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; font-size: 11px; color: var(--text); }
+.ra-traj-head svg { color: var(--mint); align-self: center; }
+.ra-traj-head em { font-style: normal; font-size: 10px; color: var(--faint); }
+.ra-traj-rows { display: flex; flex-direction: column; gap: 5px; }
+.ra-traj-row {
+  display: grid; grid-template-columns: minmax(84px, 1.4fr) minmax(80px, 2.4fr) 34px 58px 46px auto;
+  gap: 8px; align-items: center; font-size: 11px;
+}
+.ra-traj-row.is-chosen { color: var(--text); }
+.ra-traj-row:not(.is-chosen) { color: var(--muted); }
+.ra-traj-dose { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ra-traj-track { position: relative; height: 10px; border-radius: 5px; background: var(--elevate); }
+.ra-traj-band {
+  position: absolute; top: 0; bottom: 0; border-radius: 5px;
+  background: color-mix(in srgb, var(--mint) 18%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--mint) 45%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--mint) 45%, transparent);
+}
+.ra-traj-mark { position: absolute; top: -3px; width: 3px; height: 16px; border-radius: 2px; transform: translateX(-1px); }
+.ra-traj-mark.is-in { background: var(--mint); }
+.ra-traj-mark.is-low { background: var(--bad); }
+.ra-traj-mark.is-high { background: var(--amber); }
+.ra-traj-num { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ra-traj-inband, .ra-traj-cost { font-size: 10px; color: var(--faint); white-space: nowrap; }
+.ra-traj-note { margin: 2px 0 0; font-size: 10px; line-height: 1.55; color: var(--faint); }
+
+@media (max-width: 760px) {
+  .ra-traj-row { grid-template-columns: minmax(70px, 1.2fr) minmax(60px, 1.8fr) 30px 42px; }
+  .ra-traj-cost, .ra-traj-row .tag { display: none; }
+}
+
+
+/* ---------- next-session lens (chair-side) ----------
+   Tokens only, so both themes follow. The two risk bars share ONE scale across the
+   row (set inline from the max across the clocks) so a bar's length is comparable
+   between rows — a per-row scale would make a 4-point risk look like a 40-point one. */
+.nsl-row { grid-template-columns: minmax(0, 1fr); }
+.nsl-main {
+  width: 100%; display: grid; align-items: center; gap: 12px;
+  grid-template-columns: minmax(110px, 1.3fr) 84px minmax(150px, 1.6fr) minmax(120px, 1.4fr) auto;
+  padding: 9px 12px; border: 0; background: transparent; cursor: pointer;
+  text-align: left; color: inherit; font: inherit;
+}
+.nsl-main:hover { background: var(--elevate); }
+.nsl-id, .nsl-risk, .nsl-change, .nsl-drop { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nsl-id strong { font-size: 12px; color: var(--text); }
+.nsl-id small, .nsl-risk small, .nsl-change small, .nsl-drop small { font-size: 10px; color: var(--faint); }
+.nsl-peak { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; color: var(--text); font-variant-numeric: tabular-nums; }
+.nsl-change strong { font-size: 11px; color: var(--text); }
+.nsl-drop strong { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text); }
+.nsl-drop strong.is-good { color: var(--mint); }
+.nsl-drop strong.is-muted { color: var(--faint); font-weight: 500; }
+.nsl-detail { border-top: 1px solid var(--line); }
+.nsl-flags { display: flex; flex-wrap: wrap; gap: 6px; }
+.nsl-track-wrap { display: flex; flex-direction: column; gap: 6px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+.nsl-track-legend { display: flex; gap: 12px; font-size: 10px; color: var(--faint); }
+.nsl-swatch { display: inline-block; width: 14px; height: 7px; border-radius: 3px; margin-right: 5px; }
+.nsl-swatch.is-before, .nsl-bar.is-before { background: var(--amber); }
+.nsl-swatch.is-after, .nsl-bar.is-after { background: var(--mint); }
+.nsl-tracks { display: flex; flex-direction: column; gap: 4px; }
+.nsl-track { display: grid; grid-template-columns: 34px minmax(0, 1fr) 92px; gap: 9px; align-items: center; font-size: 11px; }
+.nsl-track-min { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--faint); font-size: 10px; }
+.nsl-track-bars { display: flex; flex-direction: column; gap: 3px; }
+.nsl-bar { display: block; height: 7px; border-radius: 3px; min-width: 2px; }
+.nsl-track-val { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.nsl-notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.nsl-notes li { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; line-height: 1.55; color: var(--muted); }
+.nsl-notes li svg { flex: 0 0 auto; margin-top: 2px; color: var(--mint); }
+.nsl-notes li strong { color: var(--text); }
+
+/* ---------- since your last round ---------- */
+.rd-row {
+  display: grid; align-items: center; gap: 12px;
+  grid-template-columns: 18px minmax(110px, 1.3fr) minmax(150px, 1.7fr) minmax(180px, 1.6fr) auto;
+  padding: 9px 12px;
+}
+.rd-row.is-new { border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); background: color-mix(in srgb, var(--bad) 6%, var(--surface-2)); }
+.rd-arrow { display: grid; place-items: center; }
+.rd-row.worsened .rd-arrow { color: var(--bad); }
+.rd-row.improved .rd-arrow { color: var(--mint); }
+.rd-who, .rd-what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rd-who strong, .rd-what strong { font-size: 12px; color: var(--text); }
+.rd-who small, .rd-what small { font-size: 10px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-move { display: flex; flex-direction: column; gap: 3px; }
+.rd-scores { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rd-to { font-size: 11px; color: var(--faint); }
+.rd-move small.is-bad { color: var(--bad); font-size: 10px; }
+.rd-move small.is-good { color: var(--mint); font-size: 10px; }
+.rd-spacer { display: block; }
+.rd-input { max-width: 220px; }
+.rd-notice {
+  margin: 0 0 12px; padding: 9px 12px; border-radius: 8px; font-size: 11px; line-height: 1.5;
+  border: 1px solid color-mix(in srgb, var(--mint) 35%, var(--line));
+  background: color-mix(in srgb, var(--mint) 10%, transparent);
+  color: var(--text);
+}
+.rd-side-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.rd-side-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.rd-side-list li { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+.rd-side-list li svg { color: var(--faint); flex: 0 0 auto; }
+.rd-side-list li strong { color: var(--text); font-size: 11px; }
+.rd-side-list li .tag { margin-left: auto; }
+
+@media (max-width: 860px) {
+  /* The change and its counterfactual are the point of this row, so a narrow screen
+     STACKS them rather than hiding them — dropping the two columns leaves a risk
+     number with nothing to do about it. */
+  .nsl-main { grid-template-columns: minmax(0, 1fr) 76px auto; row-gap: 6px; }
+  .nsl-id { grid-column: 1; grid-row: 1; }
+  .nsl-risk { grid-column: 2; grid-row: 1; text-align: right; }
+  .nsl-main > .tag { grid-column: 3; grid-row: 1; }
+  .nsl-change { grid-column: 1 / 3; grid-row: 2; }
+  .nsl-drop { grid-column: 3; grid-row: 2; align-items: flex-end; text-align: right; }
+  .rd-row { grid-template-columns: 18px minmax(0, 1fr) auto; }
+  .rd-what, .rd-move { grid-column: 2 / -1; }
+}

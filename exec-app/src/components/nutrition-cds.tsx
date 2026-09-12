@@ -43,6 +43,7 @@ import {
   type PewPathwayScore,
 } from "../lib/nutrition";
 import type { NavigationId } from "../lib/types";
+import RankedActionsPanel from "./ranked-actions-panel";
 
 type Props = { onNavigate?: (id: NavigationId) => void };
 
@@ -270,6 +271,12 @@ export default function NutritionCds({ onNavigate }: Props) {
         <Metric label="Acidosis" value={String(state.kpis.acidosis)} detail="bicarbonate below 22 mmol/L" tone={state.kpis.acidosis ? "amber" : "mint"} />
         <Metric label="Lab confirmations" value={String(state.kpis.labConfirmationRequired)} detail={`${state.kpis.ecgAdjuncts} ECG pattern(s) held as adjuncts`} tone={state.kpis.labConfirmationRequired ? "amber" : "mint"} />
       </div>
+
+      <RankedActionsPanel
+        payload={state?.actions}
+        protocol="nutrition"
+        emptyHint="No PEW pathway or potassium band crossed its action threshold, and no serial measurement window was thin enough to need a lab-confirmation task."
+      />
 
       {/* ---------- A: five-pathway advisor ---------- */}
       <section className="pc-grid-2">

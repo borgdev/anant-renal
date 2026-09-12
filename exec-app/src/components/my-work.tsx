@@ -26,6 +26,8 @@ const KIND_LABEL: Record<PlatformWorkItem["kind"], string> = {
   release: "Release",
   dlq: "DLQ incident",
   cohort: "Cohort suggestion",
+  // A ranked action that came back: it was deferred to this moment or handed to you.
+  action: "Ranked action",
 };
 
 const KIND_ICON: Record<PlatformWorkItem["kind"], typeof CircleDot> = {
@@ -34,6 +36,7 @@ const KIND_ICON: Record<PlatformWorkItem["kind"], typeof CircleDot> = {
   release: GitBranch,
   dlq: AlertOctagon,
   cohort: Users,
+  action: ClipboardList,
 };
 
 const URGENCY_TONE: Record<PlatformUrgency, "red" | "amber" | "mint"> = { high: "red", medium: "amber", low: "mint" };
@@ -53,6 +56,10 @@ const STATE_TONE: Record<string, "mint" | "amber" | "red" | "blue" | "neutral"> 
   draft: "neutral",
   failed: "red",
   incident: "red",
+  // Neither pending nor gone: a deferred action is due now, and a handed-off one
+  // is someone else's work that you are being shown deliberately.
+  deferred: "amber",
+  "handed-off": "blue",
 };
 
 const ACTION_LABEL: Record<string, string> = {
@@ -63,6 +70,14 @@ const ACTION_LABEL: Record<string, string> = {
   // suggested → reviewed); it does not open the item — the row title does. See
   // the same note in admin-ui. For md/safety, whose cohort items land here.
   review: "Mark reviewed", decline: "Decline",
+};
+
+// Labels for the ranked-action vocabulary. `hand-off` is the wire name the
+// client sends; the server validates it — the button only has to be honest.
+const ACTION_LABEL_ACTION: Record<string, string> = {
+  "hand-off": "Hand off",
+  defer: "Defer",
+  dismiss: "Dismiss",
 };
 
 function toneFor(item: PlatformWorkItem): "neutral" | "mint" | "amber" | "red" | "blue" | "violet" {
@@ -131,9 +146,11 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
-  // A decline is feedback, so it must carry a reason. Collected inline rather
-  // than sent bare and rejected.
-  const [declining, setDeclining] = useState<{ id: string; reason: string } | null>(null);
+  // Some answers cannot be sent bare, and the server rejects all three: a decline
+  // or dismissal is feedback and must carry a reason, a deferral must name when it
+  // comes back, and a handoff must name who owns it next. Collected inline rather
+  // than sent and refused — a rejected action teaches the clinician nothing.
+  const [asking, setAsking] = useState<{ id: string; action: string; value: string } | null>(null);
   const mounted = useRef(true);
 
   const load = useCallback(async () => {
@@ -174,16 +191,29 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
   // Page the queue (10/page) so long role-scoped lists never stretch the page.
   const paged = usePaged(visible, 10, filter);
 
-  const act = async (item: PlatformWorkItem, action: string, reason?: string) => {
+  const act = async (item: PlatformWorkItem, action: string, extra: { reason?: string; deferUntil?: string; handedTo?: string; handedToConsole?: string } = {}) => {
     const key = `${item.id}:${action}`;
     setBusy(key);
     setNotice(null);
     try {
       const res = await performWorkAction(item.id, action, {
         approver: "operator", idempotencyKey: `${key}:${Date.now()}`,
-        ...(reason ? { reason } : {}),
+        ...extra,
       });
       setNotice(`${item.title} → ${res.state ?? action}${res.duplicate ? " (duplicate idempotent replay)" : ""}`);
+      // An approval is a signature; placing the order is the act. Report both,
+      // because a signed decision that reached no patient is the failure mode this
+      // whole seam exists to make visible.
+      if (res.dispatch) {
+        setNotice(
+          `${item.title} → ${res.state ?? action} · order ${res.dispatch.replayed ? "already placed" : "placed"}` +
+            `${res.dispatch.orderUrn ? ` (${res.dispatch.effectKind})` : ""}`,
+        );
+      } else if (res.dispatchError) {
+        setNotice(
+          `${item.title} → signed, NOT placed: ${res.dispatchError.message} — the decision is recorded; the order is not.`,
+        );
+      }
       await load();
     } catch (e) {
       setNotice(`Action failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -192,14 +222,41 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
     }
   };
 
+  /** What an action needs before it can be sent, or `null` when it can go as-is. */
+  const promptFor = (action: string): { label: string; placeholder: string; value: string } | null => {
+    if (action === "decline" || action === "dismiss") {
+      return { label: "Confirm decline", placeholder: "Why is this suggestion wrong? (kept for criterion tuning)", value: "" };
+    }
+    if (action === "defer") {
+      // A deferral with no time is a silent dismissal, so the default is a real
+      // tomorrow — the clinician can still change it.
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      return { label: "Defer until", placeholder: "ISO instant, e.g. 2026-01-05T08:00:00Z", value: tomorrow.toISOString() };
+    }
+    if (action === "hand-off") {
+      return { label: "Hand off", placeholder: "Who owns it next?", value: "" };
+    }
+    return null;
+  };
+
   /** Cohorts ask a human to judge the suggestion itself, so a decline needs the
    *  reason that will be read back when the criterion is tuned. */
   const beginAction = (item: PlatformWorkItem, action: string) => {
-    if (action === "decline") {
-      setDeclining({ id: item.id, reason: "" });
+    const prompt = promptFor(action);
+    if (prompt) {
+      setAsking({ id: item.id, action, value: prompt.value });
       return;
     }
     void act(item, action);
+  };
+
+  const submitPrompt = (item: PlatformWorkItem) => {
+    if (!asking) return;
+    const value = asking.value.trim();
+    setAsking(null);
+    if (asking.action === "defer") void act(item, "defer", { deferUntil: value });
+    else if (asking.action === "hand-off") void act(item, "hand-off", { handedTo: value, handedToConsole: "exec" });
+    else void act(item, asking.action, { reason: value });
   };
 
   const openItem = (item: PlatformWorkItem) => {
@@ -296,24 +353,24 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
                   <span className="mywork-time" title={item.at}><Clock3 size={11} /> {item.sla}</span>
                 </span>
                 <span className="mywork-actions">
-                  {declining?.id === item.id ? (
+                  {asking?.id === item.id ? (
                     <span className="mywork-decline">
                       <input
                         autoFocus
                         className="input"
-                        onChange={(e) => setDeclining({ id: item.id, reason: e.target.value })}
-                        placeholder="Why is this suggestion wrong? (kept for criterion tuning)"
-                        value={declining.reason}
+                        onChange={(e) => setAsking({ ...asking, value: e.target.value })}
+                        placeholder={promptFor(asking.action)?.placeholder ?? ""}
+                        value={asking.value}
                       />
                       <button
                         className="button button-primary"
-                        disabled={declining.reason.trim().length < 4 || busy === `${item.id}:decline`}
-                        onClick={() => { const r = declining.reason.trim(); setDeclining(null); void act(item, "decline", r); }}
+                        disabled={(asking.action === "hand-off" ? asking.value.trim().length < 2 : asking.value.trim().length < 4) || busy === `${item.id}:${asking.action}`}
+                        onClick={() => submitPrompt(item)}
                         type="button"
                       >
-                        Confirm decline
+                        {promptFor(asking.action)?.label ?? "Confirm"}
                       </button>
-                      <button className="button button-ghost" onClick={() => setDeclining(null)} type="button">Cancel</button>
+                      <button className="button button-ghost" onClick={() => setAsking(null)} type="button">Cancel</button>
                     </span>
                   ) : (
                     item.actions.map((a) => (
@@ -324,7 +381,7 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
                         onClick={() => beginAction(item, a)}
                         type="button"
                       >
-                        {busy === `${item.id}:${a}` ? "…" : <CheckCircle2 size={12} />} {ACTION_LABEL[a] ?? a}
+                        {busy === `${item.id}:${a}` ? "…" : <CheckCircle2 size={12} />} {ACTION_LABEL[a] ?? ACTION_LABEL_ACTION[a] ?? a}
                       </button>
                     ))
                   )}

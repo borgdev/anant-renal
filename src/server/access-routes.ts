@@ -75,6 +75,7 @@ import { accessWhatIf, accessRiskSurface, ACCESS_SIMULATOR_MODEL } from '../swar
 import { buildAccessTwin, scoreAccessTwinDrift, accessWindowFromTwin, type AccessTwinEventInput } from '../swarm/access-twin.js';
 import { accessRecommendTrained, accessArtifactStatus, ACCESS_ARTIFACT_ID, buildAccessTrainingRows, trainAccessArtifact, loadAccessArtifact, accessAcousticDelta } from '../swarm/access-model.js';
 import { buildRenalCohort, renalPatientInputs } from '../swarm/renal-cohort.js';
+import { clinicalNbaState, accessFindings, ACCESS_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
 import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
 
 export interface AccessRouteOptions {
@@ -199,7 +200,9 @@ export async function registerAccessRoutes(app: FastifyInstance, opts: AccessRou
   }));
 
   app.get('/admin/swarm/access/state', async () => {
-    const windows = liveAccessWindows(patientSource());
+    const patients = patientSource();
+    const realmOf = new Map(patients.map((p) => [p.id, p.realmId]));
+    const windows = liveAccessWindows(patients);
     const evaluated = windows.map((w) => ({
       patientId: w.patientId,
       __displayFacility: w.facilityId ?? null,
@@ -207,6 +210,23 @@ export async function registerAccessRoutes(app: FastifyInstance, opts: AccessRou
       recommendation: accessRecommend(w),
       coverage: accessRecommendCovered(w).coverage,
     }));
+    const actions = clinicalNbaState({
+      protocol: 'access',
+      insightKind: 'access.referral.proposal',
+      cells: ACCESS_CELLS,
+      consumedBy: ACCESS_CONSUMED_BY,
+      actionMap: ACCESS_CLINICAL_ACTIONS,
+      findings: accessFindings(
+        windows.map((w) => {
+          const realmId = realmOf.get(w.patientId);
+          return {
+            rec: accessRecommend(w),
+            ...(w.facilityId !== undefined ? { facilityId: w.facilityId } : {}),
+            ...(realmId !== undefined ? { realmId } : {}),
+          };
+        }),
+      ),
+    });
     return {
       generatedAt: NOW(),
       source: 'realm-ledger',
@@ -220,6 +240,7 @@ export async function registerAccessRoutes(app: FastifyInstance, opts: AccessRou
         coverageBlocked: evaluated.filter((e) => !e.coverage.covered).length,
       },
       windows: evaluated,
+      actions: clinicalActionsPayload(actions),
     };
   });
 

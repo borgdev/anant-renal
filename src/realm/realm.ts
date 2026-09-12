@@ -42,7 +42,7 @@ import { EntityGraph } from './entity-graph.js';
 import { EffectLedger } from './effect-ledger.js';
 import { PresenceRegistry, type PresenceInit } from './presence.js';
 import { PerceptionRouter } from './perception.js';
-import { EffectReducer, DEFAULT_AUTHORITY, type EffectAuthorityMap } from './effect-reducer.js';
+import { EffectReducer, DEFAULT_AUTHORITY, type EffectAuthorityMap, type EmitOpts } from './effect-reducer.js';
 import type { RealmHypergraph } from './hypergraph-bridge.js';
 import { AmbientProcessRegistry, type AmbientContext, type AmbientProcess, LabMaturationProcess, PatientTrajectoryProcess, InsuranceClockProcess } from './ambient.js';
 import { EpisodeStore } from './episode.js';
@@ -184,21 +184,39 @@ export class Realm {
 
     for (const p of opts.ambientProcesses ?? this.defaultAmbient(opts.trajectoryEngine)) this.ambient.register(p);
 
-    this.clockSub = this.clock.subscribe((tick) => {
-      this.ambient.tick(this.ambientContext(), tick);
-      this.rules.onTick(this.graph);
-      this.perception.broadcast({ kind: 'clock.tick', payload: { seq: tick.seq, realmAt: tick.realmAt, deltaMs: tick.deltaMs }, realmAt: tick.realmAt });
-    });
+    this.arm();
     // Feed effects into the rules engine to produce Experiences.
-    this.effectSub = this.ledger.onAppend((emitted) => {
-      this.rules.onEffect(emitted, this.graph);
-    });
     // Route Experiences into perception so agents can react to them.
     this.rules.subscribe((exp) => {
       this.perception.broadcast({ kind: `experience.${exp.kind}`, payload: exp as unknown as Record<string, unknown>, ...(exp.subjectUrn ? { entityUrn: exp.subjectUrn as EntityUrn } : {}), realmAt: exp.producedAt });
     });
     // Expose realmId on graph for ambient processes to reference (used by lab maturation).
     (this.graph as unknown as { realmId: string }).realmId = this.id;
+  }
+
+  /**
+   * Arm the clock→ambient/rules pipeline and the ledger→rules feed.
+   *
+   * Idempotent, and deliberately called from BOTH the constructor and `start()`.
+   *
+   * `stop()` tears these down (so a removed realm's subscriptions do not pin it in
+   * memory), but `start()` used to restart only the clock — so a single
+   * pause/resume cycle left the clock ticking with nothing consuming it. The realm
+   * looked alive: the tick counter climbed, while every ambient process (lab
+   * maturation, patient trajectory, the insurance clock) and `rules.onTick` were
+   * permanently dead. A resumed simulator therefore produced no clinical data at
+   * all, and every page derived from it silently froze.
+   */
+  private arm(): void {
+    if (this.clockSub) return;
+    this.clockSub = this.clock.subscribe((tick) => {
+      this.ambient.tick(this.ambientContext(), tick);
+      this.rules.onTick(this.graph);
+      this.perception.broadcast({ kind: 'clock.tick', payload: { seq: tick.seq, realmAt: tick.realmAt, deltaMs: tick.deltaMs }, realmAt: tick.realmAt });
+    });
+    this.effectSub = this.ledger.onAppend((emitted) => {
+      this.rules.onEffect(emitted, this.graph);
+    });
   }
 
   private defaultAmbient(engine: TrajectoryEngine = 'legacy'): AmbientProcess[] {
@@ -220,17 +238,27 @@ export class Realm {
   movePresence(presenceId: string, location: Partial<AgentPresence['location']>): AgentPresence { return this.presences.move(presenceId, location); }
   retirePresence(presenceId: string): void { this.presences.retire(presenceId); }
 
-  emit(presenceId: string, effect: WorldEffect): EmittedEffect {
+  emit(presenceId: string, effect: WorldEffect, opts: EmitOpts = {}): EmittedEffect {
     const presence = this.presences.get(presenceId);
     if (!presence) throw new Error(`presence-not-found: ${presenceId}`);
-    return this.reducer.emit(presence, effect);
+    return this.reducer.emit(presence, effect, opts);
   }
 
   subscribe(presenceId: string, cb: (evt: import('./types.js').PerceivedEvent) => void): () => void {
     return this.perception.subscribe(presenceId, cb);
   }
 
-  start(): void { this.clock.start(); }  stop(): void { this.clock.stop(); if (this.clockSub) { this.clockSub(); this.clockSub = undefined; } if (this.effectSub) { this.effectSub(); this.effectSub = undefined; } }
+  /**
+   * Start the clock AND re-arm the pipelines that consume it.
+   *
+   * The re-arm is the point: `stop()` cancels both subscriptions, so a bare
+   * `clock.start()` here would leave a ticking clock with no ambient processes and
+   * no rules — see `arm()`.
+   */
+  start(): void { this.clock.start(); this.arm(); }
+
+  /** Stop the clock and detach its subscriptions (a stopped realm holds no timers). */
+  stop(): void { this.clock.stop(); if (this.clockSub) { this.clockSub(); this.clockSub = undefined; } if (this.effectSub) { this.effectSub(); this.effectSub = undefined; } }
 
   /**
    * Attach the live hypergraph projection and bring the EXISTING entity graph

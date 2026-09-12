@@ -86,6 +86,12 @@ export interface HarnessNba {
   belief?: number;
   plausibility?: number;
   conflictMass?: number;
+  /** Server-declared governed action (see src/swarm/actions.ts) and the value
+   *  claim already formatted in its own unit ("20 treatments", "$3.4M"). */
+  actionKind?: string;
+  actionLabel?: string;
+  valueUnit?: string;
+  valueLabel?: string;
 }
 
 export interface HarnessEpisode {
@@ -187,6 +193,9 @@ export type RuntimeActionRow = {
   belief?: number;
   plausibility?: number;
   conflictMass?: number;
+  /** The governed action this row would dispatch, from the action catalog. */
+  actionKind?: string;
+  actionLabel?: string;
 };
 
 export type RuntimeInsightRow = {
@@ -379,15 +388,34 @@ async function demoState(): Promise<HarnessDemoState> {
   return payload as HarnessDemoState;
 }
 
+/** Value is rendered in the unit the server declared. The old implementation
+ *  multiplied `expectedOutcome` by 1000 and called it dollars, so a count of
+ *  effect signals was shown to executives as a seven-figure money figure. */
 function valueLabel(nba: HarnessNba): string {
-  const dollars = Math.round(nba.expectedOutcome * 1000);
-  return `$${dollars >= 1000 ? `${Math.round(dollars / 1000)}K` : dollars.toLocaleString()}`;
+  if (typeof nba.valueLabel === 'string' && nba.valueLabel.length > 0) return nba.valueLabel;
+  // Fallback: show the raw amount and its unit, never a re-denominated guess.
+  return nba.valueUnit ? `${nba.expectedOutcome} ${nba.valueUnit}` : String(nba.expectedOutcome);
+}
+
+/** Due timestamps are derived ONCE per NBA id — recomputing them from `now` on
+ *  every poll made an SLA deadline that never aged. */
+const dueAnchors = new Map<string, number>();
+function dueAtFor(nba: HarnessNba): string {
+  const existing = dueAnchors.get(nba.nbaId);
+  if (existing !== undefined) return new Date(existing).toISOString();
+  const hours = nba.due.includes('hour') ? 120 : nba.due.includes('Today') ? 6 : nba.due.includes('week') ? 168 : 48;
+  const at = Date.now() + hours * 3600000;
+  dueAnchors.set(nba.nbaId, at);
+  return new Date(at).toISOString();
 }
 
 function statusOf(nba: HarnessNba): string {
-  if (nba.status === "executed") return "completed";
-  if (nba.status === "dismissed") return "dismissed";
-  return nba.status === "awaiting-approval" ? "review" : "queued";
+  if (nba.status === 'executed') return 'completed';
+  if (nba.status === 'dismissed') return 'dismissed';
+  // An approval opens/advances the outcome episode — nothing has been dispatched
+  // yet, so reporting it as completed overstated the real state.
+  if (nba.status === 'approved') return 'in-progress';
+  return nba.status === 'awaiting-approval' ? 'review' : 'queued';
 }
 
 /* ---------- R2/R3 — regional operations (census + region D-S watch) ---------- */
@@ -645,7 +673,7 @@ function mapSnapshot(demo: HarnessDemoState, substrate: Substrate): RuntimeSnaps
     outcome: nba.subject,
     scopeId: nba.scopeType,
     ownerRole: nba.owner.toLowerCase().replaceAll(" ", "-"),
-    dueAt: new Date(Date.now() + (nba.due.includes("hour") ? 120 : nba.due.includes("Today") ? 6 : nba.due.includes("week") ? 168 : 48) * 3600000).toISOString(),
+    dueAt: dueAtFor(nba),
     valueLabel: valueLabel(nba),
     confidenceBasisPoints: Math.round(nba.consensus * 10000),
     actionClass: nba.approvalClass as "A" | "B" | "C" | "D",
@@ -656,6 +684,8 @@ function mapSnapshot(demo: HarnessDemoState, substrate: Substrate): RuntimeSnaps
     belief: nba.belief,
     plausibility: nba.plausibility,
     conflictMass: nba.conflictMass,
+    ...(nba.actionKind ? { actionKind: nba.actionKind } : {}),
+    ...(nba.actionLabel ? { actionLabel: nba.actionLabel } : {}),
   }));
   const insights: RuntimeInsightRow[] = demo.insights.map((i) => ({
     insightId: i.insightId,
@@ -862,11 +892,21 @@ export async function mutateRuntime<T>(action: string, roleId: string, body: Rec
     await harnessJson<{ episode: HarnessEpisode }>(`/admin/swarm/episodes/${encodeURIComponent(episodeId)}/propose`, {
       method: "POST", headers: { "content-type": "application/json" }, body: "{}",
     }).catch(() => undefined);
-    const res = await harnessJson<{ episode: HarnessEpisode }>(`/admin/swarm/episodes/${encodeURIComponent(episodeId)}/decide`, {
+    const res = await harnessJson<{
+      episode: HarnessEpisode;
+      dispatch?: { effectId: string; effectKind: string; orderUrn?: string; replayed: boolean };
+      dispatchError?: { code: string; message: string };
+    }>(`/admin/swarm/episodes/${encodeURIComponent(episodeId)}/decide`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ decision, approver: roleId, approvalClass: String(body.approvalClass ?? "B") }),
     });
-    return { episode: res.episode } as T;
+    // Hand the placement result back with the episode: a signature that reached no
+    // patient must not look like one that did.
+    return {
+      episode: res.episode,
+      ...(res.dispatch !== undefined ? { dispatch: res.dispatch } : {}),
+      ...(res.dispatchError !== undefined ? { dispatchError: res.dispatchError } : {}),
+    } as T;
   }
   // Resolve an open outcome episode after downstream acknowledgement.
   if (action === "acknowledge-episode") {
@@ -1116,7 +1156,7 @@ export async function fetchWorkItemContext(reference: { entityId: string; entity
       detail.scope = nba.scopeType;
       detail.due = nba.due;
       detail.metrics = [
-        { label: "Estimated value", value: `$${Math.round(nba.expectedOutcome * 1000).toLocaleString()}` },
+        { label: "Action value", value: valueLabel(nba) },
         { label: "Consensus", value: `${Math.round(nba.consensus * 100)}%` },
         ...(typeof nba.belief === "number" ? [
           { label: "Belief", value: `${Math.round(nba.belief * 100)}%` },
@@ -1146,8 +1186,10 @@ export async function fetchWorkItemContext(reference: { entityId: string; entity
     } else if (episode) {
       matched = true;
       const fusion = episode.evidenceFusion as { belief?: number; plausibility?: number; uncertainty?: number; conflictMass?: number; sources?: Array<{ sourceId: string; alpha: number }> } | undefined;
+      const outcome = episode.measureResult as { measureId?: string; met?: boolean; kind?: string; detail?: string; at?: string } | undefined;
+      const command = episode.command as { action?: string; dispatched?: { effectId?: string; orderUrn?: string; realmId?: string; replayed?: boolean } } | undefined;
       detail.title = `Outcome episode · ${episode.state}`;
-      detail.summary = `${episode.kind} · ${episode.subject} · ${episode.scopeType} — durable evidence → proposal → approval → command → acknowledgement → measure.`;
+      detail.summary = `${episode.kind} · ${episode.subject} · ${episode.scopeType} — evidence → proposal → approval → order → acknowledgement → response.`;
       detail.status = episode.state;
       detail.tone = episode.state === "Resolved" ? "mint" : episode.state === "Escalated" || episode.state === "Blocked" ? "red" : episode.state === "AwaitingApproval" ? "amber" : "blue";
       detail.metrics = [
@@ -1158,9 +1200,33 @@ export async function fetchWorkItemContext(reference: { entityId: string; entity
           { label: "Uncertainty", value: `${Math.round((fusion.uncertainty ?? 0) * 100)}%` },
           { label: "Conflict K", value: (fusion.conflictMass ?? 0).toFixed(2) },
         ] : []),
+        // Did the signature reach the patient? A decision that placed no order must
+        // say so here, where the reader believes it already happened.
+        {
+          label: "Order",
+          value: command?.dispatched
+            ? `${command.action ?? "order"} ${command.dispatched.replayed ? "(already placed)" : "placed"}`
+            : command
+              ? `${command.action ?? "order"} — not placed`
+              : "no command yet",
+        },
+        // The patient's OWN response, when it has been measured.
+        ...(outcome?.met !== undefined ? [
+          { label: outcome.kind === "patient-outcome" ? "Patient response" : "Measure", value: outcome.met ? "met" : "not met" },
+        ] : []),
         { label: "Dossier", value: `${String(episode.dossierHash ?? "").slice(0, 12) || "—"}…` },
       ];
       detail.evidence = (fusion?.sources ?? []).map((s, index) => ({ label: `Evidence source ${index + 1}`, value: s.sourceId, source: `Reliability α ${Math.round(s.alpha * 100)}%` }));
+      if (outcome?.detail) {
+        detail.evidence = [
+          ...detail.evidence,
+          {
+            label: outcome.kind === "patient-outcome" ? "Response" : "Outcome",
+            value: outcome.detail,
+            source: outcome.measureId ?? "measure",
+          },
+        ];
+      }
     }
   } catch {
     // fall back to the generic assembled-context page

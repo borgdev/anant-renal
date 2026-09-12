@@ -48,7 +48,7 @@
 // CDSS only: the platform never books a procedure, never removes a catheter and
 // never alters an access. Referrals are proposals for a human decision.
 
-import type { CellManifest } from './cells.js';
+import { cellAllowlist, type CellManifest } from './cells.js';
 import { aggregateSwarmInsights, makeProposal, type CellProposal, type SwarmInsight } from './insight.js';
 import { attachInsightBelief, rankNextBestActions, type NbaCandidate, type NextBestAction } from './nba.js';
 import type { OutcomeEpisode } from './outcome-episode.js';
@@ -525,21 +525,25 @@ export function buildAccessDemo(now: () => string = NOW): Omit<AccessDemoState, 
   const conflictCount = insights.filter((i) => i.retained).length;
   const candidates: NbaCandidate[] = [
     {
-      title: 'Duplex ultrasound referral for p-access-1 (progressing venous stenosis)', cells: ['access referral'],
+      title: 'Duplex ultrasound referral for p-access-1 (progressing venous stenosis)', cells: ['access-referral'],
       scopeType: 'patient', subject: 'patient:p-access-1', owner: 'Nephrology · vascular access team', due: 'Within 2 weeks',
       evidence: [ev('access.observed.v1:p-access-1', 'event')],
+      action: { kind: 'schedule-followup', target: 'patient:p-access-1' },
+      valueUnit: 'dollars',
       consensus: 0.9, approvalClass: 'C', expectedOutcome: 42000, urgency: 0.75, policyCost: 0.4, risk: 0.3,
       insightKind: 'access.referral.proposal',
     },
     {
-      title: 'Cannulation technique review for p-access-2 (recirculation without pressure rise)', cells: ['access surveillance observer'],
+      title: 'Cannulation technique review for p-access-2 (recirculation without pressure rise)', cells: ['access-surveillance-observer'],
       scopeType: 'patient', subject: 'patient:p-access-2', owner: 'Nursing · vascular access', due: 'Next session',
       evidence: [ev('access.observed.v1:p-access-2', 'event')],
+      action: { kind: 'notify-staff', target: 'patient:p-access-2' },
+      valueUnit: 'dollars',
       consensus: 0.82, approvalClass: 'B', expectedOutcome: 14000, urgency: 0.6, policyCost: 0.2, risk: 0.2,
       insightKind: 'access.surveillance.flag',
     },
   ];
-  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true });
+  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true, allowlist: cellAllowlist(ACCESS_CELLS) });
   return {
     source: 'access',
     features: ACCESS_FEATURES,

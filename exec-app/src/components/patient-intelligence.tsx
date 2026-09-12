@@ -163,7 +163,7 @@ export default function PatientIntelligence({ onOpenDetail }: { onOpenDetail: Op
           <div>
             <Eyebrow>Patient intelligence</Eyebrow>
             <h1>No patients available</h1>
-            <p>Live realms have no patients yet. Start the demo simulator (Renal Swarm → Simulator) or create a realm with a patient population, then return here.</p>
+            <p>Live realms have no patients yet. Start the demo simulator (AnantHealth → Simulator) or create a realm with a patient population, then return here.</p>
           </div>
         </header>
       </div>

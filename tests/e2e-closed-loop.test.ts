@@ -100,8 +100,8 @@ describe('Phase F — end-to-end closed loop + audit/replay package', () => {
     // 4. User cockpit — My Work surfaces the payer episodes. It is role-scoped,
     // so it needs the session: this read used to be anonymous.
     const work = await (await app.inject({ method: 'GET', url: '/api/work', headers })).json();
-    const careGap = work.items.find((i: { title: string }) => i.title.startsWith('care gap closure'));
-    const authz = work.items.find((i: { title: string }) => i.title.startsWith('authorization review'));
+    const careGap = work.items.find((i: { title: string }) => i.title.toLowerCase().startsWith('care gap closure'));
+    const authz = work.items.find((i: { title: string }) => i.title.toLowerCase().includes('authorization review'));
     expect(careGap).toBeTruthy();
     expect(authz).toBeTruthy();
     expect(careGap.state).toBe('AwaitingApproval');

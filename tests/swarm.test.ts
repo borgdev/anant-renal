@@ -161,8 +161,8 @@ describe('swarm insights', () => {
 describe('next-best actions', () => {
   it('ranks deterministically by outcome + urgency + consensus (advisory)', () => {
     const candidates: NbaCandidate[] = [
-      { title: 'Protect 43 weekend treatments', cells: ['continuity', 'workforce'], scopeType: 'region', subject: 'region:x', owner: 'ROD', due: '2 hours', evidence: Array.from({ length: 18 }, (_, i) => ({ sourceId: `e${i}`, contentType: 'object' })), consensus: 0.96, approvalClass: 'B', expectedOutcome: 43, urgency: 0.95, policyCost: 0.4, risk: 0.2 },
-      { title: 'Open catheter reduction review', cells: ['clinical quality'], scopeType: 'market', subject: 'market:y', owner: 'Quality Director', due: 'This week', evidence: Array.from({ length: 22 }, (_, i) => ({ sourceId: `e${i}`, contentType: 'object' })), consensus: 0.94, approvalClass: 'C', expectedOutcome: 31, urgency: 0.6, policyCost: 0.5, risk: 0.3 },
+      { title: 'Protect 43 weekend treatments', cells: ['treatment-continuity', 'workforce-resilience'], scopeType: 'region', subject: 'region:x', owner: 'ROD', due: '2 hours', evidence: Array.from({ length: 18 }, (_, i) => ({ sourceId: `e${i}`, contentType: 'object' })), action: { kind: 'schedule-followup' }, valueUnit: 'treatments', consensus: 0.96, approvalClass: 'B', expectedOutcome: 43, urgency: 0.95, policyCost: 0.4, risk: 0.2 },
+      { title: 'Open catheter reduction review', cells: ['clinical-quality'], scopeType: 'market', subject: 'market:y', owner: 'Quality Director', due: 'This week', evidence: Array.from({ length: 22 }, (_, i) => ({ sourceId: `e${i}`, contentType: 'object' })), action: { kind: 'update-care-plan' }, valueUnit: 'patients', consensus: 0.94, approvalClass: 'C', expectedOutcome: 31, urgency: 0.6, policyCost: 0.5, risk: 0.3 },
     ];
     const a = rankNextBestActions(candidates);
     const b = rankNextBestActions(candidates);

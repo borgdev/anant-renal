@@ -7,6 +7,7 @@
  */
 
 import { responseOrThrow } from "./session";
+import type { RankedActionsPayload } from "./ranked-actions";
 
 export interface AdequacyFeature { id: string; label: string; unit: string; min: number; max: number; relevance: number }
 export type AdequacyAction = "extend-time" | "raise-qb" | "reduce-time" | "review-access" | "adherence-first" | "hold" | "blocked";
@@ -93,6 +94,7 @@ export interface AdequacyStateView {
     recommendation: AdequacyRecommendation;
     coverage: AdequacyCoverageVerdict;
   }>;
+  actions?: RankedActionsPayload;
 }
 
 export interface AdequacyAssuranceView {

@@ -30,6 +30,8 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { ScopeType } from './types.js';
+import type { RoundSnapshot } from './round-digest.js';
 
 export type WorkspaceKind =
   | 'red-team-scenario'
@@ -68,6 +70,7 @@ export type WorkspaceKind =
   | 'patient-timeline'
   | 'outcome-episode'
   | 'nba-decision'
+  | 'round-snapshot'
   | 'platform-organization'
   | 'platform-topic-plan'
   | 'platform-onboarding'
@@ -664,12 +667,65 @@ export interface NbaDecision extends WorkspaceDoc {
   nbaId: string;
   title: string;
   subject: string;
-  scopeType: string;
-  decision: 'approved' | 'dismissed';
+  /** The scope the action is about — a real domain scope, not a free string, so a
+   *  decision can always be attributed to a level of the organisation. */
+  scopeType: ScopeType;
+  /**
+   * `deferred` and `handed-off` are the two decisions that are neither "do it" nor
+   * "no": the action is real, but it belongs to a later moment or another person.
+   * Both are first-class because a clinician's realistic answer to a correct
+   * suggestion is often "not now" or "not mine" — and forcing that into a dismissal
+   * would poison the only quality signal the ranking gets.
+   */
+  decision: 'approved' | 'dismissed' | 'deferred' | 'handed-off';
   approver: string;
   evidenceCount: number;
   expectedOutcome: number;
   episodeId?: string;
+  /**
+   * Why the clinician dismissed it. Required on a dismissal, because it is the only
+   * signal the fleet gets that the ranking was wrong for this unit — the same reason
+   * a cohort decline carries one. An approved action does not need a reason.
+   */
+  reason?: string;
+  /** ISO instant a deferred action becomes due again. Required when deferring. */
+  deferUntil?: string;
+  /** Who it was handed to. Required when handing off. */
+  handedTo?: string;
+  /** The team/console the recipient works in, so the item lands in their queue. */
+  handedToConsole?: string;
+  /** The protocol whose ranking produced the action, when known. */
+  protocol?: string;
+  /** Dempster–Shafer conflict mass at the time of the decision (contested actions). */
+  conflictMass?: number;
+}
+
+/** A decision that still expects someone to act on the action. */
+export function decidesLater(decision: NbaDecision['decision']): boolean {
+  return decision === 'deferred' || decision === 'handed-off';
+}
+
+/** True while a deferral is still in force. An unparseable date never hides work. */
+export function deferralActive(decision: NbaDecision, nowMs: number = Date.now()): boolean {
+  if (decision.decision !== 'deferred') return false;
+  if (!decision.deferUntil) return false;
+  const until = Date.parse(decision.deferUntil);
+  return Number.isFinite(until) ? until > nowMs : false;
+}
+
+/**
+ * One closed round — the baseline a "since your last round" digest is diffed against.
+ *
+ * The snapshot is stored WHOLE rather than recomputed on read: severity is a
+ * function of a patient's entire window at one moment, and the ledger cannot be
+ * replayed into "what did the fleet look like last Tuesday" without re-deriving
+ * every window from scratch. A derived baseline would drift as the data changed,
+ * which is exactly what a baseline must never do.
+ */
+export interface RoundSnapshotDoc extends WorkspaceDoc {
+  takenAt: string;
+  takenBy: string;
+  snapshot: RoundSnapshot;
 }
 
 /* ---------- executive substrate — the enrichment the exec console renders ---------- */
@@ -939,17 +995,58 @@ export class SwarmWorkspaceStore {
 
   /* ---------- NBA decisions (durable next-best-action ledger) ---------- */
 
-  /** Latest decision per nbaId (store list is updatedAt-desc). */
+  /**
+   * Latest decision per nbaId — the CURRENT answer, not the first one.
+   *
+   * `list` returns newest-first, but "the newest" must be decided by comparing
+   * `updatedAt`, not by array position: taking the last element of a newest-first
+   * list silently returns the OLDEST row. That made a re-decision invisible, so a
+   * deferral could keep hiding an action after a later dismissal, and a superseded
+   * dismissal could reappear as current. Reading a stale answer as the answer is
+   * the one failure mode a decision ledger cannot have.
+   */
   async listNbaDecisions(): Promise<NbaDecision[]> {
     const all = await this.list<NbaDecision>('nba-decision');
     const latest = new Map<string, NbaDecision>();
-    for (const d of all) latest.set(d.nbaId, d);
+    for (const d of all) {
+      const seen = latest.get(d.nbaId);
+      if (!seen || String(d.updatedAt) > String(seen.updatedAt)) latest.set(d.nbaId, d);
+    }
     return [...latest.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   }
 
   async recordNbaDecision(input: Omit<NbaDecision, 'id' | 'createdAt' | 'updatedAt'>): Promise<NbaDecision> {
     const id = `nba-dec-${createHash('sha256').update(`${input.nbaId}|${input.approver}|${Date.now()}`).digest('hex').slice(0, 10)}`;
     return this.create<NbaDecision>('nba-decision', id, input);
+  }
+
+  /* ---------- round snapshots (the "since your last round" baseline) ---------- */
+
+  /**
+   * A round snapshot is the ONLY recoverable baseline for a severity diff: severity
+   * is a function of a patient's whole window at one moment, and the ledger cannot
+   * be replayed into "what did the fleet look like last Tuesday" without re-deriving
+   * every window. So a round is closed explicitly and stored whole.
+   *
+   * Ids are timestamp-derived and sorted descending, so `listRoundSnapshots()[0]` is
+   * the baseline — and closing a round twice in the same millisecond overwrites
+   * rather than creating two baselines that disagree.
+   */
+  async saveRoundSnapshot(input: Omit<RoundSnapshotDoc, 'id' | 'createdAt' | 'updatedAt'>): Promise<RoundSnapshotDoc> {
+    const id = `round-${input.takenAt.replace(/[^0-9]/g, '').slice(0, 17)}`;
+    return this.create<RoundSnapshotDoc>('round-snapshot', id, input);
+  }
+
+  /** Snapshots newest-first, so a digest never has to sort or guess. */
+  async listRoundSnapshots(): Promise<RoundSnapshotDoc[]> {
+    const all = await this.list<RoundSnapshotDoc>('round-snapshot');
+    return all.sort((a, b) => String(b.takenAt).localeCompare(String(a.takenAt)));
+  }
+
+  /** The most recent round for one clinician, or the most recent overall. */
+  async latestRoundSnapshot(takenBy?: string): Promise<RoundSnapshotDoc | undefined> {
+    const all = await this.listRoundSnapshots();
+    return takenBy ? all.find((r) => r.takenBy === takenBy) : all[0];
   }
 
   /* ---------- red-team ---------- */
@@ -2744,6 +2841,7 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'patient-timeline',
   'outcome-episode',
   'nba-decision',
+  'round-snapshot',
   'platform-organization',
   'platform-topic-plan',
   'platform-onboarding',

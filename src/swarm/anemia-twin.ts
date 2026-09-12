@@ -366,6 +366,31 @@ export interface EsaTwinDriftScore {
 /** Paper-A Hb-forecast bar. */
 export const ESA_TWIN_DRIFT_TARGET_MAPE_PCT = 10;
 
+/**
+ * This PATIENT's response, as a verification result.
+ *
+ * The cohort measure answers "did the facility move"; this answers "did the patient
+ * respond as forecast" — the question a clinician is actually asking after changing
+ * a dose. `insufficient` is deliberately NOT `met`: too little observation is not
+ * success, and resolving on it would be the same silent overstatement as reporting
+ * a MAPE that was never computed.
+ */
+export function esaPatientOutcome(drift: EsaTwinDriftScore): {
+  met: boolean;
+  detail: string;
+  mapePct: number;
+  n: number;
+  verdict: EsaTwinDriftScore['verdict'];
+} {
+  return {
+    met: drift.verdict === 'pass',
+    detail: drift.note,
+    mapePct: drift.mape,
+    n: drift.n,
+    verdict: drift.verdict,
+  };
+}
+
 function latestDoseAt(dosing: readonly { at: string; dose: number }[], atMs: number): number | undefined {
   let dose: number | undefined;
   for (const d of dosing) {

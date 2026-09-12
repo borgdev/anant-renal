@@ -39,6 +39,7 @@ import {
   type MbdWhatIfResult,
 } from "../lib/mbd";
 import type { NavigationId } from "../lib/types";
+import RankedActionsPanel from "./ranked-actions-panel";
 
 type Props = { onNavigate?: (id: NavigationId) => void };
 
@@ -249,6 +250,12 @@ export default function MbdCds({ onNavigate }: Props) {
         <Metric label="Safety reviews" value={String(state.kpis.safetyReviewProposed)} detail="hold / safety-review proposals (human decision)" tone={state.kpis.safetyReviewProposed ? "amber" : "mint"} />
         <Metric label="Coverage-blocked" value={String(state.kpis.coverageBlocked)} detail="fewer than 2 serial triplets, stale, or out of manifold" tone={state.kpis.coverageBlocked ? "amber" : "mint"} />
       </div>
+
+      <RankedActionsPanel
+        payload={state?.actions}
+        protocol="mbd"
+        emptyHint="CKD-MBD therapy changes require at least two serial [P, Ca, PTH] triplets. A cross-sectional reading cannot drive a coupled change, so those patients are reported as blocked rather than actioned."
+      />
 
       {/* ---------- A: the coupled advisor ---------- */}
       <section className="pc-grid-2">

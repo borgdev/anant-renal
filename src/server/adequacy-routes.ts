@@ -73,6 +73,7 @@ import { adequacyWhatIf, ADEQUACY_SIMULATOR_MODEL } from '../swarm/adequacy-pres
 import { buildAdequacyTwin, scoreAdequacyTwinDrift, adequacyWindowFromTwin, type AdequacyTwinEventInput } from '../swarm/adequacy-twin.js';
 import { adequacyRecommendTrained, adequacyArtifactStatus, ADEQUACY_ARTIFACT_ID, buildAdequacyTrainingRows, defaultAdequacyTrainingSpecs, trainAdequacyArtifact, loadAdequacyArtifact } from '../swarm/adequacy-model.js';
 import { buildRenalCohort, renalPatientInputs } from '../swarm/renal-cohort.js';
+import { clinicalNbaState, adequacyFindings, ADEQUACY_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
 import { loadQipReadiness } from '../cms/qip.js';
 import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
 
@@ -172,7 +173,10 @@ export async function registerAdequacyRoutes(app: FastifyInstance, opts: Adequac
   }));
 
   app.get('/admin/swarm/adequacy/state', async () => {
-    const windows = liveAdequacyWindows(patientSource());
+    const patients = patientSource();
+    const cohort = buildRenalCohort(patients);
+    const realmOf = new Map(patients.map((p) => [p.id, p.realmId]));
+    const windows = liveAdequacyWindows(patients);
     const evaluated = windows.map((w) => ({
       patientId: w.patientId,
       __displayFacility: w.facilityId ?? null,
@@ -181,6 +185,26 @@ export async function registerAdequacyRoutes(app: FastifyInstance, opts: Adequac
     }));
     const withSessions = evaluated.filter((e) => e.recommendation.current.spKtV !== undefined);
     const inBand = withSessions.filter((e) => e.recommendation.inTargetBand).length;
+    // NBAs are built from the SAME live recommendation the operator sees above —
+    // one governed action per patient the guardrails did not block.
+    const actions = clinicalNbaState({
+      protocol: 'adequacy',
+      insightKind: 'adequacy.ktv.proposal',
+      cells: ADEQUACY_CELLS,
+      consumedBy: ADEQUACY_CONSUMED_BY,
+      actionMap: ADEQUACY_CLINICAL_ACTIONS,
+      findings: adequacyFindings(
+        windows.map((w) => {
+          const realmId = realmOf.get(w.patientId);
+          return {
+            rec: adequacyRecommend(w),
+            ...(w.facilityId !== undefined ? { facilityId: w.facilityId } : {}),
+            ...(realmId !== undefined ? { realmId } : {}),
+            ...(w.adherencePct !== undefined ? { adherencePct: w.adherencePct } : {}),
+          };
+        }),
+      ),
+    });
     return {
       generatedAt: NOW(),
       source: 'realm-ledger',
@@ -188,11 +212,12 @@ export async function registerAdequacyRoutes(app: FastifyInstance, opts: Adequac
       withClearanceData: withSessions.length,
       inBandPct: withSessions.length ? Math.round((inBand / withSessions.length) * 100) : 0,
       kpis: {
-        sessionsTracked: buildRenalCohort(patientSource()).summary.sessions,
+        sessionsTracked: cohort.summary.sessions,
         blockedByGuardrails: evaluated.filter((e) => e.recommendation.guardrails.blocked).length,
         coverageBlocked: evaluated.filter((e) => !e.coverage.covered).length,
       },
       windows: evaluated,
+      actions: clinicalActionsPayload(actions),
     };
   });
 

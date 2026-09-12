@@ -7,7 +7,7 @@
 // server says the current session may see and act on — it never decides
 // authorization.
 import { responseOrThrow } from "./session";
-export type PlatformWorkKind = "episode" | "review" | "release" | "dlq" | "cohort";
+export type PlatformWorkKind = "episode" | "review" | "release" | "dlq" | "cohort" | "action";
 export type PlatformUrgency = "high" | "medium" | "low";
 export type ConsoleId = "exec" | "ops";
 
@@ -86,9 +86,18 @@ export async function fetchWorkDetail(id: string): Promise<PlatformWorkDetail> {
 export async function performWorkAction(
   id: string,
   action: string,
-  opts: { approver?: string; reason?: string; idempotencyKey?: string } = {},
-): Promise<{ accepted?: boolean; state?: string; duplicate?: boolean; error?: string }> {
-  return fetchJson<{ accepted?: boolean; state?: string; duplicate?: boolean; error?: string }>(`/api/work/${encodeURIComponent(id)}/actions`, {
+  opts: { approver?: string; reason?: string; idempotencyKey?: string; deferUntil?: string; handedTo?: string; handedToConsole?: string } = {},
+): Promise<{
+  accepted?: boolean;
+  state?: string;
+  duplicate?: boolean;
+  error?: string;
+  /** Where the approved order landed — the difference between a signature and an act. */
+  dispatch?: { effectId: string; effectKind: string; orderUrn?: string; replayed: boolean };
+  /** Why it did not land. An approval that changed nothing must say so. */
+  dispatchError?: { code: string; message: string };
+}> {
+  return fetchJson(`/api/work/${encodeURIComponent(id)}/actions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -96,6 +105,9 @@ export async function performWorkAction(
       ...(opts.approver ? { approver: opts.approver } : {}),
       ...(opts.reason ? { reason: opts.reason } : {}),
       ...(opts.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : {}),
+      ...(opts.deferUntil ? { deferUntil: opts.deferUntil } : {}),
+      ...(opts.handedTo ? { handedTo: opts.handedTo } : {}),
+      ...(opts.handedToConsole ? { handedToConsole: opts.handedToConsole } : {}),
     }),
   });
 }

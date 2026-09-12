@@ -86,6 +86,19 @@ function systolicOf(bp: string | undefined): number | undefined {
   return Number.isFinite(first) ? first : undefined;
 }
 
+export interface EmitOpts {
+  /**
+   * The effect has ALREADY been approved by a human — the outcome episode's
+   * Class-C decision. The realm's HITL gate is skipped for this emit, because the
+   * episode IS the decision: matching a gate here would raise a SECOND pending
+   * approval for an order a clinician has already signed.
+   *
+   * Role authority is still enforced. An approval authorizes THIS dose for THIS
+   * patient; it never grants a capability the emitting role does not have.
+   */
+  preApproved?: { approvalId: string; approvedBy: string; idempotencyKey: string; episodeId: string };
+}
+
 export interface HITLBridge {
   match(presence: AgentPresence, effect: WorldEffect): { id: string; reason: string } | undefined;
   suspend(presence: AgentPresence, effect: WorldEffect, gate: { id: string; reason: string }): { approvalId: string };
@@ -126,10 +139,13 @@ export class EffectReducer {
     this.opts.hypergraph = hypergraph;
   }
 
-  emit(presence: AgentPresence, effect: WorldEffect): EmittedEffect {
+  emit(presence: AgentPresence, effect: WorldEffect, opts: EmitOpts = {}): EmittedEffect {
+    const preApproved = opts.preApproved;
     // HITL gate check first — suspends before authority so approval flow captures intent.
+    // A pre-approved emit has already been through a human decision, so the gate is
+    // deliberately skipped (one approval, not two).
     const hitl = this.opts.hitl;
-    if (hitl) {
+    if (hitl && !preApproved) {
       const gate = hitl.match(presence, effect);
       if (gate) {
         const { approvalId } = hitl.suspend(presence, effect, gate);
@@ -170,6 +186,7 @@ export class EffectReducer {
       realmAt: this.clock.realmAt.toISOString(),
       effect,
       status,
+      ...(preApproved !== undefined ? { approvalRef: preApproved } : {}),
     });
 
     // Apply mutations

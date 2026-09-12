@@ -56,7 +56,7 @@
 // ever proposed AFTER a blood culture is ordered (culture-before-antibiotic is a
 // rule, not a preference).
 
-import type { CellManifest } from './cells.js';
+import { cellAllowlist, type CellManifest } from './cells.js';
 import { aggregateSwarmInsights, makeProposal, type CellProposal, type SwarmInsight } from './insight.js';
 import { attachInsightBelief, rankNextBestActions, type NbaCandidate, type NextBestAction } from './nba.js';
 import type { OutcomeEpisode } from './outcome-episode.js';
@@ -656,29 +656,37 @@ export function buildInfectionDemo(now: () => string = NOW): Omit<InfectionDemoS
     {
       title: 'Order blood cultures (two sites)', cells: ['bsi-triage'], scopeType: 'patient', subject: 'patient:p-bsi-1',
       owner: 'nurse', due: 'today', evidence: [ev('vital.observed:p-bsi-1', 'event'), ev('lab.result-arrived:p-bsi-1', 'event')],
+      action: { kind: 'order-lab', target: 'patient:p-bsi-1' },
+      valueUnit: 'labs',
       consensus: insights[0]?.consensus ?? 0.75, approvalClass: 'C', expectedOutcome: 42, urgency: 0.95, policyCost: 0.2, risk: 0.05,
       insightKind: 'infection.bsi.proposal',
     },
     {
       title: 'Escalate catheter removal to the access team', cells: ['infection-prevention'], scopeType: 'patient', subject: 'patient:p-bsi-2',
       owner: 'access-team', due: 'this week', evidence: [ev('access.observed.v1:p-bsi-2', 'fact')],
+      action: { kind: 'notify-staff', target: 'patient:p-bsi-2' },
+      valueUnit: 'notifications',
       consensus: 0.8, approvalClass: 'B', expectedOutcome: 31, urgency: 0.7, policyCost: 0.3, risk: 0.1,
       insightKind: 'infection.prevention.task',
     },
     {
       title: 'Immunisation catch-up outreach', cells: ['infection-prevention'], scopeType: 'patient', subject: 'patient:p-bsi-1',
       owner: 'infection-prevention', due: 'this month', evidence: [ev('immunization.recorded:p-bsi-1', 'fact')],
+      action: { kind: 'notify-staff', target: 'patient:p-bsi-1' },
+      valueUnit: 'notifications',
       consensus: 0.9, approvalClass: 'B', expectedOutcome: 18, urgency: 0.35, policyCost: 0.1, risk: 0.02,
       insightKind: 'infection.prevention.task',
     },
     {
       title: 'Complete overdue hand-hygiene / access-care audits', cells: ['infection-prevention'], scopeType: 'facility', subject: 'facility:unit-A',
       owner: 'infection-prevention', due: 'this month', evidence: [ev('assessment.response.v1:unit-A', 'fact')],
+      action: { kind: 'record-assessment', target: 'facility:unit-A' },
+      valueUnit: 'assessments',
       consensus: 0.85, approvalClass: 'B', expectedOutcome: 12, urgency: 0.3, policyCost: 0.1, risk: 0.01,
       insightKind: 'infection.prevention.task',
     },
   ];
-  const nbas = rankNextBestActions(attachInsightBelief(nbaCandidates, insights), { limit: 4, beliefAware: true });
+  const nbas = rankNextBestActions(attachInsightBelief(nbaCandidates, insights), { limit: 4, beliefAware: true, allowlist: cellAllowlist(INFECTION_CELLS) });
 
   return {
     source: 'infection',

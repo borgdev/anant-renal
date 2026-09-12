@@ -73,6 +73,7 @@ import { fluidWhatIf, FLUID_SIMULATOR_MODEL } from '../swarm/fluid-simulator.js'
 import { buildFluidTwin, scoreFluidTwinDrift, fluidWindowFromTwin, type FluidTwinEventInput } from '../swarm/fluid-twin.js';
 import { fluidRecommendTrained, fluidArtifactStatus, FLUID_ARTIFACT_ID, buildFluidTrainingRows, trainFluidArtifact, loadFluidArtifact } from '../swarm/fluid-model.js';
 import { buildRenalCohort, renalPatientInputs } from '../swarm/renal-cohort.js';
+import { clinicalNbaState, fluidFindings, FLUID_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
 import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
 
 export interface FluidRouteOptions {
@@ -175,7 +176,10 @@ export async function registerFluidRoutes(app: FastifyInstance, opts: FluidRoute
   }));
 
   app.get('/admin/swarm/fluid/state', async () => {
-    const windows = liveFluidWindows(patientSource());
+    const patients = patientSource();
+    const cohort = buildRenalCohort(patients);
+    const realmOf = new Map(patients.map((p) => [p.id, p.realmId]));
+    const windows = liveFluidWindows(patients);
     const evaluated = windows.map((w) => ({
       patientId: w.patientId,
       __displayFacility: w.facilityId ?? null,
@@ -184,19 +188,37 @@ export async function registerFluidRoutes(app: FastifyInstance, opts: FluidRoute
       coverage: fluidRecommendCovered(w).coverage,
     }));
     const withTelemetry = evaluated.filter((e) => (e.recommendation.current.ufRateMlH ?? 0) > 0);
+    const actions = clinicalNbaState({
+      protocol: 'fluid',
+      insightKind: 'fluid.uf.proposal',
+      cells: FLUID_CELLS,
+      consumedBy: FLUID_CONSUMED_BY,
+      actionMap: FLUID_CLINICAL_ACTIONS,
+      findings: fluidFindings(
+        windows.map((w) => {
+          const realmId = realmOf.get(w.patientId);
+          return {
+            rec: fluidRecommend(w),
+            ...(w.facilityId !== undefined ? { facilityId: w.facilityId } : {}),
+            ...(realmId !== undefined ? { realmId } : {}),
+          };
+        }),
+      ),
+    });
     return {
       generatedAt: NOW(),
       source: 'realm-ledger',
       patients: evaluated.length,
       withTelemetry: withTelemetry.length,
       kpis: {
-        sessionsTracked: buildRenalCohort(patientSource()).summary.sessions,
-        telemetryPoints: buildRenalCohort(patientSource()).summary.sessions === 0 ? 0 : windows.reduce((a, w) => a + (w.telemetryPoints ?? 0), 0),
-        hypotensionRatePct: buildRenalCohort(patientSource()).summary.hypotensionRatePct,
+        sessionsTracked: cohort.summary.sessions,
+        telemetryPoints: cohort.summary.sessions === 0 ? 0 : windows.reduce((a, w) => a + (w.telemetryPoints ?? 0), 0),
+        hypotensionRatePct: cohort.summary.hypotensionRatePct,
         blockedByGuardrails: evaluated.filter((e) => e.recommendation.guardrails.blocked).length,
         coverageBlocked: evaluated.filter((e) => !e.coverage.covered).length,
       },
       windows: evaluated,
+      actions: clinicalActionsPayload(actions),
     };
   });
 

@@ -47,7 +47,7 @@ export class EffectLedger {
     return () => { this.subs = this.subs.filter((x) => x !== cb); };
   }
 
-  append(input: { presenceId: string; agentSpecId: string; realmAt: string; effect: WorldEffect; status: 'shadow' | 'bound' | 'rejected'; rejection?: string }): EmittedEffect {
+  append(input: { presenceId: string; agentSpecId: string; realmAt: string; effect: WorldEffect; status: 'shadow' | 'bound' | 'rejected'; rejection?: string; approvalRef?: { approvalId: string; approvedBy: string; idempotencyKey: string; episodeId: string } }): EmittedEffect {
     const emittedAt = new Date().toISOString();
     const effectId = randomUUID();
     const rec: EmittedEffect = {
@@ -59,11 +59,18 @@ export class EffectLedger {
       effect: input.effect,
       status: input.status,
       ...(input.rejection !== undefined ? { rejection: input.rejection } : {}),
+      ...(input.approvalRef !== undefined ? { approvalRef: input.approvalRef } : {}),
     };
     this.entries.push(rec);
     (this.byPresence.get(input.presenceId) ?? this.byPresence.set(input.presenceId, []).get(input.presenceId)!).push(rec);
     for (const cb of this.subs) cb(rec);
     return rec;
+  }
+
+  /** The effect an approval already produced, if any. This is what makes a retried
+   *  dispatch at-most-once: the caller asks the LEDGER, not its own memory. */
+  findByApprovalKey(idempotencyKey: string): EmittedEffect | undefined {
+    return this.entries.find((e) => e.approvalRef?.idempotencyKey === idempotencyKey);
   }
 
   attachMutations(effectId: string, mutations: Array<{ urn: string; patch: Record<string, unknown> }>): void {

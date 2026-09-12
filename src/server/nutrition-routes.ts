@@ -79,6 +79,7 @@ import { nutritionWhatIf, pathwayProjection, NUTRITION_SIMULATOR_MODEL, NUTRITIO
 import { buildNutritionTwin, scoreNutritionTwinDrift, nutritionWindowFromTwin, type NutritionTwinEventInput } from '../swarm/nutrition-twin.js';
 import { nutritionPewTrained, nutritionArtifactStatus, NUTRITION_ARTIFACT_ID, buildNutritionTrainingRows, trainNutritionArtifact, loadNutritionArtifact } from '../swarm/nutrition-model.js';
 import { buildRenalCohort, renalPatientInputs, attributePatientIdFromOrder } from '../swarm/renal-cohort.js';
+import { clinicalNbaState, nutritionFindings, NUTRITION_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
 import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
 
 export interface NutritionRouteOptions {
@@ -283,7 +284,9 @@ export async function registerNutritionRoutes(app: FastifyInstance, opts: Nutrit
   });
 
   app.get('/admin/swarm/nutrition/state', async () => {
-    const windows = liveNutritionWindows(patientSource(), eventSource());
+    const patients = patientSource();
+    const realmOf = new Map(patients.map((p) => [p.id, p.realmId]));
+    const windows = liveNutritionWindows(patients, eventSource());
     const evaluated = windows.map((w) => ({
       patientId: w.patientId,
       __displayFacility: w.facilityId ?? null,
@@ -292,6 +295,24 @@ export async function registerNutritionRoutes(app: FastifyInstance, opts: Nutrit
       recommendation: nutritionRecommend(w),
       coverage: nutritionRecommendCovered(w).coverage,
     }));
+    const actions = clinicalNbaState({
+      protocol: 'nutrition',
+      insightKind: 'nutrition.pew.proposal',
+      cells: NUTRITION_CELLS,
+      consumedBy: NUTRITION_CONSUMED_BY,
+      actionMap: NUTRITION_CLINICAL_ACTIONS,
+      findings: nutritionFindings(
+        evaluated.map((e, i) => {
+          const realmId = realmOf.get(e.patientId);
+          const facilityId = windows[i]?.facilityId;
+          return {
+            rec: e.recommendation,
+            ...(facilityId !== undefined ? { facilityId } : {}),
+            ...(realmId !== undefined ? { realmId } : {}),
+          };
+        }),
+      ),
+    });
     return {
       generatedAt: NOW(),
       source: 'realm-ledger',
@@ -308,6 +329,7 @@ export async function registerNutritionRoutes(app: FastifyInstance, opts: Nutrit
         coverageBlocked: evaluated.filter((e) => !e.coverage.covered).length,
       },
       windows: evaluated,
+      actions: clinicalActionsPayload(actions),
     };
   });
 

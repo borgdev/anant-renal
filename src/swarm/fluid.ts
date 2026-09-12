@@ -17,7 +17,7 @@
  * reassessments require clinical review; the platform has no machine authority.
  ******************************************************************************/
 
-import type { CellManifest } from './cells.js';
+import { cellAllowlist, type CellManifest } from './cells.js';
 import { aggregateSwarmInsights, makeProposal, type CellProposal, type SwarmInsight } from './insight.js';
 import { attachInsightBelief, rankNextBestActions, type NbaCandidate, type NextBestAction } from './nba.js';
 import type { OutcomeEpisode } from './outcome-episode.js';
@@ -422,21 +422,25 @@ export function buildFluidDemo(now: () => string = NOW): Omit<FluidDemoState, 'e
   const conflictCount = insights.filter((i) => i.retained).length;
   const candidates: NbaCandidate[] = [
     {
-      title: 'Reduce UF rate for p-idh-1 (hypotension-prone, prior nadir 84 mmHg)', cells: ['fluid uf optimizer'],
+      title: 'Reduce UF rate for p-idh-1 (hypotension-prone, prior nadir 84 mmHg)', cells: ['fluid-uf-optimizer'],
       scopeType: 'patient', subject: 'patient:p-idh-1', owner: 'Nephrology · Renal dialysis', due: 'Next session',
       evidence: [ev('session.telemetry.v1:p-idh-1', 'event')],
+      action: { kind: 'update-care-plan', target: 'patient:p-idh-1' },
+      valueUnit: 'dollars',
       consensus: 0.93, approvalClass: 'C', expectedOutcome: 31000, urgency: 0.7, policyCost: 0.35, risk: 0.3,
       insightKind: 'fluid.uf.proposal',
     },
     {
-      title: 'Nursing escalation for p-idh-2 (systolic fall at unchanged UF)', cells: ['intradialytic monitoring'],
+      title: 'Nursing escalation for p-idh-2 (systolic fall at unchanged UF)', cells: ['intradialytic-monitoring'],
       scopeType: 'patient', subject: 'patient:p-idh-2', owner: 'Nursing · dialysis unit', due: 'Now',
       evidence: [ev('session.telemetry.v1:p-idh-2', 'event')],
+      action: { kind: 'notify-staff', target: 'patient:p-idh-2' },
+      valueUnit: 'dollars',
       consensus: 0.8, approvalClass: 'B', expectedOutcome: 12000, urgency: 0.85, policyCost: 0.2, risk: 0.25,
       insightKind: 'fluid.idh.watch',
     },
   ];
-  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true });
+  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true, allowlist: cellAllowlist(FLUID_CELLS) });
   return {
     source: 'fluid',
     features: FLUID_FEATURES,

@@ -191,7 +191,14 @@ describe('anemia / ESA CDSS (P0 reference)', () => {
     const res = await app.inject({ method: 'GET', url: '/api/work', headers: { cookie: cookie(admin) } });
     expect(res.statusCode).toBe(200);
     const items = res.json().items;
-    expect(items.some((i: { title: string }) => i.title.includes('anemia esa response · patient:p-esa-1'))).toBe(true);
+    // The queue title is the clinical problem in words, with the internal
+    // `patient:` subject prefix stripped: "Anaemia · ESA dose response · p-esa-1".
+    expect(
+      items.some((i: { title: string }) => {
+        const title = i.title.toLowerCase();
+        return title.includes('esa dose response') && title.includes('p-esa-1');
+      }),
+    ).toBe(true);
   });
 
   it('demo is idempotent — re-seeding does not churn episodes', async () => {
@@ -219,7 +226,7 @@ describe('anemia / ESA CDSS (P0 reference)', () => {
     expect(episodes.json().episodes.some((e: { kind: string }) => e.kind === 'continuity')).toBe(true);
 
     const work = await app.inject({ method: 'GET', url: '/api/work', headers: { cookie: cookie(admin) } });
-    expect(work.json().items.some((i: { title: string }) => i.title.includes('anemia esa response'))).toBe(false);
+    expect(work.json().items.some((i: { title: string }) => i.title.toLowerCase().includes('esa dose response'))).toBe(false);
   });
 
   it('unauth /admin/swarm/anemia/* is blocked (401)', async () => {

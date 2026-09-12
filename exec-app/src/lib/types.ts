@@ -12,6 +12,8 @@ export type NavigationId =
   | "nutrition"
   | "infection"
   | "protocol-assurance"
+  | "next-session"
+  | "round-digest"
   | "protocols"
   | "intelligence"
   | "assessments"

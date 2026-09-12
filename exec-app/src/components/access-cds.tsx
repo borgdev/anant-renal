@@ -39,6 +39,7 @@ import {
   type AccessWhatIfResult,
 } from "../lib/access";
 import type { NavigationId } from "../lib/types";
+import RankedActionsPanel from "./ranked-actions-panel";
 
 type Props = { onNavigate?: (id: NavigationId) => void };
 
@@ -231,6 +232,12 @@ export default function AccessCds({ onNavigate }: Props) {
         <Metric label="Coverage-blocked" value={String(state.kpis.coverageBlocked)} detail="fewer than 3 measured observations, or stale" tone={state.kpis.coverageBlocked ? "amber" : "mint"} />
         <Metric label="Advisor gate" value={assurance.gate.status} detail={`${assurance.model.artifact.id ?? "prior only"} · band ${assurance.model.artifact.band}`} tone={assurance.gate.status === "active" ? "mint" : "amber"} />
       </div>
+
+      <RankedActionsPanel
+        payload={state?.actions}
+        protocol="access"
+        emptyHint="Access referrals need serial Δ-from-baseline observations. Windows below the coverage gate (fewer than the required measurements) produce no action — that is the gate, not an oversight."
+      />
 
       {/* ---------- A/C: advisor + counterfactual ---------- */}
       <section className="pc-grid-2">

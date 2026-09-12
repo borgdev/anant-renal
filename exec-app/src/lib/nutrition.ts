@@ -9,6 +9,7 @@
  */
 
 import { responseOrThrow } from "./session";
+import type { RankedActionsPayload } from "./ranked-actions";
 
 export interface NutritionFeature { id: string; label: string; unit: string; min: number; max: number; relevance: number }
 
@@ -142,6 +143,7 @@ export interface NutritionStateView {
     coverageBlocked: number;
   };
   windows: NutritionWindowView[];
+  actions?: RankedActionsPayload;
 }
 
 export interface NutritionArtifactStatus {

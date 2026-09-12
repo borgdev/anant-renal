@@ -80,6 +80,7 @@ import { registerRenalRoutes } from './renal-routes.js';
 import { registerProtocolRoutes } from './protocol-routes.js';
 import { registerAdequacyRoutes } from './adequacy-routes.js';
 import { registerFluidRoutes } from './fluid-routes.js';
+import { registerRoundRoutes } from './round-routes.js';
 import { registerAccessRoutes } from './access-routes.js';
 import { registerMbdRoutes } from './mbd-routes.js';
 import { registerNutritionRoutes } from './nutrition-routes.js';
@@ -501,6 +502,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // counterfactual simulator · twin over the real ledger · trained artifact ·
   // governance). CDSS: advisory only, never an autonomous UF change.
   await registerFluidRoutes(app, {
+    patients: renalPatients,
+  });
+
+  // Phase 3.2/3.3 — the two round-level lenses: chair-side IDH risk for the NEXT
+  // session (with the UF counterfactual), and the severity diff since the last
+  // recorded round. Registered AFTER fluid so the lens reads the same windows the
+  // fluid pack publishes.
+  await registerRoundRoutes(app, {
     patients: renalPatients,
   });
 

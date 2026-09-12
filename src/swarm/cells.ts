@@ -153,3 +153,9 @@ export function cellAllows(cellId: string, kind: WorldEffectKind): boolean {
   const cell = cellById(cellId);
   return !!cell && cell.allowedActions.includes(kind) && !cell.killSwitch;
 }
+
+/** cellId → allowed action kinds, for callers that rank candidates against their
+ *  own manifests (the protocol packs) instead of the renal `SWARM_CELLS`. */
+export function cellAllowlist(cells: CellManifest[]): Record<string, WorldEffectKind[]> {
+  return Object.fromEntries(cells.map((c) => [c.id, c.killSwitch ? [] : c.allowedActions]));
+}

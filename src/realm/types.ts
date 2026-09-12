@@ -214,6 +214,13 @@ export interface EmittedEffect {
   rejection?: string;
   mutations?: Array<{ urn: EntityUrn; patch: Record<string, unknown> }>;
   triggeredEvents?: string[];
+  /**
+   * Set when a recorded human approval authorized this effect (an outcome
+   * episode's Class-C decision). `idempotencyKey` is the episode command's key,
+   * so a retried dispatch can be recognised from the ledger itself rather than
+   * from a caller's memory — the ledger is the source of truth for "already done".
+   */
+  approvalRef?: { approvalId: string; approvedBy: string; idempotencyKey: string; episodeId: string };
 }
 
 // Perceived event — filtered through presence.

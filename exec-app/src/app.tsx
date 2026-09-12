@@ -55,6 +55,8 @@ import MbdCds from "./components/mbd-cds";
 import NutritionCds from "./components/nutrition-cds";
 import InfectionCds from "./components/infection-cds";
 import AssuranceTrack from "./components/assurance-track";
+import NextSessionView from "./components/next-session-view";
+import RoundDigestView from "./components/round-digest-view";
 import AssuranceCenter from "./components/assurance-center";
 import PlatformReview from "./components/platform-review";
 import WorkflowDetailDrawer from "./components/workflow-detail-drawer";
@@ -91,6 +93,11 @@ const PROTOCOL_VIEWS: Array<{ id: NavigationId; label: string; stage: string }> 
   { id: "nutrition", label: "Nutrition & electrolytes", stage: "P5" },
   { id: "infection", label: "Infection & vaccination", stage: "P6" },
   { id: "protocol-assurance", label: "Cross-pack assurance", stage: "P7" },
+  // The two round-level lenses sit with the packs because that is where a clinician
+  // doing a round already is — a sidebar entry each would be two more doors into the
+  // same day’s work. They are not packs, so they carry no P-number.
+  { id: "next-session", label: "Next session", stage: "chair-side" },
+  { id: "round-digest", label: "Since your last round", stage: "round" },
 ];
 
 const PROTOCOL_IDS: readonly NavigationId[] = PROTOCOL_VIEWS.map((view) => view.id);
@@ -326,6 +333,8 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
       case "nutrition": return <NutritionCds onNavigate={selectNav} />;
       case "infection": return <InfectionCds onNavigate={selectNav} />;
       case "protocol-assurance": return <AssuranceTrack onNavigate={selectNav} />;
+      case "next-session": return <NextSessionView />;
+      case "round-digest": return <RoundDigestView />;
       case "assessments": return <AssessmentIntelligence onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "intelligence": return <IntelligenceWorkspace onOpenDetail={openWorkflowDetail} />;
       case "facility": return <FacilityTwin onOpenDetail={openWorkflowDetail} />;

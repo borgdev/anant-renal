@@ -8,6 +8,7 @@
  */
 
 import { responseOrThrow } from "./session";
+import type { RankedActionsPayload } from "./ranked-actions";
 
 export interface EsaFeature {
   id: string;
@@ -137,6 +138,7 @@ export interface AnemiaStateView {
   conflictCount: number;
   episodes: AnemiaEpisode[];
   kpis: { hgbInBandPct: number; esaLowEpoRequirement: number; atRiskEscalation: number; valueAtRiskUsd: number };
+  actions?: RankedActionsPayload;
 }
 
 export interface AnemiaSeedResult {

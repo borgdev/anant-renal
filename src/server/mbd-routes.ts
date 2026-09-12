@@ -75,6 +75,7 @@ import { mbdWhatIf, mbdCouplingMap, MBD_SIMULATOR_MODEL } from '../swarm/mbd-sim
 import { buildMbdTwin, scoreMbdTwinDrift, mbdWindowFromTwin, type MbdTwinEventInput } from '../swarm/mbd-twin.js';
 import { mbdProjectTrained, mbdArtifactStatus, MBD_ARTIFACT_ID, buildMbdTrainingRows, trainMbdArtifact, loadMbdArtifact } from '../swarm/mbd-model.js';
 import { buildRenalCohort, renalPatientInputs, attributePatientIdFromOrder } from '../swarm/renal-cohort.js';
+import { clinicalNbaState, mbdFindings, MBD_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
 import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
 
 export interface MbdRouteOptions {
@@ -225,7 +226,9 @@ export async function registerMbdRoutes(app: FastifyInstance, opts: MbdRouteOpti
   }));
 
   app.get('/admin/swarm/mbd/state', async () => {
-    const windows = liveMbdWindows(patientSource(), eventSource());
+    const patients = patientSource();
+    const realmOf = new Map(patients.map((p) => [p.id, p.realmId]));
+    const windows = liveMbdWindows(patients, eventSource());
     const evaluated = windows.map((w) => ({
       patientId: w.patientId,
       __displayFacility: w.facilityId ?? null,
@@ -234,6 +237,26 @@ export async function registerMbdRoutes(app: FastifyInstance, opts: MbdRouteOpti
       recommendation: mbdRecommend(w),
       coverage: mbdRecommendCovered(w).coverage,
     }));
+    // The NBAs reuse the SAME recommendation objects computed above — no second
+    // evaluation, so the ranked action can never disagree with the rendered row.
+    const actions = clinicalNbaState({
+      protocol: 'mbd',
+      insightKind: 'mbd.therapy.proposal',
+      cells: MBD_CELLS,
+      consumedBy: MBD_CONSUMED_BY,
+      actionMap: MBD_CLINICAL_ACTIONS,
+      findings: mbdFindings(
+        evaluated.map((e, i) => {
+          const realmId = realmOf.get(e.patientId);
+          const facilityId = windows[i]?.facilityId;
+          return {
+            rec: e.recommendation,
+            ...(facilityId !== undefined ? { facilityId } : {}),
+            ...(realmId !== undefined ? { realmId } : {}),
+          };
+        }),
+      ),
+    });
     return {
       generatedAt: NOW(),
       source: 'realm-ledger',
@@ -248,6 +271,7 @@ export async function registerMbdRoutes(app: FastifyInstance, opts: MbdRouteOpti
         coverageBlocked: evaluated.filter((e) => !e.coverage.covered).length,
       },
       windows: evaluated,
+      actions: clinicalActionsPayload(actions),
     };
   });
 

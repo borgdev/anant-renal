@@ -39,6 +39,7 @@ import {
   type FluidWhatIfResult,
 } from "../lib/fluid";
 import type { NavigationId } from "../lib/types";
+import RankedActionsPanel from "./ranked-actions-panel";
 
 type Props = { onNavigate?: (id: NavigationId) => void };
 
@@ -241,6 +242,12 @@ export default function FluidCds({ onNavigate }: Props) {
         <Metric label="Advisor gate" value={assurance.gate.status} detail={assurance.model.artifact.ranker === "head" ? "learned head ranks" : "mechanistic prior ranks"} tone={assurance.gate.status === "active" ? "mint" : assurance.gate.status === "gated" ? "amber" : "red"} />
         <Metric label="Model" value={assurance.model.artifact.present ? `${assurance.model.artifact.id}` : "prior only"} detail={`artifact v${assurance.model.artifact.version ?? "—"}`} />
       </div>
+
+      <RankedActionsPanel
+        payload={state?.actions}
+        protocol="fluid"
+        emptyHint="No window crossed the UF/IDH action threshold, or the guardrail blocked it (no telemetry points). Fluid actions are withheld rather than guessed."
+      />
 
       {/* ---------- A/C: advisor + counterfactual simulator ---------- */}
       <section className="pc-grid-2">

@@ -24,7 +24,7 @@
  * deficiency and low lab density block a recommendation entirely.
  ******************************************************************************/
 
-import type { CellManifest } from './cells.js';
+import { cellAllowlist, type CellManifest } from './cells.js';
 import type { EsaExposureReadout } from './anemia-exposure.js';
 import type { EsaPhenotypeReadout } from './anemia-phenotype.js';
 import { aggregateSwarmInsights, makeProposal, type CellProposal, type SwarmInsight } from './insight.js';
@@ -325,14 +325,16 @@ export function buildAnemiaDemo(now: () => string = NOW): Omit<AnemiaDemoState, 
 
   const candidates: NbaCandidate[] = [
     {
-      title: 'Reduce ESA dose for p-esa-1 (Hb trending into band)', cells: ['esa dose optimization', 'iron management'],
+      title: 'Reduce ESA dose for p-esa-1 (Hb trending into band)', cells: ['esa-dose-optimization', 'iron-management'],
       scopeType: 'patient', subject: 'patient:p-esa-1', owner: 'Nephrology · Anemia MD', due: 'This month',
       evidence: [ev('lab.result-arrived:hgb', 'fact'), ev('lab.result-arrived:ferritin', 'fact')],
+      action: { kind: 'titrate-med', target: 'patient:p-esa-1' },
+      valueUnit: 'dollars',
       consensus: 0.9, approvalClass: 'C', expectedOutcome: 42000, urgency: 0.6, policyCost: 0.55, risk: 0.2,
       insightKind: 'anemia.esa.proposal',
     },
   ];
-  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true });
+  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true, allowlist: cellAllowlist(ESA_CELLS) });
 
   return {
     source: 'anemia',

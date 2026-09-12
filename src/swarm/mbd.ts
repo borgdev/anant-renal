@@ -45,7 +45,7 @@
 // CDSS only: everything here is a proposal for the nephrologist. The platform
 // never writes a therapy, never orders a drug, never holds autonomous authority.
 
-import type { CellManifest } from './cells.js';
+import { cellAllowlist, type CellManifest } from './cells.js';
 import { aggregateSwarmInsights, makeProposal, type CellProposal, type SwarmInsight } from './insight.js';
 import { attachInsightBelief, rankNextBestActions, type NbaCandidate, type NextBestAction } from './nba.js';
 import type { OutcomeEpisode } from './outcome-episode.js';
@@ -605,21 +605,25 @@ export function buildMbdDemo(now: () => string = NOW): Omit<MbdDemoState, 'episo
   const conflictCount = insights.filter((i) => i.retained).length;
   const candidates: NbaCandidate[] = [
     {
-      title: 'Calcimimetic for p-mbd-1 (PTH 780 with controlled calcium)', cells: ['mbd therapy advisor'],
+      title: 'Calcimimetic for p-mbd-1 (PTH 780 with controlled calcium)', cells: ['mbd-therapy-advisor'],
       scopeType: 'patient', subject: 'patient:p-mbd-1', owner: 'Nephrology · CKD-MBD', due: 'Next review',
       evidence: [ev('lab.result-arrived:p-mbd-1', 'fact')],
+      action: { kind: 'update-care-plan', target: 'patient:p-mbd-1' },
+      valueUnit: 'dollars',
       consensus: 0.92, approvalClass: 'C', expectedOutcome: 38000, urgency: 0.7, policyCost: 0.45, risk: 0.35,
       insightKind: 'mbd.therapy.proposal',
     },
     {
-      title: 'Non-calcium binder switch for p-mbd-2 (corrected Ca 10.6)', cells: ['mbd safety watch'],
+      title: 'Non-calcium binder switch for p-mbd-2 (corrected Ca 10.6)', cells: ['mbd-safety-watch'],
       scopeType: 'patient', subject: 'patient:p-mbd-2', owner: 'Pharmacy · dialysis unit', due: 'This week',
       evidence: [ev('lab.result-arrived:p-mbd-2', 'fact')],
+      action: { kind: 'notify-staff', target: 'patient:p-mbd-2' },
+      valueUnit: 'dollars',
       consensus: 0.85, approvalClass: 'B', expectedOutcome: 16000, urgency: 0.8, policyCost: 0.25, risk: 0.2,
       insightKind: 'mbd.safety.flag',
     },
   ];
-  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true });
+  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true, allowlist: cellAllowlist(MBD_CELLS) });
   return {
     source: 'mbd',
     features: MBD_FEATURES,

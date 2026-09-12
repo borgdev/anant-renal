@@ -21,7 +21,7 @@
  * prepare evidence and review tasks, never payment holds.
  ******************************************************************************/
 
-import type { CellManifest } from './cells.js';
+import { cellAllowlist, type CellManifest } from './cells.js';
 import { aggregateSwarmInsights, makeProposal, type CellProposal, type SwarmInsight } from './insight.js';
 import { attachInsightBelief, rankNextBestActions, type NbaCandidate, type NextBestAction } from './nba.js';
 import { OutcomeEpisodeCoordinator, type OutcomeEpisode } from './outcome-episode.js';
@@ -156,12 +156,12 @@ export function buildPayerDemo(now: () => string = NOW): Omit<PayerDemoState, 'e
   const conflictCount = insights.filter((i) => i.retained).length;
 
   const candidates: NbaCandidate[] = [
-    { title: 'Close diabetes care-gap for 214 members', cells: ['care gap', 'member'], scopeType: 'patient', subject: 'member:m-1042', owner: 'Case Manager', due: 'This quarter', evidence: Array.from({ length: 12 }, (_, i) => ev(`ev:${i}`, 'object')), consensus: 0.95, approvalClass: 'B', expectedOutcome: 214, urgency: 0.85, policyCost: 0.3, risk: 0.15, insightKind: 'care-gap.proposal' },
-    { title: 'Evidence-complete MRI authorization review', cells: ['authorization', 'utilization'], scopeType: 'patient', subject: 'prior-auth:PA-8821', owner: 'Medical Director', due: 'Today', evidence: Array.from({ length: 16 }, (_, i) => ev(`ev:${i}`, 'object')), consensus: 0.9, approvalClass: 'C', expectedOutcome: 1, urgency: 0.9, policyCost: 0.6, risk: 0.25, insightKind: 'authorization.proposal' },
-    { title: 'Restore network appointment access', cells: ['network'], scopeType: 'market', subject: 'network:nashville', owner: 'Network Operations Leader', due: 'This week', evidence: Array.from({ length: 18 }, (_, i) => ev(`ev:${i}`, 'object')), consensus: 0.93, approvalClass: 'B', expectedOutcome: 48, urgency: 0.7, policyCost: 0.35, risk: 0.2, insightKind: 'network.proposal' },
-    { title: 'Review duplicate-service claim evidence', cells: ['payment integrity'], scopeType: 'division', subject: 'claim:C-55231', owner: 'Payment Integrity Leader', due: '48 hours', evidence: Array.from({ length: 20 }, (_, i) => ev(`ev:${i}`, 'object')), consensus: 0.92, approvalClass: 'B', expectedOutcome: 12400, urgency: 0.65, policyCost: 0.4, risk: 0.1, insightKind: 'payment.proposal' },
+    { title: 'Close diabetes care-gap for 214 members', cells: ['care-gap-closure', 'member-assessment'], scopeType: 'patient', subject: 'member:m-1042', owner: 'Case Manager', due: 'This quarter', evidence: Array.from({ length: 12 }, (_, i) => ev(`ev:${i}`, 'object')), action: { kind: 'schedule-followup', target: 'member:m-1042' }, valueUnit: 'patients', consensus: 0.95, approvalClass: 'B', expectedOutcome: 214, urgency: 0.85, policyCost: 0.3, risk: 0.15, insightKind: 'care-gap.proposal' },
+    { title: 'Evidence-complete MRI authorization review', cells: ['authorization-um', 'utilization-review'], scopeType: 'patient', subject: 'prior-auth:PA-8821', owner: 'Medical Director', due: 'Today', evidence: Array.from({ length: 16 }, (_, i) => ev(`ev:${i}`, 'object')), action: { kind: 'request-prior-auth', target: 'prior-auth:PA-8821' }, valueUnit: 'authorizations', consensus: 0.9, approvalClass: 'C', expectedOutcome: 1, urgency: 0.9, policyCost: 0.6, risk: 0.25, insightKind: 'authorization.proposal' },
+    { title: 'Restore network appointment access', cells: ['network-access'], scopeType: 'market', subject: 'network:nashville', owner: 'Network Operations Leader', due: 'This week', evidence: Array.from({ length: 18 }, (_, i) => ev(`ev:${i}`, 'object')), action: { kind: 'schedule-followup', target: 'network:nashville' }, valueUnit: 'patients', consensus: 0.93, approvalClass: 'B', expectedOutcome: 48, urgency: 0.7, policyCost: 0.35, risk: 0.2, insightKind: 'network.proposal' },
+    { title: 'Review duplicate-service claim evidence', cells: ['payment-integrity'], scopeType: 'division', subject: 'claim:C-55231', owner: 'Payment Integrity Leader', due: '48 hours', evidence: Array.from({ length: 20 }, (_, i) => ev(`ev:${i}`, 'object')), action: { kind: 'open-ticket', target: 'claim:C-55231' }, valueUnit: 'dollars', consensus: 0.92, approvalClass: 'B', expectedOutcome: 12400, urgency: 0.65, policyCost: 0.4, risk: 0.1, insightKind: 'payment.proposal' },
   ];
-  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true });
+  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true, allowlist: cellAllowlist(PAYER_CELLS) });
 
   return {
     source: 'payer',

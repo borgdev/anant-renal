@@ -48,6 +48,7 @@ import {
   type PreventionTask,
 } from "../lib/infection";
 import type { NavigationId } from "../lib/types";
+import RankedActionsPanel from "./ranked-actions-panel";
 
 type Props = { onNavigate?: (id: NavigationId) => void };
 
@@ -431,6 +432,12 @@ export default function InfectionCds({ onNavigate }: Props) {
         <Metric label="Vaccination due" value={String(state.kpis.vaccinationDue)} detail={`${state.kpis.serologyFollowup} with a serology recheck`} tone={state.kpis.vaccinationDue ? "amber" : "mint"} />
         <Metric label="Prevention overdue" value={String(state.kpis.preventionOverdue)} detail="deterministic tasks past their date" tone={state.kpis.preventionOverdue ? "red" : "mint"} />
       </div>
+
+      <RankedActionsPanel
+        payload={state?.actions}
+        protocol="infection"
+        emptyHint="No triage band crossed an action threshold and no prevention task was due — vaccination, serology, hand-hygiene and access-care cadences are all current."
+      />
 
       {/* ---------- A: triage + prevention, side by side ---------- */}
       <section className="pc-grid-2">

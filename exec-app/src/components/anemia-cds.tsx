@@ -62,6 +62,7 @@ import {
 } from "../lib/anemia";
 import type { NavigationId } from "../lib/types";
 import { EvidenceTag, Eyebrow, LoadMore, Metric, PanelExpand, Tag, usePaged } from "./ui";
+import RankedActionsPanel from "./ranked-actions-panel";
 
 /** Panel review epoch — deterministic so iron-freshness checks behave like the tests. */
 const REVIEW_AT = "2026-09-01T00:00:00Z";
@@ -359,6 +360,13 @@ export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: Navigatio
       </section>
 
       {error ? <div className="admin-notice is-error"><AlertTriangle size={15} /><span>{error}</span></div> : null}
+
+      <RankedActionsPanel
+        payload={state?.actions}
+        protocol="anemia"
+        shellClass="panel"
+        emptyHint="The ESA coverage gate blocked every window — thin lab density, a patient outside the trained domain, or no ESA dose on the ledger. An in-band dose is a deliberate no-op, and an out-of-coverage window never gets a dose recommendation."
+      />
 
       <section className="esa-main-grid">
         {/* ---- Advisor console ---- */}

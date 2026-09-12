@@ -25,7 +25,7 @@
  * change; access recirculation routes to access review before flow escalation.
  ******************************************************************************/
 
-import type { CellManifest } from './cells.js';
+import { cellAllowlist, type CellManifest } from './cells.js';
 import { aggregateSwarmInsights, makeProposal, type CellProposal, type SwarmInsight } from './insight.js';
 import { attachInsightBelief, rankNextBestActions, type NbaCandidate, type NextBestAction } from './nba.js';
 import type { OutcomeEpisode } from './outcome-episode.js';
@@ -461,21 +461,25 @@ export function buildAdequacyDemo(now: () => string = NOW): Omit<AdequacyDemoSta
 
   const candidates: NbaCandidate[] = [
     {
-      title: 'Extend treatment time for p-ktv-1 (spKt/V below target)', cells: ['adequacy prescription'],
+      title: 'Extend treatment time for p-ktv-1 (spKt/V below target)', cells: ['adequacy-prescription'],
       scopeType: 'patient', subject: 'patient:p-ktv-1', owner: 'Nephrology · Renal dialysis', due: 'This week',
       evidence: [ev('lab.result-arrived:URR', 'fact'), ev('session.ended.v1:p-ktv-1', 'event')],
+      action: { kind: 'update-care-plan', target: 'patient:p-ktv-1' },
+      valueUnit: 'dollars',
       consensus: 0.92, approvalClass: 'C', expectedOutcome: 26000, urgency: 0.55, policyCost: 0.4, risk: 0.25,
       insightKind: 'adequacy.ktv.proposal',
     },
     {
-      title: 'Access review before Qb escalation for p-ktv-2 (16% recirculation)', cells: ['access clearance review'],
+      title: 'Access review before Qb escalation for p-ktv-2 (16% recirculation)', cells: ['access-clearance-review'],
       scopeType: 'patient', subject: 'patient:p-ktv-2', owner: 'Nephrology · Vascular access', due: 'This month',
       evidence: [ev('access.observed.v1:p-ktv-2', 'event')],
+      action: { kind: 'order-lab', target: 'patient:p-ktv-2' },
+      valueUnit: 'dollars',
       consensus: 0.78, approvalClass: 'B', expectedOutcome: 19000, urgency: 0.4, policyCost: 0.5, risk: 0.3,
       insightKind: 'adequacy.access-review.proposal',
     },
   ];
-  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true });
+  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true, allowlist: cellAllowlist(ADEQUACY_CELLS) });
 
   return {
     source: 'adequacy',

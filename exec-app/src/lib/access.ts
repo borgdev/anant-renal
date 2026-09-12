@@ -8,6 +8,7 @@
  */
 
 import { responseOrThrow } from "./session";
+import type { RankedActionsPayload } from "./ranked-actions";
 
 export interface AccessFeature { id: string; label: string; unit: string; min: number; max: number; relevance: number }
 export type AccessAction =
@@ -116,6 +117,7 @@ export interface AccessStateView {
   withMeasuredSeries: number;
   kpis: { accessesTracked: number; observations: number; catheterAccesses: number; referralProposed: number; coverageBlocked: number };
   windows: AccessWindowView[];
+  actions?: RankedActionsPayload;
 }
 
 export interface AccessAssuranceView {

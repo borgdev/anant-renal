@@ -40,9 +40,13 @@ import { consolesForRole, type ConsoleId } from './console-gate.js';
 import { cohortWorkId, parseCohortRef } from './cohort-routes.js';
 import { getSwarmWorkspace, getSwarmCoordinator, swarmWhatIf, projectTopology, type ProjectedEdge, type ProjectedNode } from './swarm-routes.js';
 import type { SwarmWorkspaceStore, WorkspaceDoc, PlatformOrganization, PlatformTopicPlan, PlatformCanvas, ConfigRelease, EvidenceReview, DlqRemediation } from '../swarm/workspace.js';
+import { decidesLater, deferralActive } from '../swarm/workspace.js';
+import { asRankedDecision, decideRankedAction, validateRankedDecision, type RankedDecisionInput } from '../swarm/nba-decision.js';
 import type { PersistentOutcomeCoordinator } from '../swarm/durable-coordinator.js';
 import type { OutcomeEpisode } from '../swarm/outcome-episode.js';
 import { episodeDstReadout, compareDstQueue } from '../swarm/work-dst.js';
+import { commandFromEpisode, dispatchApprovedEpisode, DispatchError } from '../swarm/command-dispatch.js';
+import { RealmRegistry } from '../realm/registry.js';
 import type { ApprovalClass } from '../swarm/types.js';
 import type { LiveRealmSource } from '../swarm/live.js';
 import type { EventBroker } from './event-broker.js';
@@ -140,7 +144,7 @@ async function onboardingState(ws: SwarmWorkspaceStore, users?: LocalUserStore):
 
 export interface PlatformWorkItem {
   id: string;
-  kind: 'episode' | 'review' | 'release' | 'dlq' | 'cohort';
+  kind: 'episode' | 'review' | 'release' | 'dlq' | 'cohort' | 'action';
   title: string;
   summary: string;
   state: string;
@@ -168,6 +172,43 @@ function episodeApprovalClass(e: OutcomeEpisode): ApprovalClass {
 }
 
 /** Derive the role-scoped My Work queue from real state. */
+/** A protocol episode kind, in a clinician's words. */
+const PROBLEM_WORDS: Record<string, string> = {
+  'anemia.esa-response': 'Anaemia · ESA dose response',
+  'adequacy.ktv.proposal': 'Clearance below target (Kt/V)',
+  'fluid.uf.proposal': 'Fluid removal · IDH risk',
+  'access.referral.proposal': 'Vascular access surveillance',
+  'mbd.therapy.proposal': 'CKD–MBD therapy',
+  'nutrition.pew.proposal': 'Nutrition · PEW',
+  'infection.bsi.proposal': 'Possible bloodstream infection',
+  'continuity.proposal': 'Care continuity',
+  'care.gap.closure': 'Care gap closure',
+  'authorization.review': 'Prior authorization review',
+};
+
+/** An unmapped kind is humanised, never hidden — a missing label is a gap to close. */
+function problemWords(kind: string): string {
+  const known = PROBLEM_WORDS[kind];
+  if (known) return known;
+  const words = kind.replace(/[-_.]/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** `patient:x` → `x`; anything else is already readable (`realm:b3`). */
+function patientWords(subject: string): string {
+  return subject.startsWith('patient:') ? subject.slice('patient:'.length) : subject;
+}
+
+/**
+ * What is being asked of the reader. A queue item that cannot say this is not a
+ * queue item — "proposed: X" missing is a fact worth stating, not a blank.
+ */
+function proposedActionWords(e: OutcomeEpisode): string {
+  const option = e.proposal?.option;
+  if (option && option.length > 0) return `Proposed: ${option}`;
+  return e.state === 'AwaitingApproval' ? 'Awaiting a proposal' : `No proposal yet · ${e.state.toLowerCase()}`;
+}
+
 async function buildWorkQueue(ws: SwarmWorkspaceStore, coord: PersistentOutcomeCoordinator, opts: PlatformRouteOptions, role?: IdentityRole): Promise<PlatformWorkItem[]> {
   const roleConsoles = role ? consolesForRole(role) : (['exec', 'ops'] as ConsoleId[]);
   const can = (consoleId: ConsoleId, capability: string): boolean => roleConsoles.includes(consoleId) && CAPABILITIES[consoleId].includes(capability);
@@ -188,12 +229,14 @@ async function buildWorkQueue(ws: SwarmWorkspaceStore, coord: PersistentOutcomeC
     const item: PlatformWorkItem = {
       id: `episode:${e.episodeId}`,
       kind: 'episode',
-      title: `${e.kind.replace(/[-.]/g, ' ')} · ${e.subject}`,
-      summary: `Outcome episode in ${e.state} · approval class ${cls} · ${e.evidence.length} evidence ref(s)`,
+      title: `${problemWords(e.kind)} · ${patientWords(e.subject)}`,
+      // What the reader needs to decide, not what the state machine is doing:
+      // problem, patient, the action being proposed, and by when.
+      summary: `${proposedActionWords(e)} · ${e.evidence.length} evidence object${e.evidence.length === 1 ? '' : 's'} · class ${cls}`,
       state: e.state,
       urgency: e.state === 'Escalated' ? 'high' : e.state === 'AwaitingApproval' ? 'medium' : 'low',
       scope: e.scopeType,
-      owner: e.approval?.approver ?? 'Outcome Command',
+      owner: e.approval?.approver ?? 'Clinical reviewer',
       sla: e.state === 'AwaitingApproval' ? 'Today' : 'Ongoing',
       console: consoleId,
       capability: 'episode.decide',
@@ -210,6 +253,43 @@ async function buildWorkQueue(ws: SwarmWorkspaceStore, coord: PersistentOutcomeC
       item.dstPriority = dst.score;
     }
     items.push(item);
+  }
+
+  // 1b. Ranked actions a human DEFERRED or HANDED OFF. These are neither done nor
+  // declined: a deferral stays hidden until the moment it names (so it reappears
+  // THEN, not before), and a handoff lands in the recipient's console rather than
+  // the giver's. Both are honest answers to a correct suggestion — "not now" and
+  // "not mine" — and forcing either into a dismissal would poison the one quality
+  // signal the ranking gets.
+  const nowMs = Date.now();
+  for (const decision of await ws.listNbaDecisions()) {
+    if (!decidesLater(decision.decision)) continue;
+    if (deferralActive(decision, nowMs)) continue;
+    // A handoff moves the work only to a console that can actually act on it.
+    // Anything else stays in the decision console with the recipient named as
+    // owner: a handoff to a console with no way to approve must never make the
+    // action vanish, because that is indistinguishable from losing it.
+    const requested: ConsoleId = decision.handedToConsole === 'ops' ? 'ops' : 'exec';
+    const consoleId: ConsoleId = CAPABILITIES[requested].includes('work.approve') ? requested : 'exec';
+    if (!can(consoleId, 'work.approve')) continue;
+    const deferred = decision.decision === 'deferred';
+    items.push({
+      id: `action:${decision.nbaId}`,
+      kind: 'action',
+      title: decision.title,
+      summary: deferred
+        ? `Deferred until ${decision.deferUntil ?? 'an unspecified time'}${decision.reason ? ` — ${decision.reason}` : ''}`
+        : `Handed to ${decision.handedTo ?? 'an unassigned colleague'} · ${decision.subject}`,
+      state: deferred ? 'deferred' : 'handed-off',
+      urgency: 'medium',
+      scope: decision.scopeType,
+      owner: deferred ? decision.approver : decision.handedTo ?? 'Unassigned',
+      sla: deferred ? 'Due now' : 'Today',
+      console: consoleId,
+      capability: 'work.approve',
+      actions: ['approve', 'dismiss', 'defer'],
+      at: decision.updatedAt,
+    });
   }
 
   // 2. Pending evidence reviews (clinical/executive).
@@ -833,7 +913,7 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
     return reply.code(404).send({ error: 'work-item-not-found' });
   });
 
-  app.post<{ Params: { id: string }; Body: { action?: string; reason?: string; approver?: string; idempotencyKey?: string } }>(
+  app.post<{ Params: { id: string }; Body: { action?: string; reason?: string; approver?: string; idempotencyKey?: string; deferUntil?: string; handedTo?: string; handedToConsole?: string } }>(
     '/api/work/:id/actions',
     async (req, reply) => {
       // A decision is attributed to a person; there is no anonymous decider.
@@ -854,7 +934,41 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
           const cls = episodeApprovalClass(e);
           if (action === 'approve' || action === 'reject') {
             const after = coord().decide(rest, action === 'approve' ? 'approved' : 'rejected', req.body?.approver?.trim() || 'operator', cls);
-            result = { accepted: true, state: after.state, action };
+            // My Work is the clinician's primary surface, so an approval here must
+            // place the order exactly as the swarm route does — and must say when it
+            // could not, instead of reporting a state change that changed nothing.
+            let placed: Record<string, unknown> | undefined;
+            let notPlaced: { code: string; message: string } | undefined;
+            if (action === 'approve') {
+              const derived = commandFromEpisode(coord().get(rest));
+              if (derived.action) {
+                try {
+                  coord().dispatchCommand(rest, derived.action, {
+                    ...(derived.order !== undefined ? { order: derived.order } : {}),
+                    ...(derived.realmId !== undefined ? { realmId: derived.realmId } : {}),
+                  });
+                } catch {
+                  // Already dispatched — the ledger lookup below makes this a replay.
+                }
+              }
+              try {
+                placed = dispatchApprovedEpisode({
+                  coordinator: coord(),
+                  episodeId: rest,
+                  realmOf: (realmId: string) => RealmRegistry.get(realmId),
+                  ...(derived.realmId !== undefined ? { realmId: derived.realmId } : {}),
+                }) as unknown as Record<string, unknown>;
+              } catch (err) {
+                notPlaced = err instanceof DispatchError
+                  ? { code: err.code, message: err.message }
+                  : { code: 'dispatch-failed', message: err instanceof Error ? err.message : String(err) };
+              }
+            }
+            result = {
+              accepted: true, state: after.state, action,
+              ...(placed !== undefined ? { dispatch: placed } : {}),
+              ...(notPlaced !== undefined ? { dispatchError: notPlaced } : {}),
+            };
           } else if (action === 'escalate') {
             const after = coord().escalate(rest, req.body?.reason?.trim() || 'escalated by operator');
             result = { accepted: true, state: after.state, action };
@@ -893,6 +1007,43 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
         // and outbox; this endpoint records the operator acknowledgement.
         if (action !== 'acknowledge') return reply.code(400).send({ error: 'unsupported-dlq-action', allowed: ['acknowledge'] });
         result = { accepted: true, action, note: 'acknowledged — durable remediation is wired through /admin/swarm/bridge and the outbox' };
+      } else if (kind === 'action') {
+        // A ranked action that was deferred or handed off, now due or reassigned.
+        // It goes through the SAME validator as the swarm route — a deferral
+        // without a time must fail identically wherever it is attempted.
+        const prior = (await ws().listNbaDecisions()).find((d) => d.nbaId === rest);
+        if (!prior) return reply.code(404).send({ error: 'ranked-action-not-found' });
+        const body = req.body;
+        const decision = asRankedDecision(body?.action === 'defer' ? 'deferred' : body?.action === 'dismiss' ? 'dismissed' : body?.action === 'hand-off' ? 'handed-off' : 'approved');
+        const reason = body?.reason?.trim();
+        const deferUntil = body?.deferUntil?.trim();
+        const handedTo = body?.handedTo?.trim();
+        const answer: RankedDecisionInput = {
+          decision,
+          approver: sessionUser(req)?.username ?? 'operator',
+          ...(reason !== undefined ? { reason } : {}),
+          ...(deferUntil !== undefined ? { deferUntil } : {}),
+          ...(handedTo !== undefined ? { handedTo } : {}),
+          ...(body?.handedToConsole !== undefined ? { handedToConsole: body.handedToConsole } : {}),
+        };
+        const rejection = validateRankedDecision(answer);
+        if (rejection) return reply.code(rejection.status).send({ error: rejection.error, detail: rejection.detail });
+        const recorded = await decideRankedAction({
+          ws: ws(),
+          coord: coord(),
+          nba: {
+            nbaId: prior.nbaId, title: prior.title, subject: prior.subject, scopeType: prior.scopeType,
+            evidenceCount: prior.evidenceCount, expectedOutcome: prior.expectedOutcome, evidence: [],
+            ...(prior.protocol !== undefined ? { protocol: prior.protocol } : {}),
+            ...(prior.conflictMass !== undefined ? { conflictMass: prior.conflictMass } : {}),
+          },
+          answer,
+        });
+        result = {
+          accepted: true, state: decision, action,
+          decisionId: recorded.decision.id,
+          ...(recorded.episodeId !== undefined ? { episodeId: recorded.episodeId } : {}),
+        };
       } else if (kind === 'cohort') {
         // A cohort suggestion is a statement about state; the human decides
         // whether it was worth raising. A decline is REQUIRED to carry a reason
@@ -1258,19 +1409,41 @@ function episodeDetail(e: OutcomeEpisode): Record<string, unknown> {
   return {
     id: `episode:${e.episodeId}`,
     kind: 'episode',
-    title: `${e.kind.replace(/-/g, ' ')} · ${e.subject}`,
+    title: `${problemWords(e.kind)} · ${patientWords(e.subject)}`,
     state: e.state,
     scope: e.scopeType,
-    owner: e.approval?.approver ?? 'Outcome Command',
-    why: 'This episode exists because observed signals crossed the configured policy threshold and require authorized coordination to close.',
+    owner: e.approval?.approver ?? 'Clinical reviewer',
+    why: e.proposal?.recommendation
+      ?? 'This episode exists because observed signals crossed the configured policy threshold and require authorized coordination to close.',
     overview: { kind: e.kind, subject: e.subject, openedAt: e.openedAt, approvalClass: episodeApprovalClass(e), evidenceCount: e.evidence.length },
     evidence: e.evidence.map((ev) => ({ sourceId: ev.sourceId, contentType: ev.contentType, hash: ev.hash ?? null, span: ev.span ?? null })),
     contributions: e.proposal ? [{ cellId: (e.proposal as { cellId?: string }).cellId ?? null, option: (e.proposal as { option?: string }).option ?? null, confidenceBasisPoints: (e.proposal as { confidenceBasisPoints?: number }).confidenceBasisPoints ?? null }] : [],
     policy: { approvalClass: episodeApprovalClass(e), approved: e.approval?.decision ?? null, approver: e.approval?.approver ?? null },
     activity: e.transitions.map((t) => ({ from: t.from, to: t.to, at: t.at, by: t.by, note: t.note ?? null })),
     decision: { allowed: ['approve', 'reject', 'escalate'], reasonRequiredFor: ['reject', 'escalate'] },
-    execution: e.command ? { commandId: e.command.commandId, action: e.command.action, idempotencyKey: e.command.idempotencyKey } : null,
-    outcome: e.measureResult ? { measureId: e.measureResult.measureId, met: e.measureResult.met, at: e.measureResult.at } : { verified: e.state === 'Resolved' },
+    execution: e.command
+      ? {
+          commandId: e.command.commandId,
+          action: e.command.action,
+          idempotencyKey: e.command.idempotencyKey,
+          /** What was actually written, and where. Absent = approved but not placed. */
+          placed: e.command.dispatched
+            ? { effectId: e.command.dispatched.effectId, orderUrn: e.command.dispatched.orderUrn ?? null, realmId: e.command.dispatched.realmId, replayed: e.command.dispatched.replayed === true, at: e.command.dispatched.at }
+            : null,
+          order: e.command.order ? { effect: e.command.order.effect } : null,
+        }
+      : null,
+    // The patient's own response, when it has been measured — this is the loop the
+    // clinician closed, not a facility-level measure standing in for it.
+    outcome: e.measureResult
+      ? {
+          measureId: e.measureResult.measureId,
+          met: e.measureResult.met,
+          at: e.measureResult.at,
+          kind: e.measureResult.kind ?? 'measure',
+          detail: e.measureResult.detail ?? null,
+        }
+      : { verified: e.state === 'Resolved' },
     assurance: { dossierHash: e.dossierHash, evidenceStatus: e.evidenceStatus ?? null, replay: `/api/work/${e.episodeId}` },
   };
 }

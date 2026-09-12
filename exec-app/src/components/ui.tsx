@@ -105,12 +105,21 @@ export function ProgressBar({ value, tone = "mint" }: { value: number; tone?: "m
   );
 }
 
-export function EmptyView({ title, description }: { title: string; description: string }) {
+/**
+ * A deliberately empty surface.
+ *
+ * `eyebrow` and `level` exist because an empty state is not always a "platform
+ * module": on a clinical page the eyebrow has to say what is empty, and the heading
+ * must not be a second `<h1>` competing with the page's own — a screen reader
+ * announcing two level-1 headings is a defect, not a style choice.
+ */
+export function EmptyView({ title, description, eyebrow = "Platform module", level = 1 }: { title: string; description: string; eyebrow?: string; level?: 1 | 2 | 3 }) {
+  const Heading = `h${level}` as "h1" | "h2" | "h3";
   return (
     <section className="empty-view">
       <span className="empty-orbit" aria-hidden="true" />
-      <Eyebrow>Platform module</Eyebrow>
-      <h1>{title}</h1>
+      <Eyebrow>{eyebrow}</Eyebrow>
+      <Heading>{title}</Heading>
       <p>{description}</p>
     </section>
   );

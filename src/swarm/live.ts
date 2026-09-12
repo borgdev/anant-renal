@@ -15,9 +15,10 @@ import { SWARM_CELLS, cellById } from './cells.js';
 import { CONSUMED_BY, type SwarmDemoState } from './demo.js';
 import { aggregateSwarmInsights, makeProposal, type CellProposal } from './insight.js';
 import { attachInsightBelief, rankNextBestActions, type NbaCandidate } from './nba.js';
+import type { ActionValueUnit } from './actions.js';
 import { REALM_LEDGER_PREFIX, reliabilityBySource } from '../evidence/reliability.js';
 import { OutcomeEpisodeCoordinator, type OutcomeEpisode } from './outcome-episode.js';
-import type { EvidenceRef, ScopeType } from './types.js';
+import type { ApprovalClass, EvidenceRef, ScopeType, WorldEffectKind } from './types.js';
 
 /** The slice of a realm snapshot the swarm reads. */
 export interface LiveRealmSource {
@@ -102,70 +103,102 @@ function realmProposals(realm: LiveRealmSource, now: () => string): CellProposal
   return out;
 }
 
-/** Real NbaCandidates derived from realm counts. */
+/**
+ * The enterprise candidate plans — the declarative table that maps a real
+ * observed quantity to a GOVERNED action (see `actions.ts` for the catalog).
+ * One row per action, rolled up across every realm it applies to, so the board
+ * shows distinct actions instead of the same action repeated per realm.
+ */
+interface EnterprisePlan {
+  key: string;
+  /** Cells that co-sign the action; each must allow `actionKind` (verified at
+   *  ranking time against the cell allowlist). */
+  cells: string[];
+  actionKind: WorldEffectKind;
+  valueUnit: ActionValueUnit;
+  owner: string;
+  due: string;
+  approvalClass: ApprovalClass;
+  consensus: number;
+  urgency: number;
+  policyCost: number;
+  risk: number;
+  insightKind: string;
+  /** The real quantity this action acts on, for one realm. */
+  quantity: (r: LiveRealmSource) => number;
+  applies: (r: LiveRealmSource) => boolean;
+  title: (quantity: number, facilities: number) => string;
+}
+
+const ENTERPRISE_PLANS: EnterprisePlan[] = [
+  {
+    key: 'continuity', cells: ['treatment-continuity', 'workforce-resilience'],
+    actionKind: 'schedule-followup', valueUnit: 'treatments',
+    owner: 'ROD', due: 'Today', approvalClass: 'B', consensus: 0.9, urgency: 0.7,
+    policyCost: 0.4, risk: 0.2, insightKind: 'continuity.proposal',
+    quantity: (r) => r.counts.patient ?? 0, applies: (r) => (r.counts.patient ?? 0) > 0,
+    title: (q, n) => `Protect ${q} treatment continuities across ${n} facility(ies)`,
+  },
+  {
+    key: 'capacity', cells: ['facility-capacity', 'access-surveillance'],
+    actionKind: 'assign-object', valueUnit: 'chair-hours',
+    owner: 'ROD', due: 'This week', approvalClass: 'B', consensus: 0.85, urgency: 0.6,
+    policyCost: 0.3, risk: 0.15, insightKind: 'capacity.proposal',
+    quantity: (r) => Math.round((r.counts.unit ?? 0) * 8.25 * 10) / 10, applies: (r) => (r.counts.unit ?? 0) > 0,
+    title: (q, n) => `Rebalance ${q} chair-hours across ${n} facility(ies)`,
+  },
+  {
+    key: 'revenue', cells: ['revenue-cycle', 'cms-readiness'],
+    actionKind: 'submit-claim', valueUnit: 'dollars',
+    owner: 'VP Finance', due: '48 hours', approvalClass: 'B', consensus: 0.88, urgency: 0.55,
+    policyCost: 0.35, risk: 0.1, insightKind: 'claim.evidence',
+    // Valuation proxy, identical to the KPI: each live effect maps to $250 of
+    // exposure. Declared in dollars so nothing downstream re-denominates it.
+    quantity: (r) => r.effects * 250, applies: (r) => r.effects > 0,
+    title: (q, n) => `Reconcile $${Math.round(q).toLocaleString('en-US')} of claim exposure across ${n} facility(ies)`,
+  },
+];
+
+/** Real NbaCandidates: one per enterprise plan, rolled up across the realms it
+ *  applies to, each naming the governed action it would dispatch. */
 function realmNbaCandidates(realms: LiveRealmSource[]): NbaCandidate[] {
-  const candidates: NbaCandidate[] = [];
-  for (const realm of realms) {
-    const patients = realm.counts.patient ?? 0;
-    const units = realm.counts.unit ?? 0;
-    const effects = realm.effects;
-    const evidence = Array.from({ length: Math.min(20, Math.max(1, patients + effects)) }, (_, i) => ev(`${realm.realmId}:ev:${i}`, 'object'));
-    if (patients > 0) {
-      candidates.push({
-        title: `Protect ${patients} treatments · ${realm.realmId}`,
-        cells: ['treatment-continuity', 'workforce-resilience'],
-        scopeType: scopeFor(realm),
-        subject: realm.realmId,
-        owner: 'ROD',
-        due: 'Today',
-        evidence,
-        consensus: 0.9,
-        approvalClass: 'B',
-        expectedOutcome: patients,
-        urgency: Math.min(0.95, 0.4 + patients * 0.05),
-        policyCost: 0.4,
-        risk: 0.2,
-        insightKind: 'continuity.proposal',
-      });
-    }
-    if (units > 0) {
-      candidates.push({
-        title: `Rebalance ${units} unit capacity · ${realm.realmId}`,
-        cells: ['facility-capacity', 'access-surveillance'],
-        scopeType: scopeFor(realm),
-        subject: realm.realmId,
-        owner: 'ROD',
-        due: 'Today',
-        evidence,
-        consensus: 0.85,
-        approvalClass: 'B',
-        expectedOutcome: units,
-        urgency: 0.6,
-        policyCost: 0.3,
-        risk: 0.15,
-        insightKind: 'capacity.proposal',
-      });
-    }
-    if (effects > 0) {
-      candidates.push({
-        title: `Reconcile ${effects} effect signals · ${realm.realmId}`,
-        cells: ['revenue-cycle', 'cms-readiness'],
-        scopeType: scopeFor(realm),
-        subject: realm.realmId,
-        owner: 'VP Finance',
-        due: '48 hours',
-        evidence,
-        consensus: 0.88,
-        approvalClass: 'B',
-        expectedOutcome: effects,
-        urgency: 0.55,
-        policyCost: 0.35,
-        risk: 0.1,
-        insightKind: 'claim.evidence',
-      });
-    }
+  const out: NbaCandidate[] = [];
+  for (const plan of ENTERPRISE_PLANS) {
+    const applicable = realms.filter(plan.applies);
+    if (applicable.length === 0) continue;
+    const amount = applicable.reduce((n, r) => n + plan.quantity(r), 0);
+    if (amount <= 0) continue;
+    // Evidence = the real contributing objects (realm ledger + the signal the
+    // quantity came from), deduped and bounded — never a padded synthetic list.
+    const evidence = applicable
+      .flatMap((r) => [ev(`${r.realmId}:ledger`, 'event'), ev(`${r.realmId}:${plan.key}`, 'fact')])
+      .slice(0, 20);
+    const lead = [...applicable].sort((a, b) => plan.quantity(b) - plan.quantity(a))[0]!;
+    const rounded = Math.round(amount * 100) / 100;
+    out.push({
+      title: plan.title(Math.round(amount * 10) / 10, applicable.length),
+      cells: plan.cells,
+      scopeType: scopeFor(lead),
+      subject: lead.realmId,
+      owner: plan.owner,
+      due: plan.due,
+      evidence,
+      action: {
+        kind: plan.actionKind,
+        target: lead.realmId,
+        payload: { realms: applicable.map((r) => r.realmId), amount: rounded, quantity: plan.key },
+      },
+      valueUnit: plan.valueUnit,
+      consensus: plan.consensus,
+      approvalClass: plan.approvalClass,
+      expectedOutcome: rounded,
+      urgency: plan.urgency,
+      policyCost: plan.policyCost,
+      risk: plan.risk,
+      insightKind: plan.insightKind,
+    });
   }
-  return candidates;
+  return out;
 }
 
 /**
@@ -216,7 +249,7 @@ export function deriveLiveSwarm(input: LiveSwarmInput): SwarmDemoState {
         && (e.state === 'Resolved' || e.state === 'Rejected' || e.state === 'Escalated'),
     );
     if (terminal) continue; // keep the completed durable record; don't open a new one
-    const ep = coordinator.getOrOpen({ kind: 'continuity.proposal', subject: realm.realmId, scopeType: 'facility' });
+    const ep = coordinator.getOrOpen({ kind: 'continuity.proposal', subject: realm.realmId, scopeType: 'facility', realmId: realm.realmId });
     if (focus && realm.realmId === focus.realmId && ep.state === 'Observed') {
       try {
         coordinator.addEvidence(ep.episodeId, [ev(`${realm.realmId}:ledger`, 'event'), ev(`${realm.realmId}:coverage`, 'fact')], true);

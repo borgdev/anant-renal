@@ -46,7 +46,7 @@
 // CDSS only: the platform never orders a drug, never summons transport, and
 // never actions a potassium on an ECG pattern alone.
 
-import type { CellManifest } from './cells.js';
+import { cellAllowlist, type CellManifest } from './cells.js';
 import { aggregateSwarmInsights, makeProposal, type CellProposal, type SwarmInsight } from './insight.js';
 import { attachInsightBelief, rankNextBestActions, type NbaCandidate, type NextBestAction } from './nba.js';
 import type { OutcomeEpisode } from './outcome-episode.js';
@@ -628,21 +628,25 @@ export function buildNutritionDemo(now: () => string = NOW): Omit<NutritionDemoS
   const conflictCount = insights.filter((i) => i.retained).length;
   const candidates: NbaCandidate[] = [
     {
-      title: 'Dietitian referral for p-pew-1 (poor-intake pathway, albumin 3.2)', cells: ['nutrition pew advisor'],
+      title: 'Dietitian referral for p-pew-1 (poor-intake pathway, albumin 3.2)', cells: ['nutrition-pew-advisor'],
       scopeType: 'patient', subject: 'patient:p-pew-1', owner: 'Dietetics · renal', due: 'This week',
       evidence: [ev('lab.result-arrived:p-pew-1', 'fact')],
+      action: { kind: 'update-care-plan', target: 'patient:p-pew-1' },
+      valueUnit: 'dollars',
       consensus: 0.9, approvalClass: 'C', expectedOutcome: 22000, urgency: 0.6, policyCost: 0.3, risk: 0.25,
       insightKind: 'nutrition.pew.proposal',
     },
     {
-      title: 'Confirm potassium for p-pew-2 (projected 6.3 mmol/L, ECG adjunct)', cells: ['electrolyte safety watch'],
+      title: 'Confirm potassium for p-pew-2 (projected 6.3 mmol/L, ECG adjunct)', cells: ['electrolyte-safety-watch'],
       scopeType: 'patient', subject: 'patient:p-pew-2', owner: 'Nursing · dialysis unit', due: 'Now',
       evidence: [ev('lab.result-arrived:p-pew-2', 'fact')],
+      action: { kind: 'order-lab', target: 'patient:p-pew-2' },
+      valueUnit: 'dollars',
       consensus: 0.88, approvalClass: 'B', expectedOutcome: 31000, urgency: 0.9, policyCost: 0.15, risk: 0.3,
       insightKind: 'electrolyte.k.flag',
     },
   ];
-  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true });
+  const nbas = rankNextBestActions(attachInsightBelief(candidates, insights), { limit: 4, beliefAware: true, allowlist: cellAllowlist(NUTRITION_CELLS) });
   return {
     source: 'nutrition',
     features: NUTRITION_FEATURES,

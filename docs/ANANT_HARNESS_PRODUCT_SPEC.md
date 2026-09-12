@@ -347,7 +347,7 @@ flowchart TB
 2. **Evidence and measure substrate** — canonical events, evidence, bitemporal state, CQL/FHIR measures and provenance.
 3. **Realm and twin runtime** — organization, person, facility, plan, policy, perception, memory and effect.
 4. **Agent and rehearsal runtime** — bounded cells, model/tool routing, simulation, counterfactuals and evals.
-5. **Outcome harness** — conflict/policy arbitration, NBAs, episodes, approvals, commands, acknowledgements and verification.
+5. **Outcome harness** — conflict/policy arbitration, NBAs42, episodes, approvals, commands, acknowledgements and verification.
 6. **Experiences and governance** — two UIs, role cockpits, configuration, assurance, audit and releases.
 
 ---

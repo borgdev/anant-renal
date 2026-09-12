@@ -31,10 +31,24 @@ import {
   type ProtocolStatus,
 } from "../lib/protocols";
 import { EmptyView, Eyebrow, Metric, PanelExpand, ProgressBar, Tag, usePaged, LoadMore } from "./ui";
+import FleetActionsBoard from "./fleet-actions-board";
+import AdoptionPanel from "./adoption-panel";
 import type { NavigationId } from "../lib/types";
 
 type Props = {
   onNavigate?: (id: NavigationId) => void;
+};
+
+/** Protocol-pack id → the exec view that owns that pack's page. `access` is the one
+ *  that differs (its view is `vascular-access`), so the mapping is explicit. */
+const PROTOCOL_VIEW_BY_PACK: Record<string, NavigationId> = {
+  adequacy: "adequacy",
+  fluid: "fluid",
+  access: "vascular-access",
+  anemia: "anemia",
+  mbd: "mbd",
+  nutrition: "nutrition",
+  infection: "infection",
 };
 
 const STATUS_ICON: Record<ProtocolStatus, typeof Activity> = {
@@ -162,6 +176,12 @@ export default function ProtocolCockpit({ onNavigate }: Props) {
     return map;
   }, [registry]);
 
+  /** Leave the hub for the pack's own page (the hub indexes; the page owns detail). */
+  const openProtocolPage = (protocol: string) => {
+    const view = PROTOCOL_VIEW_BY_PACK[protocol];
+    if (view && onNavigate) onNavigate(view);
+  };
+
   return (
     <div className="pc-root">
       <header className="pc-header">
@@ -200,6 +220,11 @@ export default function ProtocolCockpit({ onNavigate }: Props) {
           value={evaluation ? (evaluation.report.noPatientOverlap ? "leak-free" : "CHECK") : "—"} detail={evaluation ? `${evaluation.report.rows.regression} rows · ${evaluation.report.coverage.protocolHorizonPairs} head×horizon` : "—"}
         />
       </section>
+
+      <FleetActionsBoard onOpenProtocol={openProtocolPage} />
+
+      {/* Whether anyone is answering the ranking, and why not when they aren't. */}
+      <AdoptionPanel />
 
       <section className="pc-panel">
         <div className="pc-panel-head">

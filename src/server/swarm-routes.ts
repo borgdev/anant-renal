@@ -28,6 +28,13 @@ import { computeRollups, deriveLiveSwarm, hasLiveData, integrationHealth, type L
 // no longer serves either, so it no longer imports the release engine.
 import { sqlWorkspacePersistence, SwarmWorkspaceStore, projectRealmEvents, type NbaDecision, type SubmissionPackage, type WorkspaceDoc, type WorkspaceKind } from '../swarm/workspace.js';
 import type { ApprovalClass, WorldEffectKind } from '../swarm/types.js';
+import type { Realm } from '../realm/realm.js';
+import { RealmRegistry } from '../realm/registry.js';
+import { dispatchApprovedEpisode, DispatchError, commandFromEpisode, type DispatchApprovedResult } from '../swarm/command-dispatch.js';
+import { asRankedDecision, decideRankedAction, validateRankedDecision, type RankedDecisionInput } from '../swarm/nba-decision.js';
+import { analyseRankedAdoption } from '../swarm/adoption.js';
+import { buildEsaTwin, scoreEsaTwinDrift, esaPatientOutcome } from '../swarm/anemia-twin.js';
+import type { EpisodeOrder } from '../swarm/outcome-episode.js';
 import type { EventBroker } from './event-broker.js';
 import { InProcessEventBroker } from './inprocess-event-broker.js';
 import { KafkaBridge, seedBridgeOutbox, tenantValidation, type BridgeStore } from './kafka-bridge.js';
@@ -44,7 +51,19 @@ export interface SwarmRouteOptions {
   realms?: () => LiveRealmSource[];
   /** Real realm ledger events (projected into the exec event feed). */
   events?: () => Array<{ realmId: string; eventId: string; kind: string; status: string; emittedAt: string; realmAt?: string; presenceId?: string; payload: Record<string, unknown> }>;
+  /** Resolve a live realm by id for an approved-order dispatch. Defaults to the
+   *  process registry; injectable so tests can supply their own realm. */
+  realmOf?: (realmId: string) => Realm | undefined;
 }
+
+/**
+ * How a recorded decision presents as a status. A deferral and a handoff are
+ * deliberately distinct from `dismissed` — they are live actions, just not here/now,
+ * so collapsing them into "dismissed" would misreport every clinician who snoozed.
+ */
+const DECISION_STATUS: Record<NbaDecision['decision'], string> = {
+  approved: 'executed', dismissed: 'dismissed', deferred: 'deferred', 'handed-off': 'handed-off',
+};
 
 /** A few canonical events to seed the embedded kafka-bridge demo. */
 function demoBridgeEvents(): CanonicalEvent[] {
@@ -231,6 +250,33 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
   earlyWarningSignals = null; // fresh watch per app instance
 
   const ws = (): SwarmWorkspaceStore => workspace as SwarmWorkspaceStore;
+
+  /**
+   * Place the approved order for an episode and report the outcome without
+   * pretending. A dispatch failure never erases the recorded decision — the
+   * signature and the write-back are separate facts, and the caller is told which
+   * one is missing.
+   */
+  const dispatchForBare = (
+    episodeId: string,
+    realmId?: string,
+    approvedBy?: string,
+  ): { dispatch?: DispatchApprovedResult; dispatchError?: { code: string; message: string } } => {
+    try {
+      const dispatch = dispatchApprovedEpisode({
+        coordinator: coord(),
+        episodeId,
+        realmOf: opts.realmOf ?? ((id: string) => RealmRegistry.get(id)),
+        ...(realmId !== undefined ? { realmId } : {}),
+        ...(approvedBy !== undefined ? { approvedBy } : {}),
+      });
+      return { dispatch };
+    } catch (err) {
+      if (err instanceof DispatchError) return { dispatchError: { code: err.code, message: err.message } };
+      return { dispatchError: { code: 'dispatch-failed', message: err instanceof Error ? err.message : String(err) } };
+    }
+  };
+
   const realmCounts = (realmId?: string): { units: number; patients: number; presences: number; effects: number } => {
     const realms = liveRealms(opts);
     const target = realmId ? realms.find((r) => r.realmId === realmId) : realms[0];
@@ -272,46 +318,60 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
     for (const d of decisions) byId.set(d.nbaId, d);
     const nbas = s.nbas.map((n) => ({
       ...n,
-      status: byId.has(n.nbaId) ? (byId.get(n.nbaId)!.decision === 'approved' ? 'executed' : 'dismissed') : n.status,
+      // A deferral or a handoff is NOT a dismissal. Calling it one would tell every
+      // reader the clinician said no when they actually said "not now" or "not mine".
+      status: byId.has(n.nbaId) ? DECISION_STATUS[byId.get(n.nbaId)!.decision] : n.status,
     }));
     return { nbas, decisions: [...byId.values()], advisory: true };
   });
 
   app.get('/admin/swarm/nba/decisions', async () => ({ decisions: await ws().listNbaDecisions() }));
 
+  // Adoption metrics: is the ranking being answered, why is it being refused, and is
+  // work moving between people. Deliberately NOT a scoreboard — see swarm/adoption.ts
+  // for why time-to-decision is reported as unavailable rather than estimated.
+  app.get('/admin/swarm/adoption', async () => {
+    const s = await state(opts);
+    return analyseRankedAdoption(s.nbas, await ws().listNbaDecisions());
+  });
+
   // Durable NBA decision — approvals open/advance the outcome episode, dismissals
-  // record the human override; both write an audit row and survive restarts.
-  app.post<{ Params: { id: string }; Body: { decision?: 'approved' | 'dismissed'; approver?: string } }>(
+  // record the human override, deferrals and handoffs keep the action alive without
+  // touching the clinical state. The rules for all four live in swarm/nba-decision.ts
+  // so this route and My Work cannot disagree about what a valid answer is.
+  app.post<{ Params: { id: string }; Body: { decision?: 'approved' | 'dismissed' | 'deferred' | 'handed-off'; approver?: string; reason?: string; deferUntil?: string; handedTo?: string; handedToConsole?: string } }>(
     '/admin/swarm/nba/:id/decide',
     async (req, reply) => {
       const s = await state(opts);
       const nba = s.nbas.find((n) => n.nbaId === req.params.id);
       if (!nba) return reply.code(404).send({ error: 'nba-not-found' });
-      const decision = req.body?.decision === 'dismissed' ? 'dismissed' : 'approved';
-      const approver = req.body?.approver ?? 'operator';
-      let episodeId: string | undefined;
-      if (decision === 'approved') {
-        const ep = coord().getOrOpen({ kind: 'continuity.proposal', subject: nba.subject, scopeType: nba.scopeType });
-        try {
-          coord().addEvidence(ep.episodeId, nba.evidence.map((e) => ({ sourceId: e.sourceId, contentType: e.contentType })), true);
-          coord().propose(ep.episodeId, {
-            proposalId: `prop-${ep.episodeId}`, cellId: nba.cells[0] ?? 'treatment-continuity', kind: 'continuity.proposal',
-            subject: nba.subject, scopeType: nba.scopeType, option: 'human-authorized plan', recommendation: nba.title,
-            allowed: true, evidence: nba.evidence.map((e) => ({ sourceId: e.sourceId, contentType: e.contentType })),
-            producedAt: new Date().toISOString(), payload: { expectedOutcome: nba.expectedOutcome },
-          }, true);
-          coord().requestApproval(ep.episodeId, nba.approvalClass);
-        } catch {
-          // already advanced — idempotent
-        }
-        episodeId = ep.episodeId;
-      }
-      const record = await ws().recordNbaDecision({
-        nbaId: nba.nbaId, title: nba.title, subject: nba.subject, scopeType: nba.scopeType,
-        decision, approver, evidenceCount: nba.evidenceCount, expectedOutcome: nba.expectedOutcome,
-        ...(episodeId ? { episodeId } : {}),
+      const reason = req.body?.reason?.trim();
+      const deferUntil = req.body?.deferUntil?.trim();
+      const handedTo = req.body?.handedTo?.trim();
+      const answer: RankedDecisionInput = {
+        decision: asRankedDecision(req.body?.decision),
+        approver: req.body?.approver ?? 'operator',
+        ...(reason !== undefined ? { reason } : {}),
+        ...(deferUntil !== undefined ? { deferUntil } : {}),
+        ...(handedTo !== undefined ? { handedTo } : {}),
+        ...(req.body?.handedToConsole !== undefined ? { handedToConsole: req.body.handedToConsole } : {}),
+      };
+      const rejection = validateRankedDecision(answer);
+      if (rejection) return reply.code(rejection.status).send({ error: rejection.error, detail: rejection.detail });
+      const { decision: record } = await decideRankedAction({
+        ws: ws(),
+        coord: coord(),
+        nba: {
+          nbaId: nba.nbaId, title: nba.title, subject: nba.subject, scopeType: nba.scopeType,
+          evidenceCount: nba.evidenceCount, expectedOutcome: nba.expectedOutcome,
+          evidence: nba.evidence.map((e) => ({ sourceId: e.sourceId, contentType: e.contentType })),
+          approvalClass: nba.approvalClass,
+          cells: nba.cells,
+          ...(nba.insightKind !== undefined ? { protocol: nba.insightKind } : {}),
+          ...(nba.conflictMass !== undefined ? { conflictMass: nba.conflictMass } : {}),
+        },
+        answer,
       });
-      await ws().addSwarmAudit({ actor: approver, action: `nba.${decision}`, entityType: 'next-best-action', entityId: nba.nbaId, decision, detail: nba.title });
       return { decision: record };
     },
   );
@@ -325,7 +385,7 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
 
   app.get('/admin/swarm/rollups', async () => computeRollups(await state(opts)));
 
-  app.post<{ Body: { kind: string; subject: string; scopeType: string } }>('/admin/swarm/episodes', async (req) => {
+  app.post<{ Body: { kind: string; subject: string; scopeType: string; realmId?: string } }>('/admin/swarm/episodes', async (req) => {
     const { kind, subject, scopeType } = req.body ?? {};
     if (!kind || !subject || !scopeType) return { error: 'kind, subject and scopeType are required' };
     const e = coord().open({ kind, subject, scopeType: scopeType as 'region' | 'facility' | 'patient' });
@@ -348,35 +408,100 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
       return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
-  app.post<{ Params: { id: string }; Body: { decision: 'approved' | 'rejected'; approver: string; approvalClass: ApprovalClass; action?: WorldEffectKind } }>(
+  app.post<{ Params: { id: string }; Body: { decision: 'approved' | 'rejected'; approver: string; approvalClass: ApprovalClass; action?: WorldEffectKind; realmId?: string; order?: EpisodeOrder } }>(
     '/admin/swarm/episodes/:id/decide',
     async (req, reply) => {
       try {
         const e = coord().get(req.params.id);
         if (!e) return reply.code(404).send({ error: 'outcome-episode-not-found' });
-        const { decision, approver, approvalClass, action } = req.body ?? {};
+        const { decision, approver, approvalClass, action, realmId, order } = req.body ?? {};
         coord().decide(e.episodeId, decision ?? 'approved', approver ?? 'operator', approvalClass ?? 'B');
-        if (decision !== 'rejected' && action) {
-          if (e.proposal?.cellId && !cellAllows(e.proposal.cellId, action)) {
-            return reply.code(400).send({ error: `action-not-allowed: cell ${e.proposal.cellId} may not emit ${action}` });
+        // The pack authored the action, the dose and the realm on its proposal, so a
+        // client only has to state its decision. Anything the body does send wins.
+        const derived = commandFromEpisode(e);
+        const effectiveAction = action ?? derived.action;
+        const effectiveOrder = order ?? derived.order;
+        const effectiveRealm = realmId ?? derived.realmId;
+        if (decision !== 'rejected' && effectiveAction) {
+          if (e.proposal?.cellId && !cellAllows(e.proposal.cellId, effectiveAction)) {
+            return reply.code(400).send({ error: `action-not-allowed: cell ${e.proposal.cellId} may not emit ${effectiveAction}` });
           }
-          coord().dispatchCommand(e.episodeId, action);
+          coord().dispatchCommand(e.episodeId, effectiveAction, {
+            ...(effectiveOrder !== undefined ? { order: effectiveOrder } : {}),
+            ...(effectiveRealm !== undefined ? { realmId: effectiveRealm } : {}),
+          });
         }
-        return { episode: coord().get(e.episodeId) };
+        // The decision is recorded and stays recorded. Whether the ORDER landed is
+        // reported separately, because the two are different facts: a clinician's
+        // signature is valid even when the write-back cannot be completed, and a
+        // silent failure here is what made approval look like it did nothing.
+        const dispatch = decision === 'rejected'
+          ? null
+          : dispatchForBare(req.params.id, (effectiveRealm ?? e.realmId));
+        return {
+          episode: coord().get(e.episodeId),
+          ...(dispatch ?? {}),
+        };
       } catch (err) {
         return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
       }
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { by?: string; measureId?: string; met?: boolean } }>(
+  app.post<{ Params: { id: string }; Body: { realmId?: string; approvedBy?: string } }>(
+    '/admin/swarm/episodes/:id/dispatch',
+    async (req, reply) => {
+      const result = dispatchForBare(req.params.id, req.body?.realmId, req.body?.approvedBy);
+      if (result.dispatchError) {
+        return reply.code(400).send({ episode: coord().get(req.params.id), ...result });
+      }
+      return { episode: coord().get(req.params.id), ...result };
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { by?: string; measureId?: string; met?: boolean; kind?: 'measure' | 'patient-outcome'; patientId?: string; realmId?: string } }>(
     '/admin/swarm/episodes/:id/ack',
     async (req, reply) => {
       try {
         const e = coord().get(req.params.id);
         if (!e) return reply.code(404).send({ error: 'outcome-episode-not-found' });
-        const { by, measureId, met } = req.body ?? {};
+        const { by, measureId, met, kind, patientId, realmId } = req.body ?? {};
         coord().acknowledge(e.episodeId, by ?? 'facility');
+        if (kind === 'patient-outcome') {
+          // The patient's OWN response, not a facility-level measure: build the twin
+          // from the live ledger and score forecast-vs-observed. Too little data is
+          // reported as insufficient and does NOT resolve the episode on a guess.
+          const target = patientId ?? (e.subject.startsWith('patient:') ? e.subject.slice('patient:'.length) : undefined);
+          if (!target) return reply.code(400).send({ error: 'patient-outcome-requires-a-patient' });
+          const targetRealmId = realmId ?? e.realmId;
+          const realm = targetRealmId !== undefined ? RealmRegistry.get(targetRealmId) : undefined;
+          if (!realm) return reply.code(400).send({ error: 'realm-required-for-patient-outcome' });
+          const events = realm.ledger.listAll().map((entry) => {
+            const effect = entry.effect as { kind: string; patientId?: string } & Record<string, unknown>;
+            return {
+              realmId: realm.id,
+              eventId: entry.effectId,
+              kind: effect.kind,
+              emittedAt: entry.emittedAt,
+              realmAt: entry.realmAt,
+              ...(typeof effect.patientId === 'string' ? { patientId: effect.patientId } : {}),
+              payload: effect as Record<string, unknown>,
+            };
+          });
+          const twin = buildEsaTwin({
+            patientId: target,
+            events,
+            patients: [{ realmId: realm.id, patientId: target, state: {} }],
+          });
+          const outcome = esaPatientOutcome(scoreEsaTwinDrift(twin));
+          coord().verify(e.episodeId, {
+            measureId: `patient:${target}:hgb-response`,
+            met: outcome.met,
+            kind: 'patient-outcome',
+            detail: `${outcome.detail} (n=${outcome.n})`,
+          }, 'patient-twin');
+          return { episode: coord().get(e.episodeId), outcome };
+        }
         coord().verify(e.episodeId, { measureId: measureId ?? 'ecqm:M21Basic/1.0.0', met: met ?? true });
         return { episode: coord().get(e.episodeId) };
       } catch (err) {

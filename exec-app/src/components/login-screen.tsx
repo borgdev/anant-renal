@@ -67,7 +67,7 @@ export default function LoginScreen({ onAuthed }: { onAuthed: () => void }) {
       <div className="exec-login-card">
         <div className="exec-login-brand">
           <span className="brand-mark"><Activity size={22} aria-hidden="true" /></span>
-          <div><strong>Renal Swarm</strong><small>Observer Mechanics</small></div>
+          <div><strong>AnantHealth</strong></div>
         </div>
         <h1>Sign in to the executive console</h1>
         <p className="exec-login-sub">Role and scope are enforced server-side — the browser never grants authority.</p>

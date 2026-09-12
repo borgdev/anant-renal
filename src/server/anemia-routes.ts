@@ -42,7 +42,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { getSwarmWorkspace, getSwarmCoordinator } from './swarm-routes.js';
 import {
   buildAnemiaDemo, dropAnemiaEpisodes, anemiaEpisodes, seedAnemiaEpisodes,
-  ESA_CELLS, ESA_FEATURES, HGB_TARGET, ESA_ADVISOR_MODEL,
+  ESA_CELLS, ESA_FEATURES, HGB_TARGET, ESA_ADVISOR_MODEL, ANEMIA_CONSUMED_BY,
   type EsaPatientWindow,
 } from '../swarm/anemia.js';
 import {
@@ -65,6 +65,9 @@ import {
   type EsaClinicianAction,
 } from '../swarm/anemia-validation.js';
 import type { RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
+import { RealmRegistry } from '../realm/registry.js';
+import { renalPatientInputs } from '../swarm/renal-cohort.js';
+import { clinicalNbaState, anemiaFindings, ANEMIA_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
 
 export interface AnemiaRouteOptions {
   /** Seed the durable anemia episodes on POST /demo. Default true. */
@@ -119,8 +122,46 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
   const missingWindow = (body: Partial<EsaPatientWindow>): boolean =>
     !body.patientId || body.currentHgb === undefined || body.onESA === undefined;
 
-  const twinEvents = (): EsaTwinEventInput[] => opts.events?.() ?? [];
-  const twinPatients = (): EsaTwinPatientInput[] => opts.patients?.() ?? [];
+  /** Ledger events for the ESA twin (Hb/iron results + ESA and iron orders). */
+  const esaLedgerEvents = (): EsaTwinEventInput[] => {
+    const out: EsaTwinEventInput[] = [];
+    for (const realm of RealmRegistry.list()) {
+      for (const e of realm.ledger.listAll()) {
+        const payload = e.effect as Record<string, unknown>;
+        const pid = payload.patientId;
+        out.push({
+          realmId: realm.id,
+          eventId: e.effectId,
+          kind: e.effect.kind,
+          emittedAt: e.emittedAt,
+          ...(e.realmAt ? { realmAt: e.realmAt } : {}),
+          ...(typeof pid === 'string' ? { patientId: pid } : {}),
+          payload,
+        });
+      }
+    }
+    return out;
+  };
+
+  const esaPatientInputs = (): EsaTwinPatientInput[] =>
+    renalPatientInputs(RealmRegistry.list()).map((p) => ({
+      realmId: p.realmId,
+      patientId: p.id,
+      state: p as unknown as Record<string, unknown>,
+    }));
+
+  const twinEvents = (): EsaTwinEventInput[] => opts.events?.() ?? esaLedgerEvents();
+  const twinPatients = (): EsaTwinPatientInput[] => opts.patients?.() ?? esaPatientInputs();
+
+  /** Live governed ESA windows — one per realm patient the twin can build (a
+   *  patient with no Hb observation yields no window and therefore no action). */
+  const liveEsaWindows = (): Array<{ window: EsaPatientWindow; realmId: string | null }> => {
+    const patients = twinPatients();
+    const events = twinEvents();
+    return patients
+      .map((p) => buildEsaTwin({ patientId: p.patientId, events, patients }))
+      .flatMap((t) => (t.window ? [{ window: t.window, realmId: t.realmId }] : []));
+  };
 
   /** Persist a durable drift snapshot for one patient (idempotent per patient). */
   const persistTwinDrift = async (patientId: string, twin: EsaTwin, drift: EsaTwinDriftScore): Promise<boolean> => {
@@ -159,9 +200,36 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
 
   app.get('/admin/swarm/anemia/state', async () => {
     const reference = buildAnemiaDemo();
+    const live = liveEsaWindows();
+    // Anemia is Hb-first: every action here is a dose titration or a substrate
+    // (iron) check on a REAL window, and coverage can block the dose outright.
+    const actions = clinicalNbaState({
+      protocol: 'anemia',
+      insightKind: 'anemia.esa.proposal',
+      cells: ESA_CELLS,
+      consumedBy: ANEMIA_CONSUMED_BY,
+      actionMap: ANEMIA_CLINICAL_ACTIONS,
+      findings: anemiaFindings(
+        live.map(({ window, realmId }) => ({
+          rec: esaRecommendCovered(window, { coverageGateEnabled: true }),
+          // The engine's own curve travels with the finding into the approval, so the
+          // dose a clinician approves is the dose the analysis actually selected.
+          whatIf: esaWhatIf(window),
+          ...(window.facilityId !== undefined ? { facilityId: window.facilityId } : {}),
+          ...(realmId ? { realmId } : {}),
+        })),
+      ),
+    });
+    const payload = clinicalActionsPayload(actions);
     return {
       ...reference,
+      nbaSource: live.length ? 'realm-ledger' : 'demo-fixture',
+      patients: live.length,
       episodes: anemiaEpisodes(coord()),
+      actions: payload,
+      // The fixture's hand-written NBAs are replaced by the live set whenever the
+      // fleet actually yields windows. No fabricated patient id survives.
+      nbas: payload.nbas,
     };
   });
 

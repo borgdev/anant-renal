@@ -8,6 +8,7 @@
  */
 
 import { responseOrThrow } from "./session";
+import type { RankedActionsPayload } from "./ranked-actions";
 
 export interface FluidFeature { id: string; label: string; unit: string; min: number; max: number; relevance: number }
 export type FluidAction = "reduce-uf-rate" | "extend-time-for-uf" | "review-dry-weight" | "profile-temperature-sodium" | "adherence-first" | "hold" | "blocked";
@@ -100,6 +101,7 @@ export interface FluidStateView {
   withTelemetry: number;
   kpis: { sessionsTracked: number; telemetryPoints: number; hypotensionRatePct: number; blockedByGuardrails: number; coverageBlocked: number };
   windows: FluidWindowView[];
+  actions?: RankedActionsPayload;
 }
 
 export interface FluidArtifactStatus {

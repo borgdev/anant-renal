@@ -7,6 +7,7 @@
  */
 
 import { responseOrThrow } from "./session";
+import type { RankedActionsPayload } from "./ranked-actions";
 
 export interface MbdFeature { id: string; label: string; unit: string; min: number; max: number; relevance: number }
 
@@ -134,6 +135,7 @@ export interface MbdStateView {
   withCompleteTriplet: number;
   kpis: { patientsTracked: number; inTarget: number; hyperphosphatemic: number; hypercalcemic: number; safetyReviewProposed: number; coverageBlocked: number };
   windows: MbdWindowView[];
+  actions?: RankedActionsPayload;
 }
 
 export interface MbdArtifactStatus {

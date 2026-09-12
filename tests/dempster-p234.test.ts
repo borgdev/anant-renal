@@ -66,8 +66,9 @@ describe('P3 — reliability discounting', () => {
 
 describe('P2 — belief-aware NBA ranking', () => {
   const base: NbaCandidate = {
-    title: 'Protect treatments', cells: ['continuity'], scopeType: 'region', subject: 'region:x', owner: 'ROD',
-    due: 'Today', evidence: [], consensus: 0.9, approvalClass: 'B', expectedOutcome: 40, urgency: 0.8,
+    title: 'Protect treatments', cells: ['treatment-continuity'], scopeType: 'region', subject: 'region:x', owner: 'ROD',
+    due: 'Today', evidence: [], action: { kind: 'schedule-followup' }, valueUnit: 'treatments',
+    consensus: 0.9, approvalClass: 'B', expectedOutcome: 40, urgency: 0.8,
     policyCost: 0.3, risk: 0.2,
   };
 
@@ -79,7 +80,7 @@ describe('P2 — belief-aware NBA ranking', () => {
     expect(legacy[0]!.title).toBe('Tight interval');
     const aware = rankNextBestActions([wide, tight], { beliefAware: true });
     expect(aware[0]!.title).toBe('Tight interval');
-    expect(scoreCandidateBeliefAware(tight, {}, 0.3, 0.5, 50)).toBeGreaterThan(scoreCandidateBeliefAware(wide, {}, 0.3, 0.5, 50));
+    expect(scoreCandidateBeliefAware(tight, {}, 0.3, 0.5)).toBeGreaterThan(scoreCandidateBeliefAware(wide, {}, 0.3, 0.5));
     expect(plausibilityOfHarm(wide)).toBeCloseTo(0.375, 3); // 0.2 risk + 0.5·0.35
   });
 
