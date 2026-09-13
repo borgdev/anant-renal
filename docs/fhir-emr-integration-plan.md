@@ -185,6 +185,19 @@ Manual: create a connection to the emulator, test it, see the capability report,
 
 ## F3 — Patient & resource identity resolution
 
+> **SHIPPED 2026-09-13** (deliverables 1–5; see `docs/fhir-reality.md` §F3 for
+> the ladder, the guardrail, and the merge bug the tests found). Deliverable 6
+> (Encounter continuity) is **half done**: the outbound half — one standing
+> episode per (patient, facility, modality), reconciled rather than created — has
+> held since F7; the *inbound* half (an EMR `Encounter` attaching to an open
+> episode) is not built. Also not built: the human-resolution console task for an
+> `ambiguous` outcome (the seam and the API exist; nothing files the work item).
+>
+> The hazard this closed was live: `applyStructural` keyed an inbound `Patient`
+> by its remote id, so a matching MRN created **a second chart** for a patient
+> who already had one. An unresolvable inbound patient now **fails its entry**,
+> so a transaction rolls back rather than writing about the wrong human.
+
 Closes **B1, B2, B4, B7**. **This is the package that prevents wrong-patient writes.** Do not ship F9 without it.
 
 ### Deliverables

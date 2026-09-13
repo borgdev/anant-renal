@@ -50,6 +50,18 @@ import { R4_RESOURCES } from './r4-inventory.js';
 import { FhirEmulator, emulatorSearchBundle, seedFhirDataset } from './emulator.js';
 import { TYPED_FHIR_RESOURCES, type FhirCtx } from './types.js';
 import { terminologyReport } from './code-registry.js';
+import {
+  IdentifierSystemRegistry,
+  PatientIdentityService,
+  demographicsFromPatient,
+  type IdentifierKind,
+  type IdentifiedEntity,
+  type IdentifierSystem,
+  type IdentityMethod,
+  type LocalPatientDemographics,
+} from './identity.js';
+import type { IdentitySnapshot } from './canonical.js';
+import { getSwarmWorkspace } from '../server/swarm-routes.js';
 
 /** F4 — the code-fidelity half of the coverage report (see /fhir/terminology/report). */
 function codeFidelityReport(): Record<string, unknown> {
@@ -284,6 +296,183 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
       return reply.code(502).send({ error: 'poll-failed', message: err instanceof Error ? err.message : String(err) });
     }
   });
+
+  /* ------------------------------------------------ F3 identity resolution */
+
+  /**
+   * Resolve an inbound Patient against a realm's population WITHOUT writing
+   * anything. This is the endpoint a registration console calls to show the
+   * human an ambiguous outcome and let them decide.
+   */
+  app.post<{ Body: { realmId: string; patient: unknown; minConfidence?: number; allowDemographics?: boolean } }>(
+    '/admin/fhir/identity/resolve',
+    async (req, reply) => {
+      const { realmId, patient } = req.body ?? {};
+      const realm = RealmRegistry.get(realmId);
+      if (!realm) return reply.code(404).send({ error: 'realm-not-found' });
+      if (!patient) return reply.code(400).send({ error: 'patient-required' });
+      const ws = getSwarmWorkspace();
+      if (!ws) return reply.code(503).send({ error: 'workspace-unavailable' });
+
+      // Resolve THROUGH the service, not the bare function: the service is what
+      // folds our own cross-references into the population. Calling the pure
+      // matcher directly silently drops the `cross-reference` rung, so a patient
+      // we had already linked would read as unknown.
+      const snapshot = await identitySnapshotFor(realmId);
+      const service = new PatientIdentityService(snapshot.registry, ws.identityLinkStore());
+      const resolution = await service.resolve(demographicsFromPatient(patient), snapshot.population, {
+        realmId,
+        ...(typeof req.body.minConfidence === 'number' ? { minConfidence: req.body.minConfidence } : {}),
+        ...(typeof req.body.allowDemographics === 'boolean' ? { allowDemographics: req.body.allowDemographics } : {}),
+      });
+      return {
+        ...resolution,
+        // Stated plainly so a caller cannot mistake 'resolved' for 'safe to write
+        // blind': an ambiguous or unresolved answer means NO write.
+        writesBlocked: resolution.blocksWrite,
+      };
+    },
+  );
+
+  /** Cross-references for a realm — the evidence behind every resolved patient. */
+  app.get<{ Params: { realmId: string } }>('/admin/fhir/identity/links/:realmId', async (req, reply) => {
+    const ws = getSwarmWorkspace();
+    if (!ws) return reply.code(503).send({ error: 'workspace-unavailable' });
+    const links = await ws.listCrossReferences(req.params.realmId);
+    return {
+      realmId: req.params.realmId,
+      count: links.length,
+      unverified: links.filter((l) => !l.verified && !l.supersededBy).length,
+      links,
+    };
+  });
+
+  /**
+   * Record a link, verify an inferred one, or merge a duplicate.
+   *
+   * A human-created link is `verified: true` by construction — that is the whole
+   * point of the manual path.
+   */
+  app.post<{ Body: {
+    realmId?: string; localPatientId?: string; remoteSystem?: string; remotePatientId?: string;
+    confidence?: number; method?: string; verified?: boolean; actor?: string;
+    merge?: { fromLocalPatientId: string; toLocalPatientId: string };
+  } }>('/admin/fhir/identity/link', async (req, reply) => {
+    const body = req.body ?? {};
+    const actor = body.actor ?? 'operator';
+    const ws = getSwarmWorkspace();
+    if (!ws) return reply.code(503).send({ error: 'workspace-unavailable' });
+    const service = new PatientIdentityService(new IdentifierSystemRegistry(await identifierSystemsWithDurable(ws)), ws.identityLinkStore());
+
+    if (body.merge) {
+      const moved = await service.mergeInto(body.merge.fromLocalPatientId, body.merge.toLocalPatientId, actor);
+      return { ok: true, merged: moved.length, links: moved };
+    }
+    if (!body.localPatientId || !body.remoteSystem || !body.remotePatientId) {
+      return reply.code(400).send({ error: 'localPatientId-remoteSystem-remotePatientId-required' });
+    }
+    const link = await service.link({
+      ...(body.realmId ? { realmId: body.realmId } : {}),
+      localPatientId: body.localPatientId,
+      remoteSystem: body.remoteSystem,
+      remotePatientId: body.remotePatientId,
+      confidence: typeof body.confidence === 'number' ? body.confidence : 1,
+      method: (body.method as IdentityMethod | undefined) ?? 'cross-reference',
+      linkedBy: actor,
+      verified: body.verified ?? true,
+    });
+    return { ok: true, link };
+  });
+
+  /** The identifier systems in force — defaults plus this deployment's additions. */
+  app.get('/admin/fhir/identity/systems', async (_req, reply) => {
+    const ws = getSwarmWorkspace();
+    if (!ws) return reply.code(503).send({ error: 'workspace-unavailable' });
+    const durable = await ws.listIdentifierSystems();
+    return {
+      systems: await identifierSystemsWithDurable(ws),
+      durableCount: durable.length,
+      note: 'Add a connection-specific system with POST { system, kind, entityKind, authoritative, label } or an assigner OID via { oid }.',
+    };
+  });
+
+  app.post<{ Body: { system?: string; oid?: string; kind?: string; entityKind?: string; authoritative?: boolean; label?: string } }>(
+    '/admin/fhir/identity/systems',
+    async (req, reply) => {
+      const body = req.body ?? {};
+      const ws = getSwarmWorkspace();
+      if (!ws) return reply.code(503).send({ error: 'workspace-unavailable' });
+      if (body.oid) {
+        const entry = new IdentifierSystemRegistry().registerOid(body.oid, {
+          ...(body.entityKind ? { entityKind: body.entityKind as IdentifiedEntity } : {}),
+          ...(typeof body.authoritative === 'boolean' ? { authoritative: body.authoritative } : {}),
+          ...(body.label ? { label: body.label } : {}),
+        });
+        await ws.saveIdentifierSystem(entry);
+        return { ok: true, system: entry };
+      }
+      if (!body.system) return reply.code(400).send({ error: 'system-or-oid-required' });
+      const entry = {
+        system: body.system,
+        kind: (body.kind as IdentifierKind | undefined) ?? 'other',
+        entityKind: (body.entityKind as IdentifiedEntity | undefined) ?? 'patient',
+        authoritative: body.authoritative ?? false,
+        label: body.label ?? body.system,
+      };
+      await ws.saveIdentifierSystem(entry);
+      return { ok: true, system: entry };
+    },
+  );
+}
+
+/** Defaults plus the durable additions, as one registry. */
+async function identifierSystemsWithDurable(ws: NonNullable<ReturnType<typeof getSwarmWorkspace>>): Promise<IdentifierSystem[]> {
+  const durable = await ws.listIdentifierSystems();
+  const registry = new IdentifierSystemRegistry();
+  for (const entry of durable) {
+    registry.register({
+      system: entry.system,
+      kind: entry.kind,
+      entityKind: entry.entityKind,
+      authoritative: entry.authoritative,
+      label: entry.label,
+    });
+  }
+  return registry.systems();
+}
+
+/**
+ * Build the identity snapshot for a realm from ITS OWN patient entities.
+ *
+ * The population is the realm's live patients, not a separate index: a
+ * resolution answer that disagrees with the chart is worse than no answer.
+ */
+export async function identitySnapshotFor(realmId: string): Promise<IdentitySnapshot> {
+  const realm = RealmRegistry.get(realmId);
+  const ws = getSwarmWorkspace();
+  const durable = ws ? await ws.listIdentifierSystems() : [];
+  const registry = new IdentifierSystemRegistry();
+  for (const entry of durable) {
+    registry.register({
+      system: entry.system,
+      kind: entry.kind,
+      entityKind: entry.entityKind,
+      authoritative: entry.authoritative,
+      label: entry.label,
+    });
+  }
+  const population: LocalPatientDemographics[] = (realm?.graph.listKind('patient') ?? []).map((rec) => {
+    const st = (rec.state ?? {}) as { name?: string; sex?: string; birthDate?: string; age?: number; mrn?: string };
+    const parts = (st.name ?? '').split(' ');
+    return {
+      localPatientId: rec.id,
+      ...(st.name ? { family: parts[parts.length - 1] ?? st.name, ...(parts.length > 1 ? { given: parts[0] } : {}) } : {}),
+      ...(st.birthDate ? { birthDate: st.birthDate } : {}),
+      ...(st.sex ? { sex: st.sex } : {}),
+      identifiers: [{ system: 'urn:ananthealth:local-patient-id', value: rec.id }, ...(st.mrn ? [{ system: 'urn:mrn', value: st.mrn }] : [])],
+    };
+  });
+  return { registry, population, links: ws ? await ws.listCrossReferences(realmId) : [] };
 }
 
 function countByType(resources: readonly { resourceType: string }[]): Record<string, number> {

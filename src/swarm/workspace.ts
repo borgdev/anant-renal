@@ -69,6 +69,7 @@ import type { RoundSnapshot } from './round-digest.js';
 // runtime cycle between the swarm workspace and the FHIR layer.
 import type { FhirAuthMode, VendorId } from '../fhir/vendor-profile.js';
 import type { CapabilityReport, CapabilityStatementSummary } from '../fhir/capability.js';
+import type { IdentifierSystem, IdentityLinkStore, PatientCrossReference } from '../fhir/identity.js';
 
 export type WorkspaceKind =
   | 'red-team-scenario'
@@ -115,6 +116,8 @@ export type WorkspaceKind =
   | 'platform-canvas'
   | 'agent-kill-switch'
   | 'agent-rollback'
+  | 'patient-cross-reference'
+  | 'identifier-system'
   | 'dlq-remediation'
   | 'assurance-finding'
   | 'green-team-run'
@@ -2531,6 +2534,66 @@ export class SwarmWorkspaceStore {
     })) as AdminKafka;
   }
 
+  /* ---------- F3 identity: cross-references + identifier systems ---------- */
+
+  async listCrossReferences(realmId?: string): Promise<PatientCrossReference[]> {
+    const rows = await this.list<PatientCrossReference & WorkspaceDoc>('patient-cross-reference');
+    return realmId ? rows.filter((r) => r.realmId === realmId) : rows;
+  }
+
+  /**
+   * Idempotent per (patient, remote system, remote id) — linkage is a fact about
+   * two records, so re-deriving it must update the evidence, not add a second row.
+   */
+  async saveCrossReference(ref: PatientCrossReference): Promise<PatientCrossReference> {
+    const existing = await this.get<PatientCrossReference & WorkspaceDoc>('patient-cross-reference', ref.id);
+    if (existing) {
+      const updated = await this.update<PatientCrossReference & WorkspaceDoc>(
+        'patient-cross-reference',
+        ref.id,
+        ref as unknown as Partial<PatientCrossReference & WorkspaceDoc>,
+      );
+      return updated as unknown as PatientCrossReference;
+    }
+    const created = await this.create<PatientCrossReference & WorkspaceDoc>(
+      'patient-cross-reference',
+      ref.id,
+      ref as unknown as Omit<PatientCrossReference & WorkspaceDoc, 'id' | 'createdAt' | 'updatedAt'>,
+    );
+    return created as unknown as PatientCrossReference;
+  }
+
+  /** The `IdentityLinkStore` seam consumed by `PatientIdentityService`. */
+  identityLinkStore(): IdentityLinkStore {
+    return {
+      listCrossReferences: (realmId?: string) => this.listCrossReferences(realmId),
+      saveCrossReference: (ref: PatientCrossReference) => this.saveCrossReference(ref),
+      deleteCrossReference: (id: string) => this.remove('patient-cross-reference', id),
+    };
+  }
+
+  /**
+   * Connection-specific identifier systems (an assigner OID, an Epic MRN
+   * namespace). The shipped defaults live in `identity.ts`; this holds the
+   * additions, so a deployment's registry survives a restart.
+   */
+  async listIdentifierSystems(): Promise<IdentifierSystem[]> {
+    return this.list<IdentifierSystem & WorkspaceDoc>('identifier-system');
+  }
+
+  async saveIdentifierSystem(entry: IdentifierSystem): Promise<IdentifierSystem> {
+    const id = entry.system;
+    const existing = await this.get<IdentifierSystem & WorkspaceDoc>('identifier-system', id);
+    const created = existing
+      ? await this.update<IdentifierSystem & WorkspaceDoc>('identifier-system', id, entry as unknown as Partial<IdentifierSystem & WorkspaceDoc>)
+      : await this.create<IdentifierSystem & WorkspaceDoc>(
+          'identifier-system',
+          id,
+          entry as unknown as Omit<IdentifierSystem & WorkspaceDoc, 'id' | 'createdAt' | 'updatedAt'>,
+        );
+    return created as unknown as IdentifierSystem;
+  }
+
   /* ---------- FHIR / EMR connection accessors ---------- */
 
   async getFhirIntegration(): Promise<FhirIntegration> {
@@ -3063,6 +3126,8 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'platform-canvas',
   'agent-kill-switch',
   'agent-rollback',
+  'patient-cross-reference',
+  'identifier-system',
   'dlq-remediation',
   'assurance-finding',
   'green-team-run',

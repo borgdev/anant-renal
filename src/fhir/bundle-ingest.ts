@@ -36,7 +36,7 @@ import { createHash } from 'node:crypto';
 import type { Realm } from '../realm/realm.js';
 import type { EmittedEffect, EntityKind, EntityRecord, RealmMode } from '../realm/types.js';
 import type { Bundle, BundleEntry, FhirCtx, FhirResource, OperationOutcome } from './types.js';
-import { ingestResource, isStructuralKind, type FhirIngestOptions } from './canonical.js';
+import { ingestResource, isStructuralKind, type FhirIngestOptions, type IdentitySnapshot } from './canonical.js';
 import { buildBundleRefIndex, resolveBundleReferences } from './fhir-bundle.js';
 import { entityKindFromResource, RESOURCE_TO_KIND } from './mapping.js';
 import { captureSnapshot, restoreSnapshot, type RealmSnapshotV1 } from '../realm/realm-snapshot.js';
@@ -123,6 +123,14 @@ export interface IngestBundleOptions {
   defaultUnitId?: string;
   /** Preview mode — apply against a snapshot, then roll back and report what WOULD happen. */
   dryRun?: boolean;
+  /**
+   * F3 — resolve inbound patients against the local population.
+   *
+   * Omit it and an inbound `Patient` is adopted by its remote id, which is only
+   * safe for a same-system replay. An EMR feed MUST supply this, or a patient
+   * whose MRN the harness has not seen before silently becomes a second chart.
+   */
+  identity?: IdentitySnapshot;
 }
 
 function reasonPhrase(status: number): string {
@@ -209,7 +217,10 @@ export async function ingestFhirBundle(realm: Realm, ctx: FhirCtx, bundle: Bundl
 
   const n = bundle.entry?.length ?? 0;
   const outcomes: Array<BundleEntryOutcome | undefined> = new Array(n);
-  const ingestOpts: FhirIngestOptions = { realm, ctx, presence, events: [], defaultUnitId: opts.defaultUnitId ?? 'U1' };
+  const ingestOpts: FhirIngestOptions = {
+    realm, ctx, presence, events: [], defaultUnitId: opts.defaultUnitId ?? 'U1',
+    ...(opts.identity ? { identity: opts.identity } : {}),
+  };
   const summary = { hydrated: resources.length, persisted: 0, effectsApplied: 0, effectsRejected: 0, structuralUpserts: 0, skipped: [] as string[] };
   let failed = false;
 

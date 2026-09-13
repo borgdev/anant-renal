@@ -47,6 +47,14 @@ import type { AgentPresence, EmittedEffect, EntityKind, EntityRecord } from '../
 import type { CanonicalEvent } from '../healthcare-core/events.js';
 import type { FhirCtx, FhirResource } from './types.js';
 import { ENTITY_FHIR, entityKindFromResource, RESOURCE_TO_KIND } from './mapping.js';
+import {
+  demographicsFromPatient,
+  resolvePatientIdentity,
+  type IdentifierSystemRegistry,
+  type IdentityResolution,
+  type LocalPatientDemographics,
+  type PatientCrossReference,
+} from './identity.js';
 
 export interface FhirIngestResult {
   resourceCount: number;
@@ -62,6 +70,53 @@ export interface FhirIngestOptions {
   events: readonly CanonicalEvent[];
   /** Default unit for structural/effect ingestion when the resource doesn't pin one. */
   defaultUnitId?: string;
+  /**
+   * F3 — the identity snapshot for this ingest.
+   *
+   * Passed in rather than looked up so resolution stays SYNCHRONOUS: a bundle
+   * must apply or roll back as one unit, and an await in the middle of that
+   * window is a chance for the population to move under it.
+   *
+   * When omitted, an inbound Patient is treated as its own local patient (the
+   * pre-F3 behaviour) — fine for a same-system replay, never for an EMR feed.
+   */
+  identity?: IdentitySnapshot;
+}
+
+/** Everything `resolvePatientIdentity` needs, loaded once per ingest. */
+export interface IdentitySnapshot {
+  registry: IdentifierSystemRegistry;
+  population: readonly LocalPatientDemographics[];
+  links: readonly PatientCrossReference[];
+  /** Record an ambiguous/unresolved outcome for a human to review. */
+  onAmbiguous?: (input: { resolution: IdentityResolution; remotePatientId: string }) => void;
+}
+
+/**
+ * Resolve an inbound Patient to a LOCAL patient id.
+ *
+ * Returns the resolution rather than throwing: the caller decides whether an
+ * unresolved identity is a refusal (a write path, always) or a note.
+ */
+export function resolveInboundPatient(
+  resource: FhirResource,
+  snapshot: IdentitySnapshot,
+): IdentityResolution {
+  const incoming = demographicsFromPatient(resource);
+  const links = snapshot.links;
+  const enriched: LocalPatientDemographics[] = snapshot.population.map((p) => ({
+    ...p,
+    crossReferences: [
+      ...(p.crossReferences ?? []),
+      ...links
+        .filter((l) => !l.supersededBy && l.localPatientId === p.localPatientId)
+        .map((l) => ({ remoteSystem: l.remoteSystem, remotePatientId: l.remotePatientId, verified: l.verified })),
+    ],
+  }));
+  const resolution = resolvePatientIdentity(incoming, enriched, snapshot.registry, {
+    ...(snapshot.onAmbiguous ? { onAmbiguous: (r) => snapshot.onAmbiguous!({ resolution: r, remotePatientId: resource.id ?? '' }) } : {}),
+  });
+  return resolution;
 }
 
 function refId(ref: unknown): string | undefined {
@@ -541,10 +596,21 @@ function isStructuralResource(resource: FhirResource): boolean {
   return !!kind && isStructuralKind(kind) && !!resource.id;
 }
 
-function applyStructural(realm: Realm, kind: EntityKind, resource: FhirResource): EntityRecord | undefined {
+function applyStructural(
+  realm: Realm,
+  kind: EntityKind,
+  resource: FhirResource,
+  localId?: string,
+): EntityRecord | undefined {
   const state = structuralState(kind, resource);
   if (Object.keys(state).length === 0) return undefined;
-  return upsertStructural(realm, kind, resource.id!, state);
+  // F3 — a Patient is the ONE structural resource where using the remote id is a
+  // clinical hazard: `Patient/e63a…` and `f1-pt-0001` can be the same human, and
+  // keying on the remote id would fork a second chart for them. Everything else
+  // (org, unit, device) is safe to key by its source id.
+  const id = kind === 'patient' ? localId : resource.id!;
+  if (!id) return undefined;
+  return upsertStructural(realm, kind, id, state);
 }
 
 /** Apply a single FHIR resource to a realm — structural upsert OR effect emission (Phase A two-pass building block). */
@@ -555,7 +621,28 @@ export function ingestResource(
   const { realm, ctx, presence } = opts;
   const kind = resourceKind(resource);
   if (kind && isStructuralKind(kind) && resource.id) {
-    const structural = applyStructural(realm, kind, resource);
+    // F3 — establish WHO this is before writing anything about them.
+    //
+    // With an identity snapshot loaded, an inbound Patient must resolve to a
+    // local patient. `ambiguous` and `unresolved` both REFUSE: one needs a
+    // human decision, the other needs an identifier. Before F3 the remote id
+    // was simply adopted, so a mismatched MRN silently created a second chart
+    // for a patient who already had one — the wrong-patient write this package
+    // exists to prevent.
+    let localId = resource.id;
+    if (kind === 'patient' && opts.identity) {
+      const resolution = resolveInboundPatient(resource, opts.identity);
+      if (resolution.status !== 'resolved' || !resolution.localPatientId) {
+        return {
+          skipped:
+            `patient-identity-${resolution.status}:` +
+            `${resolution.candidates.length}-candidate(s):` +
+            (resolution.reasons[resolution.reasons.length - 1] ?? 'no matching patient'),
+        };
+      }
+      localId = resolution.localPatientId;
+    }
+    const structural = applyStructural(realm, kind, resource, localId);
     if (structural) return { structural };
     return { skipped: `no-structural-state:${resource.resourceType}` };
   }

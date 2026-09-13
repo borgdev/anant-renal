@@ -280,3 +280,105 @@ Recorded here rather than left to be discovered.
   would reference a device we cannot name. Deferred deliberately.
 * **`record-session-telemetry` per-reading emission** — the batch helper supports
   it (`batchSize`), but nothing calls it per reading yet.
+
+## F3 shipped (2026-09-13) — identity, and a write that cannot be constructed
+
+Closes **B1, B2, B3, B4, B7**. This is the package that prevents wrong-patient
+writes, which is why the plan sequences it before F9.
+
+The hazard was concrete and sitting in `canonical.ts`: `applyStructural` keyed an
+inbound `Patient` by **its remote id**, so an EMR patient `Patient/e63a…` whose
+MRN matched `f1-pt-0001` was simply adopted — **a second chart for a patient who
+already had one**, with clinical data then flowing into it.
+
+**The matching ladder** (`src/fhir/identity.ts`), in order:
+
+| rung | evidence | confidence | auto-applies |
+|---|---|---|---|
+| a | exact identifier on an **authoritative** system | 1.0 | yes |
+| b | a cross-reference we already hold | 1.0 | yes |
+| c | exact demographics (family + given + DOB + sex, normalised) | 0.95 | yes |
+| d | resemblance (name variant, DOB tolerance) | ≤0.9 | **never** |
+
+Three properties do the actual work:
+
+* **A fuzzy match is a lead, not an answer.** Rung (d) is capped below the
+  auto-apply ceiling, so it is *shown to a human* but can never satisfy
+  `status: 'resolved'` on its own. A plausible-looking link between two similar
+  people is worse than no link, because the data then flows confidently to the
+  wrong chart.
+* **Ambiguity is an outcome, not an error.** Two candidates returns
+  `{ status: 'ambiguous', candidates }` — a human decision — instead of a 500
+  someone retries until it happens to match.
+* **Every link records HOW it was made** (`method`, `confidence`, `linkedBy`,
+  `verified`). A link a human confirmed and a link inferred from a name and a
+  birth date are not the same evidence, and the console can now say which one it
+  holds. A fuzzy-derived link is stored `verified: false`.
+
+**The guardrail is a function, not a convention.** Write paths call
+`requirePatientIdentity(resolution)`, which **throws**
+`UnresolvedPatientIdentityError` unless the identity resolved. `ambiguous` and
+`unresolved` both refuse. A test asserts a write cannot be constructed for a
+patient with no verified cross-reference.
+
+**On the ingest path** an unresolvable inbound `Patient` **fails its entry** — so
+in a `transaction` Bundle the whole thing rolls back. Nothing is written about a
+patient we cannot place. Verified by test: a phantom chart is not created, the
+population is unchanged, and the skip code names the reason
+(`patient-identity-ambiguous`, `patient-identity-unresolved`). Without an
+identity snapshot the pre-F3 adopt-by-remote-id behaviour is **preserved and
+documented** — correct for a same-system replay, never for an EMR feed.
+
+**Outbound (B2/B3).** `outboundPatientIdentity()` emits
+`Patient/<remoteId>` (the receiving system's name for the patient) plus our MRN
+as an `identifier`, so a vendor's own record merge can still be reconciled.
+`stableResourceId(effectId)` derives a deterministic 32-hex id from the effect,
+so a retried `push()` **PUTs an update** instead of POSTing a duplicate — one
+line of code with an enormous correctness payoff.
+
+**Corrections (B5).** `correctionFrom()` detects `entered-in-error` on any
+resource and `Patient.link: replaced-by` merges; `correctionFromStatus(410)`
+treats a gone resource as a deletion notice rather than a transport failure. A
+correction **supersedes** — it never deletes, because erasing the record of a
+wrong value is exactly what an audit needs.
+
+### The bug the tests found
+
+`mergeInto` initially re-pointed the cross-reference but left the OLD row alive,
+so a lookup by remote id still returned the **merged-away** patient — data would
+keep flowing to the dead chart, the same wrong-patient outcome by a different
+route. Fixed two ways: the store's `deleteCrossReference` retires the row, and
+for a store that *cannot* delete, the row is marked `supersededBy` and every
+lookup skips superseded rows. A test covers both, and a third asserts the
+**moved** row does *not* carry `supersededBy` — if it did, the merge would
+resolve to nothing and the patient would read as unknown.
+
+A second real bug: the `/admin/fhir/identity/resolve` route called the pure
+matcher directly, **bypassing the cross-reference rung** — so a patient we had
+already linked read as `unresolved`. The route now resolves through
+`PatientIdentityService`, which is what folds our own links into the population.
+
+### Surface
+
+`POST /admin/fhir/identity/resolve` (who is this? — writes nothing),
+`GET /admin/fhir/identity/links/:realmId` (the evidence, with an `unverified`
+count), `POST /admin/fhir/identity/link` (record / verify / `{ merge }`),
+`GET`/`POST /admin/fhir/identity/systems` (defaults plus this deployment's
+assigner OIDs, durable). Cross-references and identifier systems are durable
+`workspace` kinds, so a deployment's linkage survives a restart.
+
+### Not done in this slice
+
+* **Inbound `Encounter` continuity** (D12) — the *outbound* half already holds
+  (F7 reconciles one standing episode per patient/facility/modality, and a test
+  asserts N sessions → one `Encounter`). The inbound half — an EMR `Encounter`
+  for a patient already in an open episode **attaches** rather than creating a
+  parallel one, and we reconcile where the EMR already holds the episode — is
+  not built.
+* **The human-resolution console task.** `onAmbiguous` is the seam and the API
+  answers `ambiguous` correctly, but nothing yet files a work item for it. Until
+  it does, `MD`/`safety` have no queue entry to act on and an ambiguous patient
+  is simply refused.
+* **`Patient.link` merge detection is not wired to `mergeInto`.** The detector
+  exists; nothing calls the merge when it fires.
+
