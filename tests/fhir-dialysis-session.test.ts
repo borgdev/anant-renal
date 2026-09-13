@@ -303,14 +303,24 @@ describe('F7 · volume is measured, not assumed', () => {
     };
     const bytes = Buffer.byteLength(JSON.stringify(bundle), 'utf8');
 
-    // A session is a handful of resources. If a change makes one session huge,
-    // this fails BEFORE the batching policy is discovered to be wrong in
-    // production. Telemetry (F8) is what would blow this up — it is batched
-    // per session precisely for that reason.
-    expect(resources.length).toBeLessThanOrEqual(8);
+    // Two DIFFERENT budgets live here, so keep them apart. The session SUMMARY
+    // (Procedure + delivered metrics) is a fixed handful of resources. Telemetry
+    // is proportional to the sampling cadence and is F8's budget to own —
+    // tests/fhir-telemetry.test.ts measures 436 resources / 376 KiB for a
+    // 48-point session, which is why a session is shipped as a transaction
+    // bundle rather than resource-by-resource.
+    const telemetryResources = resources.filter((r) => /-t\d+-/.test(String(r.id)));
+    const summary = resources.filter((r) => !/-t\d+-/.test(String(r.id)));
+
+    // runSession samples TWO points, each carrying bp + hr + qb.
+    expect(telemetryResources).toHaveLength(6);
+    expect(summary.length).toBeLessThanOrEqual(8);
     expect(bytes).toBeLessThan(16 * 1024);
     // Recorded so a reviewer can see the number rather than infer it.
-    console.log(`[F7] one dialysis session → ${resources.length} resources, ${bytes} bytes (transaction bundle)`);
+    console.log(
+      `[F7] one dialysis session → ${summary.length} summary resources + ` +
+      `${telemetryResources.length} telemetry; ${bytes} bytes (transaction bundle)`,
+    );
   });
 
   it('the session bundle ingests atomically', async () => {

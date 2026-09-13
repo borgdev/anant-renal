@@ -364,6 +364,25 @@ Closes **D1, D3, D4, D6, D7, D11, D13**.
 
 ## F8 — Intra-session telemetry without losing it
 
+> **SHIPPED 2026-09-13** (all five deliverables; see `docs/fhir-reality.md` §F8
+> for the measured payload sizes and the live wire run). Two deviations, both
+> deliberate and recorded there:
+> * **#1** the cap is raised to 720 and any overflow is **counted**
+>   (`telemetryDropped`) rather than moving telemetry to its own append-only
+>   table. A durable time-series table is the better long-term answer but it is
+>   a storage change, not a wire change; counting the loss means the current
+>   behaviour is at least no longer silent.
+> * **#3** `DeviceMetric` is **not** emitted. The `Observation`s carry the same
+>   information and no machine `Device` entity exists yet, so a `DeviceMetric`
+>   would reference a device we cannot name.
+>
+> Also found: the simulator samples **one** telemetry point per session, so the
+> demo shows a dot rather than a trend. The wire path is exercised at 48 and 720
+> points by tests.
+>
+> Measured rather than assumed: 48 points → **436 resources / 376 KiB / 1 atomic
+> transaction**; 720 points → **6,484 resources / 5.6 MiB / 7 transactions**.
+
 Closes **D2** and the *"lossy even internally"* finding.
 
 ### Deliverables

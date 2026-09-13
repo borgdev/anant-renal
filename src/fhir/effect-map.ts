@@ -451,6 +451,87 @@ export function effectToFhirResource(effect: WorldEffect, opts: EffectFhirOption
       } as never, ctx)];
     }
 
+    /* ------------------------------------------- F8 · intra-session detail */
+
+    case 'record-session-telemetry': {
+      // One reading. The session batches every point at `end-session`; this
+      // projection exists so a single reading is representable on its own (and
+      // so `effectResourceType` is honest about the capability).
+      const at = opts.issued ?? ctx.ingestedAt;
+      const sessionId = opts.sessionId;
+      const out: FhirResource[] = [];
+      const add = (slug: string, domain: 'vital' | 'session-telemetry', category: 'vital-signs' | 'hemodynamic', value: number | undefined, unit: string): void => {
+        if (value === undefined) return;
+        out.push(stamp({
+          resourceType: 'Observation',
+          ...(sessionId ? { id: `${sessionId}-t${effect.minute}-${slug}` } : {}),
+          status: 'final',
+          category: [conceptFor('observation-category', category)],
+          code: conceptFor(domain, slug),
+          subject: subject() ? { reference: subject() } : undefined,
+          ...(encountered() ? { encounter: { reference: encountered() } } : {}),
+          ...(sessionId ? { partOf: [{ reference: `Procedure/${sessionId}` }] } : {}),
+          effectiveDateTime: at,
+          valueQuantity: { value, unit },
+        } as never, ctx));
+      };
+      add('hr', 'vital', 'vital-signs', effect.hr, 'bpm');
+      add('temp', 'vital', 'vital-signs', effect.tempC, 'C');
+      add('qb', 'session-telemetry', 'hemodynamic', effect.qb, 'mL/min');
+      add('qd', 'session-telemetry', 'hemodynamic', effect.qd, 'mL/min');
+      add('venous-pressure', 'session-telemetry', 'hemodynamic', effect.venousPressure, 'mmHg');
+      add('arterial-pressure', 'session-telemetry', 'hemodynamic', effect.arterialPressure, 'mmHg');
+      add('uf-rate', 'session-telemetry', 'hemodynamic', effect.ufRateMlH, 'mL/h');
+      add('uf-volume', 'session-telemetry', 'hemodynamic', effect.ufVolumeL, 'L');
+      if (effect.bp) {
+        const [sys, dia] = effect.bp.split('/').map((x) => Number(x));
+        out.push(stamp({
+          resourceType: 'Observation',
+          ...(sessionId ? { id: `${sessionId}-t${effect.minute}-bp` } : {}),
+          status: 'final',
+          category: [conceptFor('observation-category', 'vital-signs')],
+          code: conceptFor('vital', 'bp'),
+          subject: subject() ? { reference: subject() } : undefined,
+          ...(sessionId ? { partOf: [{ reference: `Procedure/${sessionId}` }] } : {}),
+          effectiveDateTime: at,
+          component: [
+            { code: conceptFor('vital', 'bp-systolic'), valueQuantity: { value: sys, unit: 'mmHg' } },
+            { code: conceptFor('vital', 'bp-diastolic'), valueQuantity: { value: dia, unit: 'mmHg' } },
+          ],
+        } as never, ctx));
+      }
+      return out;
+    }
+
+    case 'record-access-acoustic': {
+      // SYNTHETIC ONLY, enforced on the WRITE PATH as well as in the reducer: a
+      // mel-band feature vector must never reach an EMR looking like a real
+      // measurement. The payload is a coded placeholder plus a provenance
+      // extension — never the audio, and never presented as measured data.
+      if ((effect as { synthetic?: boolean }).synthetic !== true) {
+        throw new Error(
+          `refusing to write acoustic capture ${effect.captureId}: the synthetic flag is not set. ` +
+            'A derived feature vector is not a measurement and must not be filed as one.',
+        );
+      }
+      return [stamp({
+        resourceType: 'Observation',
+        id: effect.captureId,
+        status: 'final',
+        category: [conceptFor('observation-category', 'survey')],
+        code: conceptFor('safety-flag', 'access-risk'),
+        subject: subject() ? { reference: subject() } : undefined,
+        ...(encountered() ? { encounter: { reference: encountered() } } : {}),
+        effectiveDateTime: opts.issued ?? ctx.ingestedAt,
+        extension: [
+          { url: 'urn:ananthealth:fhir/StructureDefinition/synthetic-capture', valueBoolean: true },
+          { url: 'urn:ananthealth:fhir/StructureDefinition/capture-provenance', valueString: effect.provenance },
+          { url: 'urn:ananthealth:fhir/StructureDefinition/capture-baseline', valueBoolean: effect.baseline },
+          { url: 'urn:ananthealth:fhir/StructureDefinition/feature-kind', valueString: effect.featureKind ?? 'mel-band-energies' },
+        ],
+      } as never, ctx)];
+    }
+
     default:
       return []; // shadow/observability effects (record-agent-thought, notify-staff, …) have no wire resource
   }
@@ -472,6 +553,9 @@ export function effectResourceType(effect: WorldEffect): string[] {
     case 'start-session': return ['Procedure'];
     case 'end-session': return ['Procedure', 'Observation'];
     case 'record-access': return ['Observation', 'Procedure', 'AdverseEvent'];
+    // F8 — intra-session detail.
+    case 'record-session-telemetry': return ['Observation'];
+    case 'record-access-acoustic': return ['Observation'];
     default: return [];
   }
 }

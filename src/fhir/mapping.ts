@@ -1176,6 +1176,10 @@ function serializeDialysisSession(rec: EntityRecord, ctx: FhirCtx): FhirResource
     performedPeriod: { start: startedAt, ...(endedAt ? { end: endedAt } : {}) },
     // A stopped-early session or a complication is a coded outcome, not free text.
     ...(str(st['outcome']) ? { outcome: { text: str(st['outcome'])! } } : {}),
+    // F8 — intradialytic symptoms belong to the session, not to a fake Observation.
+    ...(Array.isArray(st['symptoms']) && (st['symptoms'] as string[]).length > 0
+      ? { note: [{ text: `Intradialytic symptoms: ${(st['symptoms'] as string[]).join(', ')}` }] }
+      : {}),
   };
 
   const resources: FhirResource[] = [procedure];
@@ -1203,6 +1207,76 @@ function serializeDialysisSession(rec: EntityRecord, ctx: FhirCtx): FhirResource
       valueQuantity: { value },
     });
   }
+
+  // F8 — intra-session telemetry, one Observation per point per channel. Vital
+  // signs and MACHINE channels are different categories: a dialysate flow rate
+  // filed as a patient observation is wrong in a way an EMR will not correct
+  // for us. Each point's minute offset is resolved to a real timestamp.
+  const telemetry = Array.isArray(st['telemetry']) ? (st['telemetry'] as Array<Record<string, unknown>>) : [];
+  const startMs = Date.parse(startedAt);
+  const vitalChannels: ReadonlyArray<[string, string, string]> = [
+    ['hr', 'hr', 'bpm'],
+    ['tempC', 'temp', 'C'],
+  ];
+  const machineChannels: ReadonlyArray<[string, string, string]> = [
+    ['qb', 'qb', 'mL/min'],
+    ['qd', 'qd', 'mL/min'],
+    ['venousPressure', 'venous-pressure', 'mmHg'],
+    ['arterialPressure', 'arterial-pressure', 'mmHg'],
+    ['ufRateMlH', 'uf-rate', 'mL/h'],
+    ['ufVolumeL', 'uf-volume', 'L'],
+  ];
+  const telemetryObs = (
+    slug: string, domain: 'vital' | 'session-telemetry', category: 'vital-signs' | 'hemodynamic',
+    value: number, unit: string, at: string, index: number,
+  ): FhirResource => ({
+    resourceType: 'Observation',
+    id: `${rec.id}-t${index}-${slug}`,
+    meta: { source: ctx.sourceId, lastUpdated: rec.updatedAt },
+    status: 'final',
+    category: [conceptFor('observation-category', category)],
+    code: conceptFor(domain, slug),
+    ...(patientId ? { subject: { reference: `Patient/${patientId}` } } : {}),
+    ...(episodeId ? { encounter: { reference: `Encounter/${episodeId}` } } : {}),
+    partOf: [{ reference: `Procedure/${rec.id}` }],
+    effectiveDateTime: at,
+    valueQuantity: { value, unit },
+  } as never);
+
+  for (const [index, point] of telemetry.entries()) {
+    const minute = num(point['minute']) ?? 0;
+    const at = str(point['at'])
+      ?? (Number.isFinite(startMs) ? new Date(startMs + minute * 60_000).toISOString() : startedAt);
+    for (const [key, slug, unit] of vitalChannels) {
+      const v = num(point[key]);
+      if (v !== undefined) resources.push(telemetryObs(slug, 'vital', 'vital-signs', v, unit, at, index));
+    }
+    for (const [key, slug, unit] of machineChannels) {
+      const v = num(point[key]);
+      if (v !== undefined) resources.push(telemetryObs(slug, 'session-telemetry', 'hemodynamic', v, unit, at, index));
+    }
+    const bp = str(point['bp']);
+    if (bp) {
+      const [sys, dia] = bp.split('/').map((x) => Number(x));
+      resources.push({
+        resourceType: 'Observation',
+        id: `${rec.id}-t${index}-bp`,
+        meta: { source: ctx.sourceId, lastUpdated: rec.updatedAt },
+        status: 'final',
+        category: [conceptFor('observation-category', 'vital-signs')],
+        code: conceptFor('vital', 'bp'),
+        ...(patientId ? { subject: { reference: `Patient/${patientId}` } } : {}),
+        ...(episodeId ? { encounter: { reference: `Encounter/${episodeId}` } } : {}),
+        partOf: [{ reference: `Procedure/${rec.id}` }],
+        effectiveDateTime: at,
+        component: [
+          { code: conceptFor('vital', 'bp-systolic'), valueQuantity: { value: sys, unit: 'mmHg' } },
+          { code: conceptFor('vital', 'bp-diastolic'), valueQuantity: { value: dia, unit: 'mmHg' } },
+        ],
+      } as never);
+    }
+  }
+
   return resources;
 }
 

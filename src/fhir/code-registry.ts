@@ -82,7 +82,8 @@ export type CodeDomain =
   | 'procedure-category'
   | 'body-weight'
   | 'session-metric'
-  | 'access-metric';
+  | 'access-metric'
+  | 'session-telemetry';
 
 export type CodeFidelity = 'verified' | 'local';
 
@@ -297,6 +298,15 @@ export const CODE_SEEDS: readonly CodeEntry[] = Object.freeze([
   l('access-metric', 'access-flow', 'Access flow', 'no concept verified'),
   l('access-metric', 'recirculation', 'Access recirculation', 'no LOINC concept found'),
   l('access-metric', 'blood-flow', 'Blood flow rate (Qb)', 'no concept verified'),
+  // F8 — the MACHINE channels sampled during a session. These are hemodynamic,
+  // not vital signs: conflating them makes an EMR file a dialysate flow rate as
+  // a patient observation.
+  v('session-telemetry', 'qd', LOINC, '99712-2', 'Dialysate flow rate Renal replacement therapy circuit', V.loinc),
+  v('session-telemetry', 'venous-pressure', SNOMED, '252076005', 'Venous pressure', V.snomed),
+  v('session-telemetry', 'uf-volume', LOINC, '99741-1', 'Ultrafiltrate volume removed', V.loinc),
+  l('session-telemetry', 'qb', 'Blood flow rate (Qb)', 'no LOINC/SNOMED concept verified'),
+  l('session-telemetry', 'arterial-pressure', 'Arterial pressure', 'only a MONITORING concept verified, not a pressure value'),
+  l('session-telemetry', 'uf-rate', 'Ultrafiltration rate', 'no concept verified'),
 
   // ---- Financial / administrative ----------------------------------------
   v('claim-type', 'institutional', FHIR_TX + '/claim-type', 'institutional', 'Institutional', V.fhir, SPEC),

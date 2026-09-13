@@ -194,11 +194,89 @@ the patient id and is stable across sessions and replays.
   rejects).
 * **`titrate-med` / `hold-med` as proposals** — the D1 proposal path, which is F9.
 * **ESRD-QIP `MeasureReport`** (D8) and **CMS forms / NHSN** (D9).
-* **`record-session-telemetry` → `Observation` / `DeviceMetric`** — that is F8,
-  which also fixes the silent 24-point telemetry cap. Telemetry therefore still
-  reports `[]` from `effectResourceType`; every other renal effect names a
-  resource.
+* ~~**`record-session-telemetry` → `Observation`**~~ — **shipped in F8** (below),
+  which also fixed the silent 24-point telemetry cap.
 
-Volume is measured rather than assumed: one session serializes to **4 resources /
-2957 bytes** as a single `transaction` bundle, printed by the test. Telemetry is
-what would blow that budget up, which is why F8 batches per session.
+Volume is measured rather than assumed: the session SUMMARY (Procedure +
+delivered metrics) is **4 resources / 2957 bytes**, printed by the test.
+Telemetry is additive and proportional to cadence, which is why F8 ships the
+whole session as one `transaction` bundle instead of resource-by-resource.
+
+## F8 shipped (2026-09-13) — telemetry, and a cap that counted what it dropped
+
+`record-session-telemetry` and `record-access-acoustic` both fell through
+`effectResourceType()` to `[]`. Two things were wrong, and only one of them was
+visible.
+
+**The visible one: no telemetry reached the EMR.** Now every point projects one
+`Observation` per channel, each carrying `effectiveDateTime`, `subject`, the
+episode `encounter`, and **`partOf` → the session `Procedure`** — which is what
+makes a reading attributable instead of a loose series.
+
+**The invisible one: the cap was losing data silently.** The reducer kept
+`[...points].slice(-24)`. At 5-minute cadence a 4-hour session is 48 points, so
+half of every session was discarded — and nothing recorded that it had happened.
+The cap is now `MAX_SESSION_TELEMETRY_POINTS = 720` (4 hours at 20-second
+cadence) and anything still dropped is accumulated into `telemetryDropped`, so a
+truncation shows up as a number instead of as a session that looks complete.
+
+**A machine channel is not a vital sign.** `qd`, `venous-pressure` and
+`uf-volume` are `hemodynamic`; `hr`, `temp` and blood pressure are
+`vital-signs`. Filing a dialysate flow rate as a patient observation is wrong in
+a way an EMR will not correct for us. Verified against the authorities: LOINC
+`99712-2` (dialysate flow rate), SNOMED `252076005` (venous pressure), LOINC
+`99741-1` (ultrafiltrate volume removed). `qb`, `arterial-pressure` and
+`uf-rate` had **no verifiable concept**, so they are declared `local` against
+our own code system rather than given a plausible-looking licensed code.
+
+**The session ships atomically.** `src/fhir/session-bundle.ts` emits a
+`transaction` Bundle — FHIR's apply-or-roll-back unit — with `PUT` on every
+entry, because every id is derived from the session id and a replay must
+overwrite rather than duplicate.
+
+| session | resources | bytes | shape |
+|---|---|---|---|
+| 48 points (4h @ 5 min) | 436 | 385,048 (376 KiB) | **1 atomic transaction** |
+| 720 points (4h @ 20 s) | 6,484 | 5,776,720 (5.6 MiB) | 7 transactions |
+
+`TELEMETRY_BATCH_SIZE` is 1000 because those numbers were measured, not guessed:
+it keeps the canonical session atomic while forcing the extreme one to split. A
+split is reported by `bundleAtomicityNote()` as **atomicity PER BATCH, not per
+session** — a 5.6 MiB single request would be rejected by most servers, and
+pretending otherwise is how half-sessions happen.
+
+**A derived feature vector is not a measurement.** `record-access-acoustic`
+carries mel-band energies, not audio. It is now projectable **only** with the
+synthetic flag set, and that is enforced twice — in the reducer and again on the
+write path in `effect-map.ts`. The projected `Observation` is a coded placeholder
+plus provenance extensions; the feature values never reach the wire.
+
+### Live: telemetry on the wire
+
+Drove the real server (26 → 120 ticks to cross the hour-48 session boundary) and
+exported the realms over HTTP:
+
+* **10 session Procedures** (SNOMED `302497006`), **90 telemetry Observations**
+  with `partOf` → their session Procedure — exactly 9 per session, matching the
+  channel set.
+* Every category landed correctly: `hemodynamic` for `99712-2` / `252076005` /
+  `99741-1` / the three LOCAL channels, `vital-signs` for `8867-4` (HR),
+  `8310-5` (temp) and the `55284-4` blood-pressure panel.
+
+### Known gap this slice did NOT close
+
+The **simulator samples one telemetry point per session** (`sessionTelemetry`
+fires once at `elapsedHours % 48 === 6`). So the demo shows a single dot rather
+than a 48-point trend, and the live run above can only ever show 9 Observations
+per session. The wire path is exercised at 48 and 720 points by
+`tests/fhir-telemetry.test.ts`; the simulator's cadence is a simulation-fidelity
+limitation, not a wire bug, and changing it means re-pinning the seeded stream.
+Recorded here rather than left to be discovered.
+
+### Not done in this slice
+
+* **`DeviceMetric`** for machine channels. The `Observation`s carry the same
+  information and a machine `Device` entity does not exist yet, so a `DeviceMetric`
+  would reference a device we cannot name. Deferred deliberately.
+* **`record-session-telemetry` per-reading emission** — the batch helper supports
+  it (`batchSize`), but nothing calls it per reading yet.

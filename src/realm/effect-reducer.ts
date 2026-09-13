@@ -52,6 +52,15 @@ export interface EffectAuthorityMap {
   [role: string]: Array<WorldEffect['kind']>;
 }
 
+/**
+ * F8 — how many intra-session telemetry points a session retains.
+ *
+ * This was 24, which silently discarded half of a 4-hour session at 5-minute
+ * cadence (and most of one at 1-minute). 720 is 4 hours at 20-second cadence;
+ * anything beyond it is counted in `telemetryDropped` so truncation is visible.
+ */
+export const MAX_SESSION_TELEMETRY_POINTS = 720;
+
 // Effects that ALL roles are always allowed to emit — coordination and
 // observability effects that shouldn't require role-specific gating.
 const UNIVERSAL_EFFECTS: Array<WorldEffect['kind']> = [
@@ -372,7 +381,7 @@ export class EffectReducer {
         const state = g.get(patientUrn)?.state as { currentSession?: { telemetry?: unknown[] } } | undefined;
         const current = state?.currentSession;
         if (!current) throw new Error(`session-missing: ${effect.patientId}`);
-        const telemetry = [...(current.telemetry ?? []), {
+        const points = [...(current.telemetry ?? []), {
           minute: effect.minute, at,
           ...(effect.bp ? { bp: effect.bp } : {}),
           ...(effect.hr !== undefined ? { hr: effect.hr } : {}),
@@ -384,8 +393,21 @@ export class EffectReducer {
           ...(effect.ufVolumeL !== undefined ? { ufVolumeL: effect.ufVolumeL } : {}),
           ...(effect.tempC !== undefined ? { tempC: effect.tempC } : {}),
           ...(effect.symptoms?.length ? { symptoms: effect.symptoms } : {}),
-        }].slice(-24);
-        const patch = { currentSession: { ...current, telemetry } };
+        }];
+        // F8 — the cap is a safety valve, not a data policy. It was 24, which
+        // SILENTLY dropped half of a 4-hour session at 5-minute cadence. 720 is
+        // 4 hours at 20-second cadence, and anything still dropped is COUNTED so
+        // a truncation is visible instead of invisible.
+        const dropped = Math.max(0, points.length - MAX_SESSION_TELEMETRY_POINTS);
+        const telemetry = dropped > 0 ? points.slice(-MAX_SESSION_TELEMETRY_POINTS) : points;
+        const priorDropped = (current as { telemetryDropped?: number }).telemetryDropped ?? 0;
+        const patch = {
+          currentSession: {
+            ...current,
+            telemetry,
+            ...(dropped > 0 ? { telemetryDropped: priorDropped + dropped } : {}),
+          },
+        };
         g.patch(patientUrn, patch, `effect:${effect.kind}`);
         results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
         return results;
@@ -436,6 +458,13 @@ export class EffectReducer {
           ...session,
           status: 'completed',
           episodeId: (current.episodeId as string | undefined) ?? undefined,
+          // F8 — the raw telemetry rides the SESSION entity (not the patient's
+          // session ring, which stays compact) so it can be put on the wire as
+          // one Observation per point.
+          telemetry,
+          ...(typeof (current as { telemetryDropped?: number }).telemetryDropped === 'number'
+            ? { telemetryDropped: (current as { telemetryDropped: number }).telemetryDropped }
+            : {}),
           ...(effect.stoppedEarly === true ? { outcome: 'stopped-early' } : {}),
           ...(effect.complication ? { outcome: effect.complication } : {}),
         };

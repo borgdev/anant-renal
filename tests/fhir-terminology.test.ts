@@ -155,6 +155,24 @@ function everyEmittedEffect(): WorldEffect[] {
     });
   }
 
+  // F8 — intra-session telemetry. Every channel, plus the sparse and
+  // symptoms-only shapes, so the net covers the machine codes as well as the
+  // vitals — a machine channel filed as a vital sign would still resolve here,
+  // but the F8 suite pins the category separately.
+  effects.push({
+    kind: 'record-session-telemetry', patientId: pid, minute: 5,
+    bp: '128/78', hr: 82, tempC: 36.5, qb: 350, qd: 500,
+    venousPressure: 140, arterialPressure: -120, ufRateMlH: 650, ufVolumeL: 1.2,
+  });
+  effects.push({ kind: 'record-session-telemetry', patientId: pid, minute: 120, bp: '104/62' });
+  effects.push({ kind: 'record-session-telemetry', patientId: pid, minute: 180, hr: 96, symptoms: ['cramping', 'hypotension'] });
+
+  effects.push({
+    kind: 'record-access-acoustic', patientId: pid, captureId: 'cap-1',
+    features: [0.1, 0.2, 0.3], baseline: true, provenance: 'simulator:thrill-synth',
+    synthetic: true, featureKind: 'mel-band-energies',
+  });
+
   return effects;
 }
 
