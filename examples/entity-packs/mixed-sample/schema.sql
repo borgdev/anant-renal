@@ -6,7 +6,7 @@
 --  This software is licensed, not sold.
 --
 --  The contents of this file constitute confidential and proprietary
---  information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+--  information belonging exclusively to AnantHQ Inc.
 --
 --  This source code incorporates proprietary algorithms, software architecture,
 --  business logic, computational methods, optimization techniques,

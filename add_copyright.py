@@ -8,7 +8,7 @@
 #* This software is licensed, not sold.
 #*
 #* The contents of this file constitute confidential and proprietary
-#* information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+#* information belonging exclusively to AnantHQ Inc.
 #*
 #* This source code incorporates proprietary algorithms, software architecture,
 #* business logic, computational methods, optimization techniques,
@@ -39,10 +39,24 @@ Add the AnantHQ copyright header to all source files in the repository.
 Usage:
     python scripts/add_copyright.py              # Apply to all source files
     python scripts/add_copyright.py --dry-run    # Preview without modifying
-    python scripts/add_copyright.py --check      # Exit 1 if any file is missing header
+    python scripts/add_copyright.py --check      # Exit 1 if any file is missing/stale
 
-The header is read from copyright.md at the repository root.
-Idempotent: skips files that already contain the header.
+The header is read from copyright.md at the repository root. Editing that file
+changes the header every source file receives, so this script is also the way a
+legal-entity rename is propagated.
+
+Two distinct repairs are performed:
+
+  * a file with no header gets one prepended;
+  * a file whose header names a DIFFERENT legal entity has that one line
+    corrected in place, so the block, its position, and its comment style are
+    left untouched and no second header is ever stacked on top of the first;
+  * a file that already carries a compliant notice in some other form (for
+    example a one-line notice fused into its own docblock) is left alone, since
+    prepending would duplicate the notice and rewriting the block would destroy
+    documentation.
+
+Idempotent: a file that already complies with copyright.md is left alone.
 """
 
 import argparse
@@ -121,7 +135,19 @@ EXCLUDE_FILE_PATTERNS = [
     re.compile(r"\./copyright\.md$"),        # The header source itself
     re.compile(r"\./movies\.json$"),         # Movie database (data, not source)
     re.compile(r"\./nango_providers\.yaml$"),# Third-party vendor data
+    re.compile(r"(^|/)\.env(\.|$)"),         # Local secrets, never in the repo
+    re.compile(r"native/liquid-wasm/pkg/"),  # wasm-pack generated bundle
 ]
+
+# ── Header reconciliation ──────────────────────────────────────────────────
+# The ownership entity is the one part of the header that changes when the
+# legal entity changes. Everything else is stable boilerplate, which is what
+# makes a targeted, in-place correction possible instead of a blind prepend.
+ENTITY_PATTERN = re.compile(r"information belonging exclusively to (.+?)\s*$", re.MULTILINE)
+
+# The header never sits deeper in a file than this. Scanning a fixed window
+# bounds the correction so it can never reach prose further down the file.
+HEADER_SCAN_LINES = 40
 
 
 def load_header_text() -> str:
@@ -229,49 +255,119 @@ def find_source_files() -> list[Path]:
     return sorted(files)
 
 
-def file_has_header(filepath: Path, marker: str) -> bool:
-    """Check if a file already has the copyright header."""
+def header_entity(text: str) -> str | None:
+    """Return the 'information belonging exclusively to <entity>' value."""
+    match = ENTITY_PATTERN.search(text)
+    return match.group(1).strip() if match else None
+
+
+def header_window(body: str) -> str:
+    """The leading lines of a file that may contain the header block."""
+    return "\n".join(body.split("\n")[:HEADER_SCAN_LINES])
+
+
+def names_current_entity(text: str, entity: str) -> bool:
+    """True if `text` carries a copyright notice naming `entity`.
+
+    Matches non-canonical notices too, so a file that states the right entity
+    in some other shape is recognised as compliant rather than re-headered.
+    """
+    return re.search(rf"Copyright \(c\) \d{{4}} {re.escape(entity)}", text) is not None
+
+
+def replace_entity_in_header(body: str, old: str, new: str) -> str:
+    """Swap the ownership entity on its own header line, header window only."""
+    lines = body.split("\n")
+    for i in range(min(len(lines), HEADER_SCAN_LINES)):
+        if old in lines[i]:
+            lines[i] = lines[i].replace(old, new)
+            return "\n".join(lines)
+    raise ValueError(f"ownership entity {old!r} not found in the header window")
+
+
+def header_state(filepath: Path, style: str, header_block: str) -> tuple[str, str | None]:
+    """Classify a file's header.
+
+    Returns (state, existing_entity), where state is one of:
+      "ok"        - a header is present and matches the current template
+      "refreshed" - a header is present but names a different legal entity
+      "added"     - there is no header at all
+    """
+    expected = header_for(style, header_block).rstrip("\n")
+    expected_entity = header_entity(header_block)
+
     try:
         with open(filepath, "r") as f:
-            first_lines = "".join([f.readline() for _ in range(35)])
-        return "AnantHQ Inc." in first_lines and marker in first_lines
+            content = f.read()
     except Exception:
-        return False
+        return "ok", None
+
+    body = content
+    if content.startswith("#!"):
+        body = content[content.index("\n") + 1:]
+
+    if body.lstrip("\n").startswith(expected):
+        return "ok", expected_entity
+
+    window = header_window(body)
+
+    # The ownership line is authoritative: if it names another entity, correct
+    # it even though the copyright line above may already read correctly.
+    existing = header_entity(window)
+    if existing is not None:
+        if expected_entity is None or existing == expected_entity:
+            return "ok", existing
+        return "refreshed", existing
+
+    # No ownership line, but a notice naming the current entity: compliant in a
+    # different shape. Leave it -- prepending would stack a second header and
+    # rewriting the leading block would delete the file's own documentation.
+    if expected_entity and names_current_entity(window, expected_entity):
+        return "ok", existing
+
+    return "added", None
 
 
-def process_file(filepath: Path, header_block: str, dry_run: bool = False) -> bool:
-    """Add header to a single file. Returns True if modified."""
+def process_file(filepath: Path, header_block: str, dry_run: bool = False) -> str:
+    """Add or refresh one file's header. Returns the action taken."""
     style = file_matches_style(filepath)
-
     if style is None:
-        return False
+        return "skipped"
 
-    marker = "AnantHQ Inc."
-    header = header_for(style, header_block)
+    action, existing = header_state(filepath, style, header_block)
+    if action == "ok":
+        return "ok"
 
-    if file_has_header(filepath, marker):
-        return False
-
+    rel = filepath.relative_to(REPO_ROOT)
     if dry_run:
-        rel = filepath.relative_to(REPO_ROOT)
-        print(f"  Would add header: {rel}")
-        return True
+        verb = "add header to" if action == "added" else f"refresh entity {existing!r} in"
+        print(f"  Would {verb}: {rel}")
+        return action
 
-    # Read original content
     with open(filepath, "r") as f:
         content = f.read()
 
-    # Handle shebang lines (keep them first)
-    if content.startswith("#!"):
-        newline_idx = content.index("\n")
-        new_content = content[:newline_idx+1] + "\n" + header + content[newline_idx+1:]
+    if action == "added":
+        header = header_for(style, header_block)
+        # Handle shebang lines (keep them first)
+        if content.startswith("#!"):
+            newline_idx = content.index("\n")
+            new_content = content[:newline_idx+1] + "\n" + header + content[newline_idx+1:]
+        else:
+            new_content = header + content
     else:
-        new_content = header + content
+        # Refresh in place: the block, its placement and its comment style are
+        # all already correct -- only the legal entity is stale. Prepending here
+        # would leave the wrong entity in the file and stack a second header.
+        expected_entity = header_entity(header_block)
+        if expected_entity is None:
+            raise ValueError("copyright.md has no 'belonging exclusively to' line")
+        new_content = replace_entity_in_header(content, existing, expected_entity)
 
     with open(filepath, "w") as f:
         f.write(new_content)
 
-    return True
+    return action
 
 
 def main():
@@ -295,23 +391,33 @@ def main():
     files = find_source_files()
     print(f"Found {len(files)} source files to process\n")
 
-    modified = 0
-    skipped = 0
+    added = refreshed = correct = 0
 
     for filepath in files:
-        if process_file(filepath, header_block, dry_run=args.dry_run):
-            modified += 1
+        action = process_file(filepath, header_block, dry_run=args.dry_run)
+        if action == "added":
+            added += 1
+        elif action == "refreshed":
+            refreshed += 1
         else:
-            skipped += 1
+            correct += 1
+
+    changed = added + refreshed
 
     if args.dry_run:
-        print(f"\nDry-run complete. Would modify: {modified}, Already have header: {skipped}")
+        print(
+            f"\nDry-run complete. Would add: {added}, "
+            f"would refresh: {refreshed}, already correct: {correct}"
+        )
     elif args.check:
-        print(f"\nCheck complete. Missing header: {modified}, Have header: {skipped}")
-        if modified > 0:
+        print(
+            f"\nCheck complete. Missing header: {added}, "
+            f"stale entity: {refreshed}, correct: {correct}"
+        )
+        if changed > 0:
             sys.exit(1)
     else:
-        print(f"\nDone! Modified: {modified}, Skipped (already had header): {skipped}")
+        print(f"\nDone! Added: {added}, refreshed: {refreshed}, already correct: {correct}")
 
 
 if __name__ == "__main__":

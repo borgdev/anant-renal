@@ -6,7 +6,7 @@
  * This software is licensed, not sold.
  *
  * The contents of this file constitute confidential and proprietary
- * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ * information belonging exclusively to AnantHQ Inc.
  *
  * Except as expressly permitted by a written license agreement,
  * no person or organization may copy, modify, distribute, or use this file.

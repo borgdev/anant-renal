@@ -30,3 +30,7 @@ renal-swarm-intelligence-source-*.zip
 
 # Reference tree — external hosting/project state
 renal-swarm-intelligence/.openai/
+
+# Python bytecode caches (repo tooling: add_copyright.py and friends)
+__pycache__/
+*.py[cod]
