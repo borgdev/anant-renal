@@ -1,4 +1,37 @@
 /******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to AnantHQ Inc.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
+/******************************************************************************
  * Swarm workspace — durable executive assets for the bounded-cell layer.
  *
  * Every secondary module of the exec console is backed here with REAL CRUD so
@@ -32,6 +65,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ScopeType } from './types.js';
 import type { RoundSnapshot } from './round-digest.js';
+// Type-only: the FHIR modules are leaves in the import graph, so this creates no
+// runtime cycle between the swarm workspace and the FHIR layer.
+import type { FhirAuthMode, VendorId } from '../fhir/vendor-profile.js';
+import type { CapabilityReport, CapabilityStatementSummary } from '../fhir/capability.js';
 
 export type WorkspaceKind =
   | 'red-team-scenario'
@@ -43,6 +80,7 @@ export type WorkspaceKind =
   | 'knowledge-note'
   | 'admin-tenant'
   | 'admin-kafka'
+  | 'admin-fhir'
   | 'admin-policy'
   | 'swarm-event'
   | 'evidence'
@@ -356,6 +394,77 @@ export interface AdminKafka extends WorkspaceDoc {
   testMode?: string;
   testSummary?: string;
 }
+
+/* ---------- FHIR / EMR connection (F0.1) ----------
+ *
+ * The record that was missing entirely: before this, an "EMR" was a base URL
+ * retyped into the subscription-poll form on every call, and the only stored
+ * integration config was Kafka's. This is deliberately shaped like `AdminKafka`
+ * — same storage, same secret-BINDING discipline (a `binding:NAME` reference,
+ * never a literal), same status/test fields — because that pattern already
+ * works and the FHIR case has no reason to invent a second one.
+ *
+ * Note what is NOT here: any secret value. `privateKeyRef` holds a binding name;
+ * the PEM itself lives in the secrets provider. A client-assertion private key is
+ * a higher-value secret than a bearer token and is treated accordingly. */
+export interface FhirIntegration extends WorkspaceDoc {
+  /** Human label, e.g. "Riverbend · Epic production". */
+  label: string;
+  /** The realm this connection hydrates. */
+  realmId: string;
+  /** Which vendor profile governs auth, headers, limits and the ladder. */
+  vendor: VendorId;
+  baseUrl: string;
+  authMode: FhirAuthMode;
+  /** OAuth client id. Not a secret. */
+  clientId?: string;
+  /** Where to exchange the assertion/refresh token. Required for OAuth flows. */
+  tokenEndpoint?: string;
+  /** `binding:NAME` → the PEM private key for Backend Services. */
+  privateKeyRef?: string;
+  /** `binding:NAME` → the OAuth client secret (delegated flow). */
+  clientSecretRef?: string;
+  /** `binding:NAME` → the refresh token captured at consent (delegated flow). */
+  refreshTokenRef?: string;
+  /** `binding:NAME` → a static bearer token. */
+  tokenRef?: string;
+  /** `binding:NAME` → a basic-auth password. */
+  passwordRef?: string;
+  username?: string;
+  /** Space-separated OAuth scopes. */
+  scopes?: string;
+  /** JWT key id, when the vendor requires one. */
+  kid?: string;
+  /**
+   * Values for the vendor's non-standard headers. The header NAMES come from
+   * the profile (e.g. Epic's client-id header); only values live here, so no
+   * tenant identifier is baked into source.
+   */
+  vendorHeaders?: Record<string, string>;
+  /** Resource types this connection may touch. */
+  resourceScope?: string[];
+  readEnabled: boolean;
+  /**
+   * Per-effect-kind publish policy. `shadow` is the default and `bound` requires
+   * a deliberate, human-gated cutover — an absent kind is treated as `off`.
+   */
+  writePolicy?: Record<string, 'off' | 'shadow' | 'bound'>;
+  status: FhirIntegrationStatus;
+  lastTestedAt?: string;
+  testMode?: string;
+  testSummary?: string;
+  /** Cached discovery digest from the last successful contract test. */
+  capabilities?: CapabilityStatementSummary;
+  /** The last negotiated report, so a console can show what is blocked and why. */
+  capabilityReport?: CapabilityReport;
+}
+
+export type FhirIntegrationStatus =
+  | 'not-configured'
+  | 'contract-verified'
+  | 'connected'
+  | 'degraded'
+  | 'failed';
 
 export interface AdminPolicy extends WorkspaceDoc {
   version: string;
@@ -2239,6 +2348,24 @@ export class SwarmWorkspaceStore {
         status: 'not-configured',
       });
     }
+    if (!(await this.get<FhirIntegration>('admin-fhir', 'default'))) {
+      // Seeded NOT-CONFIGURED and with no base URL on purpose: there is no
+      // working default EMR, and inventing one would be a lie the status pill
+      // then has to walk back. The generic profile lets an operator test against
+      // the in-process emulator or a reference server before committing.
+      await this.create<FhirIntegration>('admin-fhir', 'default', {
+        label: 'Reference connection',
+        realmId: '',
+        vendor: 'generic',
+        baseUrl: '',
+        authMode: 'none',
+        readEnabled: false,
+        resourceScope: [],
+        writePolicy: {},
+        vendorHeaders: {},
+        status: 'not-configured',
+      });
+    }
     if (!(await this.get<AdminPolicy>('admin-policy', 'default'))) {
       await this.create<AdminPolicy>('admin-policy', 'default', {
         version: 'action-boundary@5.0.0',
@@ -2402,6 +2529,93 @@ export class SwarmWorkspaceStore {
       testMode: 'contract-only',
       testSummary: 'Contract-only gate completed: authentication, topic allowlist and envelope schema verified against the configured HTTPS bridge.',
     })) as AdminKafka;
+  }
+
+  /* ---------- FHIR / EMR connection accessors ---------- */
+
+  async getFhirIntegration(): Promise<FhirIntegration> {
+    await this.seedAdmin();
+    return (await this.get<FhirIntegration>('admin-fhir', 'default')) as FhirIntegration;
+  }
+
+  /**
+   * Persist a connection. Only keys present in `patch` are written, so a partial
+   * update from the console cannot blank the credentials it did not send — the
+   * same reason the payload is triaged field by field rather than spread.
+   */
+  async saveFhirIntegration(patch: Record<string, unknown>): Promise<FhirIntegration> {
+    await this.seedAdmin();
+    const str = (k: string): string | undefined =>
+      typeof patch[k] === 'string' && (patch[k] as string).length > 0 ? (patch[k] as string) : undefined;
+    const bool = (k: string): boolean | undefined => (typeof patch[k] === 'boolean' ? (patch[k] as boolean) : undefined);
+    const strArray = (k: string): string[] | undefined =>
+      Array.isArray(patch[k]) ? (patch[k] as unknown[]).filter((v): v is string => typeof v === 'string') : undefined;
+    const record = <T>(k: string): Record<string, T> | undefined =>
+      patch[k] && typeof patch[k] === 'object' && !Array.isArray(patch[k]) ? (patch[k] as Record<string, T>) : undefined;
+
+    const vendor = str('vendor');
+    const authMode = str('authMode');
+    const label = str('label');
+    const realmId = str('realmId');
+    const baseUrl = str('baseUrl');
+    const clientId = str('clientId');
+    const tokenEndpoint = str('tokenEndpoint');
+    const privateKeyRef = str('privateKeyRef');
+    const clientSecretRef = str('clientSecretRef');
+    const refreshTokenRef = str('refreshTokenRef');
+    const tokenRef = str('tokenRef');
+    const passwordRef = str('passwordRef');
+    const username = str('username');
+    const scopes = str('scopes');
+    const kid = str('kid');
+    const vendorHeaders = record<string>('vendorHeaders');
+    const resourceScope = strArray('resourceScope');
+    const readEnabled = bool('readEnabled');
+    const writePolicy = record<'off' | 'shadow' | 'bound'>('writePolicy');
+
+    return (await this.update<FhirIntegration>('admin-fhir', 'default', {
+      ...(label ? { label } : {}),
+      ...(realmId ? { realmId } : {}),
+      ...(vendor ? { vendor: vendor as VendorId } : {}),
+      ...(baseUrl ? { baseUrl } : {}),
+      ...(authMode ? { authMode: authMode as FhirAuthMode } : {}),
+      ...(clientId ? { clientId } : {}),
+      ...(tokenEndpoint ? { tokenEndpoint } : {}),
+      ...(privateKeyRef ? { privateKeyRef } : {}),
+      ...(clientSecretRef ? { clientSecretRef } : {}),
+      ...(refreshTokenRef ? { refreshTokenRef } : {}),
+      ...(tokenRef ? { tokenRef } : {}),
+      ...(passwordRef ? { passwordRef } : {}),
+      ...(username ? { username } : {}),
+      ...(scopes ? { scopes } : {}),
+      ...(kid ? { kid } : {}),
+      ...(vendorHeaders ? { vendorHeaders } : {}),
+      ...(resourceScope ? { resourceScope } : {}),
+      ...(readEnabled !== undefined ? { readEnabled } : {}),
+      ...(writePolicy ? { writePolicy } : {}),
+    })) as FhirIntegration;
+  }
+
+  /**
+   * Record the outcome of a contract test. Separate from saving configuration so
+   * a failed test never overwrites the credentials it just failed to use.
+   */
+  async recordFhirTest(result: {
+    status: FhirIntegrationStatus;
+    testMode: string;
+    testSummary: string;
+    capabilities?: CapabilityStatementSummary;
+    capabilityReport?: CapabilityReport;
+  }): Promise<FhirIntegration> {
+    await this.seedAdmin();
+    return (await this.update<FhirIntegration>('admin-fhir', 'default', {
+      status: result.status,
+      lastTestedAt: this.now(),
+      testMode: result.testMode,
+      testSummary: result.testSummary,
+      ...(result.capabilities ? { capabilities: result.capabilities } : {}),
+      ...(result.capabilityReport ? { capabilityReport: result.capabilityReport } : {}),
+    })) as FhirIntegration;
   }
 
   async getAdminPolicy(): Promise<AdminPolicy> {
@@ -2814,6 +3028,7 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'knowledge-note',
   'admin-tenant',
   'admin-kafka',
+  'admin-fhir',
   'admin-policy',
   'swarm-event',
   'evidence',

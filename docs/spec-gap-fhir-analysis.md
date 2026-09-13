@@ -1,5 +1,19 @@
 # Spec.md Deep Analysis — Gap, Enterprise Coverage, and FHIR Entity Support
 
+> **PARTIALLY SUPERSEDED — read `docs/fhir-reality.md` first.**
+>
+> This document is dated 2026-08-16 and its **FHIR status rows are out of date**. It states
+> that the FHIR typed model, client and subscriptions are ❌ *"Absent"* (§1 gap table, line 63);
+> the typed model, mappings, bundle ingest with transaction rollback, export, the outbound
+> client, the subscription pump and CDS Hooks have all since landed in `src/fhir/`.
+> `docs/enterprise-implementation.md` correctly reports them as built, so the two documents
+> contradict each other — this one is the stale half.
+>
+> Its §5 design is still the right architecture (FHIR as two projections over existing
+> machinery, not a new subsystem) and its gap analysis of the *rest* of the platform is still
+> useful. The current FHIR state, and the plan that supersedes §6, live in
+> `docs/fhir-emr-integration-analysis.md` and `docs/fhir-emr-integration-plan.md`.
+
 > Analysis of `spec.md` against the current repo, an enterprise-feature coverage matrix,
 > and a concrete design for **FHIR entity support** — every entity we have able to
 > consume (and produce) FHIR data. All claims grounded in the code as of 2026-08-16.

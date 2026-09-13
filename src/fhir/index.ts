@@ -6,7 +6,7 @@
  * This software is licensed, not sold.
  *
  * The contents of this file constitute confidential and proprietary
- * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ * information belonging exclusively to AnantHQ Inc.
  *
  * This source code incorporates proprietary algorithms, software architecture,
  * business logic, computational methods, optimization techniques,
@@ -32,6 +32,9 @@
  ******************************************************************************/
 
 // FHIR module (Phase 2) — typed R4 model + entity registry + ingest/export bridges.
+//
+// F0/F1 added the EMR connection layer: vendor profiles, auth providers,
+// capability discovery/negotiation, an error discipline, and a hardened client.
 
 export * from './types.js';
 export * from './fhir-bundle.js';
@@ -43,3 +46,23 @@ export * from './client.js';
 export * from './subscription.js';
 export * from './cds-hooks.js';
 export * from './routes.js';
+export * from './vendor-profile.js';
+export * from './capability.js';
+export * from './http.js';
+export * from './metadata.js';
+export * from './auth.js';
+
+// `operation-outcome.ts` declares its own `OperationOutcome`-shaped types, which
+// would collide with the ones in `types.js` under a star export. Re-export the
+// behaviour explicitly instead, so the barrel stays unambiguous.
+export {
+  operationOutcome,
+  operationOutcomeFrom,
+  httpStatusForIssue,
+  FhirOperationError,
+  isFhirOperationError,
+  errorToFhirReply,
+  issuesFromBody,
+  summarizeOutcome,
+} from './operation-outcome.js';
+export type { IssueCode, IssueSeverity } from './operation-outcome.js';

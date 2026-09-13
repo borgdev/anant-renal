@@ -6,7 +6,7 @@
  * This software is licensed, not sold.
  *
  * The contents of this file constitute confidential and proprietary
- * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ * information belonging exclusively to AnantHQ Inc.
  *
  * This source code incorporates proprietary algorithms, software architecture,
  * business logic, computational methods, optimization techniques,
@@ -31,7 +31,12 @@
  *
  ******************************************************************************/
 
-export * from './fhir-lite.js';
+/* The FHIR adapter that used to live here (`fhir-lite.ts`) was retired in F0.6.
+ * It mapped only `Encounter` and `Observation` into the same canonical-event
+ * vocabulary as the `treatment.*` producers, while `src/fhir/` hydrates every
+ * mapped resource type into a live realm. Two FHIR ingest paths with different
+ * fidelity is a drift bug waiting to happen, and the -lite one had no production
+ * caller — only its own test. `src/fhir/` is now the single FHIR path. */
 export * from './hl7v2-lite.js';
 export * from './csv.js';
 export * from './x12.js';

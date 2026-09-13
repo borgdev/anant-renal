@@ -6,7 +6,7 @@
  * This software is licensed, not sold.
  *
  * The contents of this file constitute confidential and proprietary
- * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ * information belonging exclusively to AnantHQ Inc.
  *
  * This source code incorporates proprietary algorithms, software architecture,
  * business logic, computational methods, optimization techniques,
@@ -34,7 +34,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseCsv, mapCsvRow } from '../src/adapters/csv.js';
 import { parseHl7v2, mapHl7v2Message } from '../src/adapters/hl7v2-lite.js';
-import { mapFhirBundle } from '../src/adapters/fhir-lite.js';
 
 describe('CSV adapter', () => {
   it('parses and maps', () => {
@@ -60,16 +59,16 @@ describe('HL7 v2 adapter', () => {
   });
 });
 
-describe('FHIR adapter', () => {
-  it('maps Encounter and Observation resources', () => {
-    const bundle = {
-      resourceType: 'Bundle' as const,
-      entry: [
-        { resource: { resourceType: 'Encounter', id: 'e1', status: 'finished', period: { start: '2026-08-01T13:00:00Z' }, subject: { reference: 'Patient/p1' } } },
-        { resource: { resourceType: 'Observation', id: 'o1', effectiveDateTime: '2026-08-01T13:00:00Z', subject: { reference: 'Patient/p1' } } },
-      ],
-    };
-    const events = mapFhirBundle(bundle, { facilityId: 'f1', scopeId: 's1', sourceId: 'fhir', ingestedAt: '2026-08-01' });
-    expect(events.map((e) => e.type)).toEqual(['treatment.completed', 'lab.result-arrived']);
+describe('FHIR adapter retirement (F0.6)', () => {
+  it('has exactly one FHIR ingest path', async () => {
+    // `src/adapters/fhir-lite.ts` was a second, lower-fidelity FHIR→canonical
+    // mapper. It is gone; this asserts nothing re-introduces it, because two
+    // FHIR paths that disagree is a silent drift bug rather than a loud one.
+    const { existsSync } = await import('node:fs');
+    expect(existsSync('src/adapters/fhir-lite.ts')).toBe(false);
+
+    // And the surviving path is importable and is the one the bundle route uses.
+    const canonical = await import('../src/fhir/canonical.js');
+    expect(typeof canonical.ingestCanonicalEvents).toBe('function');
   });
 });

@@ -6,7 +6,7 @@
  * This software is licensed, not sold.
  *
  * The contents of this file constitute confidential and proprietary
- * information belonging exclusively to Unison Software Technologies Pvt. Ltd.
+ * information belonging exclusively to AnantHQ Inc.
  *
  * This source code incorporates proprietary algorithms, software architecture,
  * business logic, computational methods, optimization techniques,
@@ -74,6 +74,7 @@ import { registerEnterpriseRoutes } from './enterprise-routes.js';
 import { registerSwarmRoutes, getSwarmWorkspace, resetSwarmRuntime } from './swarm-routes.js';
 import { registerPlatformRoutes } from './platform-routes.js';
 import { registerOpsConfigRoutes } from './ops-config-routes.js';
+import { registerFhirIntegrationRoutes } from './fhir-integration-routes.js';
 import { registerPayerRoutes } from './payer-routes.js';
 import { registerAnemiaRoutes } from './anemia-routes.js';
 import { registerRenalRoutes } from './renal-routes.js';
@@ -447,6 +448,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // the exec-scoped /admin/swarm/admin/* family serves — the operator console
   // could not read them because the guard scopes by URL prefix, not by domain.
   await registerOpsConfigRoutes(app);
+
+  // FHIR/EMR connection (F0) — the durable integration record, its secret-free
+  // configuration surface, and the LIVE contract test (real network calls:
+  // CapabilityStatement discovery + credential exercise + a read probe), plus
+  // our own CapabilityStatement at GET /fhir/metadata.
+  await registerFhirIntegrationRoutes(app);
 
   // Anemia / ESA dose-adjustment CDSS (P0 reference) — a governed, Class-C,
   // human-in-the-loop decision-support domain (manifold-learning EPO model)
