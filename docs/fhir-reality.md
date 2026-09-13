@@ -77,7 +77,7 @@ Recorded in full in `docs/fhir-emr-integration-analysis.md` §5, and repeated he
 |---|---|---|
 | A1–A8 | Connection record, contract test, auth, discovery, Bulk Data, secret storage, HTTP hardening | A1/A2/A4/A6 closed by **F0**; A3 by **F1**; A5/A7/A8 partly by F1.5, remainder **F6** |
 | B1–B7 | Identity resolution, stable outbound ids, corrections, idempotency durability | **F3** |
-| C1–C9 | Code fidelity: slugs emitted into RxNorm/CVX/SNOMED/LOINC | **F4** |
+| C1–C9 | Code fidelity: slugs emitted into RxNorm/CVX/SNOMED/LOINC | **F4 — closed**. C9 partly: an unreadable dose is refused, but the payload is still a string (structured `DoseSpec` is F4.4-proper) |
 | D1–D13 | The renal clinical model on the wire | **F7/F8** |
 | E1–E10 | Durable CDC, inbound push, reconciliation, DLQ, observability | **F5/F10/F13** |
 | F1–F8 | Consent gate, uniform security labels, audit completeness | **F12** |
@@ -85,3 +85,61 @@ Recorded in full in `docs/fhir-emr-integration-analysis.md` §5, and repeated he
 | H1–H5 | Duplication and doc debt | H1 closed by **F0.6**; H3/H4/H5 by this file |
 
 The single most important item on that list for *this* product: **the dialysis session does not cross the wire.** `start-session`, `end-session` and `record-access` all fall through `effectResourceType()` to `[]`. Until F7, the EMR sees a renal patient who is never dialysed.
+
+---
+
+## F4 shipped (2026-09-13) — a code is real, or it does not leave
+
+`src/fhir/code-registry.ts` is now the only path from an internal slug to a coded
+concept. `effectToFhirResource` resolves every code through it, and an unmapped
+slug **refuses the write** (`UnmappedCodeError`) instead of shipping a
+plausible-looking wrong code. `scripts/verify-fhir-codes.mjs` re-checks every
+`verified` entry against the authority that owns the code system (tx.fhir.org
+for LOINC/SNOMED/CVX, NLM RxNav for RxNorm).
+
+**118 codes, two fidelities** — and the distinction is the point:
+
+* `verified` (82) — checked against the authority. The display is what the
+  authority returned, and `source` records the service and the date.
+* `local` (36) — no authoritative concept was found, so we declare **our own**
+  code system (`urn:ananthealth:codesystem:<domain>`) instead of writing a
+  guessed SNOMED/RxNorm id into a licensed system. A wrong code that *looks*
+  authoritative is worse than a slug, because nothing downstream complains.
+  `terminologyReport()` and `/admin/fhir/coverage` name every one, with the
+  reason, for terminology sign-off.
+
+The service surface (`$lookup`, `$validate-code`, `CodeSystem`, `ValueSet`)
+exists so a receiver can resolve what we send — including the local codes it
+cannot look up anywhere else.
+
+### Verification found wrong codes in the repo's own seed tables
+
+This is the finding worth acting on. The verifier showed that seven entries in
+`src/ontology/seeds.ts` and `src/healthcare-core/terminology.ts` are
+**mislabelled** — the code means something else entirely:
+
+| File | Claimed | Actually |
+|---|---|---|
+| `seeds.ts` | LOINC `33914-3` "Estimated urea Kt/V ratio" | GFR (MDRD) |
+| `seeds.ts` | LOINC `70969-1` "Urea clearance … (Kt/V)" | GFR (MDRD), male |
+| `seeds.ts` | RxNorm `104375` "Epoetin alfa 4000 UNT/ML" | lisinopril |
+| `seeds.ts` | RxNorm `1364430` "Sevelamer carbonate 800 MG" | apixaban |
+| `terminology.ts` | RxNorm `349849` "darbepoetin alfa" | isoleucine |
+| `seeds.ts` | LOINC `72172-0` AUDIT-C / `72109-2` MoCA | **swapped with each other** |
+| `seeds.ts` | LOINC `38208-5` "Braden Scale total score" | "Pain severity - Reported" |
+| `terminology.ts` | LOINC `KTV-DEL` | self-described placeholder |
+
+The analysis document's own value for delivered Kt/V (`18262-6`) is wrong too —
+that is LDL cholesterol; the real code is `70961-8`.
+
+The registry carries the corrected values. **The seed tables themselves are not
+fixed by F4** — they feed the ontology graph and need their own change with its
+own test run. Until then those entries are wrong wherever the ontology is read.
+
+Also fixed here: a dialysis claim is now `type: institutional` (it was
+`professional`, which a payer rejects for a facility service), and the dose
+regex is gone — `parseDose` refuses `1-2 tabs`, `q12h` and `'0.5 mg x 2'`, which
+the old `replace(/[^0-9.]/g,'')` happily turned into 12, 12 and 0.52.
+
+Not done, and tracked: a structured `DoseSpec` on the effect payload
+(F4.4-proper), so that no parsing is needed at all.

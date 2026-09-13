@@ -125,7 +125,9 @@ describe('Effect → FHIR write path', () => {
     expect(sr.subject?.reference).toBe('Patient/p1');
     expect(sr.code.coding?.[0]?.code).toBe('17861-6');
 
-    const med = effectToFhirResource({ kind: 'order-med', patientId: 'p1', code: '853653', dose: '50 mg', route: 'PO', frequency: 'Q8H' }, { ctx: c });
+    // A real RxNorm code (sevelamer 214824) — the write path refuses an
+    // unregistered value, so a placeholder would no longer reach the resource.
+    const med = effectToFhirResource({ kind: 'order-med', patientId: 'p1', code: '214824', dose: '50 mg', route: 'PO', frequency: 'Q8H' }, { ctx: c });
     expect(med[0]!.resourceType).toBe('MedicationRequest');
 
     const res = effectToFhirResource({ kind: 'result-lab', orderId: 'ord-1', code: '17861-6', value: 4.2, unit: 'mg/dL', abnormal: 'H' }, { ctx: c });

@@ -49,6 +49,23 @@ import { FhirSubscriptionPump } from './subscription.js';
 import { R4_RESOURCES } from './r4-inventory.js';
 import { FhirEmulator, emulatorSearchBundle, seedFhirDataset } from './emulator.js';
 import { TYPED_FHIR_RESOURCES, type FhirCtx } from './types.js';
+import { terminologyReport } from './code-registry.js';
+
+/** F4 — the code-fidelity half of the coverage report (see /fhir/terminology/report). */
+function codeFidelityReport(): Record<string, unknown> {
+  const report = terminologyReport();
+  return {
+    total: report.total,
+    verified: report.verified,
+    local: report.local,
+    byDomain: report.byDomain,
+    needsSignOff: report.needsSignOff,
+    note:
+      'Every code the write path emits resolves through the terminology registry. `local` entries are ' +
+      'declared in our own code systems because no authoritative concept was verified — they need ' +
+      'terminology sign-off before a production integration.',
+  };
+}
 
 // Process-wide in-process FHIR emulator (EHR-bridge test double). Seeded via
 // POST /admin/fhir/emulator/seed; the subscription poll points its FhirClient
@@ -183,6 +200,10 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
         endpoint: '/admin/audit/fhir',
         note: 'Every canonical event is projected to an R4 AuditEvent via canonicalToFhirAudit and mirrored to /admin/audit/fhir as a Bundle.',
       },
+      // F4 — code fidelity. Every code the write path emits resolves through the
+      // terminology registry; what is still `local` needs terminology sign-off
+      // before a production integration.
+      codeFidelity: codeFidelityReport(),
     };
   });
 

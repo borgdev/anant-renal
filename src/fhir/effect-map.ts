@@ -35,10 +35,18 @@
 // R4 resource(s) an EHR would receive. This is deterministic and pure — no
 // realm access — so it can ride the live hypergraph (effect nodes already exist
 // from Phase 1b) or replay the ledger offline.
+//
+// F4: every code below resolves through the terminology registry
+// (`code-registry.ts`). A slug with no mapping THROWS, so an unvalidated code
+// can never leave the building. Before F4 the internal slugs were written
+// straight into RxNorm/LOINC/CVX/SNOMED fields, and a clinician received a
+// "code" no code system recognises.
 
 import type { WorldEffect } from '../realm/types.js';
 import type { FhirCtx, FhirResource } from './types.js';
-import { CODE_SYSTEMS, code, concept } from './types.js';
+import { code, concept } from './types.js';
+import { codeFor, conceptFor } from './code-registry.js';
+import { requireDose } from './dose.js';
 
 export interface EffectFhirOptions {
   ctx: FhirCtx;
@@ -49,25 +57,20 @@ export interface EffectFhirOptions {
   issued?: string;
 }
 
-const VITALS_LOINC: Record<string, string> = {
-  hr: '8867-4', bp: '55284-4', spo2: '2708-6', temp: '8310-5', rr: '9279-1',
-};
-
-const DISCHARGE_DISPOSITION: Record<string, string> = {
-  home: 'http://terminology.hl7.org/CodeSystem/discharge-disposition|01',
-  'home-health': 'http://terminology.hl7.org/CodeSystem/discharge-disposition|06',
-  snf: 'http://terminology.hl7.org/CodeSystem/discharge-disposition|03',
-  hospice: 'http://terminology.hl7.org/CodeSystem/discharge-disposition|50',
-  transfer: 'http://terminology.hl7.org/CodeSystem/discharge-disposition|02',
-  ama: 'http://terminology.hl7.org/CodeSystem/discharge-disposition|07',
-  expired: 'http://terminology.hl7.org/CodeSystem/discharge-disposition|20',
-};
+/** Vitals that project as their own Observation, in emission order. */
+const VITAL_SERIES: ReadonlyArray<{ key: 'hr' | 'spo2' | 'temp' | 'rr'; unit: string }> = [
+  { key: 'hr', unit: 'bpm' },
+  { key: 'spo2', unit: '%' },
+  { key: 'temp', unit: 'C' },
+  { key: 'rr', unit: 'breaths/min' },
+];
 
 function stamp(resource: FhirResource, ctx: FhirCtx): FhirResource {
   resource.meta = {
     source: ctx.sourceId,
     lastUpdated: ctx.ingestedAt,
-    security: [code('http://terminology.hl7.org/CodeSystem/v3-Confidentiality', 'R', 'Restricted')],
+    // A registry entry is structurally a Coding (system/code/display).
+    security: [codeFor('security-label', 'restricted')],
   };
   return resource;
 }
@@ -86,41 +89,41 @@ export function effectToFhirResource(effect: WorldEffect, opts: EffectFhirOption
       return [stamp({
         resourceType: 'Encounter',
         status: 'in-progress',
-        class: code('http://terminology.hl7.org/CodeSystem/v3-ActCode', 'AMB', 'ambulatory'),
-        type: [concept('http://terminology.hl7.org/CodeSystem/v3-ActCode', 'AMB', 'admission')],
+        class: codeFor('encounter-class', 'AMB'),
+        type: [conceptFor('encounter-class', 'AMB')],
         subject: subject() ? { reference: subject() } : undefined,
         period: { start: ctx.ingestedAt },
-        ...(effect.reason ? { reasonCode: [concept('http://terminology.hl7.org/CodeSystem/condition-code', 'admission', effect.reason)] } : {}),
+        // No coded admission reason is available, so carry text only rather than
+        // invent a code in a real code system.
+        ...(effect.reason ? { reasonCode: [{ text: effect.reason }] } : {}),
       } as never, ctx)];
 
     case 'transfer-patient':
       return [stamp({
         resourceType: 'Encounter',
         status: 'in-progress',
-        class: code('http://terminology.hl7.org/CodeSystem/v3-ActCode', 'AMB', 'ambulatory'),
+        class: codeFor('encounter-class', 'AMB'),
         subject: subject() ? { reference: subject() } : undefined,
         period: { start: ctx.ingestedAt },
         location: [{ location: { reference: `Location/${effect.toUnitId}` } }],
       } as never, ctx)];
 
-    case 'discharge-patient': {
-      const disposition = DISCHARGE_DISPOSITION[effect.disposition] ?? 'http://terminology.hl7.org/CodeSystem/discharge-disposition|09';
+    case 'discharge-patient':
       return [stamp({
         resourceType: 'Encounter',
         status: 'finished',
-        class: code('http://terminology.hl7.org/CodeSystem/v3-ActCode', 'AMB', 'ambulatory'),
+        class: codeFor('encounter-class', 'AMB'),
         subject: subject() ? { reference: subject() } : undefined,
         period: { start: ctx.ingestedAt, end: ctx.ingestedAt },
-        hospitalization: { dischargeDisposition: concept(disposition.split('|')[0]!, disposition.split('|')[1]!, effect.disposition) },
+        hospitalization: { dischargeDisposition: conceptFor('discharge-disposition', effect.disposition) },
       } as never, ctx)];
-    }
 
     case 'order-lab':
       return [stamp({
         resourceType: 'ServiceRequest',
         status: 'active',
         intent: 'order',
-        code: concept(CODE_SYSTEMS.loinc, effect.code, `LOINC ${effect.code}`),
+        code: conceptFor('lab', effect.code),
         subject: subject() ? { reference: subject() } : undefined,
         ...(encountered() ? { encounter: { reference: encountered() } } : {}),
         priority: effect.priority === 'stat' ? 'stat' : effect.priority === 'send-out' ? 'urgent' : 'routine',
@@ -128,54 +131,54 @@ export function effectToFhirResource(effect: WorldEffect, opts: EffectFhirOption
       } as never, ctx)];
 
     case 'order-med': {
-      const doseAndRate = effect.dose ? [{ doseQuantity: { value: Number(effect.dose.replace(/[^0-9.]/g, '')) || undefined, unit: effect.dose.replace(/[0-9.]/g, '').trim() || undefined } }] : undefined;
+      // F4.4 — read the dose EXACTLY or refuse the write. The previous
+      // `Number(dose.replace(/[^0-9.]/g,'')) || undefined` concatenated digits
+      // across separators ('1-2 tabs' -> 12) and read frequencies as doses
+      // ('q12h' -> 12). A medication order must never be invented by a regex.
+      const dose = effect.dose ? requireDose(effect.dose) : undefined;
       return [stamp({
         resourceType: 'MedicationRequest',
         status: 'active',
         intent: 'order',
-        medicationCodeableConcept: concept(CODE_SYSTEMS.rxnorm, effect.code, `RxNorm ${effect.code}`),
+        medicationCodeableConcept: conceptFor('drug', effect.code),
         subject: subject() ? { reference: subject() } : undefined,
         authoredOn: ctx.ingestedAt,
         dosageInstruction: [{
           text: [effect.dose, effect.route, effect.frequency].filter(Boolean).join(' '),
-          route: effect.route ? concept('http://terminology.hl7.org/CodeSystem/v3-RouteOfAdministration', effect.route) : undefined,
-          doseAndRate,
+          ...(effect.route ? { route: conceptFor('route', effect.route) } : {}),
+          ...(dose ? { doseAndRate: [{ doseQuantity: { value: dose.amount, ...(dose.unit ? { unit: dose.unit } : {}) } }] } : {}),
         }],
-        ...(effect.indication ? { reasonCode: [concept('http://terminology.hl7.org/CodeSystem/condition-code', 'indication', effect.indication)] } : {}),
+        // Indication has no verified coded concept; text only, never a fake code.
+        ...(effect.indication ? { reasonCode: [{ text: effect.indication }] } : {}),
       } as never, ctx)];
     }
 
-    case 'result-lab': {
-      const valueQuantity = typeof effect.value === 'number'
-        ? { value: effect.value, unit: effect.unit }
-        : { value: Number(effect.value) || undefined, unit: effect.unit };
+    case 'result-lab':
       return [stamp({
         resourceType: 'Observation',
         status: 'final',
-        category: [concept('http://terminology.hl7.org/CodeSystem/observation-category', 'laboratory', 'Laboratory')],
-        code: concept(CODE_SYSTEMS.loinc, effect.code, `LOINC ${effect.code}`),
+        category: [conceptFor('observation-category', 'laboratory')],
+        code: conceptFor('lab', effect.code),
         subject: subject() ? { reference: subject() } : undefined,
         ...(encountered() ? { encounter: { reference: encountered() } } : {}),
         effectiveDateTime: opts.issued ?? ctx.ingestedAt,
         issued: ctx.ingestedAt,
-        valueQuantity,
+        valueQuantity: typeof effect.value === 'number'
+          ? { value: effect.value, unit: effect.unit }
+          : { value: Number(effect.value) || undefined, unit: effect.unit },
         ...(effect.abnormal ? { interpretation: [concept('http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation', effect.abnormal)] } : {}),
       } as never, ctx)];
-    }
 
     case 'record-vitals': {
-      const vitalCodes: Array<[string, number | undefined, string]> = [
-        ['hr', effect.hr, 'bpm'], ['spo2', effect.spo2, '%'], ['temp', effect.temp, 'C'], ['rr', effect.rr, 'breaths/min'],
-      ];
       const obs: FhirResource[] = [];
-      for (const [key, value, unit] of vitalCodes) {
+      for (const { key, unit } of VITAL_SERIES) {
+        const value = effect[key];
         if (value === undefined) continue;
-        const loincCode = VITALS_LOINC[key]!;
         obs.push(stamp({
           resourceType: 'Observation',
           status: 'final',
-          category: [concept('http://terminology.hl7.org/CodeSystem/observation-category', 'vital-signs', 'Vital Signs')],
-          code: concept(CODE_SYSTEMS.loinc, loincCode, key.toUpperCase()),
+          category: [conceptFor('observation-category', 'vital-signs')],
+          code: conceptFor('vital', key),
           subject: subject() ? { reference: subject() } : undefined,
           effectiveDateTime: opts.issued ?? ctx.ingestedAt,
           issued: ctx.ingestedAt,
@@ -187,13 +190,17 @@ export function effectToFhirResource(effect: WorldEffect, opts: EffectFhirOption
         obs.push(stamp({
           resourceType: 'Observation',
           status: 'final',
-          category: [concept('http://terminology.hl7.org/CodeSystem/observation-category', 'vital-signs', 'Vital Signs')],
-          code: concept(CODE_SYSTEMS.loinc, VITALS_LOINC.bp!, 'Blood pressure'),
+          category: [conceptFor('observation-category', 'vital-signs')],
+          // The panel code with systolic/diastolic components — previously the
+          // systolic value was carried under the PANEL code (55284-4).
+          code: conceptFor('vital', 'bp'),
           subject: subject() ? { reference: subject() } : undefined,
           effectiveDateTime: opts.issued ?? ctx.ingestedAt,
           issued: ctx.ingestedAt,
-          valueQuantity: { value: sys, unit: 'mmHg' },
-          component: [{ code: concept(CODE_SYSTEMS.loinc, '8462-4', 'Diastolic'), valueQuantity: { value: dia, unit: 'mmHg' } }],
+          component: [
+            { code: conceptFor('vital', 'bp-systolic'), valueQuantity: { value: sys, unit: 'mmHg' } },
+            { code: conceptFor('vital', 'bp-diastolic'), valueQuantity: { value: dia, unit: 'mmHg' } },
+          ],
         } as never, ctx));
       }
       return obs;
@@ -203,10 +210,10 @@ export function effectToFhirResource(effect: WorldEffect, opts: EffectFhirOption
       return [stamp({
         resourceType: 'Observation',
         status: 'final',
-        category: [concept('http://terminology.hl7.org/CodeSystem/observation-category', 'survey', 'Survey')],
-        code: concept(CODE_SYSTEMS.loinc, 'assessment', effect.assessmentId),
+        category: [conceptFor('observation-category', 'survey')],
+        code: conceptFor('assessment', effect.assessmentId),
         subject: subject() ? { reference: subject() } : undefined,
-        effectiveDateTime: opts.issued ?? ctx.ingestedAt,
+        effectiveDateTime: effect.observedAt ?? opts.issued ?? ctx.ingestedAt,
         issued: ctx.ingestedAt,
         valueQuantity: { value: effect.score },
         ...(effect.band ? { interpretation: [concept('http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation', effect.band)] } : {}),
@@ -218,7 +225,7 @@ export function effectToFhirResource(effect: WorldEffect, opts: EffectFhirOption
       return [stamp({
         resourceType: 'Immunization',
         status: 'completed',
-        vaccineCode: concept(CODE_SYSTEMS.cvx, effect.vaccine),
+        vaccineCode: conceptFor('vaccine', effect.vaccine),
         patient: subject() ? { reference: subject() } : undefined,
         occurrenceDateTime: effect.administeredAt ?? opts.issued ?? ctx.ingestedAt,
         recorded: ctx.ingestedAt,
@@ -238,27 +245,29 @@ export function effectToFhirResource(effect: WorldEffect, opts: EffectFhirOption
       } as never, ctx)];
 
     case 'submit-claim':
+      // F4.5 — a dialysis claim is INSTITUTIONAL. The claim-type was hardcoded
+      // `professional`, which a payer rejects for a facility service.
       return [stamp({
         resourceType: 'Claim',
         status: 'active',
-        type: concept('http://terminology.hl7.org/CodeSystem/claim-type', 'professional', 'Professional'),
+        type: conceptFor('claim-type', 'institutional'),
         use: 'claim',
         subject: subject() ? { reference: subject() } : undefined,
         ...(encountered() ? { facility: { reference: encountered() } } : {}),
         created: ctx.ingestedAt,
-        diagnosis: (effect.icd10Codes ?? []).map((c, i) => ({ sequence: i + 1, diagnosis: concept(CODE_SYSTEMS.icd10, c) })),
-        item: (effect.cptCodes ?? []).map((c, i) => ({ sequence: i + 1, productOrService: concept(CODE_SYSTEMS.cpt, c) })),
+        diagnosis: (effect.icd10Codes ?? []).map((c, i) => ({ sequence: i + 1, diagnosis: concept('http://hl7.org/fhir/sid/icd-10-cm', c) })),
+        item: (effect.cptCodes ?? []).map((c, i) => ({ sequence: i + 1, productOrService: concept('http://www.ama-assn.org/go/cpt', c) })),
       } as never, ctx)];
 
     case 'request-prior-auth':
       return [stamp({
         resourceType: 'Claim',
         status: 'active',
-        type: concept('http://terminology.hl7.org/CodeSystem/claim-type', 'professional', 'Professional'),
+        type: conceptFor('claim-type', 'institutional'),
         use: 'preauthorization',
         subject: subject() ? { reference: subject() } : undefined,
         created: ctx.ingestedAt,
-        item: [{ sequence: 1, productOrService: concept(CODE_SYSTEMS.cpt, effect.serviceCode) }],
+        item: [{ sequence: 1, productOrService: concept('http://www.ama-assn.org/go/cpt', effect.serviceCode) }],
       } as never, ctx)];
 
     case 'open-ticket':
@@ -267,7 +276,7 @@ export function effectToFhirResource(effect: WorldEffect, opts: EffectFhirOption
         status: 'requested',
         intent: 'order',
         priority: effect.priority === 'critical' ? 'stat' : effect.priority === 'high' ? 'urgent' : 'routine',
-        code: concept('http://terminology.hl7.org/CodeSystem/task-code', effect.ticketKind),
+        code: conceptFor('task-code', effect.ticketKind),
         subject: effect.subjectRef ? { reference: effect.subjectRef } : subject() ? { reference: subject() } : undefined,
         description: effect.summary,
         authoredOn: ctx.ingestedAt,
@@ -278,7 +287,7 @@ export function effectToFhirResource(effect: WorldEffect, opts: EffectFhirOption
         resourceType: 'Flag',
         status: 'active',
         category: [concept('http://terminology.hl7.org/CodeSystem/flag-category', 'safety', 'Safety')],
-        code: concept(CODE_SYSTEMS.snomed, effect.safetyKind),
+        code: conceptFor('safety-flag', effect.safetyKind),
         subject: subject() ? { reference: subject() } : undefined,
         period: { start: ctx.ingestedAt },
       } as never, ctx)];
@@ -288,11 +297,11 @@ export function effectToFhirResource(effect: WorldEffect, opts: EffectFhirOption
         resourceType: 'ServiceRequest',
         status: 'active',
         intent: 'plan',
-        code: concept('http://terminology.hl7.org/CodeSystem/servicerequest-category', effect.followupKind),
+        code: conceptFor('followup', effect.followupKind),
         subject: subject() ? { reference: subject() } : undefined,
         occurrenceDateTime: effect.when,
         authoredOn: ctx.ingestedAt,
-        performerType: concept('http://terminology.hl7.org/CodeSystem/practitioner-role', effect.resource),
+        performerType: conceptFor('practitioner-role', effect.resource),
       } as never, ctx)];
 
     case 'operator-directive':

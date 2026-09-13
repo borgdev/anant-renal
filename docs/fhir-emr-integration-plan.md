@@ -211,6 +211,25 @@ Closes **B1, B2, B4, B7**. **This is the package that prevents wrong-patient wri
 
 ## F4 — Terminology & code registry (kill the slugs)
 
+> **SHIPPED 2026-09-13** (`394c768` is F0/F1; see `docs/fhir-reality.md` §F4 for the
+> full record). Delivered: `CodeRegistry` with **118 codes in two fidelities**
+> (`verified` = checked against tx.fhir.org / NLM RxNav; `local` = we declare our
+> own code system rather than guess a licensed id), emit-time validation that
+> **refuses the write** on an unmapped slug, the offender fixes (drugs→RxCUI,
+> vaccines→CVX, labs→LOINC incl. `KTV-DEL`→`70961-8`, access→SNOMED,
+> claims→`institutional`), the `$lookup`/`$validate-code`/`CodeSystem`/`ValueSet`
+> surface, a code-fidelity section on `/admin/fhir/coverage`, and
+> `scripts/verify-fhir-codes.mjs` to keep it true.
+>
+> **Not delivered: deliverable 4's structured `DoseSpec`.** The regex is gone and
+> an unreadable dose is now refused (`parseDose`), but `order-med.dose` is still a
+> string on the payload, so a parse remains. That is F4.4-proper and stays its own
+> PR, as this section already said.
+>
+> **New finding:** seven codes in `seeds.ts` / `terminology.ts` are mislabelled
+> (wrong code for the claimed concept, two swapped). The registry carries
+> corrected values; the seed tables need their own fix.
+
 Closes **C1–C9**. **Blocking**, per the *blocking-over-warning* principle.
 
 ### Deliverables

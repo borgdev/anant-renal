@@ -63,6 +63,7 @@ import {
   type CapabilityReport, type CapabilityStatementSummary,
 } from '../fhir/capability.js';
 import { buildCapabilityStatement, FHIR_VERSION } from '../fhir/metadata.js';
+import { registerTerminologySurface } from './terminology-routes.js';
 import { errorToFhirReply } from '../fhir/operation-outcome.js';
 import { isVendorId, vendorProfile, type FhirAuthMode, type VendorId } from '../fhir/vendor-profile.js';
 import { fhirSecretsProvider, SecretsStoreError } from '../control-plane/file-secrets.js';
@@ -167,6 +168,12 @@ function registerFhirSurface(
     const summary = summarizeCapabilities(statement, new Date().toISOString());
     return { fhirVersion: FHIR_VERSION, statement, summary };
   });
+
+  /* ---------------------------------------------------- terminology (F4) */
+
+  // $lookup / $validate-code / CodeSystem / ValueSet, so a receiver can resolve
+  // the codes we send (including the local ones it cannot look up elsewhere).
+  registerTerminologySurface(app);
 
   /* ------------------------------------------------------ read + write */
 
