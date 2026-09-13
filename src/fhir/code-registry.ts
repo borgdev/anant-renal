@@ -419,6 +419,11 @@ export class CodeRegistry {
     return domain ? all.filter((e) => e.domain === domain) : all;
   }
 
+  /** Every entry carrying this code value, across domains — used to validate OUTBOUND payloads. */
+  findByCode(code: string): readonly CodeEntry[] {
+    return [...this.byKey.values()].filter((e) => e.code === code);
+  }
+
   /** Entries we could not verify against an authority — need clinical sign-off. */
   unverified(): readonly CodeEntry[] {
     return this.entries().filter((e) => e.fidelity === 'local');
@@ -442,6 +447,55 @@ export class CodeRegistry {
 
 /** Process-wide registry. */
 export const codeRegistry = new CodeRegistry();
+
+export interface CodingValidation {
+  path: string;
+  system: string;
+  code: string;
+  ok: boolean;
+  /** Why it is not ok — shown to the operator rather than a bare `false`. */
+  reason?: string;
+}
+
+/**
+ * F9 preflight — validate EVERY code in an outbound payload.
+ *
+ * The write path already refuses to EMIT an unmapped slug, so this is the second
+ * check: it walks the finished resource and asks the registry whether each coding
+ * is one we own. It exists because a resource can be assembled from more than one
+ * source, and a code that arrived from a caller rather than from the registry is
+ * exactly the case the first gate cannot see.
+ */
+export function validateCodings(resource: unknown): CodingValidation[] {
+  const out: CodingValidation[] = [];
+  const walk = (node: unknown, path: string): void => {
+    if (Array.isArray(node)) {
+      node.forEach((child, i) => walk(child, `${path}[${i}]`));
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    const obj = node as Record<string, unknown>;
+    const system = obj['system'];
+    const code = obj['code'];
+    if (typeof system === 'string' && typeof code === 'string') {
+      const matches = codeRegistry.findByCode(code);
+      const owned = matches.find((m) => m.system === system);
+      if (owned) {
+        out.push({ path, system, code, ok: true });
+      } else if (matches.length > 0) {
+        out.push({
+          path, system, code, ok: false,
+          reason: `code ${code} is registered but under a different system (${matches[0]!.system})`,
+        });
+      } else {
+        out.push({ path, system, code, ok: false, reason: `code ${code} is not in the terminology registry` });
+      }
+    }
+    for (const [key, value] of Object.entries(obj)) walk(value, `${path}.${key}`);
+  };
+  walk(resource, resource && typeof resource === 'object' ? (resource as { resourceType?: string }).resourceType ?? '$' : '$');
+  return out;
+}
 
 export function codeFor(domain: CodeDomain, slug: string): CodeEntry {
   return codeRegistry.resolve(domain, slug);

@@ -70,6 +70,8 @@ import type { RoundSnapshot } from './round-digest.js';
 import type { FhirAuthMode, VendorId } from '../fhir/vendor-profile.js';
 import type { CapabilityReport, CapabilityStatementSummary } from '../fhir/capability.js';
 import type { IdentifierSystem, IdentityLinkStore, PatientCrossReference } from '../fhir/identity.js';
+import type { FhirProposal, ProposalFilter, ProposalLifecycle, ProposalStore } from '../fhir/proposal.js';
+import { OPEN_PROPOSAL_LIFECYCLES } from '../fhir/proposal.js';
 
 export type WorkspaceKind =
   | 'red-team-scenario'
@@ -118,6 +120,7 @@ export type WorkspaceKind =
   | 'agent-rollback'
   | 'patient-cross-reference'
   | 'identifier-system'
+  | 'fhir-proposal'
   | 'dlq-remediation'
   | 'assurance-finding'
   | 'green-team-run'
@@ -2563,6 +2566,61 @@ export class SwarmWorkspaceStore {
     return created as unknown as PatientCrossReference;
   }
 
+  /** The `ProposalStore` seam consumed by `ProposalPublisher` (F9). */
+  proposalStore(): ProposalStore {
+    return {
+      listProposals: (filter?: ProposalFilter) => this.listProposals(filter),
+      saveProposal: (proposal: FhirProposal) => this.saveProposal(proposal),
+    };
+  }
+
+  async listProposals(filter: ProposalFilter = {}): Promise<FhirProposal[]> {
+    const rows = await this.list<FhirProposal & WorkspaceDoc>('fhir-proposal');
+    return rows.filter(
+      (r) =>
+        (filter.realmId === undefined || r.realmId === filter.realmId) &&
+        (filter.connectionId === undefined || r.connectionId === filter.connectionId) &&
+        (filter.lifecycle === undefined || r.lifecycle === filter.lifecycle) &&
+        (filter.effectKind === undefined || r.effectKind === filter.effectKind) &&
+        (filter.patientId === undefined || r.patientId === filter.patientId),
+    );
+  }
+
+  /**
+   * One row per (effect, connection). A refusal that is later corrected ADVANCES
+   * that row, so the evidence a gate once held is not overwritten — which is why
+   * this is an upsert keyed by the proposal's own id rather than an insert.
+   */
+  async saveProposal(proposal: FhirProposal): Promise<FhirProposal> {
+    const existing = await this.get<FhirProposal & WorkspaceDoc>('fhir-proposal', proposal.id);
+    const created = existing
+      ? await this.update<FhirProposal & WorkspaceDoc>(
+          'fhir-proposal',
+          proposal.id,
+          proposal as unknown as Partial<FhirProposal & WorkspaceDoc>,
+        )
+      : await this.create<FhirProposal & WorkspaceDoc>(
+          'fhir-proposal',
+          proposal.id,
+          proposal as unknown as Omit<FhirProposal & WorkspaceDoc, 'id' | 'createdAt' | 'updatedAt'>,
+        );
+    return created as unknown as FhirProposal;
+  }
+
+  /** An operator withdrew a proposal — distinct from expiry, and recorded as such. */
+  async retractProposal(id: string, reason: string, at: string): Promise<FhirProposal | undefined> {
+    const existing = await this.get<FhirProposal & WorkspaceDoc>('fhir-proposal', id);
+    if (!existing) return undefined;
+    if (!(OPEN_PROPOSAL_LIFECYCLES as readonly string[]).includes(existing.lifecycle)) return existing;
+    const updated = await this.update<FhirProposal & WorkspaceDoc>('fhir-proposal', id, {
+      lifecycle: 'retracted' as ProposalLifecycle,
+      retractedAt: at,
+      retractionReason: `manual: ${reason}`,
+      updatedAt: at,
+    } as unknown as Partial<FhirProposal & WorkspaceDoc>);
+    return updated as unknown as FhirProposal;
+  }
+
   /** The `IdentityLinkStore` seam consumed by `PatientIdentityService`. */
   identityLinkStore(): IdentityLinkStore {
     return {
@@ -3128,6 +3186,7 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'agent-rollback',
   'patient-cross-reference',
   'identifier-system',
+  'fhir-proposal',
   'dlq-remediation',
   'assurance-finding',
   'green-team-run',

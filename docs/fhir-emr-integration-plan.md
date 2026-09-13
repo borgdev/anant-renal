@@ -418,6 +418,18 @@ Closes **D2** and the *"lossy even internally"* finding.
 
 ## F9 — Governed, expiring proposal publishing
 
+> **PARTIALLY SHIPPED 2026-09-13** (deliverables 1–4, 6, 7; see
+> `docs/fhir-reality.md` §F9). The signature property holds — publishing the same
+> effect three times yields one proposal, one EMR resource, one transport call —
+> and all four guardrails are code with tests.
+>
+> **Not built:** `Provenance` on published proposals (#5); dispatch through the
+> configured connection rather than the emulator (`emulatorProposalTransport()`);
+> `POST /proposals/:id/replay`; the mirror-outbound `fhir_resources` row. And one
+> gap with a clinical consequence: **the expiry sweeper is not scheduled** — it
+> runs on demand via `POST /admin/fhir/proposals/sweep`, so nothing retires a
+> stale proposal on its own.
+
 Closes **A1(policy), B3, B4, E4, F1, F2**, and implements **D1**. *Still the most safety-critical package in the plan — but a different package than it was before D1.*
 
 *Because we propose rather than order, the hard problem moves. It is no longer "did the write land exactly once" (which still matters, but a duplicated draft is noise where a duplicated order is harm). It is now **"is this proposal still worth a clinician's attention, and did anything happen to it?"** An unactioned draft wall is the failure mode that gets a machine switched off.*

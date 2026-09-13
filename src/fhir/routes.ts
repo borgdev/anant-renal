@@ -48,8 +48,14 @@ import { FhirClient } from './client.js';
 import { FhirSubscriptionPump } from './subscription.js';
 import { R4_RESOURCES } from './r4-inventory.js';
 import { FhirEmulator, emulatorSearchBundle, seedFhirDataset } from './emulator.js';
-import { TYPED_FHIR_RESOURCES, type FhirCtx } from './types.js';
-import { terminologyReport } from './code-registry.js';
+import { TYPED_FHIR_RESOURCES, type FhirCtx, type FhirResource } from './types.js';
+import { terminologyReport, validateCodings } from './code-registry.js';
+import {
+  PROPOSAL_EXPIRY_MINUTES,
+  ProposalPublisher,
+  proposalStats,
+  type ProposalTransport,
+} from './proposal.js';
 import {
   IdentifierSystemRegistry,
   PatientIdentityService,
@@ -423,9 +429,143 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
       return { ok: true, system: entry };
     },
   );
+  /* ------------------------------------------------ F9 proposals (D1) */
+
+  /**
+   * Publish a proposal for an effect.
+   *
+   * The preflight gates are DERIVED, not taken from the caller: a client that
+   * could assert `identityVerified: true` would make the guardrail advisory. The
+   * only inputs accepted are the clinical facts (the resource, the effect it came
+   * from, the policy) and an explicit approval reference.
+   */
+  app.post<{ Body: {
+    realmId?: string; connectionId?: string; effectId?: string; effectKind?: string; patientId?: string;
+    resource?: unknown; policy?: 'shadow' | 'bound' | 'off'; approvedBy?: string;
+    vendor?: { supportsWrite?: boolean; supportsProvenance?: boolean; supportsCdsHooks?: boolean };
+  } }>('/admin/fhir/proposals', async (req, reply) => {
+    const body = req.body ?? {};
+    if (!body.realmId || !body.effectId || !body.effectKind || !body.patientId || !body.resource) {
+      return reply.code(400).send({ error: 'realmId-effectId-effectKind-patientId-resource-required' });
+    }
+    const ws = getSwarmWorkspace();
+    if (!ws) return reply.code(503).send({ error: 'workspace-unavailable' });
+
+    const resource = body.resource as FhirResource;
+    // (F3) identity: a VERIFIED cross-reference, derived from the linkage store.
+    const links = await ws.listCrossReferences(body.realmId);
+    const identityVerified = links.some((l) => l.localPatientId === body.patientId && l.verified && !l.supersededBy);
+    // (F4) every coding must be one we own.
+    const codings = validateCodings(resource);
+    const badCodings = codings.filter((c) => !c.ok);
+
+    const publisher = new ProposalPublisher(
+      ws.proposalStore(),
+      emulatorProposalTransport(),
+      () => new Date().toISOString(),
+    );
+    const outcome = await publisher.publish({
+      realmId: body.realmId,
+      connectionId: body.connectionId ?? 'default',
+      effectId: body.effectId,
+      effectKind: body.effectKind,
+      patientId: body.patientId,
+      resource,
+      preflight: {
+        identityVerified,
+        codesValidated: badCodings.length === 0,
+        approvalRecorded: Boolean(body.approvedBy),
+      },
+      policy: body.policy ?? 'shadow',
+      vendor: {
+        supportsWrite: body.vendor?.supportsWrite ?? true,
+        supportsProvenance: body.vendor?.supportsProvenance ?? true,
+        supportsCdsHooks: body.vendor?.supportsCdsHooks ?? false,
+      },
+    });
+    return {
+      ...outcome,
+      preflightDetail: {
+        identityVerified,
+        codesChecked: codings.length,
+        invalidCodings: badCodings,
+      },
+    };
+  });
+
+  /** The proposal register, filterable by lifecycle / kind / connection / patient. */
+  app.get<{ Querystring: { realmId?: string; lifecycle?: string; effectKind?: string; connectionId?: string; patientId?: string } }>(
+    '/admin/fhir/proposals',
+    async (req, reply) => {
+      const ws = getSwarmWorkspace();
+      if (!ws) return reply.code(503).send({ error: 'workspace-unavailable' });
+      const rows = await ws.listProposals({
+        ...(req.query.realmId ? { realmId: req.query.realmId } : {}),
+        ...(req.query.lifecycle ? { lifecycle: req.query.lifecycle as never } : {}),
+        ...(req.query.effectKind ? { effectKind: req.query.effectKind } : {}),
+        ...(req.query.connectionId ? { connectionId: req.query.connectionId } : {}),
+        ...(req.query.patientId ? { patientId: req.query.patientId } : {}),
+      });
+      return { count: rows.length, proposals: rows };
+    },
+  );
+
+  /** Adoption: the never-actioned rate per kind. Reported, never auto-acted on. */
+  app.get('/admin/fhir/proposals/stats', async (_req, reply) => {
+    const ws = getSwarmWorkspace();
+    if (!ws) return reply.code(503).send({ error: 'workspace-unavailable' });
+    const rows = await ws.listProposals({});
+    return {
+      ...proposalStats(rows),
+      expiryWindowsMinutes: PROPOSAL_EXPIRY_MINUTES,
+      note:
+        'neverActionedRate is denominated on proposals that REACHED a clinician and expired. A refused ' +
+        'proposal was never offered; a retracted one was withdrawn by an operator.',
+    };
+  });
+
+  /** An operator withdraws a proposal. Distinct from expiry, and recorded as such. */
+  app.post<{ Params: { id: string }; Body: { reason?: string } }>(
+    '/admin/fhir/proposals/:id/retract',
+    async (req, reply) => {
+      const reason = req.body?.reason;
+      if (!reason) return reply.code(400).send({ error: 'reason-required' });
+      const ws = getSwarmWorkspace();
+      if (!ws) return reply.code(503).send({ error: 'workspace-unavailable' });
+      const updated = await ws.retractProposal(req.params.id, reason, new Date().toISOString());
+      if (!updated) return reply.code(404).send({ error: 'proposal-not-found' });
+      return { ok: true, proposal: updated };
+    },
+  );
+
+  /** Run the expiry sweeper. Idempotent — an expired proposal is no longer open. */
+  app.post('/admin/fhir/proposals/sweep', async (_req, reply) => {
+    const ws = getSwarmWorkspace();
+    if (!ws) return reply.code(503).send({ error: 'workspace-unavailable' });
+    const publisher = new ProposalPublisher(ws.proposalStore(), emulatorProposalTransport());
+    const result = await publisher.sweepExpired();
+    return { ok: true, expired: result.expired, retracted: result.retracted };
+  });
 }
 
-/** Defaults plus the durable additions, as one registry. */
+/**
+ * The transport a proposal is dispatched through.
+ *
+ * For a live integration this is the `FhirClient` bound to the connection (F0/F1).
+ * Until a connection is configured it targets the in-process FHIR emulator, whose
+ * `add()` is an upsert keyed by (type, id) — which is exactly the behaviour the
+ * deterministic id (F3.4) depends on: a re-publish PUTs rather than duplicating.
+ */
+function emulatorProposalTransport(): ProposalTransport {
+  return {
+    send: async ({ resource, resourceId }) => {
+      const id = (resource as { id?: string }).id ?? resourceId;
+      if (!id) return { ok: false, error: 'resource has no id — a proposal must be addressable', retryable: false };
+      fhirEmulator.add({ ...resource, id });
+      return { ok: true, status: 200 };
+    },
+  };
+}
 async function identifierSystemsWithDurable(ws: NonNullable<ReturnType<typeof getSwarmWorkspace>>): Promise<IdentifierSystem[]> {
   const durable = await ws.listIdentifierSystems();
   const registry = new IdentifierSystemRegistry();

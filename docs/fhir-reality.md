@@ -382,3 +382,89 @@ assigner OIDs, durable). Cross-references and identifier systems are durable
 * **`Patient.link` merge detection is not wired to `mergeInto`.** The detector
   exists; nothing calls the merge when it fires.
 
+## F9 shipped, part 1 (2026-09-13) — governed, expiring proposals
+
+Implements **D1**: we propose, we never order. `src/fhir/proposal.ts` is the
+engine; the durable row lives in the `fhir-proposal` workspace kind.
+
+**The signature property holds:** publishing the same effect three times yields
+**one** proposal row, **one** resource in the EMR, and **one** transport call.
+Tested at both the engine and the API level.
+
+Because we propose rather than order, the hard question moved. It is no longer
+"did the write land exactly once" (a duplicated draft is noise where a duplicated
+order is harm). It is **"is this proposal still worth a clinician's attention, and
+did anything happen to it?"** An unactioned wall of machine drafts is the failure
+mode that gets a machine switched off, so every proposal carries an expiry and a
+concurrency cap bounds it.
+
+### The four guardrails are code, with tests
+
+* **`intent: 'order'` is impossible to construct**, not discouraged.
+  `buildProposalResource` is the single constructor and it asserts `intent:
+  'proposal'` + `status: 'draft'`.
+* **`FORBIDDEN_WRITE_RESOURCES`** — a diagnosis, problem-list entry, allergy,
+  note or demographic attribute is a *clinician's* assertion about a patient.
+  Generating one from model output and filing it in the chart would be putting
+  words in their mouth, and `status: 'draft'` does not make that acceptable. It
+  throws.
+* **`WRITE_ALLOWLIST`** — an effect kind that is not on it can only ever be
+  `shadow`. It can be computed, shown and audited, but it cannot leave the
+  building.
+* **No expiry window ⇒ refuse.** A kind absent from `PROPOSAL_EXPIRY_MINUTES`
+  cannot be published. A proposal with no window is one that will still be sitting
+  in an unsigned-orders list in six months, which is worse than not proposing.
+
+### The preflight gates are DERIVED, not asserted by the caller
+
+The API route does not accept `identityVerified: true`. It derives that from the
+F3 linkage store (a **verified** cross-reference, not merely a resolvable
+patient) and derives `codesValidated` by walking the finished resource's codings
+against the F4 registry (`validateCodings`). A client that could assert its own
+preflight would make every gate advisory.
+
+The second code check earns its place: the write path refuses to *emit* an
+unmapped slug, but a resource can be assembled from more than one source, and a
+code that arrived from a caller rather than from the registry is exactly the case
+the emit-time gate cannot see.
+
+### Retraction and expiry are different things
+
+`expired` means nobody acted in time. `retracted` means an operator decided the
+proposal should not stand. They are separate lifecycles **on purpose**: folding
+them together would make an operator's judgement look like clinician
+disinterest in the adoption statistic. `neverActionedRate` is denominated only on
+proposals that reached a clinician and were left to expire.
+
+A bound proposal is **retracted at the vendor** (`status: 'revoked'`), never
+deleted — a deleted draft leaves no trace that we proposed it. And the
+non-action is *recorded*: a kind whose proposals are never actioned is a kind the
+clinicians do not want, and that is a clinical decision, so it is reported rather
+than acted on.
+
+### One row per effect, and the refusal trail survives
+
+`id` and the stable `identifier` both derive from the effect id, so a retry
+reconciles. A refusal is **not** treated as an existing proposal — otherwise a
+corrected refusal would become a permanent duplicate — but the retry does not
+erase it either: it **advances the same row** and the refusal reason stays in the
+issue trail. One test asserts exactly that (a refusal, then a successful retry,
+leaves one row whose issues still name `approval-not-recorded`).
+
+### Not done in this slice
+
+* **`Provenance` on every published proposal** (deliverable 5) — the audit trail
+  inside the EMR. Not built.
+* **Dispatch through the configured connection.** `emulatorProposalTransport()`
+  writes to the in-process FHIR emulator, whose `add()` is an upsert keyed by
+  (type, id) — which is what makes the deterministic id pay off. A real
+  deployment needs the `FhirClient` bound to the stored connection, with
+  `If-Match` where the vendor supports it.
+* **`GET /proposals/:id/replay`** and the **mirror-outbound `fhir_resources`
+  row** (`direction: 'out'`).
+* **The sweeper is not scheduled.** `POST /admin/fhir/proposals/sweep` runs it on
+  demand; nothing runs it on a timer, so in production an unexpired proposal would
+  sit until someone called it. That is the one gap here with a clinical
+  consequence.
+
+
