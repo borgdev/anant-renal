@@ -313,6 +313,21 @@ Closes **A5, E9**. Required for every real onboarding — nobody starts an EMR i
 
 ## F7 — Dialysis session, prescription, and access on the wire
 
+> **PARTIALLY SHIPPED 2026-09-13** (PR 1+2: session + access + dry weight). See
+> `docs/fhir-reality.md` §F7. Delivered: four new entity kinds, the session as a
+> `Procedure` inside a standing episode `Encounter` (D3) with the id held across
+> start/end, episode **reconciliation** on a derived key, access split into
+> Observation / Procedure / `AdverseEvent` by kind, dry weight + IDWG, and
+> `effectResourceType()` no longer returning `[]` for any session/access effect.
+> Live: 6 patients → **6 episodes, one each** and 24 session Procedures.
+>
+> **Still open in F7**: prescription (`CarePlan.activity` + `DeviceRequest`),
+> `titrate-med`/`hold-med` proposals (that is F9's path), ESRD-QIP `MeasureReport`
+> (D8), CMS forms + NHSN (D9), and `record-session-telemetry` (F8). The live run
+> also found the simulator drawing modality **per session**, which produced two
+> concurrent dialysis episodes for one patient — fixed (now derived from the
+> patient id).
+
 Closes **D1, D3, D4, D6, D7, D11, D13**.
 
 ### Deliverables

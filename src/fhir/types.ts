@@ -156,6 +156,8 @@ export interface Observation extends DomainResource {
   code: CodeableConcept;
   subject?: Reference;
   encounter?: Reference;
+  /** The resource this observation is a component of (a session Procedure, say). */
+  partOf?: Reference[];
   effectiveDateTime?: string;
   effectivePeriod?: Period;
   issued?: string;
@@ -265,6 +267,8 @@ export interface Device extends DomainResource {
   status?: 'active' | 'inactive' | 'entered-in-error' | 'unknown';
   statusReason?: CodeableConcept[];
   type?: CodeableConcept;
+  /** Human label for the device — for vascular access, e.g. "Right brachiocephalic AVF". */
+  deviceName?: Array<{ name: string; type?: 'udi-label-name' | 'user-friendly-name' | 'patient-reported-name' | 'manufacturer-name' | 'model-name' | 'other' }>;
   patient?: Reference;
   owner?: Reference;
   location?: Reference;

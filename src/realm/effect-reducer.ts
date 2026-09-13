@@ -323,18 +323,45 @@ export class EffectReducer {
       }
       case 'start-session': {
         const patientUrn = g.urnFor('patient', effect.patientId);
+        const patientState = (g.get(patientUrn)?.state ?? {}) as { facilityId?: string };
         const sessionId = effect.sessionId ?? `${effect.patientId}-sess-${this.clock.seq}`;
-        const patch = {
-          currentSession: {
-            sessionId, startedAt: at, modality: effect.modality,
-            prescribedMinutes: effect.prescribedMinutes, targetUfL: effect.targetUfL,
-            ...(effect.dialyser ? { dialyser: effect.dialyser } : {}),
-            ...(effect.qbPrescribed !== undefined ? { qbPrescribed: effect.qbPrescribed } : {}),
-            ...(effect.qdPrescribed !== undefined ? { qdPrescribed: effect.qdPrescribed } : {}),
-            ...(effect.tempC !== undefined ? { tempC: effect.tempC } : {}),
-            telemetry: [] as unknown[],
-          },
+        const facilityId = patientState.facilityId ?? 'unassigned';
+
+        // D3 — the EPISODE of care is ONE standing Encounter per patient ×
+        // facility × modality. RECONCILE rather than create: a second session
+        // attaches to the episode the first one opened. The key is derived, so
+        // replaying a course of dialysis cannot manufacture encounters.
+        const episodeId = `${effect.patientId}-${facilityId}-${effect.modality}`;
+        const episodeUrn = g.urnFor('dialysis-episode', episodeId);
+        const priorEpisode = g.get(episodeUrn)?.state as { sessionCount?: number } | undefined;
+        const episodePatch: Record<string, unknown> = priorEpisode
+          ? { sessionCount: (priorEpisode.sessionCount ?? 0) + 1 }
+          : {
+              patientId: effect.patientId, facilityId, modality: effect.modality,
+              startedAt: at, status: 'in-progress', sessionCount: 1,
+            };
+        if (priorEpisode) g.patch(episodeUrn, episodePatch, `effect:${effect.kind}`);
+        else g.create('dialysis-episode', episodeId, episodePatch);
+        results.push({ urn: episodeUrn, kind: 'dialysis-episode', id: episodeId, patch: episodePatch });
+
+        // The SESSION is a Procedure. We hold its id so `end-session` closes the
+        // same resource — that id surviving the round trip is real state.
+        const sessionUrn = g.urnFor('dialysis-session', sessionId);
+        const sessionState: Record<string, unknown> = {
+          patientId: effect.patientId, sessionId, episodeId, status: 'in-progress',
+          modality: effect.modality, startedAt: at,
+          prescribedMinutes: effect.prescribedMinutes, targetUfL: effect.targetUfL,
+          ...(effect.dialyser ? { dialyser: effect.dialyser } : {}),
+          ...(effect.qbPrescribed !== undefined ? { qbPrescribed: effect.qbPrescribed } : {}),
+          ...(effect.qdPrescribed !== undefined ? { qdPrescribed: effect.qdPrescribed } : {}),
+          ...(effect.tempC !== undefined ? { tempC: effect.tempC } : {}),
         };
+        if (g.get(sessionUrn)) g.patch(sessionUrn, sessionState, `effect:${effect.kind}`);
+        else g.create('dialysis-session', sessionId, sessionState);
+        results.push({ urn: sessionUrn, kind: 'dialysis-session', id: sessionId, patch: sessionState });
+
+        // The patient keeps a pointer: the protocol layer reads state.currentSession.
+        const patch = { currentSession: { ...sessionState, telemetry: [] as unknown[] } };
         if (g.get(patientUrn)) g.patch(patientUrn, patch, `effect:${effect.kind}`);
         else g.create('patient', effect.patientId, patch);
         results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
@@ -400,6 +427,48 @@ export class EffectReducer {
           ...(prescribedMinutes ? { adherencePct: Math.round((effect.deliveredMinutes / prescribedMinutes) * 100) } : {}),
         };
         const priorSessions = Array.isArray(state?.sessions) ? (state?.sessions as unknown[]) : [];
+
+        // Close the SAME Procedure `start-session` opened. If the replay starts
+        // at end-session (no prior start) we still record the session rather
+        // than dropping it.
+        const sessionUrn = g.urnFor('dialysis-session', session.sessionId);
+        const sessionPatch: Record<string, unknown> = {
+          ...session,
+          status: 'completed',
+          episodeId: (current.episodeId as string | undefined) ?? undefined,
+          ...(effect.stoppedEarly === true ? { outcome: 'stopped-early' } : {}),
+          ...(effect.complication ? { outcome: effect.complication } : {}),
+        };
+        if (g.get(sessionUrn)) g.patch(sessionUrn, sessionPatch, `effect:${effect.kind}`);
+        else g.create('dialysis-session', session.sessionId, sessionPatch);
+        results.push({ urn: sessionUrn, kind: 'dialysis-session', id: session.sessionId, patch: sessionPatch });
+
+        // Dry weight — the post-dialysis weight IS the dry-weight estimate, and
+        // IDWG is pre-weight minus the previous session's post-weight.
+        if (effect.postWeightKg !== undefined) {
+          const priorPost = [...priorSessions]
+            .reverse()
+            .map((s) => (s as { postWeightKg?: unknown }).postWeightKg)
+            .find((v): v is number => typeof v === 'number');
+          const idwgKg = effect.preWeightKg !== undefined && priorPost !== undefined
+            ? Math.round((effect.preWeightKg - priorPost) * 10) / 10
+            : undefined;
+          const stateWithTarget = (g.get(patientUrn)?.state ?? {}) as { dryWeightKg?: number };
+          const dryWeightId = `${session.sessionId}-dry-weight`;
+          const dryWeightUrn = g.urnFor('dry-weight', dryWeightId);
+          const dryWeightState: Record<string, unknown> = {
+            patientId: effect.patientId,
+            weightKg: effect.postWeightKg,
+            effectiveAt: at,
+            ...(effect.preWeightKg !== undefined ? { preWeightKg: effect.preWeightKg } : {}),
+            ...(stateWithTarget.dryWeightKg !== undefined ? { targetKg: stateWithTarget.dryWeightKg } : {}),
+            ...(idwgKg !== undefined ? { idwgKg } : {}),
+          };
+          if (g.get(dryWeightUrn)) g.patch(dryWeightUrn, dryWeightState, `effect:${effect.kind}`);
+          else g.create('dry-weight', dryWeightId, dryWeightState);
+          results.push({ urn: dryWeightUrn, kind: 'dry-weight', id: dryWeightId, patch: dryWeightState });
+        }
+
         const patch = { sessions: [...priorSessions, session].slice(-12), currentSession: null };
         g.patch(patientUrn, patch, `effect:${effect.kind}`);
         results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
@@ -441,6 +510,29 @@ export class EffectReducer {
         if (g.get(patientUrn)) g.patch(patientUrn, patch, `effect:${effect.kind}`);
         else g.create('patient', effect.patientId, patch);
         results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
+
+        // The access as a DEVICE (F7), so it can go on the wire as
+        // Device + DeviceUseStatement. One entity per patient, re-typed when an
+        // access-creating event tells us what it now is. Thrombosis retires it.
+        const accessType = (access as { type?: string } | undefined)?.type
+          ?? (state?.access as { type?: string } | undefined)?.type;
+        if (accessType) {
+          const accessId = `${effect.patientId}-access`;
+          const accessUrn = g.urnFor('vascular-access', accessId);
+          const priorAccess = g.get(accessUrn)?.state as { startedAt?: string; status?: string } | undefined;
+          const retired = effect.event === 'thrombosis';
+          const accessState: Record<string, unknown> = {
+            patientId: effect.patientId,
+            accessType,
+            startedAt: priorAccess?.startedAt ?? at,
+            status: retired ? 'failed' : (priorAccess?.status === 'failed' ? 'failed' : 'active'),
+            ...(effect.accessAgeDays !== undefined ? { ageDays: effect.accessAgeDays } : {}),
+            ...(effect.note ? { lastNote: effect.note } : {}),
+          };
+          if (g.get(accessUrn)) g.patch(accessUrn, accessState, `effect:${effect.kind}`);
+          else g.create('vascular-access', accessId, accessState);
+          results.push({ urn: accessUrn, kind: 'vascular-access', id: accessId, patch: accessState });
+        }
         return results;
       }
       case 'record-access-acoustic': {

@@ -143,3 +143,62 @@ the old `replace(/[^0-9.]/g,'')` happily turned into 12, 12 and 0.52.
 
 Not done, and tracked: a structured `DoseSpec` on the effect payload
 (F4.4-proper), so that no parsing is needed at all.
+
+---
+
+## F7 shipped, part 1 (2026-09-13) — the session crosses the wire
+
+Before this the EMR saw a renal patient **who was never dialysed**:
+`start-session`, `end-session` and `record-access` all fell through
+`effectResourceType()` to `[]`. D3 is now implemented as written — a SESSION is a
+`Procedure`; the EPISODE of care is ONE long-lived `Encounter` that many sessions
+attach to.
+
+* New entity kinds (union + `entity-record` + `mapping` + hypergraph nodes):
+  `dialysis-session` (Procedure), `dialysis-episode` (Encounter),
+  `vascular-access` (Device + DeviceUseStatement), `dry-weight`
+  (Observation + Goal).
+* The reducer CREATES the session entity keyed by `sessionId`, and **reconciles**
+  the episode on a derived key (`patient-facility-modality`) — replaying a course
+  of dialysis cannot manufacture encounters. `end-session` closes the SAME
+  `Procedure` and carries the delivered metrics as `Observation`s that reference
+  it via `partOf`.
+* `record-access`: a measurement → `Observation` (hemodynamic, coded components);
+  an intervention (angioplasty / declot / catheter-placed / avf-created) →
+  `Procedure`; an untoward event (thrombosis / infection) → **`AdverseEvent`**,
+  which is where the EMR files it for the safety team. A data-less surveillance
+  event projects nothing rather than an empty Observation that asserts a
+  measurement nobody took.
+* Dry weight is its own entity: the post-dialysis weight IS the dry-weight
+  estimate (LOINC `8341-0` Dry body weight), with IDWG derived from the previous
+  session's post weight.
+
+### Live: one patient, one episode
+
+Ran the demo fleet through the simulator and exported a realm: **6 patients → 6
+dialysis episode Encounters (exactly one each) and 24 session Procedures**, every
+Procedure carrying `encounter` = its episode and the SNOMED treatment code
+`302497006` (Haemodialysis).
+
+That run found a **simulator data bug**: the modality was drawn per SESSION
+(`rng() < 0.15 ? hdf : hd`), so a patient flipped modality between sessions.
+Harmless while sessions were invisible — but now it produced two concurrent
+dialysis episodes for one patient, hollowing out the exact continuity D3 exists
+to guarantee. A patient's modality is a prescription, so it is now derived from
+the patient id and is stable across sessions and replays.
+
+### Not done in this slice (F7 is four PRs; this is PR 1+2)
+
+* **Prescription** — `CarePlan.activity` for the clinical prescription plus
+  `DeviceRequest` for machine settings (conflating the two is what an EMR
+  rejects).
+* **`titrate-med` / `hold-med` as proposals** — the D1 proposal path, which is F9.
+* **ESRD-QIP `MeasureReport`** (D8) and **CMS forms / NHSN** (D9).
+* **`record-session-telemetry` → `Observation` / `DeviceMetric`** — that is F8,
+  which also fixes the silent 24-point telemetry cap. Telemetry therefore still
+  reports `[]` from `effectResourceType`; every other renal effect names a
+  resource.
+
+Volume is measured rather than assumed: one session serializes to **4 resources /
+2957 bytes** as a single `transaction` bundle, printed by the test. Telemetry is
+what would blow that budget up, which is why F8 batches per session.

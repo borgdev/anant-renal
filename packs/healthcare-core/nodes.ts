@@ -68,6 +68,8 @@ export const NODE_TYPES: readonly string[] = [
   'adverse-event', 'medication-statement', 'medication-dispense', 'imaging-study', 'specimen', 'detected-issue', 'payment-reconciliation', 'composition',
   // D4 — vision, device use, nutrition, supply, services, endpoints, affiliations, substances
   'vision-prescription', 'device-use', 'nutrition-order', 'supply-delivery', 'healthcare-service', 'endpoint', 'org-affiliation', 'substance',
+  // F7 — renal wire model: session / standing episode / access / dry weight
+  'dialysis-session', 'dialysis-episode', 'vascular-access', 'dry-weight',
   // effect-derived healthcare nodes (spec.md §2.2)
   'care-plan', 'assessment', 'vitals-snapshot', 'safety-event', 'claim', 'prior-auth',
   'measure', 'measure-library', 'value-set', 'measure-evaluation',
@@ -139,6 +141,12 @@ export const HEALTHCARE_NODE_SCHEMAS: readonly NodeSchema[] = [
   node('endpoint', 'endpointId', { status: str(), connectionType: str(), name: str(), address: str() }),
   node('org-affiliation', 'affiliationId', { orgId: str(), participantOrgId: str(), code: str(), specialty: str() }),
   node('substance', 'substanceId', { status: str(), code: str(), description: str() }),
+  // F7 — renal wire model. Clinical fields optional here (EntityRecord.state is
+  // loose); the effect layer is what enforces the rich shape.
+  node('dialysis-session', 'sessionId', { patientId: str(), episodeId: str(), status: str(), modality: str(), startedAt: str(), endedAt: str(), deliveredMinutes: num(), prescribedMinutes: num(), ufVolumeL: num(), targetUfL: num(), ktvDelivered: num(), urrPct: num(), outcome: str() }),
+  node('dialysis-episode', 'episodeId', { patientId: str(), facilityId: str(), modality: str(), startedAt: str(), endedAt: str(), status: str(), sessionCount: num() }),
+  node('vascular-access', 'accessId', { patientId: str(), accessType: str(), label: str(), startedAt: str(), status: str(), bodySite: str() }),
+  node('dry-weight', 'dryWeightId', { patientId: str(), weightKg: num(), targetKg: num(), effectiveAt: str(), idwgKg: num() }),
   // effect-derived
   node('care-plan', 'carePlanId', { patientId: str(), createdAt: str(), activeStatus: str() }),
   node('assessment', 'assessmentId', { patientId: str(), at: str(), code: str(), codeSystem: str(), score: num(), band: str() }),

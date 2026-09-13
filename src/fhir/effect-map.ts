@@ -52,8 +52,14 @@ export interface EffectFhirOptions {
   ctx: FhirCtx;
   /** FHIR Reference (e.g. `Patient/p1`) for the subject — defaults to `Patient/{patientId}` when present. */
   patientRef?: string;
-  /** FHIR Reference (e.g. `Encounter/enc1`) for the encounter. */
+  /** FHIR Reference (e.g. `Encounter/enc1`) for the encounter — for a dialysis session this is the standing episode. */
   encounterRef?: string;
+  /**
+   * The session's entity id. `start-session` carries its own; `end-session` does
+   * not, so the caller passes the id of the session it is closing — that is how
+   * the same `Procedure` is closed rather than a second one created.
+   */
+  sessionId?: string;
   issued?: string;
 }
 
@@ -314,6 +320,137 @@ export function effectToFhirResource(effect: WorldEffect, opts: EffectFhirOption
         payload: [{ contentString: effect.originalText }],
       } as never, ctx)];
 
+    /* ---------------------------------------------- F7 · renal wire model */
+
+    case 'start-session': {
+      // D3 — the session is a `Procedure`, and `opts.encounterRef` is the
+      // standing episode `Encounter` it belongs to. We carry the session id so
+      // `end-session` can close the same resource.
+      const sessionId = opts.sessionId ?? effect.sessionId;
+      return [stamp({
+        resourceType: 'Procedure',
+        ...(sessionId ? { id: sessionId } : {}),
+        status: 'in-progress',
+        code: conceptFor('procedure', effect.modality),
+        category: conceptFor('procedure-category', 'dialysis'),
+        subject: subject() ? { reference: subject() } : undefined,
+        ...(encountered() ? { encounter: { reference: encountered() } } : {}),
+        performedPeriod: { start: opts.issued ?? ctx.ingestedAt },
+      } as never, ctx)];
+    }
+
+    case 'end-session': {
+      const sessionId = opts.sessionId;
+      const ended = opts.issued ?? ctx.ingestedAt;
+      const procedure = stamp({
+        resourceType: 'Procedure',
+        ...(sessionId ? { id: sessionId } : {}),
+        status: 'completed',
+        code: conceptFor('procedure', 'hemodialysis'),
+        category: conceptFor('procedure-category', 'dialysis'),
+        subject: subject() ? { reference: subject() } : undefined,
+        ...(encountered() ? { encounter: { reference: encountered() } } : {}),
+        performedPeriod: { start: ended, end: ended },
+        ...(effect.stoppedEarly === true || effect.complication
+          ? { outcome: { text: effect.complication ?? 'stopped-early' } }
+          : {}),
+      } as never, ctx);
+
+      // Delivered metrics ride with the session, referencing it via `partOf`.
+      const metrics: FhirResource[] = [];
+      const metric = (slug: string, value: number | undefined, unit?: string): void => {
+        if (value === undefined) return;
+        metrics.push(stamp({
+          resourceType: 'Observation',
+          ...(sessionId ? { id: `${sessionId}-${slug}` } : {}),
+          status: 'final',
+          category: [conceptFor('observation-category', 'laboratory')],
+          code: conceptFor('session-metric', slug),
+          subject: subject() ? { reference: subject() } : undefined,
+          ...(encountered() ? { encounter: { reference: encountered() } } : {}),
+          ...(sessionId ? { partOf: [{ reference: `Procedure/${sessionId}` }] } : {}),
+          effectiveDateTime: ended,
+          valueQuantity: { value, ...(unit ? { unit } : {}) },
+        } as never, ctx));
+      };
+      metric('uf-volume', effect.ufVolumeL, 'L');
+      metric('recirculation', effect.recirculationPct, '%');
+      metric('qb-avg', effect.qbAvg, 'mL/min');
+
+      // The post-dialysis weight IS the dry-weight estimate.
+      if (effect.postWeightKg !== undefined) {
+        metrics.push(stamp({
+          resourceType: 'Observation',
+          ...(sessionId ? { id: `${sessionId}-dry-weight` } : {}),
+          status: 'final',
+          category: [conceptFor('observation-category', 'vital-signs')],
+          code: conceptFor('body-weight', 'dry-weight'),
+          subject: subject() ? { reference: subject() } : undefined,
+          ...(encountered() ? { encounter: { reference: encountered() } } : {}),
+          effectiveDateTime: ended,
+          valueQuantity: { value: effect.postWeightKg, unit: 'kg' },
+        } as never, ctx));
+      }
+      return [procedure, ...metrics];
+    }
+
+    case 'record-access': {
+      const at = opts.issued ?? ctx.ingestedAt;
+
+      // An untoward access event is an ADVERSE EVENT, not a procedure — the EMR
+      // files it where the safety team will see it.
+      if (effect.event === 'thrombosis' || effect.event === 'infection') {
+        return [stamp({
+          resourceType: 'AdverseEvent',
+          status: 'available',
+          actuality: 'actual',
+          event: conceptFor('access-event', effect.event),
+          subject: subject() ? { reference: subject() } : undefined,
+          date: at,
+          ...(effect.note ? { outcome: { text: effect.note } } : {}),
+        } as never, ctx)];
+      }
+
+      // An intervention on the access is a Procedure.
+      if (effect.event === 'angioplasty' || effect.event === 'declot'
+        || effect.event === 'catheter-placed' || effect.event === 'avf-created') {
+        return [stamp({
+          resourceType: 'Procedure',
+          status: 'completed',
+          code: conceptFor('access-event', effect.event),
+          subject: subject() ? { reference: subject() } : undefined,
+          ...(encountered() ? { encounter: { reference: encountered() } } : {}),
+          performedDateTime: at,
+          ...(effect.note ? { note: [{ text: effect.note }] } : {}),
+        } as never, ctx)];
+      }
+
+      // Surveillance / cannulation difficulty is a MEASUREMENT.
+      const component = (slug: string, value: number | undefined, unit?: string) => {
+        if (value === undefined) return undefined;
+        return { code: conceptFor('access-metric', slug), valueQuantity: { value, ...(unit ? { unit } : {}) } };
+      };
+      const components = [
+        component('venous-pressure', effect.venousPressureMmHg, 'mmHg'),
+        component('arterial-pressure', effect.arterialPressureMmHg, 'mmHg'),
+        component('access-flow', effect.accessFlowMlMin, 'mL/min'),
+        component('recirculation', effect.recirculationPct, '%'),
+        component('blood-flow', effect.measuredAtQb, 'mL/min'),
+      ].filter((c): c is NonNullable<typeof c> => c !== undefined);
+      if (components.length === 0) return [];
+
+      return [stamp({
+        resourceType: 'Observation',
+        status: 'final',
+        category: [conceptFor('observation-category', 'hemodynamic')],
+        code: conceptFor('access-event', effect.event),
+        subject: subject() ? { reference: subject() } : undefined,
+        ...(encountered() ? { encounter: { reference: encountered() } } : {}),
+        effectiveDateTime: at,
+        component: components,
+      } as never, ctx)];
+    }
+
     default:
       return []; // shadow/observability effects (record-agent-thought, notify-staff, …) have no wire resource
   }
@@ -331,6 +468,10 @@ export function effectResourceType(effect: WorldEffect): string[] {
     case 'open-ticket': return ['Task'];
     case 'flag-safety-event': return ['Flag'];
     case 'operator-directive': return ['CommunicationRequest'];
+    // F7 — the renal effects no longer fall through to `[]`.
+    case 'start-session': return ['Procedure'];
+    case 'end-session': return ['Procedure', 'Observation'];
+    case 'record-access': return ['Observation', 'Procedure', 'AdverseEvent'];
     default: return [];
   }
 }

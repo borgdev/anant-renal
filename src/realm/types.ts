@@ -104,7 +104,15 @@ export type EntityKind =
   | 'healthcare-service'   // HealthcareService
   | 'endpoint'             // Endpoint
   | 'org-affiliation'      // OrganizationAffiliation
-  | 'substance';           // Substance
+  | 'substance'            // Substance
+  // ---- F7 renal wire model: the dialysis session and what surrounds it ----
+  // D3: a SESSION is a `Procedure`; the EPISODE of care is ONE long-lived
+  // `Encounter` that many sessions attach to. We hold the Procedure id across
+  // start/end so `end-session` closes the same resource it opened.
+  | 'dialysis-session'     // Procedure
+  | 'dialysis-episode'     // Encounter — the standing episode (one per patient/facility/modality)
+  | 'vascular-access'      // Device + DeviceUseStatement
+  | 'dry-weight';          // Observation (body weight) + Goal (target)
 
 export type EntityUrn = `urn:realm:${string}:${EntityKind}:${string}`;
 

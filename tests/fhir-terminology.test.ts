@@ -135,6 +135,26 @@ function everyEmittedEffect(): WorldEffect[] {
   effects.push({ kind: 'request-prior-auth', patientId: pid, payerId: 'payer-1', serviceCode: '90960' });
   effects.push({ kind: 'operator-directive', originalText: 'Check the access' });
 
+  // F7 — the renal wire model. Both session modalities and every access event,
+  // so the net covers the codes the dialysis path emits.
+  for (const modality of ['hemodialysis', 'hemodiafiltration'] as const) {
+    effects.push({ kind: 'start-session', patientId: pid, sessionId: `s-${modality}`, modality, prescribedMinutes: 240, targetUfL: 2.4 });
+  }
+  effects.push({
+    kind: 'end-session', patientId: pid, deliveredMinutes: 238, ufVolumeL: 2.4,
+    qbAvg: 350, recirculationPct: 7, preWeightKg: 72, postWeightKg: 70.5, stoppedEarly: true, complication: 'hypotension',
+  });
+  for (const event of [
+    'surveillance', 'cannulation-difficulty', 'angioplasty', 'thrombosis',
+    'infection', 'declot', 'catheter-placed', 'avf-created',
+  ] as const) {
+    effects.push({
+      kind: 'record-access', patientId: pid, event,
+      accessFlowMlMin: 780, venousPressureMmHg: 145, arterialPressureMmHg: 120,
+      recirculationPct: 6, measuredAtQb: 350,
+    });
+  }
+
   return effects;
 }
 

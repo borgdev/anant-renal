@@ -76,7 +76,13 @@ export type CodeDomain =
   | 'encounter-class'
   | 'discharge-disposition'
   | 'observation-category'
-  | 'security-label';
+  | 'security-label'
+  // F7 — the renal wire model
+  | 'procedure'
+  | 'procedure-category'
+  | 'body-weight'
+  | 'session-metric'
+  | 'access-metric';
 
 export type CodeFidelity = 'verified' | 'local';
 
@@ -266,6 +272,31 @@ export const CODE_SEEDS: readonly CodeEntry[] = Object.freeze([
   l('dialysis-modality', 'hemodialysis', 'In-centre haemodialysis', 'no verified modality concept'),
   l('dialysis-modality', 'hemodiafiltration', 'Haemodiafiltration', 'no verified modality concept'),
   l('dialysis-modality', 'peritoneal', 'Peritoneal dialysis', 'no verified modality concept'),
+
+  // ---- F7 · the dialysis treatment itself and the session's delivered metrics --
+  // The SESSION is a `Procedure`, so the treatment needs a real procedure code.
+  v('procedure', 'hemodialysis', SNOMED, '302497006', 'Haemodialysis', V.snomed),
+  v('procedure-category', 'dialysis', SNOMED, '265764009', 'Renal dialysis', V.snomed),
+  l('procedure', 'hemodiafiltration', 'Haemodiafiltration', 'only CVVHDF (233590002) verified — a different modality'),
+  l('procedure', 'peritoneal-dialysis', 'Peritoneal dialysis', 'no exact concept verified'),
+  // Body weight / dry weight. 8341-0 is the DRY weight, which is the one that matters.
+  v('body-weight', 'body-weight', LOINC, '29463-7', 'Body weight', V.loinc),
+  v('body-weight', 'dry-weight', LOINC, '8341-0', 'Dry body weight Measured', V.loinc),
+  v('body-weight', 'pre-weight', LOINC, '3141-9', 'Body weight Measured', V.loinc),
+  v('body-weight', 'post-weight', LOINC, '3141-9', 'Body weight Measured', V.loinc),
+  l('body-weight', 'idwg', 'Interdialytic weight gain', 'no LOINC concept found'),
+  // Delivered-session metrics, emitted as Observations referencing the Procedure.
+  v('session-metric', 'ktv-delivered', LOINC, '70961-8', 'Kt/V.Hemodialysis', V.loinc),
+  v('session-metric', 'urr', LOINC, '54456-9', 'Urea reduction ratio in Serum or Plasma', V.loinc),
+  v('session-metric', 'uf-volume', LOINC, '99741-1', 'Ultrafiltrate volume removed', V.loinc),
+  l('session-metric', 'recirculation', 'Access recirculation', 'no LOINC concept found'),
+  l('session-metric', 'qb-avg', 'Average blood flow rate', 'no LOINC concept found'),
+  // Access measurements taken during a session.
+  v('access-metric', 'venous-pressure', SNOMED, '252076005', 'Venous pressure', V.snomed),
+  l('access-metric', 'arterial-pressure', 'Arterial pressure', 'no concept verified'),
+  l('access-metric', 'access-flow', 'Access flow', 'no concept verified'),
+  l('access-metric', 'recirculation', 'Access recirculation', 'no LOINC concept found'),
+  l('access-metric', 'blood-flow', 'Blood flow rate (Qb)', 'no concept verified'),
 
   // ---- Financial / administrative ----------------------------------------
   v('claim-type', 'institutional', FHIR_TX + '/claim-type', 'institutional', 'Institutional', V.fhir, SPEC),

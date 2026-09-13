@@ -71,6 +71,8 @@ const KIND_ID_ATTR: Record<string, string> = {
   'vision-prescription': 'visionRxId', 'device-use': 'deviceUseId', 'nutrition-order': 'nutritionOrderId',
   'supply-delivery': 'supplyDeliveryId', 'healthcare-service': 'serviceId', endpoint: 'endpointId',
   'org-affiliation': 'affiliationId', substance: 'substanceId',
+  'dialysis-session': 'sessionId', 'dialysis-episode': 'episodeId',
+  'vascular-access': 'accessId', 'dry-weight': 'dryWeightId',
 };
 
 /** Project an EntityRecord into a HyperNode (kind → type, urn → id, state → attributes). */

@@ -43,6 +43,7 @@
 import type { CanonicalEvent, CanonicalEventType } from '../healthcare-core/events.js';
 import type { EntityKind, EntityRecord } from '../realm/types.js';
 import { CODE_SYSTEMS, concept, code, type FhirCtx, type FhirResource } from './types.js';
+import { codeFor, conceptFor } from './code-registry.js';
 import type {
   Patient, Organization, Location, Encounter, ServiceRequest, MedicationRequest, Observation, Practitioner, PractitionerRole, Device, Coverage, Claim, CarePlan, Task, Measure, ValueSet, MeasureReport, Provenance,
   Condition, AllergyIntolerance, Procedure, Immunization, DiagnosticReport, MedicationAdministration, QuestionnaireResponse, DocumentReference, Communication, Appointment, Schedule, Slot, ExplanationOfBenefit, Invoice, Account,
@@ -122,6 +123,11 @@ export const RESOURCE_TO_KIND: Record<string, EntityKind | undefined> = {
 /** entity kind → primary FHIR resourceType(s). */
 export const KIND_TO_RESOURCES: Record<EntityKind, string[]> = {
   facility: ['Organization', 'Location'],
+  // ---- F7 renal wire model ----
+  'dialysis-session': ['Procedure'],
+  'dialysis-episode': ['Encounter'],
+  'vascular-access': ['Device', 'DeviceUseStatement'],
+  'dry-weight': ['Observation', 'Goal'],
   unit: ['Location'],
   patient: ['Patient'],
   encounter: ['Encounter'],
@@ -1139,9 +1145,169 @@ function hydrateCarrier(resource: FhirResource, ctx: FhirCtx): CanonicalEvent[] 
   }];
 }
 
+// ------------------------------------------------- F7 · renal wire model
+//
+// D3: a dialysis SESSION is a `Procedure`; the EPISODE of care is ONE long-lived
+// `Encounter` that many sessions attach to. Codes resolve through the
+// terminology registry (F4), so the treatment and every delivered metric carry a
+// real LOINC/SNOMED code rather than an internal slug.
+
+/**
+ * The session `Procedure` plus its delivered metrics as `Observation`s that
+ * reference it. One session ⇒ one Procedure — the id is the sessionId the
+ * reducer was given, so start/end close the same resource.
+ */
+function serializeDialysisSession(rec: EntityRecord, ctx: FhirCtx): FhirResource[] {
+  const st = rec.state as Record<string, unknown>;
+  const patientId = str(st['patientId']);
+  const episodeId = str(st['episodeId']);
+  const startedAt = str(st['startedAt']) ?? rec.createdAt;
+  const endedAt = str(st['endedAt']);
+
+  const procedure: Procedure = {
+    resourceType: 'Procedure',
+    id: rec.id,
+    meta: { source: ctx.sourceId, lastUpdated: rec.updatedAt },
+    status: (str(st['status']) ?? 'in-progress') as Procedure['status'],
+    code: conceptFor('procedure', str(st['modality']) ?? 'hemodialysis'),
+    category: conceptFor('procedure-category', 'dialysis'),
+    ...(patientId ? { subject: { reference: `Patient/${patientId}` } } : {}),
+    ...(episodeId ? { encounter: { reference: `Encounter/${episodeId}` } } : {}),
+    performedPeriod: { start: startedAt, ...(endedAt ? { end: endedAt } : {}) },
+    // A stopped-early session or a complication is a coded outcome, not free text.
+    ...(str(st['outcome']) ? { outcome: { text: str(st['outcome'])! } } : {}),
+  };
+
+  const resources: FhirResource[] = [procedure];
+  const metrics: ReadonlyArray<[string, number | undefined]> = [
+    ['ktv-delivered', num(st['ktvDelivered'])],
+    ['urr', num(st['urrPct'])],
+    ['uf-volume', num(st['ufVolumeL'])],
+    ['recirculation', num(st['recirculationPct'])],
+    ['qb-avg', num(st['qbAvg'])],
+  ];
+  for (const [slug, value] of metrics) {
+    if (value === undefined) continue;
+    resources.push({
+      resourceType: 'Observation',
+      id: `${rec.id}-${slug}`,
+      meta: { source: ctx.sourceId, lastUpdated: rec.updatedAt },
+      status: 'final',
+      category: [conceptFor('observation-category', 'laboratory')],
+      code: conceptFor('session-metric', slug),
+      ...(patientId ? { subject: { reference: `Patient/${patientId}` } } : {}),
+      ...(episodeId ? { encounter: { reference: `Encounter/${episodeId}` } } : {}),
+      // partOf ties the metric to the session it came from.
+      partOf: [{ reference: `Procedure/${rec.id}` }],
+      effectiveDateTime: endedAt ?? startedAt,
+      valueQuantity: { value },
+    });
+  }
+  return resources;
+}
+
+/** The standing episode of care — ONE `Encounter` that many sessions attach to. */
+function serializeDialysisEpisode(rec: EntityRecord, ctx: FhirCtx): Encounter {
+  const st = rec.state as Record<string, unknown>;
+  const patientId = str(st['patientId']);
+  const facilityId = str(st['facilityId']);
+  return {
+    resourceType: 'Encounter',
+    id: rec.id,
+    meta: { source: ctx.sourceId, lastUpdated: rec.updatedAt },
+    status: (str(st['status']) ?? 'in-progress') as Encounter['status'],
+    class: codeFor('encounter-class', 'AMB'),
+    type: [conceptFor('procedure-category', 'dialysis')],
+    ...(patientId ? { subject: { reference: `Patient/${patientId}` } } : {}),
+    ...(facilityId ? { serviceProvider: { reference: `Organization/${facilityId}` } } : {}),
+    period: {
+      ...(str(st['startedAt']) ? { start: str(st['startedAt'])! } : {}),
+      ...(str(st['endedAt']) ? { end: str(st['endedAt'])! } : {}),
+    },
+  };
+}
+
+/** Vascular access as `Device` + `DeviceUseStatement` (the access is IN the patient). */
+function serializeVascularAccess(rec: EntityRecord, ctx: FhirCtx): FhirResource[] {
+  const st = rec.state as Record<string, unknown>;
+  const patientId = str(st['patientId']);
+  const accessType = str(st['accessType']) ?? 'avf';
+  const failed = str(st['status']) === 'failed';
+  const device: Device = {
+    resourceType: 'Device',
+    id: rec.id,
+    meta: { source: ctx.sourceId, lastUpdated: rec.updatedAt },
+    type: conceptFor('access-type', accessType),
+    // `as Device['status']` would include `undefined`, which exactOptionalPropertyTypes rejects.
+    status: (failed ? 'inactive' : 'active') as NonNullable<Device['status']>,
+    ...(str(st['label']) ? { deviceName: [{ name: str(st['label'])!, type: 'user-friendly-name' as const }] } : {}),
+  };
+  const use: DeviceUseStatement = {
+    resourceType: 'DeviceUseStatement',
+    id: `${rec.id}-use`,
+    meta: { source: ctx.sourceId, lastUpdated: rec.updatedAt },
+    status: (failed ? 'completed' : 'active') as DeviceUseStatement['status'],
+    ...(patientId ? { subject: { reference: `Patient/${patientId}` } } : {}),
+    device: { reference: `Device/${rec.id}` },
+    ...(str(st['startedAt']) ? { timingPeriod: { start: str(st['startedAt'])! } } : {}),
+    ...(str(st['bodySite']) ? { bodySite: { text: str(st['bodySite'])! } } : {}),
+  };
+  return [device, use];
+}
+
+/**
+ * Dry weight measured, with the TARGET carried as a `referenceRange` on the
+ * measurement and as a `Goal` — the plan asks for both, and a reviewer reading
+ * the weight needs the target beside it.
+ */
+function serializeDryWeight(rec: EntityRecord, ctx: FhirCtx): FhirResource[] {
+  const st = rec.state as Record<string, unknown>;
+  const patientId = str(st['patientId']);
+  const weightKg = num(st['weightKg']);
+  const targetKg = num(st['targetKg']);
+  const at = str(st['effectiveAt']) ?? rec.createdAt;
+  const out: FhirResource[] = [];
+
+  if (weightKg !== undefined) {
+    out.push({
+      resourceType: 'Observation',
+      id: rec.id,
+      meta: { source: ctx.sourceId, lastUpdated: rec.updatedAt },
+      status: 'final',
+      category: [conceptFor('observation-category', 'vital-signs')],
+      code: conceptFor('body-weight', 'dry-weight'),
+      ...(patientId ? { subject: { reference: `Patient/${patientId}` } } : {}),
+      effectiveDateTime: at,
+      valueQuantity: { value: weightKg, unit: 'kg' },
+      ...(targetKg !== undefined
+        ? { referenceRange: [{ low: { value: targetKg, unit: 'kg' }, high: { value: targetKg, unit: 'kg' }, text: 'dry-weight target' }] }
+        : {}),
+    });
+  }
+  if (targetKg !== undefined) {
+    out.push({
+      resourceType: 'Goal',
+      id: `${rec.id}-target`,
+      meta: { source: ctx.sourceId, lastUpdated: rec.updatedAt },
+      lifecycleStatus: 'active',
+      description: { text: 'Dry-weight target' },
+      ...(patientId ? { subject: { reference: `Patient/${patientId}` } } : {}),
+      target: [{ detailQuantity: { value: targetKg, unit: 'kg' } }],
+    });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- registry
 
 export const ENTITY_FHIR: Partial<Record<EntityKind, EntityFhirMapping>> = {
+  // ---- F7 renal wire model. Outbound-only: inbound hydration for these
+  // resources already maps to `procedure` / `encounter` / `device-use`, and
+  // resolving an EMR-held episode to OUR episode entity is F3.6's job.
+  'dialysis-session': { resourceTypes: ['Procedure'], hydrate: hydrateCarrier, serialize: serializeDialysisSession },
+  'dialysis-episode': { resourceTypes: ['Encounter'], hydrate: hydrateCarrier, serialize: (rec, c) => [serializeDialysisEpisode(rec, c)] },
+  'vascular-access': { resourceTypes: ['Device', 'DeviceUseStatement'], hydrate: hydrateCarrier, serialize: serializeVascularAccess },
+  'dry-weight': { resourceTypes: ['Observation', 'Goal'], hydrate: hydrateCarrier, serialize: serializeDryWeight },
   patient: { resourceTypes: ['Patient'], hydrate: (r, c) => hydrateCarrier(r, c), serialize: (rec, c) => [serializePatient(rec, c)] },
   facility: { resourceTypes: ['Organization'], hydrate: (r, c) => hydrateCarrier(r, c), serialize: (rec, c) => [serializeFacility(rec, c)] },
   unit: { resourceTypes: ['Location'], hydrate: (r, c) => hydrateCarrier(r, c), serialize: (rec, c) => [serializeUnit(rec, c)] },

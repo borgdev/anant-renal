@@ -194,6 +194,26 @@ function stateById(realm: Realm): Map<string, Record<string, unknown>> {
   return out;
 }
 
+/**
+ * The modality is a PATIENT-level prescription, not a per-session choice — a
+ * patient does not alternate between haemodialysis and haemodiafiltration.
+ *
+ * This used to be a per-session `rng()` draw (`rng() < 0.15 ? 'hdf' : 'hd'`),
+ * which mattered little while sessions were invisible on the wire. Now that F7
+ * emits each session as a `Procedure` inside an episode `Encounter`, a
+ * per-session draw gives one patient TWO concurrent dialysis episodes — exactly
+ * the continuity the D3 decision exists to guarantee. Derived from the patient
+ * id so it is stable across sessions and across replays.
+ */
+function modalityFor(patientId: string): 'hemodialysis' | 'hemodiafiltration' {
+  let h = 2166136261;
+  for (let i = 0; i < patientId.length; i += 1) {
+    h ^= patientId.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 100) < 15 ? 'hemodiafiltration' : 'hemodialysis';
+}
+
 /** F1 — open a dialysis session for every patient (fluid / adequacy protocols). */
 function sessionStarts({ patientIds, rng, realm }: ScriptEmitInput): WorldEffect[] {
   const states = stateById(realm);
@@ -203,7 +223,7 @@ function sessionStarts({ patientIds, rng, realm }: ScriptEmitInput): WorldEffect
     return {
       kind: 'start-session' as const,
       patientId: pid,
-      modality: (rng() < 0.15 ? 'hemodiafiltration' : 'hemodialysis') as 'hemodialysis' | 'hemodiafiltration',
+      modality: modalityFor(pid),
       prescribedMinutes,
       targetUfL: Number((1.8 + rng() * 1.7).toFixed(1)),
       dialyser: catheter ? 'FX80' : 'FX100',
@@ -259,7 +279,21 @@ function sessionCloses({ patientIds, rng, realm, elapsedHours }: ScriptEmitInput
     const catheter = (state.access as { type?: string } | undefined)?.type === 'catheter';
     const stoppedEarly = rng() < 0.12;
     const ufVolumeL = Number((target * (stoppedEarly ? 0.7 : 0.85 + rng() * 0.15)).toFixed(2));
-    const preWeightKg = Number((68 + rng() * 32).toFixed(1));
+    // A patient's weight is a TRAJECTORY, not an independent draw. This was
+    // `68 + rng() * 32` per session, so one patient's pre-dialysis weight could
+    // jump ~30 kg between sessions — which made the session ring's interdialytic
+    // weight gain (and the F7 dry-weight Observation) meaningless. Pre-weight is
+    // now the previous post-weight plus a plausible interdialytic regain,
+    // anchored on the dry weight when one is known. Exactly ONE draw, so the
+    // seeded stream downstream is as stable as it can be.
+    const regainDraw = rng();
+    const priorSessions = Array.isArray(state.sessions) ? (state.sessions as Array<{ postWeightKg?: unknown }>) : [];
+    const lastPostWeightKg = [...priorSessions]
+      .reverse()
+      .map((s) => (typeof s.postWeightKg === 'number' ? s.postWeightKg : Number(s.postWeightKg)))
+      .find((v) => Number.isFinite(v));
+    const dryWeightKg = typeof state.dryWeightKg === 'number' ? state.dryWeightKg : undefined;
+    const preWeightKg = Number(((lastPostWeightKg ?? dryWeightKg ?? 82) + 0.6 + regainDraw * 2.6).toFixed(1));
     out.push({
       kind: 'end-session',
       patientId: pid,
