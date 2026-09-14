@@ -153,6 +153,54 @@ export async function paTopicsSection() {
     <div id="pa-topics-out" class="muted" style="font-size:12px;margin-top:6px;">Failures route to the governed DLQ; each agent resolves exactly one output topic.</div>`;
 }
 
+/**
+ * Platform contracts + hardening (Phase 0/1).
+ *
+ * One panel answers the question an operator must be able to answer without
+ * knowing a single clinical concept: is this platform safe to run and safe to
+ * extend? The boundary half is rendered from the server's own contract data,
+ * so this view can never disagree with what the pack loader enforces.
+ */
+export async function paContractsSection() {
+  const el = document.getElementById('pa-contracts');
+  if (!el) return;
+  let boundary = null; let hard = null; let err = null;
+  try {
+    [boundary, hard] = await Promise.all([
+      plFetch('GET', '/admin/platform/contracts'),
+      plFetch('GET', '/admin/platform/hardening'),
+    ]);
+  } catch (e) { err = e.message; }
+  if (!boundary || !hard) { el.innerHTML = `<h3 style="margin-top:0;">Platform contracts</h3>${loadFailureHTML('the platform contract', err)}`; return; }
+
+  const verdictPill = hard.status === 'ready' ? 'green' : hard.status === 'attention' ? 'amber' : 'red';
+  const statusPill = (s) => `<span class="pill ${s === 'pass' ? 'green' : s === 'warn' ? 'amber' : 'red'}">${esc(s)}</span>`;
+
+  el.innerHTML = `
+    <h3 style="margin-top:0;">Platform contracts <span class="muted" style="font-weight:400;font-size:11px;">· specialty contract v${esc(boundary.contractVersion)} · platform floor <code>${esc(boundary.substratePackId)}</code></span></h3>
+    <p class="page-sub" style="font-size:12px;">The written boundary between the shared platform and a specialty. A pack that claims a platform-owned capability is refused activation — that is what stops the platform quietly becoming one specialty wearing a platform costume.</p>
+    <div style="display:flex;align-items:center;gap:8px;margin:10px 0;"><span class="pill ${verdictPill}">platform · ${esc(hard.status)}</span><span class="muted" style="font-size:12px;">${hard.byStatus.pass} pass · ${hard.byStatus.warn} warn · ${hard.byStatus.fail} fail · generated ${esc(String(hard.generatedAt))}</span></div>
+    <div style="display:grid;gap:6px;">${(hard.checks || []).map((c) => `
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">
+        <div style="flex:0 0 62px;">${statusPill(c.status)}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;font-size:12px;">${esc(c.label)} <span class="muted" style="font-weight:400;font-size:11px;">· ${esc(c.area)}</span></div>
+          <div class="muted" style="font-size:12px;">${esc(c.detail)}</div>
+          ${c.remediation ? `<div style="font-size:11px;color:var(--warn);margin-top:2px;">→ ${esc(c.remediation)}</div>` : ''}
+        </div>
+      </div>`).join('')}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+      <div>
+        <h4 style="margin:0 0 6px;font-size:12px;">Platform owns</h4>
+        <div style="display:grid;gap:4px;">${(boundary.platform || []).map((i) => `<div style="font-size:12px;"><span class="pill muted">platform</span> <b>${esc(i.label)}</b><div class="muted" style="font-size:11px;">${esc(i.detail)}</div></div>`).join('')}</div>
+      </div>
+      <div>
+        <h4 style="margin:0 0 6px;font-size:12px;">The pack supplies</h4>
+        <div style="display:grid;gap:4px;">${(boundary.pack || []).map((i) => `<div style="font-size:12px;"><span class="pill brand">pack</span> <b>${esc(i.label)}</b><div class="muted" style="font-size:11px;">${esc(i.detail)}</div></div>`).join('')}</div>
+      </div>
+    </div>`;
+}
+
 export async function plFetch(method, path, body) {
   const init = { method, headers: {} };
   if (body !== undefined) {
@@ -173,8 +221,9 @@ export async function renderPlatformAdmin() {
     <div id="pa-steps" class="section-card">Loading journey…</div>
     <div id="pa-org" class="section-card">Loading organization…</div>
     <div id="pa-int" class="section-card">Loading integration contract…</div>
-    <div id="pa-topics" class="section-card">Loading topic plan…</div>`;
-  await Promise.all([paSteps(), paOrgSection(), paIntegrationsSection(), paTopicsSection()]);
+    <div id="pa-topics" class="section-card">Loading topic plan…</div>
+    <div id="pa-contracts" class="section-card">Loading platform contracts…</div>`;
+  await Promise.all([paSteps(), paOrgSection(), paIntegrationsSection(), paTopicsSection(), paContractsSection()]);
   hydrateIcons();
 }
 

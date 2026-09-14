@@ -92,6 +92,10 @@ import { seedCMSSources } from '../healthcare-core/cms-source-registry.js';
 import type { CanonicalEvent } from '../healthcare-core/events.js';
 import type { IdentityRole } from '../identity/types.js';
 import type { DomainPack } from '../control-plane/pack-registry.js';
+// Platform Phase 0/1 — the written pack contract and the domain-blind
+// hardening report. Both are pure functions; the routes only gather state.
+import { validateSpecialtyPack, conformanceMatrix, platformBoundary, SPECIALTY_CONTRACT_VERSION } from '../control-plane/pack-contract.js';
+import { buildHardeningReport, boundWriteKinds, type PlatformHardeningInput } from '../control-plane/platform-hardening.js';
 
 export interface PlatformRouteOptions {
   /** Live realm snapshots (for scope/aggregate badges on context + work). */
@@ -1324,6 +1328,11 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
 
   // POST /admin/platform/packs/:id/activate — durable activation: the exec lens
   // (`/api/context` pack.id/lens) switches to this pack until deactivated.
+  //
+  // Gated on the specialty contract (Phase 0): a pack that FAILS the contract is
+  // refused here rather than activated and discovered to be a problem later. A
+  // pack that is merely `partial` (undeclared clinical sections) activates, and
+  // the conformance report says exactly what is missing.
   app.post<{ Params: { id: string }; Body: { by?: string } }>(
     '/admin/platform/packs/:id/activate',
     async (req, reply) => {
@@ -1331,8 +1340,23 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
       const id = req.params.id;
       const pack = (opts.packs ?? []).find((p) => p.id === id);
       if (!pack) return reply.code(404).send({ error: 'pack-not-installed', known: (opts.packs ?? []).map((p) => p.id) });
+      const conformance = validateSpecialtyPack(pack);
+      if (!conformance.usable) {
+        return reply.code(409).send({
+          error: 'pack-nonconformant',
+          packId: id,
+          contractVersion: SPECIALTY_CONTRACT_VERSION,
+          failed: conformance.checks.filter((c) => c.status === 'fail'),
+          detail: 'This pack does not satisfy the specialty contract, so activating it would put an unknown shape on the platform.',
+        });
+      }
       const activation = await w.activatePack({ packId: id, by: req.body?.by?.trim() || 'platform-admin' });
-      return { ok: true, pack: { id: pack.id, version: pack.version, lens: lensForPack(pack) }, activation };
+      return {
+        ok: true,
+        pack: { id: pack.id, version: pack.version, lens: lensForPack(pack) },
+        activation,
+        conformance: { level: conformance.level, missingSections: conformance.missingSections },
+      };
     },
   );
 
@@ -1340,6 +1364,68 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
   app.post<{ Body: { by?: string } }>('/admin/platform/packs/deactivate', async () => {
     await ws().deactivatePack();
     return { ok: true };
+  });
+
+  /* ---------- Phase 0 — the platform ⇄ specialty contract ---------- */
+
+  // GET /admin/platform/contracts — the boundary as data. The console renders
+  // this rather than restating it, so the product and the contract cannot drift.
+  app.get('/admin/platform/contracts', async () => platformBoundary());
+
+  // GET /admin/platform/packs/conformance — run the contract over every
+  // installed pack. This is what turns "20 packs loaded" into "these are
+  // first-class platform citizens, and these are missing sections".
+  app.get('/admin/platform/packs/conformance', async () => ({
+    ...conformanceMatrix(opts.packs ?? []),
+  }));
+
+  /* ---------- Phase 1 — domain-blind platform hardening ---------- */
+
+  // GET /admin/platform/hardening — one verdict an operator can read without
+  // knowing a single clinical concept: is this platform safe to run and safe
+  // to extend? Every input is platform state; the judgement is pure.
+  app.get('/admin/platform/hardening', async () => {
+    const w = ws();
+    const [kafka, fhir, releases] = await Promise.all([
+      w.getAdminKafka().catch(() => null),
+      w.getFhirIntegration().catch(() => null),
+      w.listReleases().catch(() => []),
+    ]);
+
+    const [openIncidents, deadOutbox] = await Promise.all([
+      openBridgeIncidents(w).then((r) => r.length).catch(() => 0),
+      opts.eventOutbox ? opts.eventOutbox.counts().then((c) => c.dead).catch(() => 0) : Promise.resolve(0),
+    ]);
+
+    const input: PlatformHardeningInput = {
+      kafka: kafka ? { status: kafka.status, secretRef: kafka.secretRef } : null,
+      fhir: fhir
+        ? {
+            status: fhir.status,
+            ...(fhir.writePolicy !== undefined ? { writePolicy: fhir.writePolicy } : {}),
+            secretRefs: {
+              tokenRef: fhir.tokenRef,
+              passwordRef: fhir.passwordRef,
+              privateKeyRef: fhir.privateKeyRef,
+              clientSecretRef: fhir.clientSecretRef,
+              refreshTokenRef: fhir.refreshTokenRef,
+            },
+          }
+        : null,
+      packs: opts.packs ?? [],
+      releases: releases.map((r) => ({
+        status: r.status,
+        // A release that never ran a gate has no `checks` array; pass the key
+        // only when it exists rather than asserting an absent gate list.
+        ...(r.checks !== undefined ? { checks: r.checks } : {}),
+      })),
+      openIncidents,
+      deadOutbox,
+      userCount: opts.users?.list().length ?? 0,
+      certifiedVendors: [],
+    };
+
+    return buildHardeningReport(input);
   });
 }
 

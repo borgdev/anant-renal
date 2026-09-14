@@ -48,10 +48,14 @@ export async function cfgBody(ctx) {
   if (!body) return;
 
   if (cfgTab === 'packs') {
+    const levels = Object.values(cfgConformance);
+    const conformant = levels.filter((c) => c.level === 'conformant' || c.level === 'substrate').length;
+    const nonconformant = levels.filter((c) => c.level === 'nonconformant').length;
     body.innerHTML = `
       <h3 style="margin-top:0;">Pack registry <span class="muted" style="font-weight:400;font-size:11px;">· ${cfgPacks.length} installed by the pack loader</span></h3>
       <p class="muted" style="font-size:12px;">Activating a pack durably switches the executive lens in <code>/api/context</code> — no redeploy, no operating-model edit. Deactivate restores the operating-model default. Currently serving lens <b>${esc((ctx.pack && ctx.pack.lens) || '—')}</b> from pack <b>${esc((ctx.pack && ctx.pack.id) || '—')}</b>.</p>
-      <div style="display:grid;gap:8px;margin-top:8px;">${cfgPacks.map((p) => packRegistryRow(p, cfgActivePack)).join('') || '<span class="muted" style="font-size:12px;">No packs installed.</span>'}</div>`;
+      <div class="muted" style="font-size:12px;margin-bottom:8px;">Specialty contract: <b>${conformant}/${levels.length || 0}</b> at or above conformant${nonconformant ? ` · <span style="color:var(--bad);">${nonconformant} nonconformant and blocked from activation</span>` : ''}. A pack marked <span class="pill amber">partial</span> is installable but has not declared every clinical section yet — hover for the list.</div>
+      <div style="display:grid;gap:8px;">${cfgPacks.map((p) => packRegistryRow(p, cfgActivePack)).join('') || '<span class="muted" style="font-size:12px;">No packs installed.</span>'}</div>`;
     return;
   }
 
@@ -82,14 +86,31 @@ export async function cfgBody(ctx) {
 
 export let cfgPacks = [];
 
+/** pack id → conformance report, from the Phase 0 specialty contract. */
+export let cfgConformance = {};
+
 export let cfgTab = 'packs';
+
+/** The conformance pill for one pack. `substrate` is a distinct state: the
+ *  healthcare-core pack is the platform floor, not a specialty, so it is never
+ *  "incomplete" for lacking clinical sections. */
+function conformancePill(p) {
+  const c = cfgConformance[p.id];
+  if (!c) return '';
+  const cls = c.level === 'conformant' || c.level === 'substrate' ? 'mint'
+    : c.level === 'partial' ? 'amber' : 'red';
+  const label = c.level === 'substrate' ? 'platform floor' : c.level;
+  return `<span class="pill ${cls}" title="${esc(c.missingSections && c.missingSections.length ? 'missing: ' + c.missingSections.join(', ') : 'all sections declared')}">contract · ${esc(label)}</span>`;
+}
 
 export function packRegistryRow(p, activePackId) {
   const isActive = p.active || p.id === activePackId;
+  const c = cfgConformance[p.id];
+  const missing = (c && c.missingSections) || [];
   return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid ${isActive ? 'rgba(0,168,112,.35)' : 'var(--line)'};border-radius:8px;background:${isActive ? 'rgba(0,168,112,.06)' : 'color-mix(in srgb, var(--elevate) 2%, transparent)'};">
     <div style="min-width:0;">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><strong style="font-size:13px;">${esc(p.id)}</strong><span class="pill muted">v${esc(p.version)}</span><span class="pill ${p.lens === 'payer' ? 'amber' : p.lens === 'hybrid' ? 'violet' : 'mint'}">lens · ${esc(p.lens)}</span>${isActive ? '<span class="pill green">active</span>' : ''}</div>
-      <div class="muted" style="font-size:11px;margin-top:3px;">${(p.capabilities || []).length} capabilities · ${(p.cmsUniverse || []).length} CMS authorities · extends ${esc((p.extends || []).join(', ') || 'none')} · applies to ${esc((p.appliesTo && p.appliesTo.organizationKinds || []).join(', '))}</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><strong style="font-size:13px;">${esc(p.id)}</strong><span class="pill muted">v${esc(p.version)}</span>${conformancePill(p)}<span class="pill ${p.lens === 'payer' ? 'amber' : p.lens === 'hybrid' ? 'violet' : 'mint'}">lens · ${esc(p.lens)}</span>${isActive ? '<span class="pill green">active</span>' : ''}</div>
+      <div class="muted" style="font-size:11px;margin-top:3px;">${(p.capabilities || []).length} capabilities · ${(p.cmsUniverse || []).length} CMS authorities · extends ${esc((p.extends || []).join(', ') || 'none')} · applies to ${esc((p.appliesTo && p.appliesTo.organizationKinds || []).join(', '))}${missing.length ? ` · <span style="color:var(--warn);">undeclared: ${esc(missing.join(', '))}</span>` : ''}</div>
     </div>
     <div style="flex:0 0 auto;display:flex;gap:6px;">
       ${isActive
@@ -123,6 +144,8 @@ export async function renderPlatformConfig() {
     const list = await plFetch('GET', '/admin/platform/packs');
     cfgPacks = list.packs || [];
     cfgActivePack = list.activePack || null;
+    const conf = await plFetch('GET', '/admin/platform/packs/conformance').catch(() => ({ packs: [] }));
+    cfgConformance = Object.fromEntries((conf.packs || []).map((c) => [c.packId, c]));
   } catch (e) { err = e.message; }
   if (err) {
     main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Configuration studio</h2></div></div>${loadFailureHTML('the configuration studio', err)}`;
