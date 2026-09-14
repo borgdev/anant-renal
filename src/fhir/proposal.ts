@@ -55,6 +55,7 @@
  */
 import type { FhirResource } from './types.js';
 import { stableResourceId } from './identity.js';
+import type { ConversionStrategy } from './vendor-profile.js';
 
 /* ------------------------------------------------------------------ guardrails */
 
@@ -353,6 +354,94 @@ export function degradationFor(vendor: ProposalVendorCapabilities): { rung: Degr
   if (vendor.supportsWrite) return { rung: 'direct' };
   if (vendor.supportsCdsHooks) return { rung: 'cds-card', reason: 'vendor exposes CDS Hooks but not a FHIR write scope' };
   return { rung: 'harness-only', reason: 'vendor exposes neither a write scope nor CDS Hooks — the proposal stays in the harness work queue' };
+}
+
+export type ProposalConversionStatus = 'accepted' | 'rejected' | 'expired' | 'unknown';
+
+export interface ProposalConversionOutcome {
+  status: ProposalConversionStatus;
+  reason: string;
+  evidence?: {
+    matchedId?: string;
+    matchedIdentifier?: string;
+    matchedSystem?: string;
+    resourceType?: string;
+  };
+}
+
+/**
+ * Decide whether a published proposal was actually converted, without guessing
+ * when the vendor offers no observable correlation path.
+ */
+export function detectProposalConversion(
+  proposal: Pick<FhirProposal, 'identifierSystem' | 'identifierValue' | 'expiresAt' | 'resourceType'>,
+  resources: readonly Record<string, unknown>[],
+  strategy: ConversionStrategy,
+  now: string = new Date().toISOString(),
+): ProposalConversionOutcome {
+  if (strategy === 'none') {
+    return {
+      status: 'unknown',
+      reason: 'conversion is not observable for this vendor profile; outcome is recorded as unknown, not rejected',
+    };
+  }
+
+  if (Date.parse(proposal.expiresAt) <= Date.parse(now)) {
+    return {
+      status: 'expired',
+      reason: 'proposal has expired before conversion was observed',
+    };
+  }
+
+  if (strategy === 'identifier-search') {
+    for (const resource of resources) {
+      const resourceType = typeof resource.resourceType === 'string' ? resource.resourceType : undefined;
+      const id = typeof resource.id === 'string' ? resource.id : undefined;
+      const identifier = Array.isArray(resource.identifier) ? resource.identifier : [];
+      const matches = identifier.some((entry) => {
+        const system = typeof (entry as { system?: unknown })?.system === 'string' ? (entry as { system?: string }).system : undefined;
+        const value = typeof (entry as { value?: unknown })?.value === 'string' ? (entry as { value?: string }).value : undefined;
+        return system === proposal.identifierSystem && value === proposal.identifierValue;
+      });
+
+      if (matches) {
+        return {
+          status: 'accepted',
+          reason: 'matching proposal identifier found on an EMR resource',
+          evidence: {
+            matchedId: id,
+            matchedIdentifier: proposal.identifierValue,
+            matchedSystem: proposal.identifierSystem,
+            resourceType,
+          },
+        };
+      }
+    }
+
+    return {
+      status: 'unknown',
+      reason: 'proposal was published, but the identifier-based conversion was not observed yet',
+    };
+  }
+
+  if (strategy === 'task-status') {
+    return {
+      status: 'unknown',
+      reason: 'task-based conversion tracking is not implemented yet; the vendor is not a verified observable path',
+    };
+  }
+
+  if (strategy === 'reference-back') {
+    return {
+      status: 'unknown',
+      reason: 'reference-back conversion tracking is not implemented yet; this pathway remains unobservable',
+    };
+  }
+
+  return {
+    status: 'unknown',
+    reason: 'conversion outcome is not observable with the configured vendor strategy',
+  };
 }
 
 /* -------------------------------------------------------------- the publisher */

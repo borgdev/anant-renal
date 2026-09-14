@@ -50,6 +50,7 @@ import { ENTITY_FHIR, entityKindFromResource, RESOURCE_TO_KIND } from './mapping
 import {
   demographicsFromPatient,
   resolvePatientIdentity,
+  remoteSystemOf,
   UNKNOWN_REMOTE_SYSTEM,
   type IdentifierSystemRegistry,
   type IdentityResolution,
@@ -102,6 +103,19 @@ export interface IdentitySnapshot {
     incoming: PatientDemographics;
     remotePatientId: string;
   }) => void;
+  /**
+   * Re-point this feed's cross-references after the EMR merged two of its own
+   * records (`Patient.link: replaced-by`).
+   *
+   * Supplied by the caller because it writes to the durable linkage store, and a
+   * snapshot is not allowed to have side effects on its own. Omitted means the
+   * feed cannot act on a merge — in which case an inbound merge is refused
+   * rather than half-applied, because a half-applied merge leaves the
+   * merged-away remote id resolving to a chart the EMR has retired.
+   */
+  applyMerge?: (input: { fromLocalId: string; toLocalId: string; mergedBy: string }) => Promise<void>;
+  /** Who to attribute an applied merge to. Falls back to `fhir-ingest`. */
+  mergedBy?: string;
 }
 
 /**
@@ -150,6 +164,62 @@ export function resolveInboundPatient(
   return resolution;
 }
 
+/**
+ * What an inbound `Patient.link: replaced-by` should do, if anything.
+ *
+ * The EMR is telling us two of ITS records are one person. Until we act on that,
+ * the merged-away remote id still resolves to the chart the EMR has retired, and
+ * every clinical fact about that patient lands on the dead chart — the
+ * wrong-patient write by the most roundabout route available.
+ *
+ * Deliberately NOT decisive on demographics. A merge moves real clinical data, so
+ * the destination has to be a fact we already hold (an exact identifier or a link
+ * a human made), never a resemblance. Where the survivor is one of our charts
+ * under a different identifier, we refuse rather than pick the closest name.
+ */
+export interface InboundMergeOutcome {
+  /** `noop` means there was nothing of ours to retire — a legitimate answer. */
+  action: 'merged' | 'noop' | 'refused';
+  fromLocalId?: string;
+  toLocalId?: string;
+  why: string;
+}
+
+export function planInboundMerge(input: {
+  /** Local chart the merged-away remote id currently resolves to, if any. */
+  from: IdentityResolution | undefined;
+  /** Local chart the SURVIVOR resolves to, if any. */
+  to: IdentityResolution | undefined;
+}): InboundMergeOutcome {
+  const certain = (r: IdentityResolution | undefined): string | undefined =>
+    r && r.status === 'resolved' && r.method !== 'fuzzy' && r.method !== 'demographics'
+      ? r.localPatientId
+      : undefined;
+
+  const from = certain(input.from);
+  const to = certain(input.to);
+
+  if (!from) {
+    // Nothing of ours to retire. This is the common shape — the EMR merged a
+    // record we never held — and it is not a failure. The half that matters is
+    // that we do not CREATE the merged-away patient.
+    return { action: 'noop', ...(to ? { toLocalId: to } : {}), why: 'the merged-away record is not one of our charts' };
+  }
+  if (!to) {
+    return {
+      action: 'refused',
+      fromLocalId: from,
+      why:
+        'this record was merged into another, and we cannot identify which chart survived — '
+        + 'adopting the merged-away id would write to the chart the EMR just retired',
+    };
+  }
+  if (from === to) {
+    return { action: 'noop', fromLocalId: from, toLocalId: to, why: 'both records already resolve to the same chart' };
+  }
+  return { action: 'merged', fromLocalId: from, toLocalId: to, why: 're-pointed the merged-away linkage to the surviving chart' };
+}
+
 function refId(ref: unknown): string | undefined {
   if (!ref || typeof ref !== 'object') return undefined;
   const r = ref as { reference?: string; id?: string };
@@ -159,6 +229,52 @@ function refId(ref: unknown): string | undefined {
     return slash >= 0 ? r.reference.slice(slash + 1) : r.reference;
   }
   return undefined;
+}
+
+/** The id inside a `link.other` reference (`Patient/abc` → `abc`). */
+export function remoteRefId(ref: unknown): string | undefined {
+  return refId(ref);
+}
+
+/**
+ * Resolve a remote id that arrived as a REFERENCE rather than as a resource.
+ *
+ * A merge names its survivor by reference (`Patient/abc`), and the vendor may not
+ * have sent that patient in the same bundle. The only honest answer then is a
+ * link we already hold for that remote id — inferring the destination by
+ * demographics would pick a plausible chart to move clinical data onto, which is
+ * the guess this whole module exists to refuse.
+ */
+export function linkResolutionFor(
+  snapshot: IdentitySnapshot,
+  referenceBearer: FhirResource,
+  remoteId: string | undefined,
+): IdentityResolution | undefined {
+  if (!remoteId) return undefined;
+  const system = remoteSystemOf(demographicsFromPatient(referenceBearer));
+  const live = snapshot.links.filter((l) => !l.supersededBy && l.remotePatientId === remoteId);
+  /*
+   * `link.other.reference` names the survivor by the EMR's RESOURCE id, while our
+   * cross-references are usually keyed by its MRN or another identifier value —
+   * so the same patient can be known to us under a different remote id than the
+   * one the reference uses.
+   *
+   * Prefer the bearer's own identifier system, and fall back to any system only
+   * when exactly ONE link claims that id. A unique, already-recorded link is a
+   * fact we hold; picking between several would be the guess this module refuses.
+   */
+  const exact = live.find((l) => l.remoteSystem === system);
+  const link = exact ?? (live.length === 1 ? live[0] : undefined);
+  if (!link) return undefined;
+  return {
+    status: 'resolved',
+    localPatientId: link.localPatientId,
+    confidence: 1,
+    method: 'cross-reference',
+    candidates: [],
+    reasons: [`existing link ${link.remoteSystem}=${remoteId}${link.verified ? ' (verified)' : ' (unverified)'}`],
+    blocksWrite: false,
+  };
 }
 
 function coding(resource: { code?: { coding?: Array<{ code?: string }> } }): string | undefined {

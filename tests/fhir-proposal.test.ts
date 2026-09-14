@@ -51,6 +51,7 @@ import {
   WRITE_ALLOWLIST,
   buildProposalResource,
   degradationFor,
+  detectProposalConversion,
   expiryMinutesFor,
   preflightFailures,
   proposalStats,
@@ -508,6 +509,63 @@ describe('F9 · adoption is measured, not assumed', () => {
 });
 
 /* ------------------------------------------------------------ the API surface */
+
+describe('F10 · conversion observation is explicit and never guessed', () => {
+  const proposal: FhirProposal = {
+    id: 'prop-1',
+    connectionId: 'conn-1',
+    realmId: 'realm:f10',
+    effectId: 'event:f10',
+    effectKind: 'titrate-med',
+    patientId: 'pt-1',
+    resourceType: 'MedicationRequest',
+    resourceJson: { resourceType: 'MedicationRequest', id: 'med-1' },
+    resourceId: 'med-1',
+    intent: 'proposal',
+    status: 'draft',
+    identifierSystem: PROPOSAL_IDENTIFIER_SYSTEM,
+    identifierValue: 'abc-123',
+    policy: 'bound',
+    lifecycle: 'published',
+    degradation: 'direct',
+    expiresAt: '2026-09-14T00:00:00.000Z',
+    attempts: 1,
+    issues: [],
+    createdAt: '2026-09-13T00:00:00.000Z',
+    updatedAt: '2026-09-13T00:00:00.000Z',
+  };
+
+  it('accepts a conversion when the EMR resource carries the stable proposal identifier', () => {
+    const outcome = detectProposalConversion(
+      proposal,
+      [{ resourceType: 'MedicationRequest', id: 'med-2', status: 'active', identifier: [{ system: PROPOSAL_IDENTIFIER_SYSTEM, value: 'abc-123' }] }],
+      'identifier-search',
+      '2026-09-13T12:00:00.000Z',
+    );
+
+    expect(outcome.status).toBe('accepted');
+    expect(outcome.evidence?.matchedId).toBe('med-2');
+  });
+
+  it('marks an unobservable vendor as unknown instead of rejected', () => {
+    const outcome = detectProposalConversion(proposal, [{ resourceType: 'MedicationRequest', id: 'med-3', status: 'completed' }], 'none');
+
+    expect(outcome.status).toBe('unknown');
+    expect(outcome.reason).toMatch(/unknown/i);
+  });
+
+  it('does not guess a refusal when no conversion is found for a supported strategy', () => {
+    const outcome = detectProposalConversion(
+      proposal,
+      [{ resourceType: 'MedicationRequest', id: 'med-4', status: 'active', identifier: [{ system: 'urn:other', value: 'other' }] }],
+      'identifier-search',
+      '2026-09-13T12:00:00.000Z',
+    );
+
+    expect(outcome.status).toBe('unknown');
+    expect(outcome.reason).toMatch(/not observed/i);
+  });
+});
 
 describe('F9 · the proposal API derives its preflight rather than trusting the caller', () => {
   async function makeApp() {

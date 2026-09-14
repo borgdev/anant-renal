@@ -43,7 +43,7 @@ import {
   type CapabilityStatement,
 } from '../src/fhir/capability.js';
 import { buildCapabilityStatement, bridgedResourceTypes, assertNoUnmountedClaims } from '../src/fhir/metadata.js';
-import { RESOURCE_TO_KIND } from '../src/fhir/mapping.js';
+import { RESOURCE_TO_KIND, serializeEntity } from '../src/fhir/mapping.js';
 
 const AT = '2026-09-12T00:00:00.000Z';
 
@@ -268,6 +268,26 @@ describe('capability negotiation (F1.3)', () => {
     // A session Procedure write is NOT essential — the vendor profile may force
     // us to hold the session locally and emit at end-session.
     expect(essential).not.toContain('procedure-write');
+  });
+
+  it('applies the US Core profile to serialized resources', () => {
+    const resources = serializeEntity(
+      {
+        kind: 'patient',
+        id: 'p-123',
+        state: { name: 'Jane Doe', sex: 'female', birthDate: '1980-01-15' },
+        updatedAt: '2026-09-12T00:00:00.000Z',
+      } as any,
+      {
+        realmId: 'demo',
+        sourceId: 'bridge',
+        ingestedAt: '2026-09-12T00:00:00.000Z',
+        facilityId: 'facility-1',
+        scopeId: 'scope-1',
+      } as any,
+    );
+    expect(resources[0]?.resourceType).toBe('Patient');
+    expect(resources[0]?.meta?.profile).toContain('http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient');
   });
 });
 

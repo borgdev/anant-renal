@@ -170,6 +170,28 @@ describe('Phase 5 — admin routes', () => {
     expect(body.cards.length).toBeGreaterThan(0);
   });
 
+  it('CDS-Hooks discovery exposes services and a real service request action', async () => {
+    makeRealm();
+    const app = await makeApp();
+    const discovery = await app.inject({ method: 'GET', url: '/admin/fhir/cds-services' });
+    expect(discovery.statusCode).toBe(200);
+    const services = discovery.json() as { services: Array<{ id: string; hook: string }> };
+    expect(services.services.length).toBeGreaterThanOrEqual(3);
+    expect(services.services.map((s) => s.id)).toContain('patient-view');
+
+    const invoke = await app.inject({
+      method: 'POST',
+      url: '/admin/fhir/cds-services/patient-view',
+      payload: { hook: 'patient-view', hookInstance: 'h-cds-1', context: { patientId: 'p1' } },
+    });
+    expect(invoke.statusCode).toBe(200);
+    const body = invoke.json() as { cards: Array<{ suggestions?: Array<{ actions?: Array<{ resource?: Record<string, unknown> }> }> }> };
+    expect(body.cards.length).toBeGreaterThan(0);
+    const actionResource = body.cards[0]?.suggestions?.[0]?.actions?.[0]?.resource;
+    expect(actionResource).toBeDefined();
+    expect(actionResource?.resourceType).toBe('ServiceRequest');
+  });
+
   it('compliance endpoint reports audit + retention + PHI inventory', async () => {
     makeRealm();
     const app = await makeApp();

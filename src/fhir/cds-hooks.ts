@@ -63,10 +63,57 @@ export interface CdsCard {
   links?: Array<{ label: string; url: string; type: string }>;
 }
 
+export interface CdsServiceDefinition {
+  id: string;
+  hook: string;
+  title: string;
+  description: string;
+  prefetch?: Record<string, string>;
+}
+
 export interface CdsHooksResponse { cards: CdsCard[]; }
 
 function uuid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function cdsHooksServices(): CdsServiceDefinition[] {
+  return [
+    {
+      id: 'patient-view',
+      hook: 'patient-view',
+      title: 'Patient view recommendations',
+      description: 'Decision support for active care gaps and abnormal findings for the open patient.',
+      prefetch: { patient: 'Patient/{{patientId}}' },
+    },
+    {
+      id: 'order-select',
+      hook: 'order-select',
+      title: 'Order selection recommendations',
+      description: 'Review selected orders and suggest follow-up actions or reversals.',
+      prefetch: { draftOrders: 'MedicationRequest?patient={{patientId}}&status=draft' },
+    },
+    {
+      id: 'order-sign',
+      hook: 'order-sign',
+      title: 'Order-sign safety check',
+      description: 'Check signed orders for safety issues, duplicate therapy, or follow-up work.',
+      prefetch: { selectedOrders: 'MedicationRequest?patient={{patientId}}&status=active' },
+    },
+  ];
+}
+
+function serviceRequestResource(patientId: string, label: string, code?: string): Record<string, unknown> {
+  return {
+    resourceType: 'ServiceRequest',
+    status: 'draft',
+    intent: 'proposal',
+    subject: { reference: `Patient/${patientId}` },
+    code: code ? { coding: [{ system: 'http://loinc.org', code, display: label }] } : { text: label },
+    authoredOn: new Date().toISOString(),
+    reasonCode: [{ text: label }],
+    description: label,
+  };
 }
 
 function stateOf(rec: EntityRecord | undefined): Record<string, unknown> {
@@ -98,13 +145,21 @@ export function cdsHooksToCards(req: CdsHooksRequest, realm: Realm): CdsHooksRes
   });
   if (abnormalResults.length > 0) {
     const latest = abnormalResults.slice(-3).map((r) => { const s = stateOf(r); return `${s['code']} ${s['value']}${s['unit'] ?? ''} (${s['abnormal']})`; });
+    const followUpCode = String((abnormalResults.at(-1) ?? abnormalResults[0])?.state?.['code'] ?? '17861-6');
     cards.push({
       uuid: uuid(),
       summary: `${abnormalResults.length} abnormal result(s)`,
       detail: `Patient ${patientId} has abnormal lab results: ${latest.join(', ')}. Consider a re-check or clinical review.`,
       indicator: 'warning',
       source: { label: 'Anant Harness CDS' },
-      suggestions: [{ label: 'Order follow-up lab', actions: [{ type: 'create', description: 'ServiceRequest for the abnormal code' }] }],
+      suggestions: [{
+        label: 'Order follow-up lab',
+        actions: [{
+          type: 'create',
+          description: 'ServiceRequest for the abnormal code',
+          resource: serviceRequestResource(patientId, 'Follow-up lab order', followUpCode),
+        }],
+      }],
     });
   }
 
@@ -138,6 +193,14 @@ export function cdsHooksToCards(req: CdsHooksRequest, realm: Realm): CdsHooksRes
       detail: `No active care plan references ${patientId}. Consider drafting one.`,
       indicator: 'warning',
       source: { label: 'Anant Harness CDS' },
+      suggestions: [{
+        label: 'Draft care plan',
+        actions: [{
+          type: 'create',
+          description: 'Create a care-plan proposal for the patient',
+          resource: serviceRequestResource(patientId, 'Care-plan proposal', '72172-0'),
+        }],
+      }],
     });
   }
 

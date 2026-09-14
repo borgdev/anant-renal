@@ -36,7 +36,11 @@ import { createHash } from 'node:crypto';
 import type { Realm } from '../realm/realm.js';
 import type { EmittedEffect, EntityKind, EntityRecord, RealmMode } from '../realm/types.js';
 import type { Bundle, BundleEntry, FhirCtx, FhirResource, OperationOutcome } from './types.js';
-import { ingestResource, isStructuralKind, type FhirIngestOptions, type IdentitySnapshot } from './canonical.js';
+import {
+  ingestResource, isStructuralKind, linkResolutionFor, planInboundMerge, remoteRefId, resolveInboundPatient,
+  type FhirIngestOptions, type IdentitySnapshot,
+} from './canonical.js';
+import { correctionFrom } from './identity.js';
 import { buildBundleRefIndex, resolveBundleReferences } from './fhir-bundle.js';
 import { entityKindFromResource, RESOURCE_TO_KIND } from './mapping.js';
 import { captureSnapshot, restoreSnapshot, type RealmSnapshotV1 } from '../realm/realm-snapshot.js';
@@ -114,6 +118,13 @@ export interface IngestBundleResult {
     structuralUpserts: number;
     skipped: string[];
   };
+  /**
+   * Corrections ACKNOWLEDGED but deliberately not applied as clinical facts
+   * (`entered-in-error` retractions and `Patient.link` merges). Recorded rather
+   * than dropped: a retraction that leaves no trace is indistinguishable from
+   * one that never arrived.
+   */
+  corrections: string[];
 }
 
 export interface IngestBundleOptions {
@@ -222,6 +233,13 @@ export async function ingestFhirBundle(realm: Realm, ctx: FhirCtx, bundle: Bundl
     ...(opts.identity ? { identity: opts.identity } : {}),
   };
   const summary = { hydrated: resources.length, persisted: 0, effectsApplied: 0, effectsRejected: 0, structuralUpserts: 0, skipped: [] as string[] };
+  /**
+   * Corrections the sender asked for that were ACKNOWLEDGED and deliberately not
+   * applied as facts. An empty list is the normal case; a non-empty one is the
+   * only place a retraction or a merge shows up in the result, so it is never
+   * inferred from `skipped`.
+   */
+  const corrections: string[] = [];
   let failed = false;
 
   const recordFailure = (i: number, entry: BundleEntry | undefined, code: string, diagnostics?: string): void => {
@@ -232,8 +250,94 @@ export async function ingestFhirBundle(realm: Realm, ctx: FhirCtx, bundle: Bundl
 
   const isHeader = (r?: unknown): boolean => r !== undefined && typeof r === 'object' && (r as { resourceType?: string }).resourceType === 'MessageHeader';
 
+  // Pass 0 — corrections, BEFORE anything is written.
+  //
+  // Two things an EMR says that must change what we do with the bundle rather
+  // than be applied as if they were facts:
+  //
+  //   * `Patient.link: replaced-by` — two of its records are one person. Until
+  //     this is applied, the merged-away remote id still resolves to the chart
+  //     the EMR just retired, so every clinical fact about that patient in this
+  //     very bundle lands on the dead chart.
+  //   * `status: entered-in-error` — the sender is RETRACTING a value. Writing it
+  //     as a fresh clinical fact is how a retracted result becomes a live one;
+  //     the retraction is acknowledged and deliberately not applied.
+  //
+  // Superseding is not deleting: the notice is recorded either way, because
+  // erasing the fact that a wrong value was once sent is exactly what an audit
+  // needs to keep.
+  if (opts.identity) {
+    const survivorRemoteId = (resource: FhirResource): string | undefined => {
+      const links = (resource as { link?: Array<{ type?: string; other?: { reference?: string; id?: string } }> }).link ?? [];
+      const replaced = links.find((l) => l.type === 'replaced-by');
+      return replaced ? remoteRefId(replaced.other) : undefined;
+    };
+    // The survivor may be in this same bundle, which is how a vendor usually
+    // sends a merge: the retired record plus the record that absorbed it.
+    const patientsById = new Map<string, FhirResource>();
+    for (const entry of bundle.entry ?? []) {
+      const r = entry.resource;
+      if (r?.resourceType === 'Patient' && r.id) patientsById.set(r.id, r);
+    }
+
+    for (let i = 0; i < n; i++) {
+      const entry = bundle.entry![i]!;
+      const resource = entry.resource;
+      if (!resource) continue;
+      const notice = correctionFrom(resource);
+      if (!notice) continue;
+
+      if (notice.action === 'merge') {
+        const survivorId = survivorRemoteId(resource);
+        // Resolve the survivor: prefer the resource itself when the vendor sent
+        // it, and fall back to a link we already hold for that remote id.
+        const survivorResource = survivorId ? patientsById.get(survivorId) : undefined;
+        const to = survivorResource
+          ? resolveInboundPatient(survivorResource, opts.identity)
+          : linkResolutionFor(opts.identity, resource, survivorId);
+        const plan = planInboundMerge({
+          from: resolveInboundPatient(resource, opts.identity),
+          to,
+        });
+
+        if (plan.action === 'refused') {
+          recordFailure(i, entry, 'patient-merge-unresolved', plan.why);
+          continue;
+        }
+        if (plan.action === 'merged' && plan.fromLocalId && plan.toLocalId && opts.identity.applyMerge) {
+          await opts.identity.applyMerge({
+            fromLocalId: plan.fromLocalId,
+            toLocalId: plan.toLocalId,
+            mergedBy: opts.identity.mergedBy ?? 'fhir-ingest',
+          });
+        }
+        // Either way this entry is NOT a patient to create: the EMR has said the
+        // record is no longer a live chart, and creating it is the duplicate.
+        corrections.push(`${resource.resourceType}/${resource.id ?? ''} · merge · ${plan.why}`);
+        summary.skipped.push(`correction-merge:${plan.action}`);
+        outcomes[i] = {
+          ...successOutcome(i, entry, 200, `${resource.resourceType}/${resource.id ?? ''}`),
+          resourceType: resource.resourceType,
+          ...(resource.id ? { id: resource.id } : {}),
+          issue: { severity: 'information', code: `correction-merge-${plan.action}`, diagnostics: plan.why },
+        };
+        continue;
+      }
+
+      corrections.push(`${resource.resourceType}/${resource.id ?? ''} · ${notice.action}`);
+      summary.skipped.push(`correction-${notice.action}`);
+      outcomes[i] = {
+        ...successOutcome(i, entry, 200, `${resource.resourceType}/${resource.id ?? ''}`),
+        resourceType: resource.resourceType,
+        ...(resource.id ? { id: resource.id } : {}),
+        issue: { severity: 'information', code: `correction-${notice.action}`, diagnostics: notice.reason },
+      };
+    }
+  }
+
   // Pass 1 — structural resources first (so effects always reference live entities).
   for (let i = 0; i < n; i++) {
+    if (outcomes[i]) continue;
     const entry = bundle.entry![i]!;
     const resource = entry.resource;
     if (!resource) { outcomes[i] = errorOutcome(i, entry, 'missing-resource', 'entry has no resource'); failed = true; continue; }
@@ -331,6 +435,7 @@ export async function ingestFhirBundle(realm: Realm, ctx: FhirCtx, bundle: Bundl
     entries: filled,
     response: mode === 'transaction' || mode === 'batch' || mode === 'message' ? buildResponseBundle(bundle, filled, failed) : null,
     summary,
+    corrections,
   };
 }
 

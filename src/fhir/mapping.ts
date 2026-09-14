@@ -41,6 +41,7 @@
 // transitively and produce via a standard resource (Provenance / effect-map).
 
 import type { CanonicalEvent, CanonicalEventType } from '../healthcare-core/events.js';
+import { usCoreProfileForResource } from '../healthcare-core/uscdi.js';
 import type { EntityKind, EntityRecord } from '../realm/types.js';
 import { CODE_SYSTEMS, concept, code, type FhirCtx, type FhirResource } from './types.js';
 import { codeFor, conceptFor } from './code-registry.js';
@@ -1448,11 +1449,27 @@ export function hydrateBundle(bundle: { entry?: ReadonlyArray<{ resource?: FhirR
   return events;
 }
 
+function attachUsCoreProfiles(resources: FhirResource[]): FhirResource[] {
+  return resources.map((resource) => {
+    const profile = usCoreProfileForResource(resource.resourceType);
+    if (!profile) return resource;
+    const existing = resource.meta?.profile ?? [];
+    const next = [...new Set([...existing, profile])];
+    return {
+      ...resource,
+      meta: {
+        ...(resource.meta ?? {}),
+        profile: next,
+      },
+    };
+  });
+}
+
 /** Serialize an EntityRecord → FHIR resource(s) (empty for kinds with no wire equivalent). */
 export function serializeEntity(rec: EntityRecord, ctx: FhirCtx): FhirResource[] {
   const mapping = ENTITY_FHIR[rec.kind];
   if (!mapping) return [];
-  return mapping.serialize(rec, ctx);
+  return attachUsCoreProfiles(mapping.serialize(rec, ctx));
 }
 
 /** Resolve a FHIR resourceType to the entity kind it maps to. */

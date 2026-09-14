@@ -142,3 +142,38 @@ export const canonicalUSCDIBindings: readonly USCDIBinding[] = Object.freeze([
 export function findBinding(harnessType: string): USCDIBinding | undefined {
   return canonicalUSCDIBindings.find((b) => b.harnessType === harnessType);
 }
+
+/** Canonical US Core profiles for the resource types the bridge emits. */
+export const US_CORE_RESOURCE_PROFILES: Readonly<Record<string, string>> = Object.freeze({
+  Patient: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient',
+  Organization: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-organization',
+  Location: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-location',
+  Encounter: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-encounter',
+  ServiceRequest: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-servicerequest',
+  MedicationRequest: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-medicationrequest',
+  Observation: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab',
+  Practitioner: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-practitioner',
+  PractitionerRole: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-practitionerrole',
+  Device: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-device',
+  Coverage: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-coverage',
+  CarePlan: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-careplan',
+  Condition: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-problems-health-concerns',
+  Procedure: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-procedure',
+  Medication: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-medication',
+  Task: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-task',
+  Communication: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-communication',
+  CommunicationRequest: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-communicationrequest',
+  DocumentReference: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-documentreference',
+  Goal: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal',
+  QuestionnaireResponse: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-questionnaireresponse',
+  Consent: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-consent',
+  Specimen: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-specimen',
+  DetectedIssue: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-detectedissue',
+  Appointment: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-appointment',
+  AllergyIntolerance: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-allergyintolerance',
+  Provenance: 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-provenance',
+});
+
+export function usCoreProfileForResource(resourceType: string): string | undefined {
+  return US_CORE_RESOURCE_PROFILES[resourceType];
+}

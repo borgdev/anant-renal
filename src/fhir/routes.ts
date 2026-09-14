@@ -43,7 +43,7 @@ import { RESOURCE_TO_KIND, KIND_TO_RESOURCES } from './mapping.js';
 import { ingestCanonicalEvents } from './canonical.js';
 import { ingestFhirBundle, lookupBundleIngest, recordBundleIngest, BundleTooLargeError } from './bundle-ingest.js';
 import { exportRealmBundle, serializeRealmEntity } from './export.js';
-import { cdsHooksToCards, type CdsHooksRequest } from './cds-hooks.js';
+import { cdsHooksServices, cdsHooksToCards, type CdsHooksRequest } from './cds-hooks.js';
 import { FhirClient } from './client.js';
 import { FhirSubscriptionPump } from './subscription.js';
 import { R4_RESOURCES } from './r4-inventory.js';
@@ -173,6 +173,11 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
         effectsRejected: result.summary.effectsRejected,
         structuralUpserts: result.summary.structuralUpserts,
         skipped: result.summary.skipped,
+        // Corrections the sender asked for: acknowledged and deliberately NOT
+        // applied as facts. Surfaced separately from `skipped` because a
+        // retraction is not a failure, and conflating the two hides the one
+        // thing an operator needs to see after a merge.
+        corrections: result.corrections,
       };
     } catch (err) {
       if (err instanceof BundleTooLargeError) return reply.code(413).send({ error: err.message });
@@ -246,6 +251,26 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
       // before a production integration.
       codeFidelity: codeFidelityReport(),
     };
+  });
+
+  app.get('/admin/fhir/cds-services', async () => ({
+    services: cdsHooksServices(),
+    total: cdsHooksServices().length,
+  }));
+
+  app.post<{ Body: CdsHooksRequest; Params: { serviceId: string }; Querystring: { realmId?: string } }>('/admin/fhir/cds-services/:serviceId', async (req, reply) => {
+    const body = req.body ?? ({} as CdsHooksRequest);
+    const realmId = req.query.realmId ?? (body.context as { realmId?: string } | undefined)?.realmId ?? RealmRegistry.list()[0]?.id;
+    const r = realmId ? RealmRegistry.get(realmId) : undefined;
+    if (!r) return reply.code(404).send({ error: 'realm-not-found', hint: 'create a realm or pass ?realmId=' });
+
+    const service = cdsHooksServices().find((s) => s.id === req.params.serviceId || s.hook === req.params.serviceId);
+    if (!service) return reply.code(404).send({ error: 'cds-service-not-found', serviceId: req.params.serviceId });
+
+    const normalized: CdsHooksRequest = { ...body, hook: body.hook || service.hook, hookInstance: body.hookInstance || `${service.id}-${Date.now()}` };
+    const response = cdsHooksToCards(normalized, r);
+    reply.header('content-type', 'application/json');
+    return response;
   });
 
   // CDS Hooks (Phase 5) — clinical decision support cards from a live realm.
@@ -839,6 +864,19 @@ export async function identityForIngest(realmId: string): Promise<IdentitySnapsh
   const snapshot = await identitySnapshotFor(realmId);
   return {
     ...snapshot,
+    /*
+     * A merge moves clinical data between charts, so it is supplied here rather
+     * than built into the snapshot: the snapshot is a read, and this writes.
+     *
+     * `mergeInto` RE-POINTS the linkage and retires the old row together. Both
+     * halves matter — re-pointing alone leaves the merged-away remote id
+     * resolving to the retired chart, which is the same wrong-patient outcome by
+     * a quieter route.
+     */
+    applyMerge: async ({ fromLocalId, toLocalId, mergedBy }) => {
+      const service = new PatientIdentityService(snapshot.registry, ws.identityLinkStore());
+      await service.mergeInto(fromLocalId, toLocalId, mergedBy);
+    },
     // An ambiguous inbound patient is WORK, not merely a refusal — the same
     // conclusion F3 reached on the resolve route. Recorded idempotently per
     // (realm, remote system, remote patient id), so replaying a feed is one
