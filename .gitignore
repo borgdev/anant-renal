@@ -21,8 +21,12 @@ native/liquid-wasm/pkg/
 .harness/measures/
 # Local runtime state (SQLite store, generated realm knowledge, pack audit)
 .harness/data/
-.harness/knowledge/__realm__/
 packs/.authoring-audit.jsonl
+# Knowledge layer — every file under it is runtime-derived: the registry caches
+# (sources.json / subscriptions.json) are rebuilt from the pack catalog on each
+# boot, the per-source trees are written by the knowledge sync jobs, and the
+# secret store holds credentials. Track the code; never this state.
+.harness/knowledge/
 # Tool scratch
 .codekura/
 # Reference archives
