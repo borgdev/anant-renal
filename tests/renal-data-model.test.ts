@@ -92,7 +92,11 @@ describe('F1 dialysis session data model (sim → reducer → state)', () => {
     expect(Number(session.deliveredMinutes)).toBeGreaterThan(0);
     expect(Number(session.ufVolumeL)).toBeGreaterThan(0);
     expect(Number(session.adherencePct)).toBeGreaterThan(0);
-    expect(Number(session.telemetryPoints)).toBeGreaterThanOrEqual(1);
+    // A session is a COURSE, not a point. The generator samples the whole session
+    // at a 5-minute cadence, so a ~3.5-4h prescription yields ~39-48 samples. The
+    // old generator emitted ONE, which is why every demo session drew a dot.
+    // Asserted as a floor rather than an exact count: the prescription is drawn.
+    expect(Number(session.telemetryPoints)).toBeGreaterThanOrEqual(35);
     // telemetry was folded into clinical aggregates, not just stored raw
     expect(Number(session.nadirSbp)).toBeGreaterThan(0);
     expect(Number(session.recirculationPct)).toBeGreaterThan(0);

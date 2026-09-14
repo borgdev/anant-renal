@@ -70,6 +70,20 @@ const FEVER_THRESHOLD_C = 38.0;
 const SESSION_CYCLE_HOURS = 48;
 const SESSION_TELEMETRY_OFFSET = 6;
 const SESSION_END_OFFSET = 12;
+/**
+ * How often a session is sampled.
+ *
+ * The generator used to emit ONE mid-session point, so every session in the demo
+ * was a single dot and the console's trend had nothing to draw. Five minutes
+ * across a 3.5-4h prescription is the ~48-point trace a clinician actually reads.
+ */
+const TELEMETRY_SAMPLE_MINUTES = 5;
+/**
+ * A ceiling per session, mirroring the ingest cap (MAX_SESSION_TELEMETRY_POINTS).
+ * A long prescription must not turn one session into an unbounded number of
+ * resources — the refusal to be unbounded is the same one the wire model makes.
+ */
+const TELEMETRY_MAX_POINTS = 720;
 const MAINTENANCE_MEDS = [
   { code: 'sevelamer', dose: '800 mg', route: 'PO', frequency: 'three times daily', indication: 'hyperphosphatemia' },
   { code: 'calcium-acetate', dose: '667 mg', route: 'PO', frequency: 'three times daily', indication: 'hyperphosphatemia' },
@@ -234,7 +248,18 @@ function sessionStarts({ patientIds, rng, realm }: ScriptEmitInput): WorldEffect
   });
 }
 
-/** F1 — one mid-session telemetry point per open session. */
+/**
+ * F1 — the intradialytic trend for each open session.
+ *
+ * A session is not a point, it is a course: ultrafiltration removes volume, so
+ * pressure FALLS and heart rate CLIMBS as the session proceeds, and the fluid
+ * removed accumulates to the target. The generator used to emit one mid-session
+ * sample, which made the console draw a dot and hid every one of those
+ * relationships from the demo.
+ *
+ * Draw budget is deliberate and fixed per session — two baselines, one symptom
+ * roll, one jitter per point — so the seeded stream stays reproducible.
+ */
 function sessionTelemetry({ patientIds, rng, realm, elapsedHours }: ScriptEmitInput): WorldEffect[] {
   if (elapsedHours % SESSION_CYCLE_HOURS !== SESSION_TELEMETRY_OFFSET) return [];
   const states = stateById(realm);
@@ -245,22 +270,47 @@ function sessionTelemetry({ patientIds, rng, realm, elapsedHours }: ScriptEmitIn
     const prescribed = current.prescribedMinutes ?? 210;
     const target = current.targetUfL ?? 2.5;
     const catheter = (states.get(pid)?.access as { type?: string } | undefined)?.type === 'catheter';
+
+    const points = Math.min(TELEMETRY_MAX_POINTS, Math.max(1, Math.round(prescribed / TELEMETRY_SAMPLE_MINUTES)));
+    // The session's OWN baseline, drawn once: a trend is a stable patient moving,
+    // not N unrelated readings that happen to share a session id.
+    const baseSystolic = 118 + Math.round(rng() * 14);
+    const baseDiastolic = 74 + Math.round(rng() * 8);
+    const baseHr = 76 + Math.round(rng() * 14);
+    const baseVenous = 150 + Math.round(rng() * 60);
+    const baseArterial = -140 - Math.round(rng() * 40);
+    // ONE draw for the whole session's symptom story, so a complication lands in
+    // a stretch of the session instead of flickering on and off at random.
     const roll = rng();
-    out.push({
-      kind: 'record-session-telemetry',
-      patientId: pid,
-      minute: Math.round(prescribed / 2),
-      bp: `${118 + Math.round(rng() * 14)}/${74 + Math.round(rng() * 8)}`,
-      hr: 76 + Math.round(rng() * 14),
-      qb: catheter ? 300 : 350,
-      qd: 500,
-      venousPressure: 150 + Math.round(rng() * 60),
-      arterialPressure: -140 - Math.round(rng() * 40),
-      ufRateMlH: Math.round(((target * 1000) / Math.max(1, prescribed)) * 10) / 10,
-      ufVolumeL: Number((target * 0.5).toFixed(2)),
-      tempC: 36.4,
-      ...(roll < 0.18 ? { symptoms: ['cramping'] } : roll < 0.26 ? { symptoms: ['hypotension'] } : {}),
-    });
+
+    for (let i = 1; i <= points; i += 1) {
+      const progress = i / points;
+      const jitter = rng();
+      const symptoms = roll < 0.18
+        ? (progress >= 0.6 ? ['cramping'] : undefined)
+        : roll < 0.26
+          ? (progress >= 0.4 && progress <= 0.8 ? ['hypotension'] : undefined)
+          : undefined;
+      out.push({
+        kind: 'record-session-telemetry',
+        patientId: pid,
+        minute: Math.round(prescribed * progress),
+        // Directional drift plus a small draw per point, so the trace is readable
+        // (a straight line) and still looks measured (not a formula).
+        bp: `${baseSystolic - Math.round(progress * 16) + Math.round(jitter * 4)}/` +
+            `${baseDiastolic - Math.round(progress * 8) + Math.round(jitter * 3)}`,
+        hr: baseHr + Math.round(progress * 10) + Math.round(jitter * 3),
+        qb: catheter ? 300 : 350,
+        qd: 500,
+        venousPressure: baseVenous + Math.round(progress * 25) + Math.round(jitter * 8),
+        arterialPressure: baseArterial - Math.round(progress * 15) - Math.round(jitter * 8),
+        ufRateMlH: Math.round(((target * 1000) / Math.max(1, prescribed)) * 10) / 10,
+        // Fluid removed ACCUMULATES across the session, ending at the target.
+        ufVolumeL: Number((target * progress).toFixed(2)),
+        tempC: Number((36.4 - progress * 0.1).toFixed(2)),
+        ...(symptoms ? { symptoms } : {}),
+      });
+    }
   }
   return out;
 }
