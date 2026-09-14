@@ -49,6 +49,9 @@ function window(over: Partial<EsaPatientWindow> = {}): EsaPatientWindow {
     currentHgb: 10.6,
     onESA: true,
     currentDose: 8000,
+    // An empty trend is the "no trend charted yet" case the advisor must handle.
+    hgbTrendLast90d: [],
+    esaEscalationsLast90d: 0,
     asOf: '2026-09-01T00:00:00Z',
     ...over,
   };

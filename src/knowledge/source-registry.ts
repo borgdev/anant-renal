@@ -39,7 +39,7 @@
 // Persistence: mirrored to disk as JSON so the harness can boot cold and
 // know which sources + subscriptions exist without re-scanning packs.
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   KnowledgeSourceSpec, PackSourceSubscription, SourceCategory, AccessTier,
@@ -212,27 +212,60 @@ export class SourceRegistry {
   private sourcesFile(): string { return join(this.storeDir, 'sources.json'); }
   private subsFile(): string { return join(this.storeDir, 'subscriptions.json'); }
 
+  /**
+   * Write a cache file atomically — temp file, then rename over the target.
+   *
+   * `writeFileSync` truncates before it writes, so a concurrent reader (a second
+   * vitest worker, another server process, or a crash mid-write) can observe a
+   * half-written file and fail to parse it. `rename` is atomic within a
+   * filesystem, so a reader sees either the complete old file or the complete
+   * new one — never a partial. Same convention as `control-plane/file-secrets.ts`.
+   */
+  private writeJsonAtomic(file: string, value: unknown): void {
+    const tmp = `${file}.${process.pid}.tmp`;
+    try {
+      writeFileSync(tmp, JSON.stringify(value, null, 2));
+      renameSync(tmp, file);
+    } catch (err) {
+      rmSync(tmp, { force: true });
+      throw err;
+    }
+  }
+
+  /**
+   * Read a cache array, tolerating a missing, empty, or unparseable file.
+   *
+   * Both files below are *derived* caches: `bootstrapKnowledgeLayer` re-registers
+   * every canonical source and subscription on boot, so an unreadable cache is a
+   * cold cache, not a fatal error. Throwing here would take down app boot.
+   */
+  private readJsonArray<T>(file: string): T[] {
+    if (!existsSync(file)) return [];
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
   private persistSources(): void {
-    writeFileSync(this.sourcesFile(), JSON.stringify([...this.sources.values()], null, 2));
+    this.writeJsonAtomic(this.sourcesFile(), [...this.sources.values()]);
   }
   private persistSubs(): void {
     const flat: PackSourceSubscription[] = [];
     for (const list of this.subs.values()) flat.push(...list);
-    writeFileSync(this.subsFile(), JSON.stringify(flat, null, 2));
+    this.writeJsonAtomic(this.subsFile(), flat);
   }
 
   private load(): void {
-    if (existsSync(this.sourcesFile())) {
-      const arr = JSON.parse(readFileSync(this.sourcesFile(), 'utf8')) as KnowledgeSourceSpec[];
-      for (const s of arr) this.sources.set(s.id, s);
+    for (const s of this.readJsonArray<KnowledgeSourceSpec>(this.sourcesFile())) {
+      this.sources.set(s.id, s);
     }
-    if (existsSync(this.subsFile())) {
-      const arr = JSON.parse(readFileSync(this.subsFile(), 'utf8')) as PackSourceSubscription[];
-      for (const s of arr) {
-        const list = this.subs.get(s.sourceId) ?? [];
-        list.push(s);
-        this.subs.set(s.sourceId, list);
-      }
+    for (const s of this.readJsonArray<PackSourceSubscription>(this.subsFile())) {
+      const list = this.subs.get(s.sourceId) ?? [];
+      list.push(s);
+      this.subs.set(s.sourceId, list);
     }
   }
 }

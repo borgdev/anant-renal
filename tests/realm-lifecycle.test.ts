@@ -61,6 +61,7 @@ const makeRealmId = (): string => {
 /** Counts the ticks it is given, in both phases, so the two can be compared. */
 class TickCounter implements AmbientProcess {
   readonly id = 'lifecycle.tick-counter';
+  readonly description = 'Counts ticks in each phase so a stop/start cycle can be compared.';
   started = 0;
   afterRestart = 0;
   private restarted = false;
@@ -144,7 +145,7 @@ describe('realm lifecycle — stop() then start() restores the whole pipeline', 
     const realm = RealmRegistry.create({ id, mode: 'sim', clock: fastClock() });
     populateFacility(realm, { facilityId: 'f1', kind: 'dialysis', name: 'Lifecycle Dialysis', units: ['U1'], patientCount: 1 });
     // populateFacility seeds the clinical graph; the acting presence is explicit.
-    const presence = realm.spawnPresence({ agentSpecId: 'lifecycle-md', role: 'md', clearance: 'restricted-phi', location: { facilityId: 'f1' } });
+    const presence = realm.spawnPresence({ agentSpecId: 'lifecycle-md', runId: 'lifecycle-run-1', role: 'md', clearance: 'restricted-phi', purposeOfUse: ['treatment'], location: { facilityId: 'f1' } });
     realm.start();
 
     const experiences: string[] = [];

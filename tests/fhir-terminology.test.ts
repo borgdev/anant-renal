@@ -57,6 +57,8 @@ import { seedValueSets } from '../src/healthcare-core/terminology.js';
 import { ESRD_QIP_MEASURES } from '../src/healthcare-core/cms-measure-catalog.js';
 
 const ctx: FhirCtx = {
+  realmId: 'realm:terminology-test',
+  facilityId: 'f1',
   scopeId: 'realm:terminology-test',
   sourceId: 'terminology-test',
   ingestedAt: '2026-09-13T00:00:00.000Z',
@@ -136,7 +138,7 @@ function everyEmittedEffect(): WorldEffect[] {
   effects.push({ kind: 'update-care-plan', patientId: pid, patch: { title: 'Care plan' } });
   effects.push({ kind: 'submit-claim', encounterId: 'enc-1', payerId: 'payer-1', cptCodes: ['90960'], icd10Codes: ['N18.6'] });
   effects.push({ kind: 'request-prior-auth', patientId: pid, payerId: 'payer-1', serviceCode: '90960' });
-  effects.push({ kind: 'operator-directive', originalText: 'Check the access' });
+  effects.push({ kind: 'operator-directive', verb: 'explain', payload: {}, originalText: 'Check the access' });
 
   // F7 — the renal wire model. Both session modalities and every access event,
   // so the net covers the codes the dialysis path emits.

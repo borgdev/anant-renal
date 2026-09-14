@@ -405,14 +405,18 @@ export function detectProposalConversion(
       });
 
       if (matches) {
+        // `id` and `resourceType` are absent on resources the EMR returned
+        // without them, and the evidence block is optional per field — so only
+        // assert the fields we actually observed rather than emitting explicit
+        // `undefined`s into a record that is read as evidence.
         return {
           status: 'accepted',
           reason: 'matching proposal identifier found on an EMR resource',
           evidence: {
-            matchedId: id,
+            ...(id !== undefined ? { matchedId: id } : {}),
             matchedIdentifier: proposal.identifierValue,
             matchedSystem: proposal.identifierSystem,
-            resourceType,
+            ...(resourceType !== undefined ? { resourceType } : {}),
           },
         };
       }

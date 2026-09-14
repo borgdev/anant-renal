@@ -35,7 +35,7 @@
 // unencrypted (per environment; production deployments should mount an encrypted
 // volume or delegate to a KMS). We keep an audit trail of who set what and when.
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 export interface SecretRecord {
@@ -66,7 +66,18 @@ export class SecretRegistry {
     }
   }
   private save(): void {
-    writeFileSync(this.file, JSON.stringify(this.data, null, 2));
+    // Temp + rename so a crash — or a concurrent reader — can never observe a
+    // truncated store. `writeFileSync` truncates in place, which would lose every
+    // stored value if the process died mid-write. Same convention as
+    // `control-plane/file-secrets.ts`.
+    const tmp = `${this.file}.${process.pid}.tmp`;
+    try {
+      writeFileSync(tmp, JSON.stringify(this.data, null, 2), { mode: 0o600 });
+      renameSync(tmp, this.file);
+    } catch (err) {
+      rmSync(tmp, { force: true });
+      throw err;
+    }
     try { chmodSync(this.file, 0o600); } catch { /* best effort on non-POSIX */ }
   }
   set(namespace: string, key: string, value: string, updatedBy?: string): void {

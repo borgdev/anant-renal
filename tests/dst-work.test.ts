@@ -47,7 +47,7 @@ import type { PostgresEventStore } from '../src/server/postgres-event-store.js';
 import type { CanonicalEvent } from '../src/healthcare-core/events.js';
 import type { LedgerEntry } from '../src/hypergraph/ledger.js';
 import type { ActorContext } from '../src/server/scoped-persistence.js';
-import type { OutcomeEpisode } from '../src/swarm/outcome-episode.js';
+import type { EpisodeEvidenceFusion, OutcomeEpisode } from '../src/swarm/outcome-episode.js';
 import {
   episodeDstReadout,
   compareDstQueue,
@@ -74,7 +74,7 @@ function episode(overrides: Partial<OutcomeEpisode>): OutcomeEpisode {
   } as OutcomeEpisode;
 }
 
-function fakeFusion(fields: { belief: number; plausibility: number; conflictMass: number }) {
+function fakeFusion(fields: { belief: number; plausibility: number; conflictMass: number }): EpisodeEvidenceFusion {
   return {
     belief: fields.belief,
     plausibility: fields.plausibility,
@@ -82,7 +82,7 @@ function fakeFusion(fields: { belief: number; plausibility: number; conflictMass
     conflictMass: fields.conflictMass,
     massVector: {},
     sources: [],
-  } as OutcomeEpisode['evidenceFusion'];
+  };
 }
 
 /* ---------- unit: episodeDstReadout ---------- */
@@ -94,7 +94,7 @@ describe('episodeDstReadout (DST-Q #1)', () => {
 
   it('reads out a weak belief interval for a single synthetic signal', () => {
     const out = episodeDstReadout(episode({
-      evidence: [{ sourceId: 'sim:scripted-events', contentType: 'signal', ref: 'r1' }],
+      evidence: [{ sourceId: 'sim:scripted-events', contentType: 'signal', hash: 'r1' }],
     }));
     expect(out).toBeDefined();
     const r = out as EpisodeDstReadout;
@@ -109,13 +109,13 @@ describe('episodeDstReadout (DST-Q #1)', () => {
   it('ranks corroborated realm-ledger evidence above a single weak source', () => {
     const corroborated = episode({
       evidence: [
-        { sourceId: 'realm-ledger:fac-1', contentType: 'fact', ref: 'r1' },
-        { sourceId: 'realm-ledger:fac-1', contentType: 'fact', ref: 'r2' },
-        { sourceId: 'realm-ledger:fac-2', contentType: 'fact', ref: 'r3' },
+        { sourceId: 'realm-ledger:fac-1', contentType: 'fact', hash: 'r1' },
+        { sourceId: 'realm-ledger:fac-1', contentType: 'fact', hash: 'r2' },
+        { sourceId: 'realm-ledger:fac-2', contentType: 'fact', hash: 'r3' },
       ],
     });
     const weak = episode({
-      evidence: [{ sourceId: 'sim:scripted-events', contentType: 'signal', ref: 'r1' }],
+      evidence: [{ sourceId: 'sim:scripted-events', contentType: 'signal', hash: 'r1' }],
     });
     const strong = episodeDstReadout(corroborated) as EpisodeDstReadout;
     const faint = episodeDstReadout(weak) as EpisodeDstReadout;
