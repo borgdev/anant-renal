@@ -167,7 +167,11 @@ export type WorkspaceKind =
   | 'cross-pack-release-gate'
   | 'cohort-definition'
   | 'cohort-membership'
-  | 'cohort-decision';
+  | 'cohort-decision'
+  // F3 — an inbound patient that could not be resolved to one chart, held for a
+  // human. Refusing the write is only half of it; this is the half that is
+  // visible and actionable.
+  | 'identity-ambiguity';
 
 export interface WorkspaceDoc {
   id: string;
@@ -767,6 +771,54 @@ export interface CohortDecisionDoc extends WorkspaceDoc {
   confidence: number;
   risk: number;
   at: string;
+}
+
+/**
+ * A durable record that an inbound patient could NOT be resolved to one chart.
+ *
+ * This is the difference between refusing a write and giving a human something
+ * to do about it: the resolution engine already reports `ambiguous`, but a
+ * refusal on its own is invisible — a wrong-patient risk with no owner. The
+ * record is what the work queue derives a review item from.
+ */
+export interface IdentityAmbiguityDoc extends WorkspaceDoc {
+  realmId: string;
+  /** The remote patient as the EMR named it — the question being asked. */
+  remoteSystem: string;
+  remotePatientId: string;
+  /** What arrived, so a reviewer can compare it against the candidates. */
+  incoming: {
+    family?: string;
+    given?: string;
+    birthDate?: string;
+    sex?: string;
+    identifiers?: Array<{ system: string; value: string }>;
+  };
+  /** The chart patients this could be, best first. Never acted on automatically. */
+  candidates: Array<{ localPatientId: string; confidence: number; method: string; reasons: string[] }>;
+  reasons: string[];
+  status: 'open' | 'linked' | 'dismissed';
+  /** The human's decision, when there is one. */
+  actor?: string;
+  decisionReason?: string;
+  /** The chart patient it was resolved to. */
+  linkedTo?: string;
+  at: string;
+}
+
+/**
+ * The key for one ambiguous remote identity.
+ *
+ * `~` rather than `:` because realm ids and identifier systems both contain
+ * colons, and this string is split apart again by the work-queue router.
+ */
+export function identityAmbiguityId(realmId: string, remoteSystem: string, remotePatientId: string): string {
+  return `${realmId}~${remoteSystem}~${normaliseKeyPart(remotePatientId)}`;
+}
+
+/** Case/whitespace-insensitive so `AB-12` and `ab 12` are one remote patient. */
+function normaliseKeyPart(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s-]+/g, '');
 }
 
 /** Durable Pack Studio activation — which installed domain pack drives the
@@ -2188,6 +2240,84 @@ export class SwarmWorkspaceStore {
       .sort((a, b) => b.at.localeCompare(a.at));
   }
 
+  /**
+   * Record an ambiguous inbound identity for a human to resolve.
+   *
+   * Idempotent per (realm, remote system, remote patient id): the same EMR
+   * patient re-resolved on every poll must be ONE queue entry, not a new one each
+   * time — a queue that grows on every poll is a queue nobody reads.
+   *
+   * A record a human has ALREADY decided is not reopened by a later ingest: the
+   * decision would otherwise be silently reverted, and the same ambiguity asked
+   * about forever. The evidence is refreshed; the answer is not touched.
+   */
+  async recordIdentityAmbiguity(input: {
+    realmId: string;
+    remoteSystem: string;
+    remotePatientId: string;
+    incoming: IdentityAmbiguityDoc['incoming'];
+    candidates: IdentityAmbiguityDoc['candidates'];
+    reasons: string[];
+  }): Promise<IdentityAmbiguityDoc> {
+    const id = identityAmbiguityId(input.realmId, input.remoteSystem, input.remotePatientId);
+    const existing = await this.get<IdentityAmbiguityDoc>('identity-ambiguity', id);
+    const at = this.now();
+    const doc: IdentityAmbiguityDoc = {
+      id,
+      createdAt: existing?.createdAt ?? at,
+      updatedAt: at,
+      realmId: input.realmId,
+      remoteSystem: input.remoteSystem,
+      remotePatientId: input.remotePatientId,
+      incoming: input.incoming,
+      candidates: input.candidates,
+      reasons: input.reasons,
+      status: existing?.status ?? 'open',
+      ...(existing?.actor ? { actor: existing.actor } : {}),
+      ...(existing?.decisionReason ? { decisionReason: existing.decisionReason } : {}),
+      ...(existing?.linkedTo ? { linkedTo: existing.linkedTo } : {}),
+      at: existing?.at ?? at,
+    };
+    if (existing) {
+      const updated = await this.update<IdentityAmbiguityDoc>('identity-ambiguity', id, doc);
+      return updated ?? doc;
+    }
+    return this.create<IdentityAmbiguityDoc>('identity-ambiguity', id, doc);
+  }
+
+  async listIdentityAmbiguities(): Promise<IdentityAmbiguityDoc[]> {
+    return this.list<IdentityAmbiguityDoc>('identity-ambiguity');
+  }
+
+  async getIdentityAmbiguity(id: string): Promise<IdentityAmbiguityDoc | undefined> {
+    return this.get<IdentityAmbiguityDoc>('identity-ambiguity', id);
+  }
+
+  /**
+   * A human answered. `linked` carries the chart patient they chose; `dismissed`
+   * carries why it is not a duplicate at all. Both are recorded, because the
+   * next identical encounter must know which.
+   */
+  async decideIdentityAmbiguity(id: string, decision: {
+    status: 'linked' | 'dismissed';
+    actor: string;
+    reason: string;
+    linkedTo?: string;
+  }): Promise<IdentityAmbiguityDoc | undefined> {
+    const existing = await this.get<IdentityAmbiguityDoc>('identity-ambiguity', id);
+    if (!existing) return undefined;
+    const at = this.now();
+    return this.update<IdentityAmbiguityDoc>('identity-ambiguity', id, {
+      ...existing,
+      status: decision.status,
+      actor: decision.actor,
+      decisionReason: decision.reason,
+      ...(decision.linkedTo ? { linkedTo: decision.linkedTo } : {}),
+      updatedAt: at,
+      at,
+    } as Partial<IdentityAmbiguityDoc>);
+  }
+
   /* ---------- Pack Studio — durable pack activation (lens switch) ---------- */
 
   async activePack(): Promise<PackActivation | undefined> {
@@ -3243,6 +3373,7 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'cohort-definition',
   'cohort-membership',
   'cohort-decision',
+  'identity-ambiguity',
 ];
 
 function slug(input: string): string {

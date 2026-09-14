@@ -223,7 +223,14 @@ function structuralState(kind: EntityKind, resource: FhirResource): Record<strin
     case 'patient': {
       const p = resource as { name?: Array<{ family?: string; given?: string[] }>; gender?: string; birthDate?: string; identifier?: Array<{ value?: string }>; managingOrganization?: { reference?: string } };
       return {
-        name: p.name?.[0] ? [p.name[0].family, ...(p.name[0].given ?? [])].filter(Boolean).join(' ') : undefined,
+        // `name` is ONE denormalised string and every reader parses it as
+        // "given family" — the outbound Patient serializer and the identity
+        // population both do. Writing it family-first here silently inverted
+        // every ingested patient: it went back out to the EMR with family and
+        // given swapped, and no inbound patient could ever be matched to it.
+        name: p.name?.[0]
+          ? [...(p.name[0].given ?? []), p.name[0].family].filter(Boolean).join(' ')
+          : undefined,
         sex: p.gender,
         birthDate: p.birthDate,
         mrn: p.identifier?.[0]?.value ?? resource.id,

@@ -73,6 +73,7 @@ import {
   type IdentifierSystem,
   type IdentityMethod,
   type LocalPatientDemographics,
+  type PatientCrossReference,
 } from './identity.js';
 import type { IdentitySnapshot } from './canonical.js';
 import { getSwarmWorkspace } from '../server/swarm-routes.js';
@@ -346,6 +347,30 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
         ...(typeof req.body.minConfidence === 'number' ? { minConfidence: req.body.minConfidence } : {}),
         ...(typeof req.body.allowDemographics === 'boolean' ? { allowDemographics: req.body.allowDemographics } : {}),
       });
+
+      // (F3) An ambiguous answer is not merely a refusal — it is WORK. Refusing
+      // the write is the safe half; without this the same encounter is refused
+      // forever and no human is ever told which patient it might be. Recorded
+      // idempotently per (realm, remote system, remote patient id), so re-running
+      // the same feed is ONE queue entry rather than one per run.
+      //
+      // Only `ambiguous` files a task. `unresolved` is not a decision anyone can
+      // make — it needs data (an identifier, a demographic) that nobody in the
+      // chart can supply — so it stays a refusal with its reason attached.
+      if (resolution.status === 'ambiguous') {
+        const demographics = demographicsFromPatient(patient);
+        await ws.recordIdentityAmbiguity({
+          realmId,
+          remoteSystem: remoteSystemOf(demographics),
+          remotePatientId: remotePatientIdOf(demographics, patient),
+          incoming: demographics,
+          candidates: resolution.candidates.map((c) => ({
+            localPatientId: c.localPatientId, confidence: c.confidence, method: c.method, reasons: c.reasons,
+          })),
+          reasons: resolution.reasons,
+        });
+      }
+
       return {
         ...resolution,
         // Stated plainly so a caller cannot mistake 'resolved' for 'safe to write
@@ -392,15 +417,16 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
     if (!body.localPatientId || !body.remoteSystem || !body.remotePatientId) {
       return reply.code(400).send({ error: 'localPatientId-remoteSystem-remotePatientId-required' });
     }
-    const link = await service.link({
-      ...(body.realmId ? { realmId: body.realmId } : {}),
+    const link = await linkIdentity({
+      ws,
       localPatientId: body.localPatientId,
       remoteSystem: body.remoteSystem,
       remotePatientId: body.remotePatientId,
-      confidence: typeof body.confidence === 'number' ? body.confidence : 1,
-      method: (body.method as IdentityMethod | undefined) ?? 'cross-reference',
-      linkedBy: actor,
-      verified: body.verified ?? true,
+      actor,
+      ...(body.realmId ? { realmId: body.realmId } : {}),
+      ...(typeof body.confidence === 'number' ? { confidence: body.confidence } : {}),
+      ...(body.method ? { method: body.method as IdentityMethod } : {}),
+      ...(typeof body.verified === 'boolean' ? { verified: body.verified } : {}),
     });
     return { ok: true, link };
   });
@@ -672,6 +698,65 @@ export function configureProposalSweeper(deps: {
 /** The configured sweeper, or null when the FHIR surface has not registered. */
 export function getProposalSweeper(): ProposalSweeper | null {
   return proposalSweeper;
+}
+
+/**
+ * Record a human's decision that an inbound identity IS a particular chart
+ * patient.
+ *
+ * ONE path, shared by the identity console and the work queue. Two ways to write
+ * a cross-reference would eventually disagree about `verified` — and `verified`
+ * is the flag that lets a write through, so a disagreement there is a
+ * wrong-patient write.
+ */
+export async function linkIdentity(input: {
+  ws: NonNullable<ReturnType<typeof getSwarmWorkspace>>;
+  localPatientId: string;
+  remoteSystem: string;
+  remotePatientId: string;
+  actor: string;
+  realmId?: string;
+  confidence?: number;
+  method?: IdentityMethod;
+  verified?: boolean;
+}): Promise<PatientCrossReference> {
+  const service = new PatientIdentityService(
+    new IdentifierSystemRegistry(await identifierSystemsWithDurable(input.ws)),
+    input.ws.identityLinkStore(),
+  );
+  return service.link({
+    ...(input.realmId ? { realmId: input.realmId } : {}),
+    localPatientId: input.localPatientId,
+    remoteSystem: input.remoteSystem,
+    remotePatientId: input.remotePatientId,
+    confidence: input.confidence ?? 1,
+    method: input.method ?? 'cross-reference',
+    linkedBy: input.actor,
+    verified: input.verified ?? true,
+  });
+}
+
+/**
+ * Which remote SYSTEM an ambiguous inbound patient is keyed under.
+ *
+ * A patient with no identifier at all is still a question worth recording, so it
+ * gets an explicit `unknown` system rather than being dropped — a silent skip is
+ * how an ambiguous patient becomes no task at all.
+ */
+const UNKNOWN_REMOTE_SYSTEM = 'urn:ananthealth:unidentified-remote-system';
+
+function remoteSystemOf(demographics: { identifiers?: Array<{ system: string; value: string }> }): string {
+  return demographics.identifiers?.[0]?.system ?? UNKNOWN_REMOTE_SYSTEM;
+}
+
+function remotePatientIdOf(
+  demographics: { identifiers?: Array<{ system: string; value: string }> },
+  patient: unknown,
+): string {
+  const identifier = demographics.identifiers?.[0]?.value;
+  if (identifier) return identifier;
+  const id = (patient as { id?: unknown }).id;
+  return typeof id === 'string' && id ? id : 'unknown';
 }
 
 /** Defaults plus the durable additions, as one registry. */

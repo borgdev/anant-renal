@@ -46,6 +46,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Users,
+  UserSearch,
   XCircle,
 } from "lucide-react";
 import { fetchMyWork, fetchWorkDetail, performWorkAction, type PlatformWorkItem, type PlatformWorkDetail, type PlatformUrgency } from "../lib/work";
@@ -61,6 +62,9 @@ const KIND_LABEL: Record<PlatformWorkItem["kind"], string> = {
   cohort: "Cohort suggestion",
   // A ranked action that came back: it was deferred to this moment or handed to you.
   action: "Ranked action",
+  // An inbound patient we could not resolve to one chart. Not a care decision —
+  // the only thing being asked is which patient this is.
+  identity: "Unidentified patient",
 };
 
 const KIND_ICON: Record<PlatformWorkItem["kind"], typeof CircleDot> = {
@@ -70,6 +74,7 @@ const KIND_ICON: Record<PlatformWorkItem["kind"], typeof CircleDot> = {
   dlq: AlertOctagon,
   cohort: Users,
   action: ClipboardList,
+  identity: UserSearch,
 };
 
 const URGENCY_TONE: Record<PlatformUrgency, "red" | "amber" | "mint"> = { high: "red", medium: "amber", low: "mint" };
@@ -137,7 +142,12 @@ function detailToDrawer(item: PlatformWorkItem, detail?: PlatformWorkDetail): Wo
         ? { label: "Open Platform & configuration", target: "platform" }
         : item.kind === "cohort"
           ? { label: "Open Renal Cohorts", target: "patient" }
-          : { label: "Open Event Operations", target: "command" };
+          : item.kind === "identity"
+            // The decision itself is taken in this drawer; there is no identity
+            // page to send a clinician to. Point at where the identity SYSTEMS
+            // and links are actually configured rather than inventing a target.
+            ? { label: "Open Platform & configuration", target: "platform" }
+            : { label: "Open Event Operations", target: "command" };
   const metrics: WorkflowDetail["metrics"] = [
     { label: "State", value: detail?.state ?? item.state },
     { label: "Scope", value: detail?.scope ?? item.scope },
@@ -224,7 +234,7 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
   // Page the queue (10/page) so long role-scoped lists never stretch the page.
   const paged = usePaged(visible, 10, filter);
 
-  const act = async (item: PlatformWorkItem, action: string, extra: { reason?: string; deferUntil?: string; handedTo?: string; handedToConsole?: string } = {}) => {
+  const act = async (item: PlatformWorkItem, action: string, extra: { reason?: string; deferUntil?: string; handedTo?: string; handedToConsole?: string; localPatientId?: string } = {}) => {
     const key = `${item.id}:${action}`;
     setBusy(key);
     setNotice(null);
@@ -257,8 +267,20 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
 
   /** What an action needs before it can be sent, or `null` when it can go as-is. */
   const promptFor = (action: string): { label: string; placeholder: string; value: string } | null => {
-    if (action === "decline" || action === "dismiss") {
+    if (action === "decline") {
       return { label: "Confirm decline", placeholder: "Why is this suggestion wrong? (kept for criterion tuning)", value: "" };
+    }
+    if (action === "dismiss") {
+      // `dismiss` is shared: a cohort suggestion the human judged wrong, and an
+      // unambiguous "these are different people". Both need a reason, so the
+      // wording stays honest for both rather than borrowing the cohort's.
+      return { label: "Confirm dismissal", placeholder: "Why? (recorded on the item)", value: "" };
+    }
+    if (action === "link") {
+      // The one action that needs a CHOICE rather than a note. The server refuses
+      // any id that was not one of the candidates it offered, so a typo cannot
+      // become a wrong-patient link — it comes back with the list to choose from.
+      return { label: "Link to chart patient", placeholder: "Chart patient id, exactly as listed in the candidates", value: "" };
     }
     if (action === "defer") {
       // A deferral with no time is a silent dismissal, so the default is a real
@@ -289,6 +311,7 @@ export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: 
     setAsking(null);
     if (asking.action === "defer") void act(item, "defer", { deferUntil: value });
     else if (asking.action === "hand-off") void act(item, "hand-off", { handedTo: value, handedToConsole: "exec" });
+    else if (asking.action === "link") void act(item, "link", { localPatientId: value });
     else void act(item, asking.action, { reason: value });
   };
 

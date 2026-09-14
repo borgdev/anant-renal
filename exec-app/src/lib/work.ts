@@ -40,7 +40,7 @@
 // server says the current session may see and act on — it never decides
 // authorization.
 import { responseOrThrow } from "./session";
-export type PlatformWorkKind = "episode" | "review" | "release" | "dlq" | "cohort" | "action";
+export type PlatformWorkKind = "episode" | "review" | "release" | "dlq" | "cohort" | "action" | "identity";
 export type PlatformUrgency = "high" | "medium" | "low";
 export type ConsoleId = "exec" | "ops";
 
@@ -119,7 +119,7 @@ export async function fetchWorkDetail(id: string): Promise<PlatformWorkDetail> {
 export async function performWorkAction(
   id: string,
   action: string,
-  opts: { approver?: string; reason?: string; idempotencyKey?: string; deferUntil?: string; handedTo?: string; handedToConsole?: string } = {},
+  opts: { approver?: string; reason?: string; idempotencyKey?: string; deferUntil?: string; handedTo?: string; handedToConsole?: string; localPatientId?: string } = {},
 ): Promise<{
   accepted?: boolean;
   state?: string;
@@ -141,6 +141,9 @@ export async function performWorkAction(
       ...(opts.deferUntil ? { deferUntil: opts.deferUntil } : {}),
       ...(opts.handedTo ? { handedTo: opts.handedTo } : {}),
       ...(opts.handedToConsole ? { handedToConsole: opts.handedToConsole } : {}),
+      // An identity review is answered by CHOOSING a chart patient, so the choice
+      // travels as data — never as free text the server has to trust.
+      ...(opts.localPatientId ? { localPatientId: opts.localPatientId } : {}),
     }),
   });
 }

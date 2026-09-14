@@ -71,6 +71,10 @@ import { consolesForRole, type ConsoleId } from './console-gate.js';
 // The cohort reference builder/parser live in the cohort module so the queue and
 // every drawer cannot spell the same key two different ways.
 import { cohortWorkId, parseCohortRef } from './cohort-routes.js';
+// F3 — an identity review, when answered, records a cross-reference. It goes
+// through the SAME link path the identity console uses, so `verified` cannot
+// come to mean two different things depending on where the human clicked.
+import { linkIdentity } from '../fhir/routes.js';
 import { getSwarmWorkspace, getSwarmCoordinator, swarmWhatIf, projectTopology, type ProjectedEdge, type ProjectedNode } from './swarm-routes.js';
 import type { SwarmWorkspaceStore, WorkspaceDoc, PlatformOrganization, PlatformTopicPlan, PlatformCanvas, ConfigRelease, EvidenceReview, DlqRemediation } from '../swarm/workspace.js';
 import { decidesLater, deferralActive } from '../swarm/workspace.js';
@@ -111,8 +115,8 @@ export interface PlatformRouteOptions {
 /** Capabilities granted per console (server-authoritative). A work item carries
  *  a capability; a role can act when its console grants it. */
 export const CAPABILITIES: Record<ConsoleId, string[]> = {
-  exec: ['work.review', 'work.approve', 'release.approve', 'episode.decide', 'episode.escalate', 'evidence.review', 'cohort.review'],
-  ops: ['onboarding.run', 'org.configure', 'integration.operate', 'topic.configure', 'dlq.remediate', 'release.validate', 'catalog.admin', 'cohort.review'],
+  exec: ['work.review', 'work.approve', 'release.approve', 'episode.decide', 'episode.escalate', 'evidence.review', 'cohort.review', 'identity.review'],
+  ops: ['onboarding.run', 'org.configure', 'integration.operate', 'topic.configure', 'dlq.remediate', 'release.validate', 'catalog.admin', 'cohort.review', 'identity.review'],
 };
 
 /* ---------- onboarding model (12-step product rail, gated) ---------- */
@@ -177,7 +181,7 @@ async function onboardingState(ws: SwarmWorkspaceStore, users?: LocalUserStore):
 
 export interface PlatformWorkItem {
   id: string;
-  kind: 'episode' | 'review' | 'release' | 'dlq' | 'cohort' | 'action';
+  kind: 'episode' | 'review' | 'release' | 'dlq' | 'cohort' | 'action' | 'identity';
   title: string;
   summary: string;
   state: string;
@@ -345,6 +349,37 @@ async function buildWorkQueue(ws: SwarmWorkspaceStore, coord: PersistentOutcomeC
       capability: 'evidence.review',
       actions: ['approve', 'reject'],
       at: r.createdAt,
+    });
+  }
+
+  // 2b. Inbound patients we could not resolve to ONE chart patient (F3).
+  //
+  // The engine refusing the write is the safe half; this is the half a human can
+  // act on. Without a queue entry the same encounter is refused forever and
+  // nobody is ever asked which patient it is. Granted to BOTH consoles on
+  // purpose: the clinical roles that must not write blind are exec roles, and an
+  // item they cannot see is indistinguishable from no item.
+  for (const a of await ws.listIdentityAmbiguities()) {
+    if (a.status !== 'open') continue;
+    const consoleId: ConsoleId = can('ops', 'identity.review') ? 'ops' : 'exec';
+    if (!can(consoleId, 'identity.review')) continue;
+    const lastReason = a.reasons[a.reasons.length - 1];
+    items.push({
+      id: identityWorkId(a.id),
+      kind: 'identity',
+      title: `Unidentified patient · ${a.remotePatientId}`,
+      summary: `${a.candidates.length} possible chart match${a.candidates.length === 1 ? '' : 'es'} · ${lastReason ?? 'a human must confirm which patient this is'}`,
+      state: 'open',
+      // A wrong-patient write is the highest-consequence error here, so an
+      // ambiguity is never 'low' — the ranking must not bury it.
+      urgency: 'high',
+      scope: a.realmId,
+      owner: 'Registration / clinical reviewer',
+      sla: 'Today',
+      console: consoleId,
+      capability: 'identity.review',
+      actions: ['link', 'dismiss'],
+      at: a.at,
     });
   }
 
@@ -938,6 +973,11 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
     if (kind === 'dlq') {
       return { detail: dlqDetail(rest) };
     }
+    if (kind === 'identity') {
+      const detail = await identityDetail(w, rest);
+      if (!detail) return reply.code(404).send({ error: 'identity-ambiguity-not-found' });
+      return { detail };
+    }
     if (kind === 'cohort') {
       const detail = await cohortDetail(ws(), rest, opts.patients);
       if (!detail) return reply.code(404).send({ error: 'cohort-suggestion-not-found' });
@@ -946,7 +986,7 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
     return reply.code(404).send({ error: 'work-item-not-found' });
   });
 
-  app.post<{ Params: { id: string }; Body: { action?: string; reason?: string; approver?: string; idempotencyKey?: string; deferUntil?: string; handedTo?: string; handedToConsole?: string } }>(
+  app.post<{ Params: { id: string }; Body: { action?: string; reason?: string; approver?: string; idempotencyKey?: string; deferUntil?: string; handedTo?: string; handedToConsole?: string; localPatientId?: string } }>(
     '/api/work/:id/actions',
     async (req, reply) => {
       // A decision is attributed to a person; there is no anonymous decider.
@@ -1077,6 +1117,60 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
           decisionId: recorded.decision.id,
           ...(recorded.episodeId !== undefined ? { episodeId: recorded.episodeId } : {}),
         };
+      } else if (kind === 'identity') {
+        // An ambiguity is a question about IDENTITY, so the only honest answers
+        // are "this one" and "none of these". Neither writes to the chart: a
+        // link changes what the NEXT encounter resolves to, and dismissing says
+        // these two patients are genuinely different people.
+        if (action !== 'link' && action !== 'dismiss') {
+          return reply.code(400).send({ error: 'unsupported-identity-action', allowed: ['link', 'dismiss'] });
+        }
+        const w = ws();
+        const ambiguity = await w.getIdentityAmbiguity(rest);
+        if (!ambiguity) return reply.code(404).send({ error: 'identity-ambiguity-not-found' });
+        const actor = req.body?.approver?.trim() || sessionRole(req) || 'operator';
+        if (action === 'dismiss') {
+          // A dismissal is a claim that two records are different people. It is
+          // required to carry why, because that claim is the only thing that can
+          // stop the same pair being raised again on the next feed.
+          if (!req.body?.reason?.trim()) return reply.code(400).send({ error: 'dismiss-requires-reason' });
+          const decided = await w.decideIdentityAmbiguity(rest, {
+            status: 'dismissed', actor, reason: req.body.reason.trim(),
+          });
+          result = {
+            accepted: true, action, state: 'dismissed', reason: decided?.decisionReason ?? null,
+            note: 'recorded — this inbound patient is not any of the candidates offered',
+          };
+        } else {
+          const chosen = req.body?.localPatientId?.trim();
+          if (!chosen) return reply.code(400).send({ error: 'link-requires-localPatientId' });
+          // The human may only choose a candidate they were SHOWN. Free-text
+          // patient ids are how a typo becomes a wrong-patient cross-reference,
+          // which then silently permits writes to the wrong chart.
+          if (!ambiguity.candidates.some((c) => c.localPatientId === chosen)) {
+            return reply.code(400).send({
+              error: 'not-a-candidate',
+              allowed: ambiguity.candidates.map((c) => c.localPatientId),
+            });
+          }
+          const link = await linkIdentity({
+            ws: w,
+            localPatientId: chosen,
+            remoteSystem: ambiguity.remoteSystem,
+            remotePatientId: ambiguity.remotePatientId,
+            actor,
+            realmId: ambiguity.realmId,
+          });
+          const decided = await w.decideIdentityAmbiguity(rest, {
+            status: 'linked', actor, reason: req.body?.reason?.trim() || 'resolved from the work queue', linkedTo: chosen,
+          });
+          result = {
+            accepted: true, action, state: 'linked', localPatientId: chosen,
+            linkId: link.id, verified: link.verified,
+            reason: decided?.decisionReason ?? null,
+            note: 'the inbound patient now resolves to this chart patient on the next encounter',
+          };
+        }
       } else if (kind === 'cohort') {
         // A cohort suggestion is a statement about state; the human decides
         // whether it was worth raising. A decline is REQUIRED to carry a reason
@@ -1279,6 +1373,68 @@ function splitWorkId(id: string): [string, string] {
   const i = id.indexOf(':');
   if (i < 0) return ['', ''];
   return [id.slice(0, i), id.slice(i + 1)];
+}
+
+/**
+ * An identity review is addressed by the durable record's own id, which is
+ * already `realmId~remoteSystem~remotePatientId` — realm and system ids contain
+ * colons, so nothing here is re-encoded or re-split.
+ */
+export function identityWorkId(ambiguityId: string): string {
+  return `identity:${ambiguityId}`;
+}
+
+/**
+ * The universal detail for an identity review.
+ *
+ * It states the QUESTION (which patient is this?) and the evidence for each
+ * answer, and it says plainly that answering writes nothing to the chart — the
+ * reviewer is resolving a label, not treating a patient.
+ */
+async function identityDetail(w: SwarmWorkspaceStore, rest: string): Promise<Record<string, unknown> | null> {
+  const a = await w.getIdentityAmbiguity(rest);
+  if (!a) return null;
+  return {
+    id: identityWorkId(a.id),
+    kind: 'identity',
+    title: `Unidentified patient · ${a.remotePatientId}`,
+    state: a.status,
+    scope: a.realmId,
+    owner: 'Registration / clinical reviewer',
+    why: a.reasons.join(' · ') || 'the inbound patient matched more than one chart patient',
+    overview: {
+      realmId: a.realmId,
+      remoteSystem: a.remoteSystem,
+      remotePatientId: a.remotePatientId,
+      incoming: a.incoming,
+      candidates: a.candidates,
+      candidateCount: a.candidates.length,
+      ...(a.linkedTo ? { linkedTo: a.linkedTo } : {}),
+    },
+    evidence: a.candidates.map((c) => ({
+      sourceId: c.localPatientId,
+      contentType: 'candidate',
+      hash: null,
+      span: { confidence: c.confidence, method: c.method, why: c.reasons },
+    })),
+    contributions: [],
+    policy: {
+      approvalClass: 'B',
+      mayNever: ['write to the chart', 'act on the patient'],
+      guard: 'answering records a cross-reference; it never edits clinical data',
+      actsOnPatient: false,
+    },
+    activity: a.actor
+      ? [{ to: a.status, by: a.actor, at: a.at, reason: a.decisionReason ?? '' }]
+      : [],
+    decision: { allowed: ['link', 'dismiss'], reasonRequiredFor: ['dismiss'] },
+    execution: null,
+    outcome: {
+      verification: 'link → the next inbound encounter resolves; nothing is written meanwhile',
+      actingOnAmbiguity: false,
+    },
+    assurance: { replay: `/api/work/${identityWorkId(a.id)}` },
+  };
 }
 
 interface CohortSuggestion {

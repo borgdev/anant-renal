@@ -50,7 +50,7 @@ export const WQ_ACTION_LABEL = {
 
 export const WQ_KIND_ICON = { episode: 'circle-dot', review: 'shield-check', release: 'git-branch', dlq: 'alert-octagon', cohort: 'users' };
 
-export const WQ_KIND_LABEL = { episode: 'Outcome episode', review: 'Evidence review', release: 'Release', dlq: 'DLQ incident', cohort: 'Cohort suggestion' };
+export const WQ_KIND_LABEL = { episode: 'Outcome episode', review: 'Evidence review', release: 'Release', dlq: 'DLQ incident', cohort: 'Cohort suggestion', identity: 'Unidentified patient' };
 
 export const WQ_TONE = { high: 'var(--bad)', medium: 'var(--warn)', low: 'var(--good)' };
 
