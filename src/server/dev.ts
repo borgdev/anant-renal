@@ -49,6 +49,9 @@
 
 import type { FastifyRequest } from 'fastify';
 import { buildApp } from './app.js';
+// F9.3 — the proposal expiry sweeper is configured by `registerFhirRoutes` and
+// started here, so a background timer is a decision the entry point makes.
+import { getProposalSweeper } from '../fhir/routes.js';
 import { Telemetry, StdoutSink } from './telemetry.js';
 import { InProcessJobBus } from './inprocess-job-bus.js';
 import { loadConfig } from './config.js';
@@ -392,6 +395,9 @@ export async function main(): Promise<void> {
   const address = await app.listen({ port, host });
   telemetry.log('info', `harness (dev profile) listening on ${address}`, {});
 
+  // F9.3 — start the proposal expiry sweeper. Registering the FHIR surface built
+  // it; nothing retires a stale machine draft until something starts the timer.
+  getProposalSweeper()?.start();
   // Simulator — optional auto-started demo fleet so the whole stack (realms →
   // swarm reasoners → exec console) runs on live synthetic data with no manual
   // setup. Set HH_DEMO_SIM=1 (optionally HH_DEMO_SIM_SCENARIO). The fleet is

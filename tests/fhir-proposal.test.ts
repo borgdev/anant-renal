@@ -524,6 +524,29 @@ describe('F9 · the proposal API derives its preflight rather than trusting the 
   const PATIENT = 'f9-pt-0001';
   const REMOTE = 'urn:oid:1.2.840.114350.f9';
 
+  /**
+   * Point the durable connection at our own emulator endpoint.
+   *
+   * This is what makes `bound` mean something again: dispatch reads the
+   * CONFIGURED connection, so a test that wants a real send must configure one.
+   * An empty `baseUrl` resets it, which is how the fail-closed case is set up.
+   */
+  async function configureConnection(app: Awaited<ReturnType<typeof makeApp>>, baseUrl: string): Promise<void> {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/admin/platform/integrations/fhir',
+      payload: { baseUrl, label: 'F9 test emulator', vendor: 'generic', authMode: 'none' },
+    });
+    expect(res.statusCode).toBe(200);
+  }
+
+  async function link(app: Awaited<ReturnType<typeof makeApp>>): Promise<void> {
+    await app.inject({
+      method: 'POST', url: '/admin/fhir/identity/link',
+      payload: { realmId: REALM, localPatientId: PATIENT, remoteSystem: REMOTE, remotePatientId: 'e63a-f9', actor: 'registrar' },
+    });
+  }
+
   function body(effectId: string, overrides: Record<string, unknown> = {}) {
     return {
       realmId: REALM,
@@ -558,10 +581,8 @@ describe('F9 · the proposal API derives its preflight rather than trusting the 
 
   it('publishes once a human has linked the patient — three publishes, ONE proposal', async () => {
     const app = await makeApp();
-    await app.inject({
-      method: 'POST', url: '/admin/fhir/identity/link',
-      payload: { realmId: REALM, localPatientId: PATIENT, remoteSystem: REMOTE, remotePatientId: 'e63a-f9', actor: 'registrar' },
-    });
+    await configureConnection(app, 'http://127.0.0.1:9/fhir-mock');
+    await link(app);
 
     const first = await app.inject({ method: 'POST', url: '/admin/fhir/proposals', payload: body('event:f9-sig') });
     const firstJson = first.json() as { kind: string; proposal: { lifecycle: string; intent: string; status: string; identifierValue: string } };
@@ -583,10 +604,8 @@ describe('F9 · the proposal API derives its preflight rather than trusting the 
 
   it('refuses a payload carrying a code the registry does not own', async () => {
     const app = await makeApp();
-    await app.inject({
-      method: 'POST', url: '/admin/fhir/identity/link',
-      payload: { realmId: REALM, localPatientId: PATIENT, remoteSystem: REMOTE, remotePatientId: 'e63a-f9', actor: 'registrar' },
-    });
+    await configureConnection(app, 'http://127.0.0.1:9/fhir-mock');
+    await link(app);
     const res = await app.inject({
       method: 'POST', url: '/admin/fhir/proposals',
       payload: body('event:f9-badcode', {
@@ -634,5 +653,63 @@ describe('F9 · the proposal API derives its preflight rather than trusting the 
     const swept = await app.inject({ method: 'POST', url: '/admin/fhir/proposals/sweep', payload: {} });
     expect(swept.statusCode).toBe(200);
     expect(typeof (swept.json() as { expired: number }).expired).toBe('number');
+  });
+
+  /**
+   * The regression this whole change exists for.
+   *
+   * With nothing configured there is nowhere to publish, so a `bound` request
+   * must be REFUSED — not quietly satisfied by the emulator. The first cut of F9
+   * did exactly that, which meant an operator set a kind to `bound`, saw a
+   * "published" proposal, and no chart was ever touched.
+   */
+  it('REFUSES a bound publish when no connection is configured, instead of using the emulator', async () => {
+    const app = await makeApp();
+    await configureConnection(app, '');
+    await link(app);
+
+    const res = await app.inject({
+      method: 'POST', url: '/admin/fhir/proposals',
+      payload: body('event:f9-unconfigured'),
+    });
+    const json = res.json() as {
+      kind: string;
+      issues: Array<{ code: string }>;
+      preflightDetail: { transport: string; transportReason?: string };
+    };
+    expect(json.preflightDetail.transport).toBe('none');
+    expect(json.preflightDetail.transportReason).toMatch(/no EMR connection is configured/);
+    expect(json.kind).toBe('refused');
+    expect(json.issues.map((i) => i.code)).toContain('write-policy-off');
+  });
+
+  /**
+   * The wire actually used is reported, so "where did it go?" is answerable
+   * from the response rather than by reading the connection record.
+   */
+  it('reports the resolved transport on the propose response', async () => {
+    const app = await makeApp();
+    await configureConnection(app, 'http://127.0.0.1:9/fhir-mock');
+    await link(app);
+    const res = await app.inject({
+      method: 'POST', url: '/admin/fhir/proposals',
+      payload: body('event:f9-transport-report'),
+    });
+    const json = res.json() as { preflightDetail: { transport: string; transportBaseUrl?: string } };
+    expect(json.preflightDetail.transport).toBe('emulator');
+    expect(json.preflightDetail.transportBaseUrl).toBe('http://127.0.0.1:9/fhir-mock');
+  });
+
+  it('reports a sweeper, and registering the routes does NOT start a timer by itself', async () => {
+    const app = await makeApp();
+    const res = await app.inject({ method: 'GET', url: '/admin/fhir/proposals/sweeper' });
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as { intervalMs: number; running: boolean; inFlight: boolean; resolvedTransport: string };
+    expect(json.intervalMs).toBe(5 * 60 * 1000);
+    // A route module must not decide that a background timer runs; the entry
+    // point calls start(). If this ever reports true, something started it twice.
+    expect(json.running).toBe(false);
+    expect(json.inFlight).toBe(false);
+    expect(['configured', 'emulator', 'none']).toContain(json.resolvedTransport);
   });
 });

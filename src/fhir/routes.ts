@@ -54,8 +54,16 @@ import {
   PROPOSAL_EXPIRY_MINUTES,
   ProposalPublisher,
   proposalStats,
+  type ProposalLifecycle,
   type ProposalTransport,
 } from './proposal.js';
+import {
+  resolveProposalTransport,
+  writePolicyFor,
+  type TransportResolution,
+} from '../server/proposal-transport.js';
+import { ProposalSweeper } from '../server/proposal-sweeper.js';
+import type { SecretsProvider } from '../control-plane/secrets.js';
 import {
   IdentifierSystemRegistry,
   PatientIdentityService,
@@ -90,9 +98,16 @@ function codeFidelityReport(): Record<string, unknown> {
 // at the /fhir-mock/:resourceType search endpoint for a real live pull.
 const fhirEmulator = new FhirEmulator();
 
+// F9.3 — the expiry sweeper. Configured when the FHIR surface registers (it needs
+// the workspace), but STARTED by the entry point: a route module must not decide
+// whether a background timer runs.
+let proposalSweeper: ProposalSweeper | null = null;
+
 export interface RegisterFhirRoutesOptions {
   /** Optional store override (defaults to the process-wide SqlStore). */
   store?: Awaited<ReturnType<typeof getSqlStore>>;
+  /** Resolves `binding:NAME` credential refs for outbound publishes (F9). */
+  secrets?: SecretsProvider;
 }
 
 export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhirRoutesOptions = {}): Promise<void> {
@@ -431,6 +446,22 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
   );
   /* ------------------------------------------------ F9 proposals (D1) */
 
+  // F9.3 — build the expiry sweeper. Its transport is resolved PER SWEEP, so a
+  // connection configured (or corrected) after boot is honoured without a restart,
+  // and an unconfigured one fails closed instead of falling back to the emulator.
+  configureProposalSweeper({
+    resolveTransport: async () => {
+      const ws = getSwarmWorkspace();
+      if (!ws) return { kind: 'none', reason: 'the workspace is not available' };
+      const connection = await ws.getFhirIntegration();
+      return resolveProposalTransport({
+        ...(connection ? { connection } : {}),
+        emulator: fhirEmulator,
+        ...(opts.secrets ? { authCtx: { secrets: opts.secrets } } : {}),
+      });
+    },
+  });
+
   /**
    * Publish a proposal for an effect.
    *
@@ -459,14 +490,32 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
     const codings = validateCodings(resource);
     const badCodings = codings.filter((c) => !c.ok);
 
+    // F9.2 — the wire comes from the CONFIGURED connection, not from a hardcoded
+    // emulator. Before this the emulator was used unconditionally, so a `bound`
+    // proposal never reached the EMR an operator had configured.
+    const connection = await ws.getFhirIntegration();
+    const resolution = resolveProposalTransport({
+      connection,
+      emulator: fhirEmulator,
+      ...(opts.secrets ? { authCtx: { secrets: opts.secrets } } : {}),
+    });
+
+    // A `bound` write with nowhere to go is REFUSED, not quietly downgraded to
+    // `shadow`: the operator asked for a write and must not be told they got one.
+    const requested = body.policy ?? writePolicyFor(connection, body.effectKind);
+    const policy: 'shadow' | 'bound' | 'off' =
+      requested === 'bound' && resolution.kind === 'none' ? 'off' : requested;
+
     const publisher = new ProposalPublisher(
       ws.proposalStore(),
-      emulatorProposalTransport(),
+      resolution.kind === 'none'
+        ? { send: async () => ({ ok: false as const, error: resolution.reason, retryable: false }) }
+        : resolution.transport,
       () => new Date().toISOString(),
     );
     const outcome = await publisher.publish({
       realmId: body.realmId,
-      connectionId: body.connectionId ?? 'default',
+      connectionId: body.connectionId ?? connection.id,
       effectId: body.effectId,
       effectKind: body.effectKind,
       patientId: body.patientId,
@@ -476,9 +525,14 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
         codesValidated: badCodings.length === 0,
         approvalRecorded: Boolean(body.approvedBy),
       },
-      policy: body.policy ?? 'shadow',
+      policy,
       vendor: {
-        supportsWrite: body.vendor?.supportsWrite ?? true,
+        // Asked of the resolved connection rather than assumed: a vendor that
+        // cannot take a write must degrade, not silently succeed. `none` is the
+        // only resolution with nowhere to write — an emulator-backed connection
+        // counts, because pointing the connection at our own double is an
+        // explicit instruction to write THERE.
+        supportsWrite: body.vendor?.supportsWrite ?? resolution.kind !== 'none',
         supportsProvenance: body.vendor?.supportsProvenance ?? true,
         supportsCdsHooks: body.vendor?.supportsCdsHooks ?? false,
       },
@@ -489,6 +543,10 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
         identityVerified,
         codesChecked: codings.length,
         invalidCodings: badCodings,
+        transport: resolution.kind,
+        ...(resolution.kind === 'none'
+          ? { transportReason: resolution.reason }
+          : { transportLabel: resolution.label, transportBaseUrl: resolution.baseUrl }),
       },
     };
   });
@@ -538,34 +596,85 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
     },
   );
 
-  /** Run the expiry sweeper. Idempotent — an expired proposal is no longer open. */
+  /** Run the expiry sweeper now. THE TIMER CALLS THE SAME CODE (F9.3). */
   app.post('/admin/fhir/proposals/sweep', async (_req, reply) => {
+    const sweeper = getProposalSweeper();
+    if (!sweeper) return reply.code(503).send({ error: 'sweeper-unavailable' });
+    return sweeper.sweepNow();
+  });
+
+  /**
+   * Is anything actually retiring stale proposals?
+   *
+   * An unscheduled sweeper is indistinguishable from a working one until an
+   * operator looks, so this reports the timer, the last sweep, and the wire the
+   * retractions would travel down.
+   */
+  app.get('/admin/fhir/proposals/sweeper', async (_req, reply) => {
+    const sweeper = getProposalSweeper();
+    if (!sweeper) return reply.code(503).send({ error: 'sweeper-unavailable' });
     const ws = getSwarmWorkspace();
-    if (!ws) return reply.code(503).send({ error: 'workspace-unavailable' });
-    const publisher = new ProposalPublisher(ws.proposalStore(), emulatorProposalTransport());
-    const result = await publisher.sweepExpired();
-    return { ok: true, expired: result.expired, retracted: result.retracted };
+    const connection = ws ? await ws.getFhirIntegration() : undefined;
+    const resolution = resolveProposalTransport({
+      ...(connection ? { connection } : {}),
+      emulator: fhirEmulator,
+      ...(opts.secrets ? { authCtx: { secrets: opts.secrets } } : {}),
+    });
+    return {
+      ...sweeper.status(),
+      resolvedTransport: resolution.kind,
+      ...(resolution.kind === 'none'
+        ? { transportReason: resolution.reason }
+        : { transportLabel: resolution.label, transportBaseUrl: resolution.baseUrl }),
+    };
   });
 }
 
 /**
- * The transport a proposal is dispatched through.
+ * The transport a proposal is retracted through, when no connection is set up.
  *
- * For a live integration this is the `FhirClient` bound to the connection (F0/F1).
- * Until a connection is configured it targets the in-process FHIR emulator, whose
- * `add()` is an upsert keyed by (type, id) — which is exactly the behaviour the
- * deterministic id (F3.4) depends on: a re-publish PUTs rather than duplicating.
+ * Retained for tests and for a demo against the in-process emulator; the ROUTE
+ * resolves its transport from the configured connection instead. The emulator's
+ * `add()` upserts on (type, id), which is what the deterministic resource id
+ * depends on: a re-publish PUTs rather than duplicating.
  */
-function emulatorProposalTransport(): ProposalTransport {
-  return {
-    send: async ({ resource, resourceId }) => {
-      const id = (resource as { id?: string }).id ?? resourceId;
-      if (!id) return { ok: false, error: 'resource has no id — a proposal must be addressable', retryable: false };
-      fhirEmulator.add({ ...resource, id });
-      return { ok: true, status: 200 };
-    },
-  };
+/**
+ * The process-wide emulator, so the sweeper and `/fhir-mock` share one instance.
+ *
+ * A second emulator would be a silent data split: a bound proposal would land in
+ * a structure the read-back endpoint never serves.
+ */
+export function getFhirEmulator(): FhirEmulator {
+  return fhirEmulator;
 }
+
+/**
+ * Configure the process-wide expiry sweeper (F9.3). Starting it is the entry
+ * point's job, so a background timer is a decision a boot path makes.
+ *
+ * The workspace is resolved per sweep, not captured: `registerFhirRoutes` runs
+ * BEFORE `registerSwarmRoutes`, so at this moment the workspace does not exist
+ * yet. Capturing it here would leave the sweeper permanently inert.
+ */
+export function configureProposalSweeper(deps: {
+  resolveTransport: () => Promise<TransportResolution>;
+  intervalMs?: number;
+}): ProposalSweeper {
+  const sweeper = new ProposalSweeper({
+    workspace: () => getSwarmWorkspace(),
+    resolveTransport: deps.resolveTransport,
+    ...(deps.intervalMs !== undefined ? { intervalMs: deps.intervalMs } : {}),
+  });
+  proposalSweeper = sweeper;
+  return sweeper;
+}
+
+/** The configured sweeper, or null when the FHIR surface has not registered. */
+export function getProposalSweeper(): ProposalSweeper | null {
+  return proposalSweeper;
+}
+
+/** Defaults plus the durable additions, as one registry. */
 async function identifierSystemsWithDurable(ws: NonNullable<ReturnType<typeof getSwarmWorkspace>>): Promise<IdentifierSystem[]> {
   const durable = await ws.listIdentifierSystems();
   const registry = new IdentifierSystemRegistry();

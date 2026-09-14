@@ -2678,7 +2678,20 @@ export class SwarmWorkspaceStore {
     const authMode = str('authMode');
     const label = str('label');
     const realmId = str('realmId');
-    const baseUrl = str('baseUrl');
+    /**
+     * The endpoint is the ONE field where an empty string is an instruction.
+     *
+     * `str()` drops empty strings so a console that submits an untouched text box
+     * cannot blank a field. For `baseUrl` that rule is wrong: "blank" means "no
+     * endpoint", and without it an operator can REPLACE an EMR but never
+     * un-configure one. That matters beyond tidiness — `none` is the fail-closed
+     * state a `bound` policy refuses on, so an endpoint that cannot be removed is
+     * an endpoint proposals keep being published to.
+     */
+    const baseUrl = Object.prototype.hasOwnProperty.call(patch, 'baseUrl') && typeof patch['baseUrl'] === 'string'
+      ? (patch['baseUrl'] as string)
+      : str('baseUrl');
+    const endpointCleared = baseUrl === '';
     const clientId = str('clientId');
     const tokenEndpoint = str('tokenEndpoint');
     const privateKeyRef = str('privateKeyRef');
@@ -2698,7 +2711,10 @@ export class SwarmWorkspaceStore {
       ...(label ? { label } : {}),
       ...(realmId ? { realmId } : {}),
       ...(vendor ? { vendor: vendor as VendorId } : {}),
-      ...(baseUrl ? { baseUrl } : {}),
+      ...(baseUrl !== undefined ? { baseUrl } : {}),
+      // An endpoint-less connection is not verified, whatever it was before:
+      // leaving the old status on screen would be a status pill telling a lie.
+      ...(endpointCleared ? { status: 'not-configured' as const } : {}),
       ...(authMode ? { authMode: authMode as FhirAuthMode } : {}),
       ...(clientId ? { clientId } : {}),
       ...(tokenEndpoint ? { tokenEndpoint } : {}),

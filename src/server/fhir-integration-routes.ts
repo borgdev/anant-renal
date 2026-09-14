@@ -56,7 +56,7 @@ import { getSwarmWorkspace } from './swarm-routes.js';
 import type { FhirIntegration, FhirIntegrationStatus, SwarmWorkspaceStore } from '../swarm/workspace.js';
 import { FhirClient, FhirClientError } from '../fhir/client.js';
 import {
-  createAuthProvider, requiresTokenEndpoint, type AuthConfig, type AuthProviderContext,
+  authConfigForConnection, createAuthProvider, requiresTokenEndpoint, type AuthConfig, type AuthProviderContext,
 } from '../fhir/auth.js';
 import {
   negotiateCapabilities, parseCapabilityStatement, summarizeCapabilities,
@@ -346,46 +346,7 @@ function profileSummaries(): Record<string, unknown> {
 }
 
 /** Build the auth configuration for a stored connection. */
-function authConfigFor(integration: FhirIntegration): AuthConfig {
-  const mode = integration.authMode;
-  switch (mode) {
-    case 'none':
-      return { mode: 'none' };
-    case 'bearer':
-      return { mode: 'bearer', tokenRef: integration.tokenRef ?? 'binding:EMR_BEARER_TOKEN' };
-    case 'basic':
-      return {
-        mode: 'basic',
-        username: integration.username ?? 'fhir',
-        passwordRef: integration.passwordRef ?? 'binding:EMR_PASSWORD',
-      };
-    case 'smart-backend-services':
-      return {
-        mode: 'smart-backend-services',
-        clientId: integration.clientId ?? '',
-        tokenEndpoint: integration.tokenEndpoint ?? '',
-        privateKeyRef: integration.privateKeyRef ?? 'binding:EMR_CLIENT_PRIVATE_KEY',
-        scopes: integration.scopes ?? 'system/*.read',
-        ...(integration.kid ? { kid: integration.kid } : {}),
-      };
-    case 'oauth2-delegated':
-      return {
-        mode: 'oauth2-delegated',
-        clientId: integration.clientId ?? '',
-        tokenEndpoint: integration.tokenEndpoint ?? '',
-        clientSecretRef: integration.clientSecretRef ?? 'binding:EMR_CLIENT_SECRET',
-        refreshTokenRef: integration.refreshTokenRef ?? 'binding:EMR_REFRESH_TOKEN',
-        scopes: integration.scopes ?? 'patient/*.read',
-      };
-    case 'mtls':
-      // Certificate-based auth needs a TLS agent, which is a deployment concern
-      // rather than a per-request header. Report it honestly rather than
-      // pretending a header will do.
-      return { mode: 'none' };
-    default:
-      return { mode: 'none' };
-  }
-}
+const authConfigFor = (integration: FhirIntegration): AuthConfig => authConfigForConnection(integration);
 
 export interface ContractTestOptions {
   readonly now?: () => string;

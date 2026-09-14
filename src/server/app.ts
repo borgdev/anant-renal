@@ -321,7 +321,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await registerConsoleDomainRoutes(app);
 
   // Phase 2 — FHIR entity support (typed R4 ingest/export/entity routes).
-  await registerFhirRoutes(app);
+  await registerFhirRoutes(app, {
+    ...(deps.secrets ? { secrets: deps.secrets } : {}),
+  });
 
   // Phase 4 — public /api/v1 (rate-limited, idempotent, PHI-masked).
   await registerApiRoutes(app, {

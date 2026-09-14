@@ -455,6 +455,70 @@ export function createAuthProvider(config: AuthConfig, ctx: AuthProviderContext)
   }
 }
 
+/** The connection fields that decide how we authenticate. Structural, so this
+ *  file does not need to know about the workspace document that carries them. */
+export interface ConnectionAuthFields {
+  readonly authMode: FhirAuthMode;
+  readonly clientId?: string;
+  readonly tokenEndpoint?: string;
+  readonly privateKeyRef?: string;
+  readonly clientSecretRef?: string;
+  readonly refreshTokenRef?: string;
+  readonly tokenRef?: string;
+  readonly passwordRef?: string;
+  readonly username?: string;
+  readonly scopes?: string;
+  readonly kid?: string;
+}
+
+/**
+ * Build the auth configuration for a stored connection.
+ *
+ * ONE definition, used by both the contract test that VERIFIES a connection and
+ * the publisher that WRITES through it. Two copies would drift, and the drift
+ * would mean the publish path authenticating differently from the test that
+ * declared the connection healthy — a failure that only shows up in production.
+ */
+export function authConfigForConnection(integration: ConnectionAuthFields): AuthConfig {
+  switch (integration.authMode) {
+    case 'none':
+      return { mode: 'none' };
+    case 'bearer':
+      return { mode: 'bearer', tokenRef: integration.tokenRef ?? 'binding:EMR_BEARER_TOKEN' };
+    case 'basic':
+      return {
+        mode: 'basic',
+        username: integration.username ?? 'fhir',
+        passwordRef: integration.passwordRef ?? 'binding:EMR_PASSWORD',
+      };
+    case 'smart-backend-services':
+      return {
+        mode: 'smart-backend-services',
+        clientId: integration.clientId ?? '',
+        tokenEndpoint: integration.tokenEndpoint ?? '',
+        privateKeyRef: integration.privateKeyRef ?? 'binding:EMR_CLIENT_PRIVATE_KEY',
+        scopes: integration.scopes ?? 'system/*.read',
+        ...(integration.kid ? { kid: integration.kid } : {}),
+      };
+    case 'oauth2-delegated':
+      return {
+        mode: 'oauth2-delegated',
+        clientId: integration.clientId ?? '',
+        tokenEndpoint: integration.tokenEndpoint ?? '',
+        clientSecretRef: integration.clientSecretRef ?? 'binding:EMR_CLIENT_SECRET',
+        refreshTokenRef: integration.refreshTokenRef ?? 'binding:EMR_REFRESH_TOKEN',
+        scopes: integration.scopes ?? 'patient/*.read',
+      };
+    case 'mtls':
+      // Certificate-based auth needs a TLS agent, which is a deployment concern
+      // rather than a per-request header. Report it honestly rather than
+      // pretending a header will do.
+      return { mode: 'none' };
+    default:
+      return { mode: 'none' };
+  }
+}
+
 /**
  * Whether a vendor's auth mode can even be satisfied by a configuration.
  * Used by the contract test to fail early with a useful message rather than

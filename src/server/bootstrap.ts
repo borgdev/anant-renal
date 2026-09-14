@@ -64,6 +64,9 @@ import {
 } from './job-handlers.js';
 import { Telemetry, StdoutSink } from './telemetry.js';
 import { buildApp } from './app.js';
+// F9.3 — the proposal expiry sweeper is configured by `registerFhirRoutes` and
+// started here, so a background timer is a decision the entry point makes.
+import { getProposalSweeper } from '../fhir/routes.js';
 import { healthcareCorePack } from '../../packs/healthcare-core/index.js';
 import { behavioralHealthPack } from '../../packs/behavioral-health/index.js';
 import { oncologyDeepPack } from '../../packs/oncology-deep/index.js';
@@ -246,6 +249,10 @@ export async function main(): Promise<void> {
 
   const address = await app.listen({ port: cfg.httpPort, host: cfg.httpHost });
   telemetry.log('info', `harness listening on ${address}`, {});
+
+  // F9.3 — start the proposal expiry sweeper. Registering the FHIR surface built
+  // it; nothing retires a stale machine draft until something starts the timer.
+  getProposalSweeper()?.start();
 
   // Simulator — optional demo fleet (HH_DEMO_SIM=1) so a hosted instance can
   // run the whole stack on synthetic data. Isolated to sim:* realm ids; reset()

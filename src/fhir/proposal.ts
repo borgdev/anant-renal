@@ -396,34 +396,48 @@ export class ProposalPublisher {
     }
 
     const issues: Array<{ code: string; diagnostics: string }> = [];
-    const refuse = async (code: string, diagnostics: string): Promise<PublishOutcome> => {
+    const note = (code: string, diagnostics: string): void => {
       issues.push({ code, diagnostics });
+    };
+    /**
+     * Refuse, carrying EVERY gate that held rather than only the first.
+     *
+     * Returning on the first failure drip-feeds the caller: an operator told
+     * "no EMR connection is configured", who configures one, is then told "the
+     * identity is not verified" — and so on, one re-run per gate. The record is
+     * meant to hold the whole reason a write did not happen. Order is still the
+     * gate order, so `refusedReason` remains the primary cause.
+     */
+    const refuseAll = async (): Promise<PublishOutcome> => {
+      const primary = issues[0]!;
       const proposal = await this.record({
         input, id, identifierValue, at,
         lifecycle: 'refused', policy: input.policy === 'off' ? 'shadow' : input.policy,
-        degradation: 'harness-only', issues, priorIssues, priorAttempts, refusedReason: code,
+        degradation: 'harness-only', issues, priorIssues, priorAttempts, refusedReason: primary.code,
       });
-      return { kind: 'refused', proposal, reason: diagnostics, issues };
+      return { kind: 'refused', proposal, reason: primary.diagnostics, issues };
     };
 
     // (1) policy gate — `off` refuses and records why.
-    if (input.policy === 'off') return refuse('write-policy-off', `write policy for ${input.effectKind} is off`);
+    if (input.policy === 'off') note('write-policy-off', `write policy for ${input.effectKind} is off`);
     // (2) the write allowlist — an off-allowlist kind can only ever be a shadow.
     if (!WRITE_ALLOWLIST.includes(input.effectKind) && input.policy === 'bound') {
-      return refuse('effect-kind-not-on-write-allowlist', `${input.effectKind} may not be written to an EMR`);
+      note('effect-kind-not-on-write-allowlist', `${input.effectKind} may not be written to an EMR`);
     }
     // (3) fail-closed expiry — no window means we cannot promise to clean up.
     const windowMinutes = expiryMinutesFor(input.effectKind);
     if (windowMinutes === undefined) {
-      return refuse('no-expiry-window-configured', `${input.effectKind} has no expiry window, so a proposal could never be retired`);
+      note('no-expiry-window-configured', `${input.effectKind} has no expiry window, so a proposal could never be retired`);
     }
     // (4) the resource must be a legal proposal payload.
     if (FORBIDDEN_WRITE_RESOURCES.includes(input.resource.resourceType)) {
-      return refuse('forbidden-resource', `${input.resource.resourceType} is not something the harness may write`);
+      note('forbidden-resource', `${input.resource.resourceType} is not something the harness may write`);
     }
     // (5) clinical preflight gates.
     const failures = preflightFailures(input);
-    if (failures.length > 0) return refuse(failures[0]!, `preflight refused: ${failures.join(', ')}`);
+    if (failures.length > 0) {
+      for (const code of failures) note(code, `preflight refused: ${failures.join(', ')}`);
+    }
     // (6) concurrency cap — the guardrail against an unsigned-orders wall.
     const cap = input.maxOpenPerPatientPerKind ?? DEFAULT_MAX_OPEN_PROPOSALS_PER_PATIENT_PER_KIND;
     const open = existing.filter(
@@ -433,8 +447,9 @@ export class ProposalPublisher {
         OPEN_PROPOSAL_LIFECYCLES.includes(p.lifecycle),
     );
     if (open.length >= cap) {
-      return refuse('concurrency-cap-reached', `${open.length} open proposal(s) for ${input.patientId}/${input.effectKind} (cap ${cap})`);
+      note('concurrency-cap-reached', `${open.length} open proposal(s) for ${input.patientId}/${input.effectKind} (cap ${cap})`);
     }
+    if (issues.length > 0) return refuseAll();
 
     const degradation = degradationFor(input.vendor);
 
@@ -559,29 +574,56 @@ export class ProposalPublisher {
    * non-action is RECORDED: a kind whose proposals are never actioned is a kind
    * the clinicians do not want, and that belongs in an adoption view rather than
    * being quietly discarded.
+   *
+   * THE RULE THAT MATTERS: a proposal that is already out there is only expired
+   * once the retraction has SUCCEEDED. Marking it expired on a failed retraction
+   * would stop us looking at it while the stale draft sits in the EMR forever —
+   * which is exactly the failure this package exists to prevent. A failed
+   * retraction keeps the row open and retries on the next sweep.
    */
-  async sweepExpired(at = this.now()): Promise<{ expired: number; retracted: number; proposals: FhirProposal[] }> {
+  async sweepExpired(at = this.now()): Promise<{
+    expired: number;
+    retracted: number;
+    deferred: number;
+    proposals: FhirProposal[];
+    deferredProposals: FhirProposal[];
+  }> {
     const open = (await this.store.listProposals({})).filter((p) => OPEN_PROPOSAL_LIFECYCLES.includes(p.lifecycle));
     const due = open.filter((p) => Date.parse(p.expiresAt) <= Date.parse(at));
     const out: FhirProposal[] = [];
+    const deferred: FhirProposal[] = [];
     let retracted = 0;
 
     for (const proposal of due) {
-      let retraction: Partial<FhirProposal> = {};
       if (proposal.policy === 'bound' && proposal.lifecycle === 'published') {
         const result = await this.transport.send({
           resource: { ...proposal.resourceJson, id: proposal.resourceId, status: 'revoked' } as unknown as FhirResource,
           resourceId: proposal.resourceId ?? proposal.id,
         });
-        retraction = {
-          retractedAt: at,
-          retractionReason: result.ok ? 'expired' : `retraction-failed:${result.error}`,
-        };
-        if (result.ok) retracted += 1;
+        if (!result.ok) {
+          deferred.push(
+            await this.store.saveProposal({
+              ...proposal,
+              lastError: result.error,
+              retractionReason: `retraction-failed:${result.error}`,
+              updatedAt: at,
+            }),
+          );
+          continue;
+        }
+        retracted += 1;
       }
-      out.push(await this.store.saveProposal({ ...proposal, lifecycle: 'expired', updatedAt: at, ...retraction }));
+      out.push(
+        await this.store.saveProposal({
+          ...proposal,
+          lifecycle: 'expired',
+          retractedAt: at,
+          retractionReason: proposal.retractionReason ?? 'expired',
+          updatedAt: at,
+        }),
+      );
     }
-    return { expired: out.length, retracted, proposals: out };
+    return { expired: out.length, retracted, deferred: deferred.length, proposals: out, deferredProposals: deferred };
   }
 }
 
