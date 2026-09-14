@@ -68,6 +68,8 @@ import {
   IdentifierSystemRegistry,
   PatientIdentityService,
   demographicsFromPatient,
+  remotePatientIdOf,
+  remoteSystemOf,
   type IdentifierKind,
   type IdentifiedEntity,
   type IdentifierSystem,
@@ -134,6 +136,10 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
       const dryRun = req.body?.dryRun === true || req.query.dryRun === '1' || req.query.dryRun === 'true';
       const ctx = ctxFor(realmId, 'fhir-ingest', presence?.facilityId ?? 'f1');
 
+      // F3 — a realm hydrated by a configured EMR feed resolves identity; a
+      // replay realm adopts the remote id. See identityForIngest.
+      const identity = await identityForIngest(realmId);
+
       // bundle.id idempotency — reconcile instead of duplicating.
       const cached = lookupBundleIngest(realmId, parsed);
       if (cached.duplicate && !dryRun) {
@@ -146,6 +152,7 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
         ...(presence ? { presenceInit: presence } : {}),
         ...(presence?.unitId ? { defaultUnitId: presence.unitId } : {}),
         ...(dryRun ? { dryRun: true } : {}),
+        ...(identity ? { identity } : {}),
       });
       recordBundleIngest(realmId, parsed, result);
 
@@ -296,12 +303,19 @@ export async function registerFhirRoutes(app: FastifyInstance, opts: RegisterFhi
       let structural = 0;
       let skipped: string[] = [];
       if (targetRealm && result.events.length > 0) {
+        // The poll IS the EMR feed, so it resolves identity the same way the
+        // bundle path does — otherwise the guardrail would cover one door and
+        // leave this one open.
+        const identity = realmId ? await identityForIngest(realmId) : undefined;
         const presence = targetRealm.spawnPresence({
           agentSpecId: 'fhir-subscription', runId: `fhir-poll-${Date.now()}`,
           role: 'md', clearance: 'phi', purposeOfUse: ['treatment'],
           location: { facilityId: ctx.facilityId, unitId: 'U1' },
         });
-        const ing = ingestCanonicalEvents({ realm: targetRealm, ctx, presence, events: result.events });
+        const ing = ingestCanonicalEvents({
+          realm: targetRealm, ctx, presence, events: result.events,
+          ...(identity ? { identity } : {}),
+        });
         ingested = result.events.length;
         structural = ing.structural.length;
         skipped = ing.skipped;
@@ -736,29 +750,6 @@ export async function linkIdentity(input: {
   });
 }
 
-/**
- * Which remote SYSTEM an ambiguous inbound patient is keyed under.
- *
- * A patient with no identifier at all is still a question worth recording, so it
- * gets an explicit `unknown` system rather than being dropped — a silent skip is
- * how an ambiguous patient becomes no task at all.
- */
-const UNKNOWN_REMOTE_SYSTEM = 'urn:ananthealth:unidentified-remote-system';
-
-function remoteSystemOf(demographics: { identifiers?: Array<{ system: string; value: string }> }): string {
-  return demographics.identifiers?.[0]?.system ?? UNKNOWN_REMOTE_SYSTEM;
-}
-
-function remotePatientIdOf(
-  demographics: { identifiers?: Array<{ system: string; value: string }> },
-  patient: unknown,
-): string {
-  const identifier = demographics.identifiers?.[0]?.value;
-  if (identifier) return identifier;
-  const id = (patient as { id?: unknown }).id;
-  return typeof id === 'string' && id ? id : 'unknown';
-}
-
 /** Defaults plus the durable additions, as one registry. */
 async function identifierSystemsWithDurable(ws: NonNullable<ReturnType<typeof getSwarmWorkspace>>): Promise<IdentifierSystem[]> {
   const durable = await ws.listIdentifierSystems();
@@ -807,6 +798,71 @@ export async function identitySnapshotFor(realmId: string): Promise<IdentitySnap
     };
   });
   return { registry, population, links: ws ? await ws.listCrossReferences(realmId) : [] };
+}
+
+/**
+ * Does an inbound feed in this realm resolve identity, or adopt the remote id?
+ *
+ * Named and pure because the DEFAULT is the safety property: a connection with
+ * no explicit mode resolves, so a real feed has to opt INTO trusting the EMR's
+ * own id rather than out of verifying it. An unbound realm adopts — a realm
+ * nobody has configured as a feed is a same-system replay.
+ */
+export function shouldResolveIdentity(
+  connection: { realmId: string; identityMode?: 'resolve' | 'adopt-by-remote-id' },
+  realmId: string,
+): boolean {
+  if (connection.realmId !== realmId) return false;
+  return (connection.identityMode ?? 'resolve') !== 'adopt-by-remote-id';
+}
+
+/**
+ * F3 — the identity snapshot an INBOUND FEED should use, or `undefined` to
+ * adopt the remote id as a local one.
+ *
+ * One connection record exists per deployment and it names the realm it
+ * hydrates, so "is this a real EMR feed?" is a lookup rather than a guess. A
+ * realm with NO bound connection keeps the pre-F3 adopt-by-remote-id
+ * behaviour — correct for a same-system replay, and what every ingest fixture
+ * relies on.
+ *
+ * The default is `resolve`, because adopting the remote id is precisely the
+ * behaviour that let a mismatched MRN create a second chart. A real feed opts
+ * INTO the unsafe behaviour; it does not have to opt out of it.
+ */
+export async function identityForIngest(realmId: string): Promise<IdentitySnapshot | undefined> {
+  const ws = getSwarmWorkspace();
+  if (!ws) return undefined;
+  const connection = await ws.getFhirIntegration();
+  if (!shouldResolveIdentity(connection, realmId)) return undefined;
+
+  const snapshot = await identitySnapshotFor(realmId);
+  return {
+    ...snapshot,
+    // An ambiguous inbound patient is WORK, not merely a refusal — the same
+    // conclusion F3 reached on the resolve route. Recorded idempotently per
+    // (realm, remote system, remote patient id), so replaying a feed is one
+    // queue entry rather than one per run.
+    //
+    // Fire-and-forget on purpose: resolution runs SYNCHRONOUSLY inside a
+    // bundle's atomic window, and an await there is a chance for the
+    // population to move under it. A failure is logged, never swallowed — an
+    // ambiguity nobody can see is one nobody records.
+    onAmbiguous: ({ resolution, incoming, remotePatientId }) => {
+      void ws.recordIdentityAmbiguity({
+        realmId,
+        remoteSystem: remoteSystemOf(incoming),
+        remotePatientId: remotePatientIdOf(incoming, { id: remotePatientId }),
+        incoming,
+        candidates: resolution.candidates.map((c) => ({
+          localPatientId: c.localPatientId, confidence: c.confidence, method: c.method, reasons: c.reasons,
+        })),
+        reasons: resolution.reasons,
+      }).catch((err: unknown) => {
+        console.warn(`[fhir] identity ambiguity in ${realmId} was NOT recorded: ${(err as Error).message}`);
+      });
+    },
+  };
 }
 
 function countByType(resources: readonly { resourceType: string }[]): Record<string, number> {

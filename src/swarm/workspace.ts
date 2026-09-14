@@ -422,6 +422,19 @@ export interface FhirIntegration extends WorkspaceDoc {
   label: string;
   /** The realm this connection hydrates. */
   realmId: string;
+  /**
+   * How an inbound feed in this realm establishes WHO a patient is.
+   *
+   * `resolve` (the default) runs the F3 ladder and REFUSES an entry whose
+   * patient cannot be identified — the guardrail that stops a mismatched MRN
+   * creating a second chart. `adopt-by-remote-id` trusts the EMR's own
+   * `Patient.id` as a local id, which is correct for a same-system replay and
+   * is exactly how the duplicate chart was produced on a real feed.
+   *
+   * Defaulting to `resolve` means a real feed opts INTO the unsafe behaviour
+   * rather than out of it.
+   */
+  identityMode?: FhirIntegrationIdentityMode;
   /** Which vendor profile governs auth, headers, limits and the ladder. */
   vendor: VendorId;
   baseUrl: string;
@@ -475,6 +488,15 @@ export type FhirIntegrationStatus =
   | 'connected'
   | 'degraded'
   | 'failed';
+
+/**
+ * How an inbound feed establishes who a patient is.
+ *
+ * `resolve` runs the F3 ladder and refuses an entry whose patient cannot be
+ * identified; `adopt-by-remote-id` trusts the remote `Patient.id`, which is the
+ * behaviour that silently created a second chart for an existing patient.
+ */
+export type FhirIntegrationIdentityMode = 'resolve' | 'adopt-by-remote-id';
 
 export interface AdminPolicy extends WorkspaceDoc {
   version: string;
@@ -2836,6 +2858,7 @@ export class SwarmWorkspaceStore {
     const resourceScope = strArray('resourceScope');
     const readEnabled = bool('readEnabled');
     const writePolicy = record<'off' | 'shadow' | 'bound'>('writePolicy');
+    const identityMode = str('identityMode');
 
     return (await this.update<FhirIntegration>('admin-fhir', 'default', {
       ...(label ? { label } : {}),
@@ -2860,6 +2883,7 @@ export class SwarmWorkspaceStore {
       ...(resourceScope ? { resourceScope } : {}),
       ...(readEnabled !== undefined ? { readEnabled } : {}),
       ...(writePolicy ? { writePolicy } : {}),
+      ...(identityMode ? { identityMode: identityMode as FhirIntegrationIdentityMode } : {}),
     })) as FhirIntegration;
   }
 

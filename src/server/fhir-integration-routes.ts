@@ -258,6 +258,15 @@ function registerFhirSurface(
       }
     }
 
+    const identityMode = body.identityMode;
+    if (identityMode !== undefined && identityMode !== 'resolve' && identityMode !== 'adopt-by-remote-id') {
+      return reply.code(400).send({
+        error: 'invalid-identity-mode',
+        allowed: ['resolve', 'adopt-by-remote-id'],
+        detail: '`resolve` refuses any inbound patient it cannot identify. `adopt-by-remote-id` trusts the EMR id — correct for a same-system replay, and how a mismatched MRN creates a second chart.',
+      });
+    }
+
     const integration = await ws().saveFhirIntegration(body);
     return { integration };
   });

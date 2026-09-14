@@ -133,12 +133,63 @@ export async function renderCompliance() {
   dataGrid({ el: 'co-retention', filename: 'compliance-retention', columns: [{ key: 'entity', label: 'Entity', render: (v) => `<code>${esc(v)}</code>` }, { key: 'maxAgeMs', label: 'Keep for', align: 'right', render: (v) => humanMs(v) }, { key: 'scopeId', label: 'Scope', render: (v) => esc(v || 'all') }, { key: 'enabled', label: 'On', render: (v) => (v === 1 ? '✓' : '—') }], data: (c.retention || []) });
 }
 
+/**
+ * The EMR connection in one place: which realm it hydrates, how inbound
+ * patients are identified, and how far writes are allowed to go.
+ *
+ * The identity guardrail is the reason this block exists in the console at all.
+ * `resolve` refuses any inbound patient it cannot identify; `adopt-by-remote-id`
+ * trusts the remote id, which is right for a same-system replay and is exactly
+ * how a mismatched MRN silently creates a second chart. It is a one-way-looking
+ * switch an operator must be able to see, because it explains why the ingest
+ * below just refused a patient.
+ */
+function fhConnectionHTML(integration, realmsArr) {
+  const conn = integration || {};
+  const mode = conn.identityMode || 'resolve';
+  const writePolicy = conn.writePolicy || {};
+  const policyPills = Object.entries(writePolicy).map(([kind, pol]) => {
+    const cls = pol === 'bound' ? 'bad' : pol === 'shadow' ? 'warn' : 'muted';
+    return `<span class="pill ${cls}" style="margin-right:4px;">${esc(kind)} · ${esc(String(pol))}</span>`;
+  }).join('');
+  const boundRealm = conn.realmId || '';
+  return `
+    <div class="detail" style="margin-bottom:12px;">
+      <h3 style="margin-top:0;">EMR connection <span class="muted" style="font-weight:400;font-size:11px;">· one connection per deployment, bound to one realm</span></h3>
+      ${conn.vendor ? `<div style="margin-bottom:8px;">
+        <span class="pill brand">${esc(conn.vendor)}</span>
+        <span class="pill muted">${esc(conn.authMode || 'none')}</span>
+        ${conn.baseUrl ? `<code style="font-size:11px;">${esc(conn.baseUrl)}</code>` : '<span class="muted" style="font-size:12px;">no base URL set</span>'}
+      </div>` : '<div class="muted" style="font-size:12px;margin-bottom:8px;">No EMR connection configured. Inbound FHIR still hydrates the realm you pick below; nothing is attributed to a real EMR feed.</div>'}
+      <div class="field-row">
+        <div class="field"><label>Realm this connection hydrates</label>
+          <select id="fhir-conn-realm"><option value="">— not bound —</option>${realmsArr.map((id) => `<option value="${esc(id)}" ${id === boundRealm ? 'selected' : ''}>${esc(id)}</option>`).join('')}</select></div>
+        <div class="field" style="flex:2;"><label>Inbound patient identity</label>
+          <select id="fhir-conn-identity">
+            <option value="resolve" ${mode === 'resolve' ? 'selected' : ''}>resolve — refuse anything I cannot identify (default)</option>
+            <option value="adopt-by-remote-id" ${mode === 'adopt-by-remote-id' ? 'selected' : ''}>adopt-by-remote-id — trust the EMR id</option>
+          </select>
+          <small class="muted">Only a realm bound here is treated as a real feed. Any other realm keeps the pre-connection behaviour, so a demo realm can never be mistaken for one.</small></div>
+        <div class="field" style="align-self:flex-end;"><button class="btn btn-primary" id="fhir-conn-save">Save connection</button></div>
+      </div>
+      <div style="margin-top:8px;font-size:12px;">
+        ${mode === 'resolve'
+          ? '<span class="pill good">guardrail on</span> <span class="muted">An inbound patient that matches no existing chart, or that could match more than one, is <strong>refused and the transaction rolled back</strong>. Ambiguity raises a work item for a human.</span>'
+          : '<span class="pill bad">guardrail off</span> <span class="muted">Inbound patients are written under the remote id. A mismatched MRN will create a second chart for the same person. Correct only when replaying your own system\'s data.</span>'}
+      </div>
+      ${policyPills ? `<div style="margin-top:8px;"><span class="muted" style="font-size:12px;">Write policy: </span>${policyPills}</div>` : ''}
+      <div id="fhir-conn-out" class="muted" style="font-size:12px;margin-top:6px;"></div>
+    </div>`;
+}
+
 export async function renderFhirPanel() {
-  const [realms, map, coverage] = await Promise.all([
+  const [realms, map, coverage, conn] = await Promise.all([
     api('GET', '/admin/realms').catch(() => ({ realms: [] })),
     api('GET', '/admin/fhir/map').catch(() => ({ resourceToKind: {}, kindToResources: {} })),
     api('GET', '/admin/fhir/coverage').catch(() => null),
+    api('GET', '/admin/platform/integrations/fhir').catch(() => null),
   ]);
+  S.fhirConn = conn?.integration || null;
   const realmsArr = (realms.realms || []).map(r => r.id);
   if (!S.fhirSel || !realmsArr.includes(S.fhirSel)) S.fhirSel = realmsArr[0] || '';
   const kindRows = Object.entries(map.resourceToKind || {}).map(([rt, k]) => `<tr><td><code>${esc(rt)}</code></td><td><span class="pill muted">${esc(k)}</span></td></tr>`).join('');
@@ -150,6 +201,7 @@ export async function renderFhirPanel() {
       <div class="stat-card"><div class="num">${realmsArr.length}</div><div class="lbl">Realms (export/ingest target)</div></div>
       <div class="stat-card"><div class="num" id="fhir-mirror-count">…</div><div class="lbl">Persisted resources</div></div>
     </div>
+    ${fhConnectionHTML(conn?.integration, realmsArr)}
     <div class="detail">
       <h3 style="margin-top:0;">Ingest a FHIR Bundle</h3>
       <div class="field-row">
@@ -223,6 +275,22 @@ export async function renderFhirPanel() {
     </div>
   `;
   document.getElementById('fhir-realm')?.addEventListener('change', (e) => { S.fhirSel = e.target.value; });
+  document.getElementById('fhir-conn-save')?.addEventListener('click', async () => {
+    const out = document.getElementById('fhir-conn-out');
+    const realmId = document.getElementById('fhir-conn-realm').value;
+    const identityMode = document.getElementById('fhir-conn-identity').value;
+    if (identityMode === 'adopt-by-remote-id' && !confirm('Turn off the patient-identity guardrail?\n\nInbound patients will be written under the remote id, so a mismatched MRN creates a second chart for the same person. Only correct when replaying your own system\'s data.')) return;
+    try {
+      const res = await fetch('/admin/platform/integrations/fhir', {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...(realmId ? { realmId } : {}), identityMode }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.detail || j.error || res.status);
+      out.innerHTML = `<span style="color:var(--good);">Connection saved — realm ${esc(realmId || '(unbound)')}, identity ${esc(identityMode)}.</span>`;
+      S.fhirConn = j.integration;
+    } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }
+  });
   document.getElementById('fhir-cds-realm')?.addEventListener('change', (e) => { loadPatientDatalist(e.target.value, 'fhir-cds-patient-list'); });
   loadPatientDatalist(document.getElementById('fhir-cds-realm')?.value || S.fhirSel, 'fhir-cds-patient-list');
   document.getElementById('fhir-bundle')?.addEventListener('input', (e) => { S.fhirBundleText = e.target.value; });
@@ -249,6 +317,9 @@ export async function renderFhirPanel() {
           <span class="pill muted">${j.persisted ?? 0} persisted</span>
         </div>
         <div class="muted" style="font-size:12px;">Ingested ${j.hydrated} resources → ${j.effectsApplied} effects applied, ${j.structuralUpserts} structural upserts.${j.effectsRejected ? ` <span style="color:var(--bad);">${j.effectsRejected} effects rejected.</span>` : ''}${j.skipped?.length ? ` skipped: ${esc(j.skipped.join(', '))}` : ''}</div>
+        ${j.rolledBack && (j.entries || []).some((e) => String(e.issue?.code || '').includes('identity'))
+          ? `<div style="margin-top:8px;padding:8px;border-left:3px solid var(--warn);font-size:12px;"><strong>Refused on patient identity — nothing was written.</strong><br><span class="muted">The inbound patient is not attributable to exactly one chart. Either resolve it against an existing patient (matching MRN or identifier), or a human confirms which chart it is. Adopting the remote id would create a duplicate chart, so the guardrail is what stopped this.</span></div>`
+          : ''}
         ${(j.entries && j.entries.length) ? `<div style="margin-top:8px;max-height:200px;overflow:auto;"><table class="panel"><thead><tr><th>#</th><th>Resource</th><th>Method</th><th>Status</th><th>Location</th><th>Issue</th></tr></thead><tbody>${j.entries.map((e) => `<tr><td>${e.index}</td><td><code>${esc(e.resourceType || '')}</code>${e.id ? `/${esc(e.id)}` : ''}</td><td>${esc(e.requestMethod || 'POST')}</td><td>${e.status < 300 ? `<span class="pill good">${e.status}</span>` : `<span class="pill bad">${e.status}</span>`}</td><td>${esc(e.location || '')}</td><td class="muted">${e.issue ? esc(e.issue.code + (e.issue.diagnostics ? ' — ' + e.issue.diagnostics : '')) : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
       if (!dryRun) await loadFhirMirror();
     } catch (err) { out.innerHTML = `<span style="color:var(--bad);">${esc(String(err))}</span>`; }

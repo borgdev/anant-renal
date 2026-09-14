@@ -50,10 +50,12 @@ import { ENTITY_FHIR, entityKindFromResource, RESOURCE_TO_KIND } from './mapping
 import {
   demographicsFromPatient,
   resolvePatientIdentity,
+  UNKNOWN_REMOTE_SYSTEM,
   type IdentifierSystemRegistry,
   type IdentityResolution,
   type LocalPatientDemographics,
   type PatientCrossReference,
+  type PatientDemographics,
 } from './identity.js';
 
 export interface FhirIngestResult {
@@ -88,8 +90,18 @@ export interface IdentitySnapshot {
   registry: IdentifierSystemRegistry;
   population: readonly LocalPatientDemographics[];
   links: readonly PatientCrossReference[];
-  /** Record an ambiguous/unresolved outcome for a human to review. */
-  onAmbiguous?: (input: { resolution: IdentityResolution; remotePatientId: string }) => void;
+  /**
+   * Record an ambiguous outcome for a human to review.
+   *
+   * Carries the incoming demographics because the caller needs them to key the
+   * record — the resolution alone knows the candidates but not who arrived, and
+   * "which patient might this be?" is unanswerable without that.
+   */
+  onAmbiguous?: (input: {
+    resolution: IdentityResolution;
+    incoming: PatientDemographics;
+    remotePatientId: string;
+  }) => void;
 }
 
 /**
@@ -102,7 +114,24 @@ export function resolveInboundPatient(
   resource: FhirResource,
   snapshot: IdentitySnapshot,
 ): IdentityResolution {
-  const incoming = demographicsFromPatient(resource);
+  const demographics = demographicsFromPatient(resource);
+  /*
+   * A patient the EMR sent with no identifier at all is still the SAME patient
+   * on the next encounter, and the only handle we have on it is the resource id.
+   *
+   * Without this, a human's link could never take effect on a repeat encounter:
+   * the reviewer's answer is recorded keyed on (UNKNOWN_REMOTE_SYSTEM, resource
+   * id), while the resolver only looks at the identifiers the sender supplied —
+   * of which there are none. The queue entry is cleared, the encounter is
+   * refused again, and the two halves of the guardrail disagree in silence.
+   *
+   * The synthetic system is not authoritative and no local patient carries it,
+   * so this can only ever satisfy the cross-reference branch — which requires a
+   * human to have linked this exact remote id first.
+   */
+  const incoming: PatientDemographics = (demographics.identifiers?.length ?? 0) > 0 || !resource.id
+    ? demographics
+    : { ...demographics, identifiers: [{ system: UNKNOWN_REMOTE_SYSTEM, value: resource.id }] };
   const links = snapshot.links;
   const enriched: LocalPatientDemographics[] = snapshot.population.map((p) => ({
     ...p,
@@ -114,7 +143,9 @@ export function resolveInboundPatient(
     ],
   }));
   const resolution = resolvePatientIdentity(incoming, enriched, snapshot.registry, {
-    ...(snapshot.onAmbiguous ? { onAmbiguous: (r) => snapshot.onAmbiguous!({ resolution: r, remotePatientId: resource.id ?? '' }) } : {}),
+    ...(snapshot.onAmbiguous
+      ? { onAmbiguous: (r: IdentityResolution) => snapshot.onAmbiguous!({ resolution: r, incoming, remotePatientId: resource.id ?? '' }) }
+      : {}),
   });
   return resolution;
 }

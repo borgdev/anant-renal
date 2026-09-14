@@ -43,6 +43,7 @@ import type { EntityKind } from '../realm/types.js';
 import { serializeRealmEntity, exportRealmBundle } from '../fhir/export.js';
 import { parseBundle } from '../fhir/fhir-bundle.js';
 import { ingestFhirBundle, lookupBundleIngest, recordBundleIngest } from '../fhir/bundle-ingest.js';
+import { identityForIngest } from '../fhir/routes.js';
 import type { FhirCtx } from '../fhir/types.js';
 import { seedCMSSources } from '../healthcare-core/cms-source-registry.js';
 import type { DomainPack } from '../control-plane/pack-registry.js';
@@ -159,9 +160,13 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRoutesDep
       }
 
       const ctx: FhirCtx = { realmId, facilityId: req.body?.presence?.facilityId ?? 'f1', scopeId: realmId, sourceId: 'api', ingestedAt: new Date().toISOString() };
+      // F3 — same guardrail as the admin ingest route: a realm hydrated by a
+      // configured EMR feed resolves identity, a replay realm adopts the id.
+      const identity = await identityForIngest(realmId);
       const result = await ingestFhirBundle(realm, ctx, parsed, {
         ...(req.body?.presence ? { presenceInit: req.body.presence } : {}),
         ...(dryRun ? { dryRun: true } : {}),
+        ...(identity ? { identity } : {}),
       });
       recordBundleIngest(realmId, parsed, result);
       const payload = {

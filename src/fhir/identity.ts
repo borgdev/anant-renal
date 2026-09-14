@@ -57,6 +57,42 @@
  */
 import { createHash } from 'node:crypto';
 
+/**
+ * Which remote SYSTEM an inbound patient with no identifier of its own is keyed
+ * under.
+ *
+ * Such a patient is still a question worth answering, so it gets an explicit
+ * `unknown` system rather than no key at all — a silent skip is how an
+ * ambiguous patient becomes no task, and therefore a refusal nobody can clear.
+ *
+ * The SAME constant must key the record and the lookup. If the recorder writes
+ * a link under one system and the resolver looks for another, then a human's
+ * answer is recorded and never consulted: the encounter is refused forever and
+ * the queue entry they cleared keeps coming back.
+ */
+export const UNKNOWN_REMOTE_SYSTEM = 'urn:ananthealth:unidentified-remote-system';
+
+/** The remote system an inbound patient is keyed under, for a link or a lookup. */
+export function remoteSystemOf(demographics: { identifiers?: Array<{ system: string; value: string }> }): string {
+  return demographics.identifiers?.[0]?.system ?? UNKNOWN_REMOTE_SYSTEM;
+}
+
+/**
+ * The remote ID an inbound patient is keyed under.
+ *
+ * Prefers a real identifier, and falls back to the resource's own `id` so that
+ * a patient sent with no identifiers is still identifiable across encounters.
+ */
+export function remotePatientIdOf(
+  demographics: { identifiers?: Array<{ system: string; value: string }> },
+  patient: unknown,
+): string {
+  const identifier = demographics.identifiers?.[0]?.value;
+  if (identifier) return identifier;
+  const id = (patient as { id?: unknown }).id;
+  return typeof id === 'string' && id ? id : 'unknown';
+}
+
 /* ------------------------------------------------------------ identifier systems */
 
 export type IdentifierKind = 'mrn' | 'npi' | 'ssn' | 'oid' | 'emr-patient-id' | 'dl' | 'other';

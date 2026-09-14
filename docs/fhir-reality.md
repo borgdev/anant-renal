@@ -375,10 +375,10 @@ assigner OIDs, durable). Cross-references and identifier systems are durable
   for a patient already in an open episode **attaches** rather than creating a
   parallel one, and we reconcile where the EMR already holds the episode — is
   not built.
-* **The human-resolution console task.** `onAmbiguous` is the seam and the API
-  answers `ambiguous` correctly, but nothing yet files a work item for it. Until
-  it does, `MD`/`safety` have no queue entry to act on and an ambiguous patient
-  is simply refused.
+* **The human-resolution console task.** ⚠️ **Superseded** — see "F3
+  ingest-identity wired" below. `onAmbiguous` now files a `high`-urgency work
+  item, the reviewer can `link`/`dismiss` it, and the answer applies to the next
+  encounter.
 * **`Patient.link` merge detection is not wired to `mergeInto`.** The detector
   exists; nothing calls the merge when it fires.
 
@@ -518,5 +518,100 @@ warfarin and amlodipine), and that no cholesterol code appears in
 
 The registry's `verified` entries remain the wire gate; the seed tables are the
 ontology the engine reasons over, and they were the ones that were wrong.
+
+## F3 ingest-identity wired (2026-09-14) — the guardrail on the door that matters
+
+F3 built the resolver and a `/resolve` route. **`POST /admin/fhir/ingest` did not
+call it.** Identity resolution existed, was tested, and was not on the write
+path — so an inbound `Patient` with a mismatched MRN still created a second
+chart, which is the exact hazard F3 was written to prevent. A guardrail on a
+door nobody uses is a design, not a control.
+
+### The realm binding is what makes it safe to turn on
+
+`FhirIntegration` is a **single-document** record at `('admin-fhir','default')`:
+there is exactly ONE connection per deployment, and it names the `realmId` it
+hydrates. So "is this realm a real EMR feed?" is a lookup, not a guess, and the
+default is deliberately the safe one:
+
+* `realmId` does not match → **no resolution**, the previous behaviour. Every
+  demo and replay realm is untouched, so enabling the guardrail cannot break the
+  fixtures that predate it.
+* `realmId` matches and `identityMode` is unset → **`resolve`**. The safe mode is
+  the default, and a real feed opts *into* the unsafe one. `adopt-by-remote-id`
+  is the escape hatch for a same-system replay, and it is the behaviour that let
+  a mismatched MRN create a second chart.
+
+`shouldResolveIdentity` is extracted as a pure function precisely so the default
+is asserted **directly** — a safety property that is only inferred from a
+round-trip through a database is not asserted at all.
+
+Wired into three inbound paths, not one: `POST /admin/fhir/ingest`,
+`POST /admin/fhir/subscription/poll` (the CDC feed), and the public
+`POST /api/v1/fhir`. The poll route matters because it is a different door to
+the same room.
+
+### The bug this slice found: the two halves of the guardrail disagreed
+
+Refusing the write and queueing the refusal are two halves of one control, and
+they were not joined up. Live, on a real server:
+
+1. An identifier-less inbound patient resembling two charts → **refused**, and a
+   `high` work item filed. Correct.
+2. A human linked it to one chart → `state: "linked"`, queue entry cleared.
+   Correct.
+3. The **same encounter replayed** → refused again, `patient-identity-ambiguous`.
+
+The reviewer's answer was recorded and never consulted, so the encounter was
+refused forever and the item they cleared came straight back. The cause is
+precise: `identity.ts` branch (b) matches a cross-reference against the
+identifiers the **sender** supplied. A link for a patient with no identifiers is
+keyed on `(UNKNOWN_REMOTE_SYSTEM, resource.id)` — and a patient with no
+identifiers supplies neither. The recorder and the resolver were using different
+keys for the same patient.
+
+The fix is symmetry: `resolveInboundPatient` seeds that same synthetic identifier
+when (and only when) the sender supplied none. It cannot cause a false match —
+the system is not authoritative and no local patient carries it, so it can only
+satisfy the cross-reference branch, which requires a human to have linked that
+exact remote id first.
+
+**The regression test was checked against the unfixed code** and fails with
+`expected true to be false` on `rolledBack`, which is exactly what the live
+server did. A test for this that passes both with and without the fix would have
+been worth nothing.
+
+### Surface
+
+`identityMode` is settable through `PUT /admin/platform/integrations/fhir`
+(rejecting anything but `resolve` / `adopt-by-remote-id`), and the FHIR console
+panel gained a **connection block** showing the bound realm, the identity mode,
+and the write policy — with the consequence spelled out in words, because the
+operator reading "why was this patient refused?" needs the answer next to the
+ingest button, not in a log. An identity refusal renders as an explicit banner on
+the ingest result rather than a bare 422 row.
+
+### Live, verified
+
+`realm:live-loop`, two charts with identical demographics, an identifier-less
+inbound patient: refused (`rolledBack: true`, no new chart) → queue entry
+`identity:realm:live-loop~urn:ananthealth:unidentified-remote-system~emrkim` →
+human links to `twin-a` → **replay resolves, no third chart, queue empty**.
+
+### Not done in this slice
+
+* **`Patient.link` merge detection is not wired to `mergeInto`** — the detector
+  exists; nothing calls the merge when it fires. Unchanged from the F3 note
+  above.
+* **Inbound `Encounter` continuity (D12)** — unchanged from the F3 note above.
+* **A single exact-demographic match still auto-applies** (`method:
+  'demographics'`, requires exact family + given + birth date and sex not
+  contradicting). This is a deliberate F3 decision, not an oversight, but it is
+  worth naming: two different people who share a name, a birth date and a sex
+  would resolve to one chart without any identifier. Ambiguity *is* caught when
+  two candidates tie — that path refuses and files the queue entry above — so
+  the residual exposure is the exactly-one-candidate case. Changing it would mean
+  refusing every identifier-less feed outright, which is a product decision, not
+  a bug fix.
 
 
