@@ -153,7 +153,16 @@ function eventToEffects(evt: CanonicalEvent, opts: FhirIngestOptions): { effects
       const status = enc.status;
       if (status === 'in-progress' || status === 'planned' || status === 'arrived' || status === 'triaged') {
         if (!patientRef) return { skipped: 'encounter-without-subject' };
-        return { effects: [{ kind: 'admit-patient', patientId: patientRef, facilityId: opts.ctx.facilityId, unitId: defaultUnit }] };
+        // Carry the EMR's episode id through. Dropping it is what let a session
+        // open a SECOND episode of care for an admission the chart already had:
+        // with no record of the EMR's Encounter id, `start-session` had nothing
+        // to attach to and derived an id of its own.
+        return {
+          effects: [{
+            kind: 'admit-patient', patientId: patientRef, facilityId: opts.ctx.facilityId, unitId: defaultUnit,
+            ...(resource.id ? { emrEpisodeId: resource.id } : {}),
+          }],
+        };
       }
       if (status === 'finished') {
         if (!patientRef) return { skipped: 'encounter-without-subject' };

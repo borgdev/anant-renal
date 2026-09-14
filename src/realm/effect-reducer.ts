@@ -255,7 +255,13 @@ export class EffectReducer {
       case 'admit-patient': {
         const urn = g.urnFor('patient', effect.patientId);
         const rec = g.get(urn) ?? g.create('patient', effect.patientId, { admitted: true, facilityId: effect.facilityId, unitId: effect.unitId, admittedAt: at });
-        const patch = { admitted: true, facilityId: effect.facilityId, unitId: effect.unitId, admittedAt: at, admissionReason: effect.reason };
+        const patch = {
+          admitted: true, facilityId: effect.facilityId, unitId: effect.unitId, admittedAt: at, admissionReason: effect.reason,
+          // The EMR told us which episode of care this is (F3 inbound
+          // continuity). Remembering it is what lets the next `start-session`
+          // attach to that episode rather than mint a parallel one.
+          ...(effect.emrEpisodeId ? { emrEpisodeId: effect.emrEpisodeId } : {}),
+        };
         g.patch(rec.urn, patch, `effect:${effect.kind}`);
         results.push({ urn: rec.urn, kind: 'patient', id: rec.id, patch });
         return results;
@@ -332,22 +338,49 @@ export class EffectReducer {
       }
       case 'start-session': {
         const patientUrn = g.urnFor('patient', effect.patientId);
-        const patientState = (g.get(patientUrn)?.state ?? {}) as { facilityId?: string };
+        const patientState = (g.get(patientUrn)?.state ?? {}) as { facilityId?: string; emrEpisodeId?: string };
         const sessionId = effect.sessionId ?? `${effect.patientId}-sess-${this.clock.seq}`;
         const facilityId = patientState.facilityId ?? 'unassigned';
 
-        // D3 — the EPISODE of care is ONE standing Encounter per patient ×
-        // facility × modality. RECONCILE rather than create: a second session
-        // attaches to the episode the first one opened. The key is derived, so
-        // replaying a course of dialysis cannot manufacture encounters.
-        const episodeId = `${effect.patientId}-${facilityId}-${effect.modality}`;
+        // D3 — the EPISODE of care is ONE standing Encounter that many sessions
+        // attach to. RECONCILE before deriving, in this order:
+        //
+        //  1. An episode the EMR already holds for this patient. An inbound
+        //     `Encounter` told us which episode of care this is and
+        //     `admit-patient` remembered its id, so the session attaches to the
+        //     chart's episode. The EMR is the system of record for that.
+        //  2. An episode we already opened for this patient × modality. This is
+        //     what makes the key independent of its own inputs: the derived key
+        //     below reads `patient.facilityId`, which `admit-patient` OVERWRITES
+        //     with the ingest context's facility — so deriving first let a single
+        //     inbound Encounter re-key the patient and fork a parallel episode on
+        //     the very next session, orphaning the first.
+        //  3. Otherwise derive the key, exactly as a first session always has.
+        // An episode WE already opened wins, because reusing it can never orphan
+        // one; the EMR's id is adopted only when we hold no episode of our own,
+        // and is otherwise recorded on ours so the external identity is not lost.
+        const closed: string[] = ['finished', 'cancelled', 'entered-in-error'];
+        const existing = g.listKind('dialysis-episode').find((e) => {
+          const st = e.state as { patientId?: string; modality?: string; status?: string };
+          return st.patientId === effect.patientId
+            && st.modality === effect.modality
+            && !closed.includes(st.status ?? 'in-progress');
+        });
+        const episodeId = existing?.id ?? patientState.emrEpisodeId ?? `${effect.patientId}-${facilityId}-${effect.modality}`;
         const episodeUrn = g.urnFor('dialysis-episode', episodeId);
         const priorEpisode = g.get(episodeUrn)?.state as { sessionCount?: number } | undefined;
+        // The EMR's episode id, when it is not the id we are using: kept on the
+        // episode so "which chart episode is this?" is answerable from the record
+        // rather than from memory of an ingest that happened hours ago.
+        const external = patientState.emrEpisodeId && patientState.emrEpisodeId !== episodeId
+          ? { emrEpisodeId: patientState.emrEpisodeId }
+          : {};
         const episodePatch: Record<string, unknown> = priorEpisode
-          ? { sessionCount: (priorEpisode.sessionCount ?? 0) + 1 }
+          ? { sessionCount: (priorEpisode.sessionCount ?? 0) + 1, ...external }
           : {
               patientId: effect.patientId, facilityId, modality: effect.modality,
               startedAt: at, status: 'in-progress', sessionCount: 1,
+              ...external,
             };
         if (priorEpisode) g.patch(episodeUrn, episodePatch, `effect:${effect.kind}`);
         else g.create('dialysis-episode', episodeId, episodePatch);

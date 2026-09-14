@@ -49,7 +49,7 @@ import { effectToFhirResource, effectResourceType } from '../src/fhir/effect-map
 import { ingestFhirBundle } from '../src/fhir/bundle-ingest.js';
 import { codeRegistry } from '../src/fhir/code-registry.js';
 import type { WorldEffect } from '../src/realm/types.js';
-import type { FhirCtx, FhirResource } from '../src/fhir/types.js';
+import type { Bundle, FhirCtx, FhirResource } from '../src/fhir/types.js';
 
 function ctx(realmId: string, at = '2026-09-13T00:00:00.000Z'): FhirCtx {
   return { realmId, facilityId: 'f1', scopeId: realmId, sourceId: 'test', ingestedAt: at };
@@ -338,5 +338,75 @@ describe('F7 · volume is measured, not assumed', () => {
     expect(result.mode).toBe('transaction');
     expect(result.rolledBack).toBe(false);
     expect(result.entries.length).toBe(resources.length);
+  });
+});
+
+/* ---------------------------------------------------- F3 · inbound continuity */
+
+describe('F3 · an inbound EMR Encounter is adopted, not duplicated', () => {
+  /**
+   * The gap this closes. F7 made us SERIALIZE the episode as one standing
+   * Encounter, but nothing made an inbound Encounter ATTACH to it: the ingest
+   * read only `status`/`subject` and threw the EMR's resource id away, so a
+   * session started after the admission opened a SECOND episode of care and the
+   * chart ended up holding two.
+   */
+  it('attaches the session to the EMR’s episode instead of opening a parallel one', async () => {
+    const h = makeRealm();
+
+    const bundle: Bundle = {
+      resourceType: 'Bundle', type: 'transaction',
+      entry: [
+        { resource: { resourceType: 'Encounter', id: 'emr-enc-1', status: 'in-progress', subject: { reference: `Patient/${h.patientId}` } } },
+      ],
+    };
+    const result = await ingestFhirBundle(h.realm, ctx(h.id), bundle, {});
+    expect(result.rolledBack).toBe(false);
+
+    runSession(h, 'sess-after-admit', { preWeightKg: 72.4, postWeightKg: 70.1, ufVolumeL: 2.3 });
+
+    const episodes = h.realm.graph.listKind('dialysis-episode');
+    // ONE episode, carrying the id the EMR already holds — so the Encounter we
+    // serialize UPDATES the chart's episode rather than adding a second.
+    expect(episodes).toHaveLength(1);
+    expect(episodes[0]!.id).toBe('emr-enc-1');
+
+    const session = h.realm.graph.listKind('dialysis-session')[0]!;
+    const [procedure] = serializeEntity(session, ctx(h.id));
+    expect((procedure as { encounter?: { reference: string } }).encounter?.reference).toBe('Encounter/emr-enc-1');
+  });
+
+  /**
+   * The sharper half of the same defect, and why a derived key alone was not
+   * enough. `admit-patient` writes the INGEST context's facility onto the
+   * patient, and the episode key was derived from `patient.facilityId` — so an
+   * admission from a facility other than the seeded one re-keyed the patient and
+   * forked a second episode on the next session.
+   */
+  it('does not fork the episode when an inbound admission re-keys the facility', async () => {
+    const h = makeRealm();
+    runSession(h, 'sess-before', { preWeightKg: 72, postWeightKg: 70, ufVolumeL: 2 });
+    expect(h.realm.graph.listKind('dialysis-episode')).toHaveLength(1);
+
+    const bundle: Bundle = {
+      resourceType: 'Bundle', type: 'transaction',
+      entry: [
+        { resource: { resourceType: 'Encounter', id: 'emr-enc-2', status: 'in-progress', subject: { reference: `Patient/${h.patientId}` } } },
+      ],
+    };
+    // An admission arriving from the EMR's own facility id, not our 'f1'.
+    await ingestFhirBundle(h.realm, { ...ctx(h.id), facilityId: 'EMR-FAC' }, bundle, {});
+    // The admission DID move the patient — that part is intended.
+    expect((h.realm.graph.listKind('patient')[0]!.state as { facilityId?: string }).facilityId).toBe('EMR-FAC');
+
+    runSession(h, 'sess-after', { preWeightKg: 73, postWeightKg: 70.5, ufVolumeL: 2.5 });
+
+    // Still ONE episode: the second session attached to the one we already
+    // opened rather than deriving a key from the facility that just changed.
+    const episodes = h.realm.graph.listKind('dialysis-episode');
+    expect(episodes).toHaveLength(1);
+    expect(h.realm.graph.listKind('dialysis-session')).toHaveLength(2);
+    // ...and the EMR's own episode id is recorded on it, not discarded.
+    expect((episodes[0]!.state as { emrEpisodeId?: string }).emrEpisodeId).toBe('emr-enc-2');
   });
 });

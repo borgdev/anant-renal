@@ -161,7 +161,14 @@ export interface AgentPresence {
 
 // World Effects — the vocabulary of intent.
 export type WorldEffect =
-  | { kind: 'admit-patient'; patientId: string; facilityId: string; unitId: string; reason?: string }
+  | { kind: 'admit-patient'; patientId: string; facilityId: string; unitId: string; reason?: string;
+      /**
+       * F3 inbound continuity — the id of the EMR's OWN `Encounter` when this
+       * admission arrived as one. Carried through so the next session attaches
+       * to the episode the chart already holds instead of us opening a second
+       * one for the same admission.
+       */
+      emrEpisodeId?: string }
   | { kind: 'transfer-patient'; patientId: string; fromUnitId: string; toUnitId: string; reason?: string }
   | { kind: 'discharge-patient'; patientId: string; disposition: 'home' | 'home-health' | 'snf' | 'hospice' | 'transfer' | 'ama' | 'expired'; reason?: string }
   | { kind: 'order-lab'; patientId: string; code: string; priority: 'stat' | 'routine' | 'send-out'; encounterId?: string }
