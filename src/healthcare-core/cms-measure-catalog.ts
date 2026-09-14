@@ -66,11 +66,13 @@ export const ESRD_QIP_MEASURES: readonly CMSMeasureSpec[] = Object.freeze([
     evidenceRequirements: ['clinical:kt-v-value', 'clinical:modality', 'admin:facility-months'],
     source: { url: SRC('medicare/quality/esrd') },
     // Embedded (CQL-free): HD spKt/V >= 1.2 OR PD weekly Kt/V >= 1.7.
+    // 18262-6 / 18263-4 are LDL / HDL cholesterol — the codes below are the
+    // delivered-Kt/V LOINCs and match what the session writer emits (70961-8).
     thresholds: {
       mode: 'any',
       criteria: [
-        { loinc: '18262-6', comparator: 'ge', target: 1.2, unit: 'Kt/V' },
-        { loinc: '18263-4', comparator: 'ge', target: 1.7, unit: 'Kt/V' },
+        { loinc: '70961-8', comparator: 'ge', target: 1.2, unit: 'Kt/V' },
+        { loinc: '70960-0', comparator: 'ge', target: 1.7, unit: 'Kt/V' },
       ],
     },
   },

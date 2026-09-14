@@ -180,7 +180,7 @@ This is the item most likely to cause a silent, expensive integration failure. T
 | `hepatitis-b`, `influenza`, `pneumococcal`, `sars-cov-2` | `concept(CODE_SYSTEMS.cvx, 'influenza')` — `effect-map.ts:225` | CVX (influenza = `140`/`141`/`150`…) |
 | `missed-treatment`, `access-risk`, `lab-critical` | `concept(CODE_SYSTEMS.snomed, effect.safetyKind)` — `effect-map.ts:274` | SNOMED CT concepts |
 | `avf` / `avg` / `cvc`, encoded as `accessType: 0|1|2` | numeric feature — `swarm/adequacy.ts:63` | SNOMED / FHIR `Device` + `DeviceUseStatement` |
-| `KTV-DEL` | passed as if LOINC — `packs/dialysis-provider/labs/index.ts:67` | LOINC `18262-6` (HD spKt/V), `18263-4` (PD weekly Kt/V) |
+| `KTV-DEL` | passed as if LOINC — `packs/dialysis-provider/labs/index.ts:67` | LOINC `70961-8` (HD Kt/V), `70960-0` (PD). **Corrected 2026-09-14:** `18262-6` / `18263-4` are LDL / HDL cholesterol, not Kt/V. |
 | `assessment` | `concept(CODE_SYSTEMS.loinc, 'assessment', effect.assessmentId)` — `effect-map.ts:210` | LOINC PHQ-9 `44249-1`, GAD-7 `69737-5`, AUDIT-C `72172-0` |
 | `AMB` for every encounter | `code('…v3-ActCode','AMB')` — `effect-map.ts:87` | dialysis is `AMB` per-session but the *modality* (in-centre HD vs home HD vs PD) needs its own coding |
 | `professional` for every claim | `concept('…claim-type','professional')` — `effect-map.ts:250` | ESRD monthly is CPT `90960`/`90961`-family, and claims for dialysis are **institutional**, not professional |
@@ -391,7 +391,7 @@ A dialysis **session** is a `Procedure`. The **`Encounter`** is the longer-lived
 - `start-session` → **`Procedure`** (`status: 'in-progress'`, `code` = the dialysis treatment, LOINC/SNOMED-coded, `performedPeriod.start`, `subject`, **`encounter` = the episode `Encounter`**). We hold the `Procedure.id`, and `end-session` closes **the same** resource.
 - `record-session-telemetry` → `Observation`s referencing the session `Procedure` (`partOf`) and its `encounter`.
 - `record-access` → `Observation` / `DeviceUseStatement` referencing the session `Procedure`.
-- `end-session` → the same `Procedure` (`status: 'completed'`, `performedPeriod.end`, `outcome`) plus the delivered metrics as `Observation`s: Kt/V (LOINC `18262-6`), URR, UF volume, pre/post weight, recirculation %, Qb average; `stoppedEarly`/`complication` as a coded `outcome`.
+- `end-session` → the same `Procedure` (`status: 'completed'`, `performedPeriod.end`, `outcome`) plus the delivered metrics as `Observation`s: Kt/V (LOINC `70961-8`), URR, UF volume, pre/post weight, recirculation %, Qb average; `stoppedEarly`/`complication` as a coded `outcome`.
 
 **What this buys us:**
 

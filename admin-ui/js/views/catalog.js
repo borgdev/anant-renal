@@ -44,11 +44,11 @@ export function labPatientBundle(patient) {
     { resourceType: 'Patient', id: patient.id },
     obs('2823-3', 'Potassium', L.K, 'mmol/L'),
     obs('718-7', 'Hemoglobin', L.HGB, 'g/dL'),
-    obs('48151-2', 'Urea reduction ratio', L.URR, '%'),
+    obs('54456-9', 'Urea reduction ratio', L.URR, '%'),
     obs('14879-1', 'Phosphate [Mass/volume] in Serum or Plasma', L.PHOS, 'mg/dL'),
     // extra labs so embedded catalog measures (hypercalcemia, Kt/V adequacy) are demoable
     obs('17861-6', 'Calcium [Mass/volume] in Serum or Plasma', L.Ca ?? 11.0, 'mg/dL'),
-    obs('18262-6', 'Kt/V (single pool)', L.KtV ?? 1.4, 'Kt/V'),
+    obs('70961-8', 'Kt/V.Hemodialysis', L.KtV ?? 1.4, 'Kt/V'),
   ];
   if (patient.hypertension) resources.push({ resourceType: 'Condition', id: `${patient.id}-htn`, subject: { reference: `Patient/${patient.id}` }, code: { coding: [{ system: 'http://snomed.info/sct', code: '59621000', display: 'Essential hypertension (disorder)' }] }, onsetDateTime: now });
   return { resourceType: 'Bundle', type: 'collection', entry: resources.map((resource) => ({ resource })) };

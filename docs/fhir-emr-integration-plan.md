@@ -239,9 +239,17 @@ Closes **B1, B2, B4, B7**. **This is the package that prevents wrong-patient wri
 > string on the payload, so a parse remains. That is F4.4-proper and stays its own
 > PR, as this section already said.
 >
-> **New finding:** seven codes in `seeds.ts` / `terminology.ts` are mislabelled
-> (wrong code for the claimed concept, two swapped). The registry carries
-> corrected values; the seed tables need their own fix.
+> **New finding (audited 2026-09-14):** this section originally recorded "seven
+> codes in `seeds.ts` / `terminology.ts` are mislabelled". That was a spot-check
+> of the renal path. A full audit of **every** LOINC and RxNorm entry in both
+> tables found **29 mislabelled of 71, plus 8 that exist on no server**, and the
+> defect had propagated to four more files — including the Kt/V code below and
+> `cms-measure-catalog.ts`, which had been scoring **cholesterol** against the
+> ESRD-QIP adequacy threshold. All corrected; see `docs/fhir-reality.md`
+> §"Terminology remediation". The registry carries corrected values for the
+> renal path only — it has **no** general-drug entries, so `codeFor('drug',
+> 'furosemide')` throws and refuses the write (correct fail-closed, but a
+> coverage gap for F9).
 
 Closes **C1–C9**. **Blocking**, per the *blocking-over-warning* principle.
 
@@ -252,8 +260,10 @@ Closes **C1–C9**. **Blocking**, per the *blocking-over-warning* principle.
    - drugs → RxNorm RxCUI (`epoetin-alfa`, `sevelamer`, `calcium-acetate`, `cinacalcet`, `calcitriol`, `lanthanum`, `sucroferric-oxyhydroxide`, `ferric-citrate`)
    - vaccines → CVX (replace the placeholders at `effect-map.ts:225`)
    - safety flags → real SNOMED concepts (`effect-map.ts:274`)
-   - `KTV-DEL` → LOINC `18262-6` (HD spKt/V) / `18263-4` (PD weekly Kt/V)
-   - assessments → LOINC `44249-1` / `69737-5` / `72172-0` / `72109-2`
+   - `KTV-DEL` → LOINC `70961-8` (HD Kt/V), `70960-0` (PD). **`18262-6` /
+     `18263-4` are LDL / HDL cholesterol** — the values this section originally
+     specified, and which `cms-measure-catalog.ts` had implemented
+   - assessments → LOINC `44261-6` / `70274-6` / `75626-2` / `72172-0` (total-score variants; the panel codes `44249-1` / `69737-5` are not what we emit, and `72172-0` / `72109-2` were swapped)
    - access type → SNOMED + a `Device`/`DeviceUseStatement` resource
    - dialysis modality (in-centre HD / home HD / PD) → its own coded concept (this is currently absent and is needed by F7 and by any claim)
 3. **Emit-time validation is mandatory.** `effectToFhirResource` and every `mapping.ts` serializer route through `codeFor(domain, slug)`; an unmapped slug **throws** in test/CI and **refuses the write** in production with a `DetectedIssue`. A code that has not been validated cannot leave the building. Closes **C7**.
@@ -353,7 +363,7 @@ Closes **D1, D3, D4, D6, D7, D11, D13**.
    - `dry-weight` (`Observation` body-weight + a `Goal`/`referenceRange` for the target)
 2. **Effect → FHIR cases** so `effectResourceType()` stops returning `[]` — **the session is a `Procedure` inside an episode `Encounter`** (D3):
    - `start-session` → **`Procedure`** (`status: 'in-progress'`, `code` = the dialysis treatment coded LOINC/SNOMED, `performedPeriod.start`, `subject`, **`encounter` = the standing episode `Encounter` from F3.6**). **We hold the `Procedure.id`** and `end-session` closes *that same resource* — the id must survive the effect→entity→effect round trip, which is real state. **Where the vendor rejects an in-progress `Procedure`** (declared on the profile), hold the session locally and emit once at `end-session`; the session is then invisible mid-treatment, which is acceptable only because it is a *declared* limitation.
-   - `end-session` → the same `Procedure` (`status: 'completed'`, `performedPeriod.end`, `outcome`) **and** the delivered metrics as `Observation`s referencing it: delivered Kt/V (LOINC `18262-6`), URR, UF volume, pre/post weight, recirculation %, Qb average; `stoppedEarly`/`complication` as a coded `outcome`.
+   - `end-session` → the same `Procedure` (`status: 'completed'`, `performedPeriod.end`, `outcome`) **and** the delivered metrics as `Observation`s referencing it: delivered Kt/V (LOINC `70961-8`), URR, UF volume, pre/post weight, recirculation %, Qb average; `stoppedEarly`/`complication` as a coded `outcome`.
    - `record-access` → `Observation` (access flow, recirculation, venous/arterial pressure) + `DeviceUseStatement` for the access type, both referencing the session `Procedure`; access *events* (thrombosis, angioplasty, declot, catheter-placed, avf-created) → `Procedure` or `AdverseEvent` by severity.
    - `titrate-med` → `MedicationRequest` at **`intent: 'proposal'`**, `status: 'draft'`, carrying the new dose and a `reasonCode`, with a stable `identifier` (F3.4 + D1). Closes **D11** — this is the anaemia protocol's highest-value output and today it vanishes.
    - `hold-med` → `MedicationRequest` proposal with `statusReason`, or a `DetectedIssue` proposal, per the vendor profile.

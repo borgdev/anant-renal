@@ -160,11 +160,16 @@ export const CODE_SEEDS: readonly CodeEntry[] = Object.freeze([
   // `70969-1` as "Urea clearance normalized to volume of distribution (Kt/V)".
   // tx.fhir.org returns GFR (MDRD) for BOTH. The real Kt/V codes are 70961-8 /
   // 70965-9 (HD) and 70960-0 (PD); 18262-6 and 18263-4 are LDL/HDL cholesterol.
+  // Corrected in seeds.ts, terminology.ts and cms-measure-catalog.ts 2026-09-14;
+  // the plan document's own value for this was wrong in the same direction.
   v('lab', 'K', LOINC, '2823-3', 'Potassium [Moles/volume] in Serum or Plasma', V.loinc),
   v('lab', 'POTASSIUM', LOINC, '2823-3', 'Potassium [Moles/volume] in Serum or Plasma', V.loinc),
   v('lab', 'HGB', LOINC, '718-7', 'Hemoglobin [Mass/volume] in Blood', V.loinc),
   v('lab', 'PHOS', LOINC, '2777-1', 'Phosphate [Mass/volume] in Serum or Plasma', V.loinc),
-  v('lab', 'ALBUMIN', LOINC, '2885-2', 'Protein [Mass/volume] in Serum or Plasma', V.loinc),
+  v('lab', 'ALBUMIN', LOINC, '1751-7', 'Albumin [Mass/volume] in Serum or Plasma', V.loinc),
+  // 2885-2 is TOTAL protein, not albumin. The slug asked for albumin, so the
+  // code was the wrong concept; both now exist, each with its own slug.
+  v('lab', 'TOTAL-PROTEIN', LOINC, '2885-2', 'Protein [Mass/volume] in Serum or Plasma', V.loinc),
   v('lab', 'CREATININE', LOINC, '2160-0', 'Creatinine [Mass/volume] in Serum or Plasma', V.loinc),
   v('lab', 'BICARB', LOINC, '1963-8', 'Bicarbonate [Moles/volume] in Serum or Plasma', V.loinc),
   v('lab', 'CRP', LOINC, '1988-5', 'C reactive protein [Mass/volume] in Serum or Plasma', V.loinc),
@@ -239,6 +244,8 @@ export const CODE_SEEDS: readonly CodeEntry[] = Object.freeze([
   // 72172-0 was labelled AUDIT-C but is MoCA, 72109-2 was labelled MoCA but is
   // AUDIT-C (they are SWAPPED), and 38208-5 was labelled Braden but is "Pain
   // severity - Reported". scripts/verify-fhir-codes.mjs is what caught it.
+  // seeds.ts and src/assessments/library.ts were both corrected 2026-09-14;
+  // 44249-1 / 69737-5 there were panel codes where a total score is emitted.
   // We emit a SCORE, so the total-score variants are the right ones.
   v('assessment', 'phq9', LOINC, '44261-6', 'Patient Health Questionnaire 9 item (PHQ-9) total score [Reported]', V.loinc),
   v('assessment', 'gad7', LOINC, '70274-6', 'Generalized anxiety disorder 7 item (GAD-7) total score [Reported.PHQ]', V.loinc),

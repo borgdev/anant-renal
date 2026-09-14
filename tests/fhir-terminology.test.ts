@@ -52,6 +52,9 @@ import {
 import { parseDose, requireDose, UnparseableDoseError } from '../src/fhir/dose.js';
 import type { WorldEffect } from '../src/realm/types.js';
 import type { FhirCtx } from '../src/fhir/types.js';
+import { OntologyGraph, seedOntology } from '../src/ontology/index.js';
+import { seedValueSets } from '../src/healthcare-core/terminology.js';
+import { ESRD_QIP_MEASURES } from '../src/healthcare-core/cms-measure-catalog.js';
 
 const ctx: FhirCtx = {
   scopeId: 'realm:terminology-test',
@@ -408,5 +411,107 @@ describe('F4 · payer and structural codes', () => {
     const reason = (admit as { reasonCode?: Array<Record<string, unknown>> }).reasonCode?.[0];
     expect(reason).toEqual({ text: 'fluid overload' });
     expect(reason?.coding).toBeUndefined();
+  });
+});
+
+/* ------------------------------------------ seed tables (offline, no network) */
+
+// The audit that found these ran against tx.fhir.org and NLM RxNav
+// (`node --import tsx scripts/verify-fhir-codes.mjs` re-checks the registry).
+// This block pins its RESULT offline so the seed tables cannot drift back: it
+// asserts the concept every corrected code is labelled with, that the codes
+// which named the wrong concept are gone rather than relabelled around, and
+// that no cholesterol code is used as Kt/V.
+//
+// The registry above is the WIRE gate. These tables are the ontology the
+// engine reasons over, and they were the ones that were wrong.
+
+const seededLoinc = (): Map<string, string> =>
+  new Map(seedOntology(new OntologyGraph()).listConcepts().filter((c) => c.system === 'loinc').map((c) => [c.code, c.display]));
+
+const seededRxnorm = (): Map<string, string> =>
+  new Map(seedOntology(new OntologyGraph()).listConcepts().filter((c) => c.system === 'rxnorm').map((c) => [c.code, c.display]));
+
+describe('seed tables — code fidelity', () => {
+  it('every LOINC in seeds.ts is labelled with the concept the code actually is', () => {
+    const loinc = seededLoinc();
+    // Kt/V was previously the GFR (MDRD) codes 33914-3 / 70969-1.
+    expect(loinc.get('33914-3')).toMatch(/Glomerular filtration rate/);
+    expect(loinc.get('70969-1')).toMatch(/Glomerular filtration rate/);
+    expect(loinc.get('70961-8')).toBe('Kt/V.Hemodialysis');
+    expect(loinc.get('70965-9')).toBe('Kt/V.Hemodialysis [Daugirdas II]');
+    expect(loinc.get('70960-0')).toBe('Kt/V.Peritoneal Dialysis');
+    // AUDIT-C and MoCA were swapped; 38208-5 is "Pain severity - Reported".
+    expect(loinc.get('72172-0')).toBe('Total score [MoCA]');
+    expect(loinc.get('72109-2')).toBe('Alcohol Use Disorder Identification Test - Consumption [AUDIT-C]');
+    expect(loinc.get('38227-5')).toBe('Braden scale total score');
+    expect(loinc.get('59460-6')).toBe('Fall risk total [Morse Fall Scale]');
+    expect(loinc.get('107107-5')).toMatch(/MNA-SF/);
+    // These two were a different method/granularity than the label claimed.
+    expect(loinc.get('48642-3')).toMatch(/MDRD/);
+    expect(loinc.get('13457-7')).toMatch(/by calculation/);
+  });
+
+  it('codes that named the wrong concept are gone, not relabelled around', () => {
+    const loinc = seededLoinc();
+    // Seven of these exist on no server; the rest meant something else entirely.
+    for (const gone of ['38208-5', '33747-0', '54556-4', '77584-8', '57249-9', '96566-2', '80392-9', '54580-4', '44249-1', '69737-5']) {
+      expect(loinc.has(gone), gone).toBe(false);
+    }
+    const rx = seededRxnorm();
+    for (const gone of ['1049502', '198211', '617314', '866426', '200258', '308136', '617993', '856987', '866516', '993781', '261551', '1364430', '104375', '242438', '312961', '1735006', '1043400']) {
+      expect(rx.has(gone), gone).toBe(false);
+    }
+  });
+
+  it('keeps the codes that were only mislabelled, now with the right drug', () => {
+    const rx = seededRxnorm();
+    // 855332 and 197361 are legitimate rows once labelled correctly; dropping
+    // them along with the wrong ones would have lost two real drugs.
+    expect(rx.get('855332')).toMatch(/warfarin sodium/);
+    expect(rx.get('197361')).toMatch(/amlodipine/);
+    expect(rx.get('861007')).toMatch(/metformin hydrochloride/);
+    expect(rx.get('313782')).toMatch(/acetaminophen 325 MG Oral Tablet/);
+    expect(rx.get('749206')).toMatch(/sevelamer carbonate/);
+    expect(rx.get('239999')).toMatch(/epoetin alfa/);
+    expect(rx.get('857002')).toMatch(/hydrocodone bitartrate/);
+  });
+
+  it('no Kt/V value set or measure threshold is a cholesterol code', () => {
+    // 18262-6 / 18263-4 are LDL / HDL cholesterol. The plan document's own
+    // value for delivered Kt/V was wrong in exactly this direction, and the
+    // ESRD-QIP adequacy measure had been scoring cholesterol against >= 1.2.
+    const graph = seedOntology(new OntologyGraph());
+    expect(graph.expandValueSet('vs:kt-v-adequate').map((c) => c.code).sort()).toEqual(['70960-0', '70961-8', '70965-9']);
+
+    const renal = graph.expandValueSet('vs:renal-labs').map((c) => c.code);
+    for (const cholesterol of ['18262-6', '18263-4']) expect(renal).not.toContain(cholesterol);
+
+    const spec = ESRD_QIP_MEASURES.find((m) => m.id === 'cms:esrd-qip:kt-v');
+    expect(spec, 'the Kt/V adequacy measure must exist').toBeDefined();
+    expect((spec?.thresholds?.criteria ?? []).map((c) => c.loinc).sort()).toEqual(['70960-0', '70961-8']);
+  });
+
+  it('terminology.ts value sets carry real codes, not placeholders', () => {
+    const byId = new Map(seedValueSets.map((v) => [v.id, v.codes]));
+
+    const core = byId.get('vs:dialysis.labs.core') ?? [];
+    expect(core.map((c) => c.code)).not.toContain('KTV-DEL');
+    expect(core.find((c) => c.code === '70961-8')?.display).toBe('Kt/V.Hemodialysis');
+    // 2885-2 is total protein, not albumin.
+    expect(core.find((c) => c.code === '1751-7')?.display).toMatch(/Albumin/);
+
+    const esa = byId.get('vs:esa.medications') ?? [];
+    expect(esa.find((c) => c.display === 'darbepoetin alfa')?.code).toBe('283838');
+
+    // A chemo value set naming the wrong agent is the worst version of this.
+    const chemo = byId.get('vs:oncology.chemo-agents') ?? [];
+    for (const wrong of ['40048', '1919504']) expect(chemo.map((c) => c.code)).not.toContain(wrong);
+    expect(chemo.find((c) => c.code === '2555')?.display).toBe('cisplatin');
+    expect(chemo.find((c) => c.code === '1547545')?.display).toBe('pembrolizumab');
+
+    // 272248001 / 128124002 return 404 from SNOMED.
+    const access = byId.get('vs:vascular-access.types') ?? [];
+    for (const gone of ['272248001', '128124002']) expect(access.map((c) => c.code)).not.toContain(gone);
   });
 });

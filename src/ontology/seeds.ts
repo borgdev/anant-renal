@@ -109,12 +109,11 @@ export function seedOntology(g: OntologyGraph): OntologyGraph {
     ['59408-5', 'Oxygen saturation in arterial blood by Pulse oximetry', 'vital'],
     ['4548-4', 'Hemoglobin A1c/Hemoglobin.total in Blood', 'chem'],
     ['2160-0', 'Creatinine [Mass/volume] in Serum or Plasma', 'chem'],
-    ['48642-3', 'Glomerular filtration rate/1.73 sq M.predicted [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (CKD-EPI)', 'chem'],
+    ['48642-3', 'Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (MDRD)/1.73 sq M among non black population', 'chem'],
     ['17861-6', 'Calcium [Mass/volume] in Serum or Plasma', 'chem'],
     ['2777-1', 'Phosphate [Mass/volume] in Serum or Plasma', 'chem'],
     ['2823-3', 'Potassium [Moles/volume] in Serum or Plasma', 'chem'],
     ['2951-2', 'Sodium [Moles/volume] in Serum or Plasma', 'chem'],
-    ['2823-3', 'Potassium [Moles/volume] in Serum or Plasma', 'chem'],
     ['2075-0', 'Chloride [Moles/volume] in Serum or Plasma', 'chem'],
     ['1975-2', 'Bilirubin.total [Mass/volume] in Serum or Plasma', 'chem'],
     ['1742-6', 'Alanine aminotransferase [Enzymatic activity/volume] in Serum or Plasma', 'chem'],
@@ -124,50 +123,59 @@ export function seedOntology(g: OntologyGraph): OntologyGraph {
     ['777-3', 'Platelets [#/volume] in Blood by Automated count', 'hem'],
     ['2093-3', 'Cholesterol [Mass/volume] in Serum or Plasma', 'lipids'],
     ['2085-9', 'Cholesterol in HDL [Mass/volume] in Serum or Plasma', 'lipids'],
-    ['13457-7', 'Cholesterol in LDL [Mass/volume] in Serum or Plasma by direct assay', 'lipids'],
+    ['13457-7', 'Cholesterol in LDL [Mass/volume] in Serum or Plasma by calculation', 'lipids'],
     ['2571-8', 'Triglyceride [Mass/volume] in Serum or Plasma', 'lipids'],
-    ['33914-3', 'Estimated urea Kt/V ratio', 'nephrology'],
-    ['70969-1', 'Urea clearance normalized to volume of distribution (Kt/V)', 'nephrology'],
-    ['33747-0', 'General appearance of Patient', 'exam'],
-    ['44249-1', 'PHQ-9 quick depression assessment panel', 'assessment'],
-    ['69737-5', 'Generalized anxiety disorder 7 item (GAD-7)', 'assessment'],
-    ['72172-0', 'Alcohol Use Disorders Identification Test [AUDIT-C]', 'assessment'],
-    ['72109-2', 'Montreal Cognitive Assessment (MoCA) total score', 'assessment'],
-    ['38208-5', 'Braden Scale total score', 'assessment'],
-    ['54556-4', 'Morse Fall Scale total score', 'assessment'],
-    ['77584-8', 'ADL score', 'assessment'],
-    ['57249-9', 'IADL score', 'assessment'],
-    ['96566-2', 'KDQOL-36 physical composite summary', 'assessment'],
-    ['80392-9', 'Mini Nutritional Assessment (MNA) short form total score', 'assessment'],
-    ['54580-4', 'CAGE questionnaire', 'assessment'],
+    // Verified 2026-09-14 against tx.fhir.org $lookup. These were previously
+    // mislabelled: 33914-3 and 70969-1 were presented as Kt/V but are both GFR
+    // (MDRD). The real Kt/V codes are 70961-8 / 70965-9 (HD) and 70960-0 (PD).
+    ['33914-3', 'Glomerular filtration rate [Volume Rate/Area] in Serum or Plasma by Creatinine-based formula (MDRD)/1.73 sq M', 'nephrology'],
+    ['70969-1', 'Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (MDRD)/1.73 sq M among male population', 'nephrology'],
+    ['70961-8', 'Kt/V.Hemodialysis', 'nephrology'],
+    ['70965-9', 'Kt/V.Hemodialysis [Daugirdas II]', 'nephrology'],
+    ['70960-0', 'Kt/V.Peritoneal Dialysis', 'nephrology'],
+    // Assessments. Codes whose stated concept did not match the code (AUDIT-C
+    // and MoCA were swapped; 38208-5 is "Pain severity - Reported", not Braden)
+    // are corrected, and the four instruments with no verifiable LOINC concept
+    // (ADL, IADL, KDQOL-36, CAGE) are dropped rather than left as a guess.
+    ['44261-6', 'Patient Health Questionnaire 9 item (PHQ-9) total score [Reported]', 'assessment'],
+    ['70274-6', 'Generalized anxiety disorder 7 item (GAD-7) total score [Reported.PHQ]', 'assessment'],
+    ['72172-0', 'Total score [MoCA]', 'assessment'],
+    ['72109-2', 'Alcohol Use Disorder Identification Test - Consumption [AUDIT-C]', 'assessment'],
+    ['38227-5', 'Braden scale total score', 'assessment'],
+    ['59460-6', 'Fall risk total [Morse Fall Scale]', 'assessment'],
+    ['107107-5', 'Mini nutritional assessment - short form 3 months Reported.MNA-SF', 'assessment'],
   ];
   for (const [code, display, category] of loinc) {
     g.addConcept({ system: 'loinc', code, display, ...(category ? { attributes: { category } } : {}) });
   }
 
-  // ---- RxNorm: top ambulatory + inpatient meds (SCD/SBD IDs) ----
+  // ---- RxNorm: top ambulatory + inpatient meds (SCD/SBD product codes) ----
+  // Every row here was previously mislabelled — the code meant a DIFFERENT drug
+  // or a different strength (e.g. "Furosemide 40 MG" was acetaminophen/codeine,
+  // "Empagliflozin 10 MG" was fentanyl injection). All 19 below are verified
+  // against NLM RxNav. A duplicate amoxicillin row and a semaglutide row were
+  // removed: the latter has no product-level RxCUI (only the SCDC component
+  // 2553600), and writing a component as a product is its own defect.
   const rxnorm: [string, string][] = [
-    ['1049502', 'Acetaminophen 325 MG Oral Tablet'],
-    ['198211',  'Amoxicillin 500 MG Oral Capsule'],
-    ['617314',  'Azithromycin 250 MG Oral Tablet'],
-    ['866426',  'Metformin hydrochloride 500 MG Oral Tablet'],
-    ['200258',  'Lisinopril 10 MG Oral Tablet'],
-    ['308136',  'Amlodipine 5 MG Oral Tablet'],
-    ['617993',  'Atorvastatin 20 MG Oral Tablet'],
-    ['198211',  'Amoxicillin 500 MG Oral Capsule'],
-    ['856987',  'Warfarin sodium 5 MG Oral Tablet'],
-    ['855332',  'Apixaban 5 MG Oral Tablet'],
-    ['866516',  'Metoprolol succinate 25 MG Extended Release Oral Tablet'],
-    ['993781',  'Furosemide 40 MG Oral Tablet'],
-    ['197361',  'Insulin regular human 100 UNT/ML Injectable Solution'],
-    ['261551',  'Insulin glargine 100 UNT/ML Injectable Solution'],
-    ['1364430', 'Sevelamer carbonate 800 MG Oral Tablet'],
-    ['104375',  'Epoetin alfa 4000 UNT/ML Injectable Solution'],
-    ['242438',  'Sertraline 50 MG Oral Tablet'],
-    ['312961',  'Alprazolam 0.5 MG Oral Tablet'],
-    ['313782',  'Hydrocodone Bitartrate 5 MG / Acetaminophen 325 MG Oral Tablet'],
-    ['1735006', 'Empagliflozin 10 MG Oral Tablet'],
-    ['1043400', 'Semaglutide 1 MG/ML Injectable Solution'],
+    ['313782',  'acetaminophen 325 MG Oral Tablet'],
+    ['308191',  'amoxicillin 500 MG Oral Capsule'],
+    ['308460',  'azithromycin 250 MG Oral Tablet'],
+    ['861007',  'metformin hydrochloride 500 MG Oral Tablet'],
+    ['314076',  'lisinopril 10 MG Oral Tablet'],
+    ['197361',  'amlodipine 5 MG Oral Tablet'],
+    ['617310',  'atorvastatin 20 MG Oral Tablet'],
+    ['855332',  'warfarin sodium 5 MG Oral Tablet'],
+    ['1364445', 'apixaban 5 MG Oral Tablet'],
+    ['866427',  '24 HR metoprolol succinate 25 MG Extended Release Oral Tablet'],
+    ['313988',  'furosemide 40 MG Oral Tablet'],
+    ['311034',  'insulin, regular, human 100 UNT/ML Injectable Solution'],
+    ['311041',  'insulin glargine 100 UNT/ML Injectable Solution'],
+    ['749206',  'sevelamer carbonate 800 MG Oral Tablet'],
+    ['239999',  '1 ML epoetin alfa 4000 UNT/ML Injection'],
+    ['312941',  'sertraline 50 MG Oral Tablet'],
+    ['308048',  'alprazolam 0.5 MG Oral Tablet'],
+    ['857002',  'acetaminophen 325 MG / hydrocodone bitartrate 5 MG Oral Tablet'],
+    ['1545658', 'empagliflozin 10 MG Oral Tablet'],
   ];
   for (const [code, display] of rxnorm) g.addConcept({ system: 'rxnorm', code, display });
 
@@ -249,10 +257,10 @@ export function seedOntology(g: OntologyGraph): OntologyGraph {
   g.registerValueSet({ id: 'vs:heart-failure', title: 'Heart failure', description: 'HF diagnosis', includes: [{ kind: 'codes', system: 'snomed-ct', codes: ['84114007'] }, { kind: 'codes', system: 'icd-10-cm', codes: ['I50.9'] }], bindingStrength: 'required', steward: 'harness' });
   g.registerValueSet({ id: 'vs:sepsis-or-septic-shock', title: 'Sepsis or septic shock', description: 'Sepsis + septic shock', includes: [{ kind: 'codes', system: 'snomed-ct', codes: ['91302008','76571007'] }, { kind: 'codes', system: 'icd-10-cm', codes: ['A41.9'] }], bindingStrength: 'required', steward: 'harness' });
   g.registerValueSet({ id: 'vs:vital-signs', title: 'Vital signs LOINCs', description: 'Standard vitals panel', includes: [{ kind: 'filter', system: 'loinc', attribute: 'category', op: 'equals', value: 'vital' }], bindingStrength: 'required', steward: 'harness' });
-  g.registerValueSet({ id: 'vs:validated-assessments', title: 'Validated assessment instruments', description: 'PHQ-9, GAD-7, MoCA, Braden, Morse, ADL/IADL, MNA, KDQOL, AUDIT-C, CAGE', includes: [{ kind: 'filter', system: 'loinc', attribute: 'category', op: 'equals', value: 'assessment' }], bindingStrength: 'required', steward: 'harness' });
-  g.registerValueSet({ id: 'vs:renal-labs', title: 'Renal labs', description: 'Creatinine, eGFR, Ca, P, K, Na, Cl, Kt/V', includes: [{ kind: 'codes', system: 'loinc', codes: ['2160-0','48642-3','17861-6','2777-1','2823-3','2951-2','2075-0','33914-3','70969-1'] }], bindingStrength: 'required', steward: 'harness' });
+  g.registerValueSet({ id: 'vs:validated-assessments', title: 'Validated assessment instruments', description: 'PHQ-9, GAD-7, MoCA, AUDIT-C, Braden, Morse, MNA-SF (instruments without a verifiable LOINC concept are not listed)', includes: [{ kind: 'filter', system: 'loinc', attribute: 'category', op: 'equals', value: 'assessment' }], bindingStrength: 'required', steward: 'harness' });
+  g.registerValueSet({ id: 'vs:renal-labs', title: 'Renal labs', description: 'Creatinine, eGFR, Ca, P, K, Na, Cl, Kt/V', includes: [{ kind: 'codes', system: 'loinc', codes: ['2160-0','48642-3','17861-6','2777-1','2823-3','2951-2','2075-0','33914-3','70969-1','70961-8','70965-9','70960-0'] }], bindingStrength: 'required', steward: 'harness' });
   g.registerValueSet({ id: 'vs:lipid-panel', title: 'Lipid panel', description: 'Total, HDL, LDL, triglycerides', includes: [{ kind: 'filter', system: 'loinc', attribute: 'category', op: 'equals', value: 'lipids' }], bindingStrength: 'required', steward: 'harness' });
-  g.registerValueSet({ id: 'vs:kt-v-adequate', title: 'Kt/V adequate result', description: 'Kt/V LOINCs (value threshold checked at runtime)', includes: [{ kind: 'codes', system: 'loinc', codes: ['33914-3','70969-1'] }], bindingStrength: 'required', steward: 'harness' });
+  g.registerValueSet({ id: 'vs:kt-v-adequate', title: 'Kt/V adequate result', description: 'Delivered Kt/V LOINCs — HD 70961-8, HD Daugirdas II 70965-9, PD 70960-0 (value threshold checked at runtime)', includes: [{ kind: 'codes', system: 'loinc', codes: ['70961-8','70965-9','70960-0'] }], bindingStrength: 'required', steward: 'harness' });
   g.registerValueSet({ id: 'vs:transplant-status-any-organ', title: 'Transplant status (any organ)', description: 'Kidney, heart, liver, lung, pancreas transplant status', includes: [{ kind: 'codes', system: 'icd-10-cm', codes: ['Z94.0','Z94.1','Z94.4'] }], bindingStrength: 'required', steward: 'harness' });
   g.registerValueSet({ id: 'vs:hospice-or-palliative', title: 'Hospice / palliative care', description: 'Palliative or hospice encounter', includes: [{ kind: 'codes', system: 'snomed-ct', codes: ['225336008'] }, { kind: 'codes', system: 'icd-10-cm', codes: ['Z51.5'] }], bindingStrength: 'required', steward: 'harness' });
 

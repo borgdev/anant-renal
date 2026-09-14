@@ -74,6 +74,9 @@ const LOINC = 'http://loinc.org' as const;
 const SCT = 'http://snomed.info/sct' as const;
 const RXNORM = 'http://www.nlm.nih.gov/research/umls/rxnorm' as const;
 const ICD10 = 'http://hl7.org/fhir/sid/icd-10-cm' as const;
+// Concepts we declare ourselves because no authoritative code exists — same
+// pattern as src/fhir/code-registry.ts. Never guess a licensed id.
+const LOCAL_ACCESS_TYPE = 'urn:ananthealth:codesystem:access-type' as const;
 
 /** Seed value sets referenced by dialysis + payer packs. */
 export const seedValueSets: readonly ValueSet[] = Object.freeze([
@@ -87,8 +90,10 @@ export const seedValueSets: readonly ValueSet[] = Object.freeze([
       { system: LOINC, code: '718-7', display: 'Hemoglobin [Mass/volume] in Blood' },
       { system: LOINC, code: '2823-3', display: 'Potassium [Moles/volume] in Serum or Plasma' },
       { system: LOINC, code: '2777-1', display: 'Phosphate [Mass/volume] in Serum or Plasma' },
-      { system: LOINC, code: '2885-2', display: 'Protein.SerAlb [Mass/volume]' },
-      { system: LOINC, code: 'KTV-DEL', display: 'Kt/V dialysis delivered (harness-local placeholder)' },
+      { system: LOINC, code: '1751-7', display: 'Albumin [Mass/volume] in Serum or Plasma' },
+      // Was a self-declared 'KTV-DEL' placeholder. Delivered HD Kt/V is 70961-8;
+      // note 18262-6 / 18263-4 are LDL / HDL cholesterol, not Kt/V.
+      { system: LOINC, code: '70961-8', display: 'Kt/V.Hemodialysis' },
     ],
   },
   {
@@ -114,7 +119,8 @@ export const seedValueSets: readonly ValueSet[] = Object.freeze([
     steward: 'VSAC',
     codes: [
       { system: RXNORM, code: '105694', display: 'epoetin alfa' },
-      { system: RXNORM, code: '349849', display: 'darbepoetin alfa' },
+      // 349849 is NOT darbepoetin alfa (RxNav returns no name for it).
+      { system: RXNORM, code: '283838', display: 'darbepoetin alfa' },
     ],
   },
   {
@@ -124,9 +130,12 @@ export const seedValueSets: readonly ValueSet[] = Object.freeze([
     effectiveFrom: '2026-01-01',
     steward: 'CMS',
     codes: [
-      { system: SCT, code: '426340003', display: 'Creation of arteriovenous fistula' },
-      { system: SCT, code: '272248001', display: 'Arteriovenous graft' },
-      { system: SCT, code: '128124002', display: 'Central venous catheter' },
+      // These are presence concepts, not the *creation* procedures the set
+      // previously carried: 426340003 is "Creation of graft fistula for
+      // dialysis", and 272248001 / 128124002 do not exist at all.
+      { system: SCT, code: '312317000', display: 'Arteriovenous graft' },
+      { system: LOCAL_ACCESS_TYPE, code: 'avf', display: 'Arteriovenous fistula (native)' },
+      { system: LOCAL_ACCESS_TYPE, code: 'cvc', display: 'Central venous catheter' },
     ],
   },
   {
@@ -136,9 +145,12 @@ export const seedValueSets: readonly ValueSet[] = Object.freeze([
     effectiveFrom: '2026-01-01',
     steward: 'VSAC',
     codes: [
-      { system: RXNORM, code: '40048', display: 'cisplatin' },
+      { system: RXNORM, code: '2555', display: 'cisplatin' },
       { system: RXNORM, code: '3639', display: 'doxorubicin' },
-      { system: RXNORM, code: '1919504', display: 'pembrolizumab' },
+      // 40048 is carboplatin and 1919504 is durvalumab — neither is what the
+      // set claimed. A chemo value set that names the wrong agent is the worst
+      // version of this defect class.
+      { system: RXNORM, code: '1547545', display: 'pembrolizumab' },
     ],
   },
 ]);

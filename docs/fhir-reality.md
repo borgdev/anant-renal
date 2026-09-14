@@ -467,4 +467,56 @@ leaves one row whose issues still name `approval-not-recorded`).
   sit until someone called it. That is the one gap here with a clinical
   consequence.
 
+---
+
+## Terminology remediation (2026-09-14)
+
+The plan recorded "seven codes in `seeds.ts` / `terminology.ts` are mislabelled".
+That was a spot-check of the renal path. Auditing **every** LOINC and RxNorm entry
+in both tables (the same way `scripts/verify-fhir-codes.mjs` checks the registry)
+found **29 mislabelled of 71, plus 8 that exist on no server** — and the defect
+had propagated to four more files.
+
+| Class | Example | Why it matters |
+|---|---|---|
+| Wrong concept | `33914-3` "Estimated urea Kt/V" is GFR (MDRD); `70969-1` likewise | `vs:kt-v-adequate` bound two eGFR codes under a `required` binding |
+| Swapped pair | `72172-0` / `72109-2` — AUDIT-C and MoCA | an assessment is scored as the wrong instrument |
+| Wrong drug | 20 of 21 RxNorm rows (`993781` "Furosemide 40 MG" is acetaminophen/codeine) | a pack binding a med by these acts on the wrong drug |
+| Wrong strength | `308136` "Amlodipine 5 MG" is 2.5 MG | a dose |
+| Non-existent code | `54556-4`, `77584-8`, `57249-9`, `96566-2`, `80392-9`, `54580-4`, `33747-0`, `48151-2`, `272248001`, `128124002` | a band or lookup that can never match |
+| Wrong concept **in the plan itself** | the plan's F4 says delivered Kt/V is `18262-6`; that is LDL cholesterol | `cms:esrd-qip:kt-v` scored cholesterol against `>= 1.2` |
+
+Also found outside those two tables: `packs/dialysis-provider/labs/index.ts`
+applied **albumin** bands (critical low 2.5 g/dL) to `2885-2`, which is **total
+protein**, and the registry's `ALBUMIN` slug resolved to that same code — so
+`codeFor('lab','ALBUMIN')` returned the wrong analyte.
+
+**Corrected** (every value verified against tx.fhir.org `$lookup` / NLM RxNav):
+`src/ontology/seeds.ts`, `src/healthcare-core/terminology.ts`,
+`src/healthcare-core/cms-measure-catalog.ts`, `src/assessments/library.ts`,
+`packs/dialysis-provider/labs/index.ts`, `src/fhir/code-registry.ts`
+(`ALBUMIN` → `1751-7`, with `2885-2` kept as its own `TOTAL-PROTEIN` entry),
+`admin-ui/js/views/catalog.js`, and the generated `admin-ui/assessments.json`.
+Re-audited after the fix: **0 mislabelled, 0 unverifiable.**
+
+Two judgement calls, made explicitly rather than silently: four instruments with
+no verifiable LOINC concept (KDQOL-36, Katz ADL, Lawton IADL, CAGE) **keep the
+instrument and drop the code** — `AssessmentSpec.loinc` is optional and every
+consumer already handles absence, so a fake code buys nothing; and one drug
+(semaglutide) was **dropped**, because only the component-level `2553600` exists
+and writing a component where a product belongs is the same defect class.
+
+**Why no test caught this:** `tests/ontology.test.ts` asserted
+`getConcept('rxnorm','866426').display` contained "Metformin". It passed for the
+same reason the table was wrong — the label lied and the code was never checked.
+That assertion now pins `861007`, and `tests/fhir-terminology.test.ts` gained an
+offline **seed-table fidelity** block: the concept each code is labelled with,
+that the wrong codes are *gone* rather than relabelled around, that the codes
+which were only mislabelled are kept (dropping `855332`/`197361` would have lost
+warfarin and amlodipine), and that no cholesterol code appears in
+`vs:kt-v-adequate`, `vs:renal-labs` or the ESRD-QIP threshold set.
+
+The registry's `verified` entries remain the wire gate; the seed tables are the
+ontology the engine reasons over, and they were the ones that were wrong.
+
 

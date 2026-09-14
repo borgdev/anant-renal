@@ -76,7 +76,7 @@ function def(s: AssessmentSpec): AssessmentSpec { return Object.freeze(s); }
 
 
 export const PHQ9: AssessmentSpec = def({
-  id: 'assessment:phq-9', loinc: '44249-1', title: 'PHQ-9 Depression', domain: 'mental-health', scoringMethod: 'sum',
+  id: 'assessment:phq-9', loinc: '44261-6', title: 'PHQ-9 Depression', domain: 'mental-health', scoringMethod: 'sum',
   items: [
     { id: 'q1', loinc: '44250-9', prompt: 'Little interest or pleasure in doing things', answerType: 'ordinal' as const, scale: phq9Scale },
     { id: 'q2', loinc: '44255-8', prompt: 'Feeling down, depressed, or hopeless', answerType: 'ordinal' as const, scale: phq9Scale },
@@ -100,7 +100,7 @@ export const PHQ9: AssessmentSpec = def({
 
 const gad7Scale = phq9Scale;
 export const GAD7: AssessmentSpec = def({
-  id: 'assessment:gad-7', loinc: '69737-5', title: 'GAD-7 Anxiety', domain: 'mental-health', scoringMethod: 'sum',
+  id: 'assessment:gad-7', loinc: '70274-6', title: 'GAD-7 Anxiety', domain: 'mental-health', scoringMethod: 'sum',
   items: [
     { id: 'q1', prompt: 'Feeling nervous, anxious, or on edge', answerType: 'ordinal' as const, scale: gad7Scale },
     { id: 'q2', prompt: 'Not being able to stop or control worrying', answerType: 'ordinal' as const, scale: gad7Scale },
@@ -120,7 +120,7 @@ export const GAD7: AssessmentSpec = def({
 });
 
 export const AUDIT_C: AssessmentSpec = def({
-  id: 'assessment:audit-c', loinc: '72172-0', title: 'AUDIT-C Alcohol Use', domain: 'substance-use', scoringMethod: 'sum',
+  id: 'assessment:audit-c', loinc: '75626-2', title: 'AUDIT-C Alcohol Use', domain: 'substance-use', scoringMethod: 'sum',
   items: [
     { id: 'q1', prompt: 'How often did you have a drink containing alcohol in the past year?', answerType: 'ordinal' as const, scale: [{label:'Never',score:0},{label:'Monthly or less',score:1},{label:'2-4 times/month',score:2},{label:'2-3 times/week',score:3},{label:'4+ times/week',score:4}] },
     { id: 'q2', prompt: 'How many drinks on a typical day when drinking?', answerType: 'ordinal' as const, scale: [{label:'1-2',score:0},{label:'3-4',score:1},{label:'5-6',score:2},{label:'7-9',score:3},{label:'10+',score:4}] },
@@ -134,7 +134,7 @@ export const AUDIT_C: AssessmentSpec = def({
 });
 
 export const MOCA_SUMMARY: AssessmentSpec = def({
-  id: 'assessment:moca', loinc: '72109-2', title: 'MoCA (Montreal Cognitive Assessment) summary', domain: 'cognition', scoringMethod: 'sum',
+  id: 'assessment:moca', loinc: '72172-0', title: 'MoCA (Montreal Cognitive Assessment) summary', domain: 'cognition', scoringMethod: 'sum',
   items: [{ id: 'total', prompt: 'MoCA total score (0-30)', answerType: 'numeric' as const, minValue: 0, maxValue: 30 }],
   bands: [
     { label: 'Normal', minScore: 26, maxScore: 30, interpretation: 'Normal cognition' },
@@ -145,7 +145,7 @@ export const MOCA_SUMMARY: AssessmentSpec = def({
 });
 
 export const BRADEN: AssessmentSpec = def({
-  id: 'assessment:braden', loinc: '38208-5', title: 'Braden Scale for Pressure Injury Risk', domain: 'skin-integrity', scoringMethod: 'sum',
+  id: 'assessment:braden', loinc: '38227-5', title: 'Braden Scale for Pressure Injury Risk', domain: 'skin-integrity', scoringMethod: 'sum',
   items: [
     { id: 'sensory', prompt: 'Sensory perception', answerType: 'ordinal' as const, scale: [{label:'Completely limited',score:1},{label:'Very limited',score:2},{label:'Slightly limited',score:3},{label:'No impairment',score:4}] },
     { id: 'moisture', prompt: 'Moisture', answerType: 'ordinal' as const, scale: [{label:'Constantly moist',score:1},{label:'Very moist',score:2},{label:'Occasionally moist',score:3},{label:'Rarely moist',score:4}] },
@@ -165,7 +165,7 @@ export const BRADEN: AssessmentSpec = def({
 });
 
 export const MORSE: AssessmentSpec = def({
-  id: 'assessment:morse', loinc: '54556-4', title: 'Morse Fall Scale', domain: 'fall-risk', scoringMethod: 'sum',
+  id: 'assessment:morse', loinc: '59460-6', title: 'Morse Fall Scale', domain: 'fall-risk', scoringMethod: 'sum',
   items: [
     { id: 'history', prompt: 'History of falling within 3 months', answerType: 'ordinal' as const, scale: [{label:'No',score:0},{label:'Yes',score:25}] },
     { id: 'secondary-dx', prompt: 'Secondary diagnosis', answerType: 'ordinal' as const, scale: [{label:'No',score:0},{label:'Yes',score:15}] },
@@ -183,7 +183,9 @@ export const MORSE: AssessmentSpec = def({
 });
 
 export const KDQOL_36_SUMMARY: AssessmentSpec = def({
-  id: 'assessment:kdqol-36', loinc: '96566-2', title: 'KDQOL-36 (Kidney Disease Quality of Life)', domain: 'kidney-quality-of-life', scoringMethod: 'weighted',
+  // No verifiable LOINC concept exists for KDQOL-36. The instrument is kept and
+  // the code omitted (loinc is optional) rather than asserting a wrong one.
+  id: 'assessment:kdqol-36', title: 'KDQOL-36 (Kidney Disease Quality of Life)', domain: 'kidney-quality-of-life', scoringMethod: 'weighted',
   items: [
     { id: 'phys-composite', prompt: 'Physical Composite Summary (SF-12)', answerType: 'numeric' as const, minValue: 0, maxValue: 100 },
     { id: 'mental-composite', prompt: 'Mental Composite Summary (SF-12)', answerType: 'numeric' as const, minValue: 0, maxValue: 100 },
@@ -198,7 +200,7 @@ export const KDQOL_36_SUMMARY: AssessmentSpec = def({
 });
 
 export const MNA_SF: AssessmentSpec = def({
-  id: 'assessment:mna-sf', loinc: '80392-9', title: 'Mini Nutritional Assessment - Short Form', domain: 'nutrition', scoringMethod: 'sum',
+  id: 'assessment:mna-sf', loinc: '107107-5', title: 'Mini Nutritional Assessment - Short Form', domain: 'nutrition', scoringMethod: 'sum',
   items: [{ id: 'total', prompt: 'MNA-SF total (0-14)', answerType: 'numeric' as const, minValue: 0, maxValue: 14 }],
   bands: [
     { label: 'Normal', minScore: 12, maxScore: 14, interpretation: 'Normal nutritional status' },
@@ -257,7 +259,8 @@ export const SDOH_5_DOMAIN: AssessmentSpec = def({
 });
 
 export const ADL_KATZ: AssessmentSpec = def({
-  id: 'assessment:katz-adl', loinc: '77584-8', title: 'Katz Index of Independence in ADLs', domain: 'function', scoringMethod: 'sum',
+  // No verifiable LOINC concept for the Katz ADL index — code omitted, instrument kept.
+  id: 'assessment:katz-adl', title: 'Katz Index of Independence in ADLs', domain: 'function', scoringMethod: 'sum',
   items: ['bathing','dressing','toileting','transferring','continence','feeding'].map((k) => ({ id: k, prompt: k, answerType: 'ordinal' as const, scale: [{label:'Dependent',score:0},{label:'Independent',score:1}] })),
   bands: [
     { label: 'Full', minScore: 6, maxScore: 6, interpretation: 'Full function' },
@@ -268,7 +271,8 @@ export const ADL_KATZ: AssessmentSpec = def({
 });
 
 export const IADL_LAWTON: AssessmentSpec = def({
-  id: 'assessment:lawton-iadl', loinc: '57249-9', title: 'Lawton Instrumental ADL', domain: 'function', scoringMethod: 'sum',
+  // No verifiable LOINC concept for the Lawton IADL scale — code omitted, instrument kept.
+  id: 'assessment:lawton-iadl', title: 'Lawton Instrumental ADL', domain: 'function', scoringMethod: 'sum',
   items: ['telephone','shopping','food-prep','housekeeping','laundry','transport','meds','finances'].map((k) => ({ id: k, prompt: k, answerType: 'ordinal' as const, scale: [{label:'Dependent',score:0},{label:'Independent',score:1}] })),
   bands: [
     { label: 'Full', minScore: 7, maxScore: 8, interpretation: 'Full IADL independence' },

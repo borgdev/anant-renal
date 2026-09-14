@@ -63,8 +63,8 @@ const BANDS: readonly LabBand[] = [
   { loinc: '718-7', name: 'hemoglobin g/dL', criticalLow: 8, urgentLow: 10, urgentHigh: 12, criticalHigh: 13 },
   { loinc: '2823-3', name: 'potassium mmol/L', criticalLow: 3, urgentLow: 3.5, urgentHigh: 5.5, criticalHigh: 6.5 },
   { loinc: '2777-1', name: 'phosphorus mg/dL', urgentLow: 3.5, urgentHigh: 5.5, criticalHigh: 8 },
-  { loinc: '2885-2', name: 'albumin g/dL', criticalLow: 2.5, urgentLow: 3.5 },
-  { loinc: 'KTV-DEL', name: 'delivered Kt/V', urgentLow: 1.2, criticalLow: 1.0 },
+  { loinc: '1751-7', name: 'albumin g/dL', criticalLow: 2.5, urgentLow: 3.5 },
+  { loinc: '70961-8', name: 'delivered Kt/V (HD)', urgentLow: 1.2, criticalLow: 1.0 },
 ];
 
 export function assessLab(lab: DialysisLabResult): LabReviewItem {

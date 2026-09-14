@@ -46,7 +46,9 @@ describe('Ontology', () => {
     expect(g.countConcepts()).toBeGreaterThan(80);
     expect(g.getConcept('snomed-ct','46177005')?.display).toContain('End-stage');
     expect(g.getConcept('loinc','48642-3')?.display).toContain('Glomerular');
-    expect(g.getConcept('rxnorm','866426')?.display).toContain('Metformin');
+    // Metformin 500 MG is 861007. This previously asserted 866426, which is
+    // metoprolol tartrate — the test passed only because the seed label lied.
+    expect(g.getConcept('rxnorm','861007')?.display?.toLowerCase()).toContain('metformin');
     expect(g.getConcept('icd-10-cm','N18.6')?.display).toContain('End stage renal disease');
   });
   it('descendantsOf follows is-a edges', () => {
