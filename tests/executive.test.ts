@@ -44,6 +44,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from '../src/server/app.js';
 import { Telemetry, InMemorySink } from '../src/server/telemetry.js';
 import { healthcareCorePack } from '../packs/healthcare-core/index.js';
+import { payerPack } from '../packs/payer/index.js';
 import type { PostgresEventStore } from '../src/server/postgres-event-store.js';
 import type { CanonicalEvent } from '../src/healthcare-core/events.js';
 import type { LedgerEntry } from '../src/hypergraph/ledger.js';
@@ -74,7 +75,9 @@ async function build() {
   return buildApp({
     store: inMemoryStore(),
     telemetry: new Telemetry('test', new InMemorySink()),
-    packs: [healthcareCorePack],
+    // The payer pack must be INSTALLED for its endpoints to exist: a pack owns
+    // its routes now, so the platform no longer serves payer unconditionally.
+    packs: [healthcareCorePack, payerPack],
     authenticate: async () => actor,
     checkHealth: async () => ({ db: true, redis: true }),
     adminApiAuth: true,

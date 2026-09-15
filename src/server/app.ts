@@ -71,11 +71,11 @@ import type { EventBroker } from './event-broker.js';
 import { registerFhirRoutes } from '../fhir/routes.js';
 import { registerApiRoutes } from './api-routes.js';
 import { registerEnterpriseRoutes } from './enterprise-routes.js';
-import { registerSwarmRoutes, getSwarmWorkspace, resetSwarmRuntime } from './swarm-routes.js';
+import { registerSwarmRoutes, getSwarmWorkspace, getSwarmCoordinator, resetSwarmRuntime } from './swarm-routes.js';
 import { registerPlatformRoutes } from './platform-routes.js';
 import { registerOpsConfigRoutes } from './ops-config-routes.js';
 import { registerFhirIntegrationRoutes } from './fhir-integration-routes.js';
-import { registerPayerRoutes } from './payer-routes.js';
+import { registerPackRoutes, type PackRouteDeps, type PackWithContributions } from '../control-plane/pack-contributions.js';
 import { registerAnemiaRoutes } from './anemia-routes.js';
 import { registerRenalRoutes } from './renal-routes.js';
 import { registerProtocolRoutes } from './protocol-routes.js';
@@ -441,9 +441,27 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     }),
   });
 
-  // Payer proof pack (Phase 5 / Epic 7) — a second domain closing a payer loop
-  // through the SAME durable coordinator + workspace contracts. No runtime fork.
-  await registerPayerRoutes(app);
+  // Pack-contributed routes (Phase 3/G1) — a specialty's endpoints are part of
+  // the specialty. Collected from the installed pack set and registered in a
+  // loop, with every declared prefix asserted against its scope's namespace
+  // first, because the auth guard decides authority by URL prefix.
+  //
+  // Payers is the first migrated pack; the renal protocol modules below are
+  // still registered by name and are tracked as a burn-down (see
+  // docs/platform-specialty-remaining-work.md).
+  const packRouteDeps: PackRouteDeps = {
+    workspace: () => {
+      const w = getSwarmWorkspace();
+      if (!w) throw new Error('swarm-workspace-not-ready');
+      return w;
+    },
+    coordinator: () => {
+      const c = getSwarmCoordinator();
+      if (!c) throw new Error('swarm-coordinator-not-ready');
+      return c;
+    },
+  };
+  await registerPackRoutes(app, (deps.packs ?? []) as readonly PackWithContributions[], packRouteDeps);
 
   // Operator-console setup surface (ops-scoped /admin/platform/*): organization
   // profile, action policy, integration contract, release gate and the

@@ -44,6 +44,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from '../src/server/app.js';
 import { Telemetry, InMemorySink } from '../src/server/telemetry.js';
 import { healthcareCorePack } from '../packs/healthcare-core/index.js';
+import { payerPack } from '../packs/payer/index.js';
 import type { PostgresEventStore } from '../src/server/postgres-event-store.js';
 import type { CanonicalEvent } from '../src/healthcare-core/events.js';
 import type { LedgerEntry } from '../src/hypergraph/ledger.js';
@@ -74,7 +75,10 @@ async function build() {
   return buildApp({
     store: inMemoryStore(),
     telemetry: new Telemetry('test', new InMemorySink()),
-    packs: [healthcareCorePack],
+    // The payer pack is INSTALLED here, and that is now load-bearing: until this
+    // slice the platform registered payer's endpoints unconditionally, so they
+    // answered even when the pack was absent.
+    packs: [healthcareCorePack, payerPack],
     authenticate: async () => actor,
     checkHealth: async () => ({ db: true, redis: true }),
     adminApiAuth: true,
@@ -200,5 +204,36 @@ describe('payer proof pack', () => {
   it('unauth /admin/swarm/payer/* is blocked (401)', async () => {
     const res = await app.inject({ method: 'GET', url: '/admin/swarm/payer/cells' });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+/**
+ * The property the contribution contract establishes, and the reason it is worth
+ * having: a specialty's endpoints are the specialty's. Before this slice the
+ * platform registered payer's routes by name, so they answered in every
+ * deployment whether or not the payer pack was installed — the platform carrying
+ * a specialty nobody had installed.
+ */
+describe('a pack that is not installed serves nothing', () => {
+  it('404s the endpoint when the pack is absent, and 200s it when present', async () => {
+    const withoutPayer = await buildApp({
+      store: inMemoryStore(),
+      telemetry: new Telemetry('test', new InMemorySink()),
+      packs: [healthcareCorePack],
+      authenticate: async () => actor,
+      checkHealth: async () => ({ db: true, redis: true }),
+      adminApiAuth: true,
+    });
+    try {
+      const admin = await login(withoutPayer, 'admin', 'admin123');
+      const res = await withoutPayer.inject({
+        method: 'GET', url: '/admin/swarm/payer/cells', headers: { cookie: cookie(admin) },
+      });
+      // 404, not 403: the route does not exist. It is not a permission the
+      // operator could be granted.
+      expect(res.statusCode).toBe(404);
+    } finally {
+      await withoutPayer.close();
+    }
   });
 });

@@ -31,7 +31,8 @@
  *
  ******************************************************************************/
 
-import type { DomainPack } from '../../src/control-plane/pack-registry.js';
+import type { PackWithContributions } from '../../src/control-plane/pack-contributions.js';
+import { payerRoutes } from './routes.js';
 
 export * from './ontology.js';
 export * from './prior-auth.js';
@@ -42,7 +43,7 @@ export * from './care-management.js';
 export * from './network-and-benefits.js';
 export * from './cms-0057-f.js';
 
-export const payerPack: DomainPack = Object.freeze({
+export const payerPack: PackWithContributions = Object.freeze({
   id: 'payer',
   version: '0.2.0',
   extends: [{ id: 'healthcare-core', versionRange: '^0.2.0' }],
@@ -61,4 +62,8 @@ export const payerPack: DomainPack = Object.freeze({
     { id: 'cms:esrd:qip', title: 'ESRD Quality Incentive Program', authority: 'CMS' },
   ],
   requiredControls: ['access-policy', 'audit-provenance', 'data-quality', 'simulation-suite', 'appeals-ledger', 'sla-monitor'],
+  // Phase 3/G1 — the endpoints a specialty serves are part of the specialty.
+  // The platform collects these from the installed pack set and registers them,
+  // asserting each declared prefix against the scope's namespace first.
+  routes: payerRoutes,
 });
