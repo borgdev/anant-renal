@@ -227,7 +227,7 @@ durable matrix. Until then every vendor honestly reads `harness-verified` or
 
 ## Phase 3 — Specialty pack contract model
 
-Status: planned
+Status: **contract enforced — manifest is the authoring surface, resolution is checked**
 
 ### Goal
 
@@ -246,11 +246,11 @@ Define the exact contract a specialty pack must implement so new clinical domain
 
 ### Deliverables
 
-- [ ] Pack manifest schema is complete
-- [ ] Pack dependency model is defined
-- [ ] Specialty ontology can be loaded without platform changes
+- [x] Pack manifest schema is complete
+- [x] Pack dependency model is defined
+- [x] Specialty ontology can be loaded without platform changes
 - [ ] Specialty UI lens can render in generic shell
-- [ ] Specialty workflows can register events, measures, and policies
+- [x] Specialty workflows can register events, measures, and policies
 - [ ] Shared release validation recognizes pack-level rules and gates
 
 ### Exit criteria
@@ -258,6 +258,79 @@ Define the exact contract a specialty pack must implement so new clinical domain
 - a new specialty can be introduced through pack registration only
 - Renal is no longer a special-case code path in the platform shell
 - pack-level onboarding is self-contained and reusable
+
+### What is built
+
+Phase 0 wrote the boundary down. This slice makes a declaration **checkable**,
+because before it the specialty sections were declared and never read: a pack
+could name an ontology it did not ship and still report as conformant.
+
+- **`src/control-plane/pack-manifest.ts`** — parses `packs/*/manifest.yaml` into
+  the registry shape, normalising the on-disk snake_case, and resolves every
+  artifact the manifest *names* against `packs/<id>/`. A declaration that cannot
+  be resolved is a **blocking issue**, not an aspiration. It also compares the
+  manifest to the TypeScript descriptor (`manifestDrift`).
+- **`src/control-plane/pack-resources.ts`** — resolves the manifests as a SET and
+  enforces the five invariants that only exist across packs: **concept
+  collisions**, **orphan event subscriptions**, **one-sided cross-pack
+  workflows**, **unbacked CMS measures**, and a **lens shadowing platform
+  navigation**. A shared canonical event type is a note, never a failure — two
+  specialties reacting to one platform fact is the point of a canonical plane.
+- **The contract consumes resolution** (`validateSpecialtyPack` gains a
+  `resource-resolution` check and a `manifest-drift` warning), so an unresolvable
+  surface is `nonconformant` and refuses **activation** rather than surfacing as
+  a runtime `Cannot find module` in a specialty the platform already agreed to
+  host.
+- **Surface**: `GET /admin/platform/packs/:id/resources` (the declared surface,
+  resolved), the conformance matrix carries resource totals, and the flagship
+  Pack registry in Configuration studio renders each pack's declared surface,
+  its resolution, and any drift.
+
+### What this found — three defects, all real
+
+1. **`packs/revenue-cycle/manifest.yaml` was not valid YAML.** It carried
+   `facility_kinds:\n    - *` — an empty alias no parser accepts. Nothing had
+   ever parsed that file. A manifest is the artifact a second specialty arrives
+   through, so "it does not parse" is not a documentation nit.
+2. **`packs/payer` had two contradicting identities.** The manifest advertised
+   `0.1.0` with four capabilities; `index.ts` shipped `0.2.0` with seven. Both
+   were "the manifest", and whichever a reader opened was the truth they got.
+3. **`packs/dialysis-provider` declared a CMS authority that could never
+   match.** The manifest listed `esrd-qip` where the runtime resolves
+   `cms:esrd:qip`, alongside a stale version (`0.2.0` vs `0.3.0`), 8 capabilities
+   against 13, and 3 controls against 7. A measure bound to `esrd-qip` bound to
+   nothing.
+
+All three are fixed by bringing the manifests **to the runtime descriptor** —
+the descriptor is what the registry resolves, so weakening it to match a stale
+manifest would have been the wrong direction. Drift is now **zero** for every
+installed pack, and the drift check is the guard that keeps it there.
+
+### The honest state of the installed set
+
+Live: **16 packs installed — 1 substrate, 2 conformant, 13 partial, 0
+nonconformant.** `dialysis-provider` (12 ontology concepts, 14 event contracts,
+4 workflows, 1 CMS-bound measure, the `renal` lens) and `payer` (6 concepts, 10
+event contracts, 4 workflows, 1 measure, the `payer` lens) declare all five
+sections. `ckd-navigation` declares four and no measures, so it is honestly
+`partial`. The other twelve declare no specialty surface at all — they are
+dependencies that load, not specialties that arrive through registration. That
+is the remaining work, and the matrix now says so in numbers instead of by
+omission.
+
+### Not built yet, and named so it is not mistaken for done
+
+- **The manifest is not yet the source of truth.** The runtime resolves the
+  TypeScript descriptor; the manifest is parsed, resolved and compared, but
+  nothing loads a pack *from* its manifest. Making it authoritative is the next
+  step, and the drift check is what makes that step safe to take.
+- **The lens is terminology, not navigation.** A lens declares its identity and
+  its terminology; it does not yet add navigation the shell renders, and the
+  manifests deliberately declare no `nav` rather than inventing ids for a UI that
+  does not exist. Deliverable 4 in the list above.
+- **Release validation does not yet read pack-level gates** (deliverable 6): a
+  release containing a nonconformant pack should not validate, and today it can.
+  That is the next slice.
 
 ---
 

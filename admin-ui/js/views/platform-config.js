@@ -55,6 +55,8 @@ export async function cfgBody(ctx) {
       <h3 style="margin-top:0;">Pack registry <span class="muted" style="font-weight:400;font-size:11px;">· ${cfgPacks.length} installed by the pack loader</span></h3>
       <p class="muted" style="font-size:12px;">Activating a pack durably switches the executive lens in <code>/api/context</code> — no redeploy, no operating-model edit. Deactivate restores the operating-model default. Currently serving lens <b>${esc((ctx.pack && ctx.pack.lens) || '—')}</b> from pack <b>${esc((ctx.pack && ctx.pack.id) || '—')}</b>.</p>
       <div class="muted" style="font-size:12px;margin-bottom:8px;">Specialty contract: <b>${conformant}/${levels.length || 0}</b> at or above conformant${nonconformant ? ` · <span style="color:var(--bad);">${nonconformant} nonconformant and blocked from activation</span>` : ''}. A pack marked <span class="pill amber">partial</span> is installable but has not declared every clinical section yet — hover for the list.</div>
+      ${cfgResources || cfgManifestIssues.length ? `<div class="muted" style="font-size:12px;margin-bottom:8px;">Declared surface across the installed manifests: <b>${cfgResources ? cfgResources.total : 0}</b> resolved artifacts · <b>${cfgResources ? cfgResources.eventTypes : 0}</b> canonical event types · <b>${cfgResources ? cfgResources.resolvedPacks : 0}</b> packs resolved${cfgResources && cfgResources.blockedPacks && cfgResources.blockedPacks.length ? ` · <span style="color:var(--bad);">${esc(cfgResources.blockedPacks.join(', '))} blocked</span>` : ''}. Each artifact names a module that must exist, every workflow subscription must be to a declared event, and every CMS-bound measure must name an authority the pack declared.</div>` : ''}
+      ${cfgManifestIssues.length ? `<div style="color:var(--bad);font-size:12px;margin-bottom:8px;">${cfgManifestIssues.length} manifest issue(s): ${esc(cfgManifestIssues.map((i) => `${i.packId} — ${i.detail}`).join('; '))}</div>` : ''}
       <div style="display:grid;gap:8px;">${cfgPacks.map((p) => packRegistryRow(p, cfgActivePack)).join('') || '<span class="muted" style="font-size:12px;">No packs installed.</span>'}</div>`;
     return;
   }
@@ -89,7 +91,42 @@ export let cfgPacks = [];
 /** pack id → conformance report, from the Phase 0 specialty contract. */
 export let cfgConformance = {};
 
+/** The platform-owned resource totals + manifest issues from the Phase 3
+ *  resolution pass (what the installed manifests collectively declare). */
+export let cfgResources = null;
+
+/** Manifest files that could not be parsed or resolved. A manifest is the
+ *  artifact a second specialty arrives through, so a broken one is news. */
+export let cfgManifestIssues = [];
+
 export let cfgTab = 'packs';
+
+/** What a pack's OWN manifest says it contributes, and whether that resolved.
+ *
+ * This is the Phase 3 half of the contract: a declaration is only worth reading
+ * if it is checked. A pack that names an ontology it does not ship, or measures
+ * bound to a CMS authority it never declared, is reported here rather than
+ * discovered as a runtime failure in a specialty the platform already hosts. */
+function declaredSurfaceRow(p) {
+  const m = p.manifest;
+  if (!m || !m.present) {
+    return `<div class="muted" style="font-size:11px;margin-top:3px;">no manifest · identity comes from the pack descriptor alone</div>`;
+  }
+  const parts = [];
+  if (m.ontology) parts.push(`ontology <b>${esc(m.ontology.id)}</b> (${(m.ontology.concepts || []).length} concepts)`);
+  if ((m.eventTypes || []).length) parts.push(`${m.eventTypes.length} event types`);
+  if ((m.workflows || []).length) parts.push(`${m.workflows.length} workflows`);
+  if ((m.measures || []).length) parts.push(`${m.measures.length} measure${m.measures.length === 1 ? '' : 's'}`);
+  if (m.lens) parts.push(`lens <b>${esc(m.lens.label)}</b>`);
+  if (!parts.length) {
+    return `<div class="muted" style="font-size:11px;margin-top:3px;">manifest declares no specialty surface — this pack is a dependency, not a specialty</div>`;
+  }
+  const blocking = (m.issues || []).filter((i) => i.blocking);
+  const drift = m.drift || [];
+  return `<div class="muted" style="font-size:11px;margin-top:3px;">declares ${parts.join(' · ')}
+    ${drift.length ? `<div style="color:var(--warn);font-size:11px;">manifest drift: ${esc(drift.map((d) => d.field).join(', '))} — the manifest and the pack descriptor disagree, so a reader may be told one thing while the runtime does another</div>` : ''}
+    ${blocking.length ? `<div style="color:var(--bad);font-size:11px;">unresolved: ${esc(blocking.map((i) => i.detail).join('; '))}</div>` : ''}</div>`;
+}
 
 /** The conformance pill for one pack. `substrate` is a distinct state: the
  *  healthcare-core pack is the platform floor, not a specialty, so it is never
@@ -111,6 +148,7 @@ export function packRegistryRow(p, activePackId) {
     <div style="min-width:0;">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><strong style="font-size:13px;">${esc(p.id)}</strong><span class="pill muted">v${esc(p.version)}</span>${conformancePill(p)}<span class="pill ${p.lens === 'payer' ? 'amber' : p.lens === 'hybrid' ? 'violet' : 'mint'}">lens · ${esc(p.lens)}</span>${isActive ? '<span class="pill green">active</span>' : ''}</div>
       <div class="muted" style="font-size:11px;margin-top:3px;">${(p.capabilities || []).length} capabilities · ${(p.cmsUniverse || []).length} CMS authorities · extends ${esc((p.extends || []).join(', ') || 'none')} · applies to ${esc((p.appliesTo && p.appliesTo.organizationKinds || []).join(', '))}${missing.length ? ` · <span style="color:var(--warn);">undeclared: ${esc(missing.join(', '))}</span>` : ''}</div>
+      ${declaredSurfaceRow(p)}
     </div>
     <div style="flex:0 0 auto;display:flex;gap:6px;">
       ${isActive
@@ -146,6 +184,8 @@ export async function renderPlatformConfig() {
     cfgActivePack = list.activePack || null;
     const conf = await plFetch('GET', '/admin/platform/packs/conformance').catch(() => ({ packs: [] }));
     cfgConformance = Object.fromEntries((conf.packs || []).map((c) => [c.packId, c]));
+    cfgResources = conf.resources || null;
+    cfgManifestIssues = conf.manifestIssues || [];
   } catch (e) { err = e.message; }
   if (err) {
     main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Configuration studio</h2></div></div>${loadFailureHTML('the configuration studio', err)}`;
