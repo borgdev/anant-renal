@@ -32,7 +32,7 @@
 # *****************************************************************************/
 
 id: payer
-version: 0.1.0
+version: 0.2.0
 extends:
   - id: healthcare-core
     version_range: ^0.2.0
@@ -42,9 +42,83 @@ capabilities:
   - prior-authorization
   - utilization-management
   - appeals
-  - claims-adjudication-signal
+  - claims-operations
+  - care-management
+  - network-and-benefits
+  - cms-0057-f-interoperability
+cms_universe:
+  - id: cms:0057-f
+    title: CMS-0057-F Advancing Interoperability and Prior Authorization
+    authority: CMS
+  - id: cms:esrd:qip
+    title: ESRD Quality Incentive Program
+    authority: CMS
 required_controls:
   - access-policy
   - audit-provenance
   - data-quality
   - simulation-suite
+  - appeals-ledger
+  - sla-monitor
+
+# ── specialty surface (platform contract v1) ────────────────────────────────
+#
+# Note the cms_universe entries above: `cms:0057-f` had to be added because the
+# measure below is bound to it. Before this, the pack shipped a 0057-F
+# capability in TypeScript while its manifest declared no such authority — the
+# exact drift the contract now refuses.
+specialty:
+  ontology:
+    id: payer-coverage
+    version: 1.0.0
+    module: ontology.ts
+    concepts:
+      - payer.prior-authorization
+      - payer.criteria-rule
+      - payer.appeal-case
+      - payer.claim
+      - payer.benefit-plan
+      - payer.network
+
+  event_contracts:
+    - module: cms-0057-f.ts
+      types:
+        - coverage.inquiry
+        - coverage.active
+        - coverage.inactive
+        - prior-auth.submitted
+        - prior-auth.approved
+        - prior-auth.denied
+        - prior-auth.appealed
+        - claim.submitted
+        - claim.denied
+        - claim.remittance
+
+  workflows:
+    - id: payer.prior-auth
+      module: prior-auth.ts
+      events: [prior-auth.submitted, prior-auth.approved, prior-auth.denied]
+    - id: payer.appeals
+      module: appeals.ts
+      events: [prior-auth.denied, prior-auth.appealed]
+    - id: payer.claims-operations
+      module: claims-operations.ts
+      events: [claim.submitted, claim.denied, claim.remittance]
+    - id: payer.utilization-review
+      module: utilization-management.ts
+      events: [prior-auth.submitted, coverage.active]
+
+  measures:
+    - id: cms-0057-f:prior-auth-response
+      module: cms-0057-f.ts
+      cms_id: cms:0057-f
+
+  ui_lens:
+    id: payer
+    label: Payer
+    terminology:
+      patient: Member
+      patient-plural: Members
+      episode: Care episode
+      session: Review
+      program: Benefit plan

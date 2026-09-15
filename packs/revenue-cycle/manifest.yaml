@@ -38,8 +38,6 @@ extends:
     version_range: ^0.2.0
 applies_to:
   organization_kinds: [provider, health-system, practice]
-  facility_kinds:
-    - *
 capabilities:
   - denial-mgmt
   - coding-review

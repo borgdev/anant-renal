@@ -96,7 +96,9 @@ import type { IdentityRole } from '../identity/types.js';
 import type { DomainPack } from '../control-plane/pack-registry.js';
 // Platform Phase 0/1 — the written pack contract and the domain-blind
 // hardening report. Both are pure functions; the routes only gather state.
-import { validateSpecialtyPack, conformanceMatrix, platformBoundary, SPECIALTY_CONTRACT_VERSION } from '../control-plane/pack-contract.js';
+import { validateSpecialtyPack, conformanceMatrix, platformBoundary, SPECIALTY_CONTRACT_VERSION, PLATFORM_NAV_IDS, PLATFORM_CONCEPTS, type PackValidationContext, type SpecialtySections, type PackConformanceReport } from '../control-plane/pack-contract.js';
+import { loadPackManifests, manifestAsSpecialtySections, manifestDrift, type PackManifest } from '../control-plane/pack-manifest.js';
+import { buildResourceRegistry, resourceReportFor, resourcesByKind, type ResourceRegistry } from '../control-plane/pack-resources.js';
 import { buildHardeningReport, boundWriteKinds, type PlatformHardeningInput } from '../control-plane/platform-hardening.js';
 
 export interface PlatformRouteOptions {
@@ -124,6 +126,71 @@ export const CAPABILITIES: Record<ConsoleId, string[]> = {
   exec: ['work.review', 'work.approve', 'release.approve', 'episode.decide', 'episode.escalate', 'evidence.review', 'cohort.review', 'identity.review'],
   ops: ['onboarding.run', 'org.configure', 'integration.operate', 'topic.configure', 'dlq.remediate', 'release.validate', 'catalog.admin', 'cohort.review', 'identity.review'],
 };
+
+/* ---------- Phase 3 — pack manifest resolution ---------- */
+
+/** One read of the repository's pack manifests, resolved as a set. */
+export interface PackResolutionSnapshot {
+  readonly registry: ResourceRegistry;
+  readonly manifests: ReadonlyMap<string, PackManifest>;
+  readonly manifestIssues: readonly { readonly packId: string; readonly code: string; readonly detail: string; readonly blocking: boolean }[];
+}
+
+/**
+ * Load and resolve every pack manifest under the working directory.
+ *
+ * Read per call rather than cached, for the same reason the landing page is:
+ * an operator editing a manifest should see the change without a restart, and
+ * fourteen small YAML files are not worth a cache-invalidation bug.
+ */
+export function packResolution(): PackResolutionSnapshot {
+  const { manifests, issues } = loadPackManifests(process.cwd());
+  const registry = buildResourceRegistry({
+    manifests,
+    platformNavIds: PLATFORM_NAV_IDS,
+    platformConcepts: PLATFORM_CONCEPTS,
+  });
+  return {
+    registry,
+    manifests: new Map(manifests.map((m) => [m.id, m])),
+    manifestIssues: issues.map((i) => ({ packId: i.packId, code: i.code, detail: i.detail, blocking: i.blocking })),
+  };
+}
+
+/** The contract evidence for one pack: did its surface resolve, and do its two
+ *  homes agree about what it is. */
+export function packEvidence(snapshot: PackResolutionSnapshot, pack: DomainPack): PackValidationContext {
+  const report = resourceReportFor(snapshot.registry, pack.id);
+  const manifest = snapshot.manifests.get(pack.id);
+  const drift = manifest ? manifestDrift(pack, manifest) : [];
+  return {
+    ...(report ? { resolution: { resolved: report.resolved, issues: report.issues } } : {}),
+    ...(drift.length ? { manifestDrift: drift } : {}),
+  };
+}
+
+/**
+ * The pack as its manifest describes it.
+ *
+ * A specialty's declared surface lives in the MANIFEST, while the registry holds
+ * the TypeScript descriptor — which carries none of it. Validating the bare
+ * descriptor therefore reported every pack as `partial` with
+ * "declares 0/5 sections", no matter what its manifest said: the contract was
+ * being asked about the wrong object.
+ */
+export function packUnderContract(
+  snapshot: PackResolutionSnapshot,
+  pack: DomainPack,
+): DomainPack & SpecialtySections {
+  const manifest = snapshot.manifests.get(pack.id);
+  if (!manifest) return pack as DomainPack & SpecialtySections;
+  return { ...pack, ...manifestAsSpecialtySections(manifest) };
+}
+
+/** Run the contract against the pack a manifest declares, with its evidence. */
+function contractFor(snapshot: PackResolutionSnapshot, pack: DomainPack): PackConformanceReport {
+  return validateSpecialtyPack(packUnderContract(snapshot, pack), packEvidence(snapshot, pack));
+}
 
 /* ---------- onboarding model (12-step product rail, gated) ---------- */
 
@@ -1312,19 +1379,41 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
   app.get('/admin/platform/packs', async () => {
     const w = ws();
     const active = await w.activePack();
+    const snapshot = packResolution();
     return {
       activePack: active?.packId ?? null,
-      packs: (opts.packs ?? []).map((p) => ({
-        id: p.id,
-        version: p.version,
-        extends: p.extends?.map((e) => e.id) ?? [],
-        appliesTo: p.appliesTo,
-        capabilities: p.capabilities,
-        cmsUniverse: p.cmsUniverse,
-        requiredControls: p.requiredControls,
-        lens: lensForPack(p),
-        active: active?.packId === p.id,
-      })),
+      manifestIssues: snapshot.manifestIssues,
+      packs: (opts.packs ?? []).map((p) => {
+        const resource = resourceReportFor(snapshot.registry, p.id);
+        const manifest = snapshot.manifests.get(p.id);
+        return {
+          id: p.id,
+          version: p.version,
+          extends: p.extends?.map((e) => e.id) ?? [],
+          appliesTo: p.appliesTo,
+          capabilities: p.capabilities,
+          cmsUniverse: p.cmsUniverse,
+          requiredControls: p.requiredControls,
+          lens: lensForPack(p),
+          active: active?.packId === p.id,
+          // Phase 3 — what the pack's OWN manifest says it contributes, and
+          // whether that declaration resolved.
+          manifest: manifest
+            ? {
+                present: true,
+                declaredVersion: manifest.version,
+                drift: manifestDrift(p, manifest),
+                ontology: resource?.ontology ?? null,
+                eventTypes: resource?.eventTypes ?? [],
+                workflows: resource?.workflows ?? [],
+                measures: resource?.measures ?? [],
+                lens: resource?.lens ?? null,
+                resolved: resource?.resolved ?? true,
+                issues: resource?.issues ?? [],
+              }
+            : { present: false, drift: [], ontology: null, eventTypes: [], workflows: [], measures: [], lens: null, resolved: false, issues: [] },
+        };
+      }),
     };
   });
 
@@ -1342,7 +1431,11 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
       const id = req.params.id;
       const pack = (opts.packs ?? []).find((p) => p.id === id);
       if (!pack) return reply.code(404).send({ error: 'pack-not-installed', known: (opts.packs ?? []).map((p) => p.id) });
-      const conformance = validateSpecialtyPack(pack);
+      // Phase 3: the contract is now given the pack's OWN manifest, so a
+      // declaration that does not resolve refuses activation instead of being
+      // discovered as a runtime `Cannot find module` in a specialty the platform
+      // has already agreed to host.
+      const conformance = contractFor(packResolution(), pack);
       if (!conformance.usable) {
         return reply.code(409).send({
           error: 'pack-nonconformant',
@@ -1377,9 +1470,72 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
   // GET /admin/platform/packs/conformance — run the contract over every
   // installed pack. This is what turns "20 packs loaded" into "these are
   // first-class platform citizens, and these are missing sections".
-  app.get('/admin/platform/packs/conformance', async () => ({
-    ...conformanceMatrix(opts.packs ?? []),
-  }));
+  //
+  // Phase 3: each pack is validated against its OWN manifest, so the report also
+  // answers "did the surface it declared actually resolve" — the difference
+  // between a declaration and a claim.
+  app.get('/admin/platform/packs/conformance', async () => {
+    const snapshot = packResolution();
+    const byKind = resourcesByKind(snapshot.registry);
+    return {
+      // The contract is run over each pack AS ITS MANIFEST DESCRIBES IT, so a
+      // declared surface is what gets validated — the registry descriptor alone
+      // carries none of it.
+      ...conformanceMatrix(
+        (opts.packs ?? []).map((p) => packUnderContract(snapshot, p)),
+        (id) => {
+          const pack = (opts.packs ?? []).find((p) => p.id === id);
+          return pack ? packEvidence(snapshot, pack) : undefined;
+        },
+      ),
+      manifestIssues: snapshot.manifestIssues,
+      resources: {
+        total: snapshot.registry.resources.length,
+        resolvedPacks: snapshot.registry.resolvedPacks,
+        blockedPacks: snapshot.registry.blockedPacks,
+        eventTypes: Object.keys(snapshot.registry.eventOwners).length,
+        byKind: Object.fromEntries(Object.entries(byKind).map(([k, v]) => [k, v.length])),
+        issues: snapshot.registry.issues,
+      },
+    };
+  });
+  // GET /admin/platform/packs/:id/resources — the surface one pack declared,
+  // resolved. This is what makes "a specialty can be introduced through pack
+  // registration only" checkable rather than aspirational: an operator can read
+  // the ontology concepts, event contracts, workflows, measures and lens a pack
+  // claims, and the exact issue that stopped any of them resolving.
+  app.get<{ Params: { id: string } }>('/admin/platform/packs/:id/resources', async (req, reply) => {
+    const pack = (opts.packs ?? []).find((p) => p.id === req.params.id);
+    if (!pack) return reply.code(404).send({ error: 'pack-not-installed', known: (opts.packs ?? []).map((p) => p.id) });
+
+    const snapshot = packResolution();
+    const report = resourceReportFor(snapshot.registry, pack.id);
+    const manifest = snapshot.manifests.get(pack.id);
+    if (!manifest) {
+      // Not a 404: the pack is installed, it simply ships no manifest, which is
+      // a fact an operator needs rather than an error to route around.
+      return {
+        packId: pack.id,
+        manifestPresent: false,
+        detail: `No manifest.yaml under packs/${pack.id}/. The pack's identity comes from its TypeScript descriptor, so nothing can be checked against what it declares.`,
+        resources: [],
+        issues: [],
+        conformance: contractFor(snapshot, pack),
+      };
+    }
+
+    return {
+      packId: pack.id,
+      manifestPresent: true,
+      manifestPath: manifest.path,
+      declaredVersion: manifest.version,
+      drift: manifestDrift(pack, manifest),
+      resources: snapshot.registry.resources.filter((r) => r.packId === pack.id),
+      report,
+      issues: report?.issues ?? [],
+      conformance: contractFor(snapshot, pack),
+    };
+  });
 
   /* ---------- Phase 1 — domain-blind platform hardening ---------- */
 

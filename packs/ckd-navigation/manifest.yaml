@@ -46,3 +46,32 @@ required_controls:
   - access-policy
   - audit-provenance
   - data-quality
+
+# ── specialty surface (platform contract v1) ────────────────────────────────
+specialty:
+  ontology:
+    id: ckd-navigation
+    version: 1.0.0
+    module: index.ts
+    concepts:
+      - ckd.stage
+      - ckd.modality-education
+      - ckd.transition-readiness
+
+  event_contracts:
+    - module: index.ts
+      types: [patient.registered, condition.recorded, lab.result-arrived]
+
+  workflows:
+    - id: ckd.transition-to-esrd
+      module: index.ts
+      events: [patient.registered, condition.recorded, lab.result-arrived]
+
+  ui_lens:
+    id: ckd
+    label: CKD navigation
+    terminology:
+      patient: Patient
+      patient-plural: Patients
+      episode: Navigation episode
+      program: Stage program

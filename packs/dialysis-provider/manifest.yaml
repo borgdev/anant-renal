@@ -32,7 +32,7 @@
 # *****************************************************************************/
 
 id: dialysis-provider
-version: 0.2.0
+version: 0.3.0
 extends:
   - id: healthcare-core
     version_range: ^0.2.0
@@ -46,21 +46,115 @@ capabilities:
   - hospitalization-transition
   - lab-review
   - vascular-access-surveillance
+  - nutrition-dry-weight
+  - medication-management
+  - protocol-compliance
+  - transport-barrier
   - qapi
+  - qapi-evidence-packet
   - esrd-quality-reporting
 cms_universe:
-  - id: esrd-conditions-for-coverage
+  # The ids are namespaced (`cms:<program>`), and they are the SAME strings the
+  # TypeScript descriptor resolves. The manifest previously spelled one of them
+  # `esrd-qip`, which could never match `cms:esrd:qip` — so a measure bound to
+  # its declared authority silently bound to nothing.
+  - id: cms:esrd:cfc:494
     title: ESRD Conditions for Coverage
     authority: CMS
-  - id: esrd-qip
+  - id: cms:esrd:qip
     title: ESRD Quality Incentive Program
     authority: CMS
-  - id: esrd-pps
+  - id: cms:esrd:pps
     title: ESRD Prospective Payment System
     authority: CMS
+  - id: cms:nhsn-linkage
+    title: CDC NHSN Dialysis Event
+    authority: CDC
 required_controls:
   - access-policy
   - audit-provenance
   - data-quality
   - simulation-suite
   - observability-dashboard
+  - qapi-plan
+  - break-glass-ledger
+
+# ── specialty surface (platform contract v1) ────────────────────────────────
+#
+# Every artifact below is checked to RESOLVE: the named module must exist under
+# packs/dialysis-provider/, every subscribed event must be declared above it,
+# and every CMS-bound measure must name an authority this pack declared. A
+# declaration that cannot be resolved is a failure, not an aspiration — see
+# src/control-plane/pack-manifest.ts.
+specialty:
+  ontology:
+    id: dialysis
+    version: 1.0.0
+    module: ontology.ts
+    concepts:
+      - dialysis.patient
+      - dialysis.facility
+      - dialysis.treatment
+      - dialysis.chair
+      - dialysis.shift
+      - dialysis.vascular-access
+      - dialysis.lab-result
+      - dialysis.prescription
+      - dialysis.hospitalization
+      - dialysis.transport-barrier
+      - dialysis.staff
+      - dialysis.case
+
+  event_contracts:
+    # The canonical types this specialty both emits and consumes. They belong to
+    # the substrate's vocabulary (src/healthcare-core/events.ts) — a specialty
+    # reacting to a platform fact is the point, and declaring which ones it
+    # touches is what makes its workflow subscriptions checkable.
+    - module: index.ts
+      types:
+        - treatment.scheduled
+        - treatment.completed
+        - treatment.missed
+        - treatment.shortened
+        - treatment.cancelled
+        - schedule.changed
+        - lab.result-arrived
+        - hospitalization.admitted
+        - hospitalization.discharged
+        - hospitalization.transfer
+        - transport.issue
+        - contact.attempted
+        - contact.failed
+        - vital.observed
+
+  workflows:
+    - id: dialysis.missed-treatment
+      module: missed-treatment/state-machine.ts
+      events: [treatment.missed, contact.attempted, contact.failed, transport.issue]
+    - id: dialysis.schedule-recovery
+      module: scheduling/index.ts
+      events: [treatment.missed, treatment.scheduled, schedule.changed]
+    - id: dialysis.hospitalization-transition
+      module: hospitalization/index.ts
+      events: [hospitalization.admitted, hospitalization.discharged, hospitalization.transfer]
+    - id: dialysis.lab-review
+      module: labs/index.ts
+      events: [lab.result-arrived]
+
+  measures:
+    - id: esrd-qip:ktv
+      module: measures/esrd-qip.ts
+      cms_id: cms:esrd:qip
+
+  ui_lens:
+    id: renal
+    label: Renal
+    # Terminology only, deliberately. The shell already renders the navigation;
+    # a lens renames what the operator reads, and inventing nav ids here would
+    # be a claim about a UI that does not exist yet.
+    terminology:
+      patient: Patient
+      patient-plural: Patients
+      episode: Treatment cycle
+      session: Dialysis session
+      program: Quality program
