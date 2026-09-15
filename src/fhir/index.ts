@@ -53,6 +53,8 @@ export * from './metadata.js';
 export * from './auth.js';
 export * from './code-registry.js';
 export * from './dose.js';
+export * from './conformance-double.js';
+export * from './vendor-certification.js';
 
 // `operation-outcome.ts` declares its own `OperationOutcome`-shaped types, which
 // would collide with the ones in `types.js` under a star export. Re-export the

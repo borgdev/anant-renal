@@ -377,7 +377,11 @@ export async function runContractTest(
   const steps: ContractStep[] = [];
   const requests: ContractResult['requests'] = [];
   const profile = vendorProfile(integration.vendor);
-  const ctx: AuthProviderContext = { secrets };
+  // The transport override applies to the WHOLE connection, not only the resource
+  // calls. Threading it into the auth context is what lets a test — or the Phase 2
+  // conformance double — answer the token endpoint as well; without it a fake
+  // transport would still send the token request to the real network.
+  const ctx: AuthProviderContext = { secrets, ...(opts.fetch ? { fetch: opts.fetch } : {}) };
   const authMode = integration.authMode;
 
   // --- 1. configuration completeness
