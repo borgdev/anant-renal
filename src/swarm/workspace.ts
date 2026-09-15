@@ -357,6 +357,24 @@ export interface EvidenceReview extends WorkspaceDoc {
   note?: string;
 }
 
+/** A pack whose declared specialty surface did not resolve, or whose contract is
+ *  nonconformant. */
+export interface PackGateBlock {
+  readonly packId: string;
+  readonly detail: string;
+}
+
+/**
+ * Pack-level evidence for the release gate.
+ *
+ * Injected rather than read here: the swarm workspace does not touch the
+ * filesystem, and the conformance judgement belongs to the control plane. When
+ * NO provider is wired the gate is simply absent from the run — an unevaluated
+ * gate that reports `passed` is the one thing a fail-closed release must never
+ * do.
+ */
+export type PackConformanceProvider = () => readonly PackGateBlock[];
+
 export interface FacilityCheck { id: string; label: string; passed: boolean; evidenceEventIds: string[]; detail: string }
 
 export interface FacilitySimulation extends WorkspaceDoc {
@@ -1089,11 +1107,35 @@ type AnyDoc = WorkspaceDoc & Record<string, unknown>;
 export class SwarmWorkspaceStore {
   private readonly maps = new Map<WorkspaceKind, Map<string, AnyDoc>>();
   private hydrated = false;
+  /** Pack conformance evidence for the release gate. Absent → the gate is not
+   *  run at all, rather than running green on nothing. */
+  private packGate: PackConformanceProvider | null = null;
 
   constructor(
     private readonly persistence?: WorkspacePersistence,
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
+
+  /** Wire the pack-conformance evidence used by the release gate (Phase 3). */
+  setPackConformanceProvider(provider: PackConformanceProvider | null): void {
+    this.packGate = provider;
+  }
+
+  /**
+   * The provider's verdict, or `null` when none is wired.
+   *
+   * A provider that throws must not take the release gate down with it — but it
+   * must not be read as "clean" either, which is why it reports the failure as a
+   * block.
+   */
+  private packConformance(): readonly PackGateBlock[] | null {
+    if (!this.packGate) return null;
+    try {
+      return this.packGate();
+    } catch (e) {
+      return [{ packId: '(resolution)', detail: `pack resolution failed: ${(e as Error).message}` }];
+    }
+  }
 
   private map(kind: WorkspaceKind): Map<string, AnyDoc> {
     let m = this.maps.get(kind);
@@ -1736,17 +1778,28 @@ export class SwarmWorkspaceStore {
     //   red team         — active adversarial scenarios vs CURRENT policy; failures → findings
     //   integration      — bridge contract state (informational unless failed)
     //   promotion        — no open blocking (critical/high) findings for this release
+    //   pack contracts   — every installed pack's declared surface resolved (Phase 3);
+    //                      only present when a provider is wired, because a gate
+    //                      that did not run must not report `passed`
     const policy = await this.getAdminPolicy();
     const green = await this.runGreenTeam({ ranBy: 'release-gate' });
     const suite = await this.runRedTeamSuite({ releaseId: id, ranBy: 'release-gate' });
     const kafka = await this.getAdminKafka();
     const blocking = await this.blockingFindings(id);
+    const packs = this.packConformance();
     const checks: ReleaseGateCheck[] = [
       { name: 'Schema/contract', passed: true, observed: 'compatible' },
       { name: 'Green team', passed: green.passed, observed: `${green.checks.filter((c) => c.passed).length}/${green.checks.length} gates` },
       { name: 'Red team', passed: suite.passed, observed: suite.passed ? 'all adversarial cases contained' : `${suite.findings.length} finding(s) created (policy ${policy.defaultDecision})` },
       { name: 'Integration', passed: kafka.status !== 'failed', observed: kafka.status === 'contract-verified' ? 'bridge contract-verified' : `bridge ${kafka.status}` },
       { name: 'Promotion', passed: blocking.length === 0, observed: blocking.length === 0 ? 'no open blocking findings' : `${blocking.length} open blocking finding(s)` },
+      ...(packs ? [{
+        name: 'Pack contracts',
+        passed: packs.length === 0,
+        observed: packs.length === 0
+          ? 'every installed pack resolves its declared surface'
+          : `${packs.length} pack(s) unresolved: ${packs.map((p) => `${p.packId} (${p.detail})`).join('; ')}`,
+      }] : []),
     ];
     const passed = checks.every((c) => c.passed);
     if (passed) {
@@ -1798,13 +1851,27 @@ export class SwarmWorkspaceStore {
     const green = await this.runGreenTeam({ ranBy: 'canary-promote' });
     const kafka = await this.getAdminKafka();
     const blocking = await this.blockingFindings(id);
+    const packs = this.packConformance();
     const gates: ReleaseGateCheck[] = [
       { name: 'Schema/contract', passed: true, observed: 'compatible' },
       { name: 'Green team', passed: green.passed, observed: `${green.checks.filter((c) => c.passed).length}/${green.checks.length} gates` },
       { name: 'Red team', passed: blocking.length === 0, observed: blocking.length === 0 ? 'no open blocking findings' : `${blocking.length} blocking` },
       { name: 'Integration', passed: kafka.status !== 'failed', observed: `bridge ${kafka.status}` },
+      ...(packs ? [{
+        name: 'Pack contracts',
+        passed: packs.length === 0,
+        observed: packs.length === 0
+          ? 'every installed pack resolves its declared surface'
+          : `${packs.length} pack(s) unresolved: ${packs.map((p) => p.packId).join(', ')}`,
+      }] : []),
       { name: 'Canary', passed: opts.health !== false, observed: opts.health === false ? 'canary health degraded' : 'canary scopes healthy' },
     ];
+    // A pack that cannot resolve its declared surface must not be promoted to
+    // active, however healthy the canary looks: the canary proves the CHANGE is
+    // survivable, not that the specialty is hostable.
+    if (packs && packs.length > 0) {
+      return this.update<ConfigRelease>('config-release', id, { status: 'failed', checks: gates });
+    }
     // Deactivate any other active release (→ superseded), then activate this one.
     const all = await this.list<ConfigRelease>('config-release');
     for (const other of all) {

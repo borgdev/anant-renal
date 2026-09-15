@@ -192,6 +192,35 @@ function contractFor(snapshot: PackResolutionSnapshot, pack: DomainPack): PackCo
   return validateSpecialtyPack(packUnderContract(snapshot, pack), packEvidence(snapshot, pack));
 }
 
+/**
+ * What blocks a release at the PACK level: a manifest that does not resolve, a
+ * declared surface the resource registry refused, or a manifest that disagrees
+ * with the pack descriptor.
+ *
+ * Drift blocks a RELEASE while only warning on a pack, and the asymmetry is
+ * deliberate: drift means a reader may be told one thing while the runtime does
+ * another, which is survivable for a pack that already runs but not something to
+ * activate a new configuration on top of.
+ */
+function packGateBlocks(snapshot: PackResolutionSnapshot, packs: readonly DomainPack[]): { packId: string; detail: string }[] {
+  const blocks: { packId: string; detail: string }[] = [];
+  for (const i of snapshot.manifestIssues.filter((x) => x.blocking)) {
+    blocks.push({ packId: i.packId, detail: i.detail });
+  }
+  for (const i of snapshot.registry.issues.filter((x) => x.blocking)) {
+    blocks.push({ packId: i.packId, detail: i.detail });
+  }
+  for (const p of packs) {
+    const manifest = snapshot.manifests.get(p.id);
+    if (!manifest) continue;
+    const drift = manifestDrift(p, manifest);
+    if (drift.length > 0) {
+      blocks.push({ packId: p.id, detail: `manifest drift: ${drift.map((d) => d.field).join(', ')}` });
+    }
+  }
+  return blocks;
+}
+
 /* ---------- onboarding model (12-step product rail, gated) ---------- */
 
 const ONBOARDING_STEPS: Array<{ id: string; label: string; gate: string }> = [
@@ -627,6 +656,14 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
     if (!c) throw new Error('swarm-coordinator-not-ready');
     return c;
   };
+
+  // Phase 3 — hand the release gate the pack-level evidence it cannot read for
+  // itself. A pack whose declared surface does not resolve must not reach an
+  // active release: the canary proves the CHANGE is survivable, not that the
+  // specialty is hostable.
+  try {
+    ws().setPackConformanceProvider(() => packGateBlocks(packResolution(), opts.packs ?? []));
+  } catch { /* no workspace yet — the gate stays unwired rather than silently green */ }
 
   /* ================= platform administration (ops console) ================= */
 
