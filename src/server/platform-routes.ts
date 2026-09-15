@@ -76,6 +76,8 @@ import { cohortWorkId, parseCohortRef } from './cohort-routes.js';
 // come to mean two different things depending on where the human clicked.
 import { linkIdentity } from '../fhir/routes.js';
 import { getSwarmWorkspace, getSwarmCoordinator, swarmWhatIf, projectTopology, type ProjectedEdge, type ProjectedNode } from './swarm-routes.js';
+// Phase 2 — the certified-vendor list the fail-closed write check reads.
+import { certifiedVendors } from './certification-routes.js';
 import type { SwarmWorkspaceStore, WorkspaceDoc, PlatformOrganization, PlatformTopicPlan, PlatformCanvas, ConfigRelease, EvidenceReview, DlqRemediation } from '../swarm/workspace.js';
 import { decidesLater, deferralActive } from '../swarm/workspace.js';
 import { asRankedDecision, decideRankedAction, validateRankedDecision, type RankedDecisionInput } from '../swarm/nba-decision.js';
@@ -1422,7 +1424,12 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
       openIncidents,
       deadOutbox,
       userCount: opts.users?.list().length ?? 0,
-      certifiedVendors: [],
+      // Read the durable certification records rather than assuming none. A
+      // double run cannot appear here — only a real sandbox certification can —
+      // so this is what keeps a live write path fail-closed until a vendor is
+      // genuinely proven (Phase 2). A read failure yields [] and therefore FAILS
+      // the bound-write check, which is the safe direction to fail in.
+      certifiedVendors: await certifiedVendors(w).catch(() => []),
     };
 
     return buildHardeningReport(input);

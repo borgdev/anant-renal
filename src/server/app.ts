@@ -92,6 +92,7 @@ import { registerAgentStudioRoutes } from './agent-studio-routes.js';
 import { registerAssuranceRoutes } from './assurance-routes.js';
 import { registerSubmissionRoutes } from './submission-routes.js';
 import { registerExecutiveRoutes } from './executive-routes.js';
+import { registerCertificationRoutes } from './certification-routes.js';
 import { registerSimulatorRoutes, getSimulatorController } from './simulator-routes.js';
 import { registerDemoCleanupRoutes } from './demo-cleanup.js';
 import { registerCmsRoutes } from './cms-routes.js';
@@ -586,6 +587,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // Executive outcomes + delegation (Journey N) — sponsor/delegate with owner +
   // SLA, and verified-value rollups (not activity counts).
   await registerExecutiveRoutes(app);
+
+  // Vendor certification (Phase 2) — probes either a configured connection or our
+  // own conformance double, and records what we are entitled to claim. A double
+  // run can never certify a vendor; the platform's fail-closed write check reads
+  // only the sandbox-certified records.
+  await registerCertificationRoutes(app);
 
   // Simulator — start/stop/step-able synthetic data driver for the whole stack
   // (realms → swarm reasoners → exec console). Realms it creates get the

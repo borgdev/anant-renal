@@ -125,6 +125,10 @@ export type WorkspaceKind =
   | 'assurance-finding'
   | 'green-team-run'
   | 'delegated-work'
+  /* Phase 2 — what we are entitled to claim about an EMR vendor. Durable,
+     because it gates a live write path: the platform's fail-closed check reads
+     these records, so a claim that is not stored is a claim nobody can act on. */
+  | 'vendor-certification'
   /* Agent specs — the 452 `packs/<pack>/agents/*.yaml` files were the only
      configuration in the product with no database row: authoring read and wrote
      the filesystem directly, and "publish" was a file RENAME, so there was no
@@ -3361,6 +3365,7 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'assurance-finding',
   'green-team-run',
   'delegated-work',
+  'vendor-certification',
   'agent-spec',
   'esa-validation-report',
   'esa-study-record',
