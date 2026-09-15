@@ -98,6 +98,7 @@ export interface PackManifestSpecialty {
     readonly id: string;
     readonly label: string;
     readonly nav?: readonly string[];
+    readonly views?: readonly { readonly id: string; readonly label: string }[];
     readonly terminology?: Readonly<Record<string, string>>;
   };
 }
@@ -253,6 +254,13 @@ function normaliseSpecialty(value: unknown): PackManifestSpecialty {
   const lensLabel = str(lens['label']);
   if (lensId && lensLabel) {
     const nav = strList(lens['nav']);
+    const viewsRaw = lens['views'];
+    const views = list(viewsRaw).flatMap((raw) => {
+      const v = record(raw);
+      const id = str(v['id']);
+      if (!id) return [];
+      return [{ id, label: str(v['label']) ?? id }];
+    });
     const terminologyRaw = record(lens['terminology']);
     const terminology: Record<string, string> = {};
     for (const [k, v] of Object.entries(terminologyRaw)) {
@@ -263,6 +271,12 @@ function normaliseSpecialty(value: unknown): PackManifestSpecialty {
       id: lensId,
       label: lensLabel,
       ...(nav.length ? { nav } : {}),
+      // PRESENCE, not length. `views: []` says "this lens surfaces no clinical
+      // views", which is a different claim from omitting the key ("nothing
+      // declared, use the shell's default"). Collapsing the empty list into
+      // absence put the renal protocol strip back on a payer console — the exact
+      // defect the field exists to fix.
+      ...(viewsRaw !== undefined ? { views } : {}),
       ...(Object.keys(terminology).length ? { terminology } : {}),
     };
   }
@@ -501,6 +515,7 @@ export function manifestAsSpecialtySections(manifest: PackManifest): SpecialtySe
       id: s.uiLens.id,
       label: s.uiLens.label,
       ...(s.uiLens.nav ? { nav: s.uiLens.nav } : {}),
+      ...(s.uiLens.views ? { views: s.uiLens.views } : {}),
       ...(s.uiLens.terminology ? { terminology: s.uiLens.terminology } : {}),
     };
   }

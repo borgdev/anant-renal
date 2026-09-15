@@ -116,8 +116,7 @@ type NavItem = {
  * index) and each pack keeps its own page one click away — so the sidebar stays
  * short as packs are added, and nothing becomes a second-class citizen.
  */
-const PROTOCOL_VIEWS: Array<{ id: NavigationId; label: string; stage: string }> = [
-  { id: "protocols", label: "Cockpit", stage: "all" },
+const PROTOCOL_VIEWS: Array<{ id: NavigationId; label: string; stage: string }> = [  { id: "protocols", label: "Cockpit", stage: "all" },
   { id: "anemia", label: "Anemia & ESA", stage: "CDSS" },
   { id: "adequacy", label: "Adequacy & Kt/V", stage: "P1" },
   { id: "fluid", label: "Fluid & IDH", stage: "P2" },
@@ -133,8 +132,7 @@ const PROTOCOL_VIEWS: Array<{ id: NavigationId; label: string; stage: string }> 
   { id: "round-digest", label: "Since your last round", stage: "round" },
 ];
 
-const PROTOCOL_IDS: readonly NavigationId[] = PROTOCOL_VIEWS.map((view) => view.id);
-const isProtocolView = (id: NavigationId): boolean => PROTOCOL_IDS.includes(id);
+const protocolStage = (id: string): string => PROTOCOL_VIEWS.find((view) => view.id === id)?.stage ?? "";
 
 const navGroups: { label: string; items: NavItem[] }[] = [
   {
@@ -227,6 +225,10 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
   // without a code change per specialty.
   const [lensLabel, setLensLabel] = useState<string | undefined>(undefined);
   const [lensTerminology, setLensTerminology] = useState<Record<string, string> | undefined>(undefined);
+  // The views the ACTIVE LENS surfaces. Declared-first: a lens that declares its
+  // views gets exactly those, so one specialty's pages cannot leak into another
+  // console. `undefined` (nothing declared) keeps the shell's built-in list.
+  const [lensViews, setLensViews] = useState<Array<{ id: string; label: string }> | undefined>(undefined);
   // U #7 — one session-expiry banner for the whole console. Any 401 from any
   // fetch wrapper (harness/anemia/work/catalog) signals this; the page keeps its
   // own empty/loading/error states, but the sign-in gate is always the same.
@@ -245,6 +247,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
       if (ctx.pack?.lens === "payer" || ctx.pack?.lens === "hybrid") setLens(ctx.pack.lens);
       setLensLabel(ctx.pack?.label);
       setLensTerminology(ctx.pack?.terminology);
+      setLensViews(ctx.pack?.views);
     }).catch(() => { /* console/lens unavailable */ });
     return () => { active = false; };
   }, []);
@@ -261,11 +264,22 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
   }
 
   const currentDemo = demoSteps[demoStep];
+  /* The specialty strip is the LENS's, not the shell's: a declared list wins
+   * (labels included, so a specialty can name its own views), and an empty
+   * declared list means "this lens has no clinical views" — a payer console
+   * gets no dialysis protocol tabs. Nothing declared falls back to the shell. */
+  const protocolViews = useMemo(
+    () => (lensViews
+      ? lensViews.map((view) => ({ id: view.id as NavigationId, label: view.label, stage: protocolStage(view.id) }))
+      : PROTOCOL_VIEWS),
+    [lensViews],
+  );
+  const isLensView = (id: NavigationId): boolean => protocolViews.some((view) => view.id === id);
   const activeLabel = useMemo(
     () => navGroups.flatMap((group) => group.items).find((item) => item.id === activeNav)?.label
-      ?? PROTOCOL_VIEWS.find((view) => view.id === activeNav)?.label
+      ?? protocolViews.find((view) => view.id === activeNav)?.label
       ?? "Swarm control",
-    [activeNav],
+    [activeNav, protocolViews],
   );
 
   function selectNav(id: NavigationId) {
@@ -460,10 +474,10 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
           </div>
         ) : null}
 
-        {isProtocolView(activeNav) ? (
+        {isLensView(activeNav) ? (
           <nav className="protocol-tabs" aria-label="Clinical protocols">
             <span className="protocol-tabs-label"><FlaskConical size={13} aria-hidden="true" /> Protocols</span>
-            {PROTOCOL_VIEWS.map((view) => (
+            {protocolViews.map((view) => (
               <button
                 className={`protocol-tab ${activeNav === view.id ? "is-active" : ""}`}
                 key={view.id}

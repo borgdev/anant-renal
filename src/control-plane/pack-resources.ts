@@ -65,6 +65,7 @@ export type ResourceIssueCode =
   | 'unknown-cross-pack-target'
   | 'unbacked-cms-measure'
   | 'lens-shadows-platform-nav'
+  | 'unknown-lens-view'
   | 'duplicate-artifact-id';
 
 export interface ResourceIssue {
@@ -86,8 +87,13 @@ export interface PackResourceReport {
   readonly eventTypes: readonly string[];
   readonly workflows: readonly string[];
   readonly measures: readonly string[];
-  readonly lens: { readonly id: string; readonly label: string; readonly nav: readonly string[] } | null;
-  readonly issues: readonly ResourceIssue[];
+  readonly lens: {
+    readonly id: string;
+    readonly label: string;
+    readonly nav: readonly string[];
+    /** Platform views this lens surfaces, in display order. */
+    readonly views: readonly { readonly id: string; readonly label: string }[];
+  } | null;  readonly issues: readonly ResourceIssue[];
   /** No blocking issue → the pack's declared surface is real. */
   readonly resolved: boolean;
 }
@@ -112,6 +118,12 @@ export interface ResourceRegistryInput {
   readonly platformNavIds?: readonly string[];
   /** Concepts the platform owns and no pack may redefine. */
   readonly platformConcepts?: readonly string[];
+  /**
+   * Views the shell can render. A lens may surface only these; a view id outside
+   * the set is a declaration the console cannot draw, and an empty tab is a
+   * worse answer than a refusal.
+   */
+  readonly renderableViews?: readonly string[];
 }
 
 function emptyReport(packId: string): PackResourceReport {
@@ -188,7 +200,12 @@ export function buildResourceRegistry(input: ResourceRegistryInput): ResourceReg
     if (s.uiLens) {
       reports.set(m.id, {
         ...reports.get(m.id)!,
-        lens: { id: s.uiLens.id, label: s.uiLens.label, nav: s.uiLens.nav ?? [] },
+        lens: {
+          id: s.uiLens.id,
+          label: s.uiLens.label,
+          nav: s.uiLens.nav ?? [],
+          views: s.uiLens.views ?? [],
+        },
       });
     }
 
@@ -339,6 +356,25 @@ export function buildResourceRegistry(input: ResourceRegistryInput): ResourceReg
           code: 'lens-shadows-platform-nav',
           packId: m.id,
           detail: `lens nav id "${navId}" is platform navigation — a specialty lens renders inside the shared shell and may not take a platform slot`,
+          blocking: true,
+        });
+      }
+    }
+  }
+
+  // ---- pass 7: a lens may only surface a view the shell can draw. Without this
+  // a specialty could declare a view no component renders, and the console would
+  // show an empty tab — which reads as a broken product rather than a bad
+  // declaration.
+  const renderable = new Set(input.renderableViews ?? []);
+  if (input.renderableViews) {
+    for (const m of input.manifests) {
+      for (const view of m.specialty.uiLens?.views ?? []) {
+        if (renderable.has(view.id)) continue;
+        add({
+          code: 'unknown-lens-view',
+          packId: m.id,
+          detail: `lens "${m.specialty.uiLens?.id}" surfaces view "${view.id}", which the shell has no component for — a declared view must be renderable`,
           blocking: true,
         });
       }

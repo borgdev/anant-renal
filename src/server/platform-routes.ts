@@ -96,8 +96,8 @@ import type { IdentityRole } from '../identity/types.js';
 import type { DomainPack } from '../control-plane/pack-registry.js';
 // Platform Phase 0/1 — the written pack contract and the domain-blind
 // hardening report. Both are pure functions; the routes only gather state.
-import { validateSpecialtyPack, conformanceMatrix, platformBoundary, SPECIALTY_CONTRACT_VERSION, PLATFORM_NAV_IDS, PLATFORM_CONCEPTS, type PackValidationContext, type SpecialtySections, type PackConformanceReport } from '../control-plane/pack-contract.js';
-import { loadPackManifests, manifestAsSpecialtySections, manifestDrift, type PackManifest } from '../control-plane/pack-manifest.js';
+import { validateSpecialtyPack, conformanceMatrix, platformBoundary, SPECIALTY_CONTRACT_VERSION, PLATFORM_NAV_IDS, PLATFORM_CONCEPTS, PLATFORM_LENS_VIEWS, type PackValidationContext, type SpecialtySections, type PackConformanceReport } from '../control-plane/pack-contract.js';
+import { loadPackManifests, manifestAsDomainPack, manifestAsSpecialtySections, manifestDrift, type PackManifest } from '../control-plane/pack-manifest.js';
 import { buildResourceRegistry, resourceReportFor, resourcesByKind, type ResourceRegistry } from '../control-plane/pack-resources.js';
 import { buildHardeningReport, boundWriteKinds, type PlatformHardeningInput } from '../control-plane/platform-hardening.js';
 
@@ -149,6 +149,7 @@ export function packResolution(): PackResolutionSnapshot {
     manifests,
     platformNavIds: PLATFORM_NAV_IDS,
     platformConcepts: PLATFORM_CONCEPTS,
+    renderableViews: PLATFORM_LENS_VIEWS,
   });
   return {
     registry,
@@ -172,11 +173,19 @@ export function packEvidence(snapshot: PackResolutionSnapshot, pack: DomainPack)
 /**
  * The pack as its manifest describes it.
  *
- * A specialty's declared surface lives in the MANIFEST, while the registry holds
- * the TypeScript descriptor — which carries none of it. Validating the bare
- * descriptor therefore reported every pack as `partial` with
- * "declares 0/5 sections", no matter what its manifest said: the contract was
- * being asked about the wrong object.
+ * A specialty's declared metadata lives in the MANIFEST, while the registry holds
+ * the TypeScript descriptor. This returns the descriptor with the manifest's
+ * metadata laid over it, so the runtime resolves what the pack DECLARES — the
+ * manifest is the source of truth for identity, not a file that merely gets
+ * compared to one.
+ *
+ * It also merges the declared specialty surface, because the descriptor carries
+ * none: without that, the contract was being asked about the wrong object and
+ * reported every pack as "declares 0/5 sections".
+ *
+ * A pack with no manifest is returned unchanged. That is the honest state — its
+ * metadata still comes from code — and `/admin/platform/packs` reports
+ * `manifest.present: false` so the migration is visible rather than assumed.
  */
 export function packUnderContract(
   snapshot: PackResolutionSnapshot,
@@ -184,7 +193,7 @@ export function packUnderContract(
 ): DomainPack & SpecialtySections {
   const manifest = snapshot.manifests.get(pack.id);
   if (!manifest) return pack as DomainPack & SpecialtySections;
-  return { ...pack, ...manifestAsSpecialtySections(manifest) };
+  return { ...pack, ...manifestAsDomainPack(manifest), ...manifestAsSpecialtySections(manifest) };
 }
 
 /** Run the contract against the pack a manifest declares, with its evidence. */
@@ -1023,7 +1032,10 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
     // that no session backs — the console switcher reads this list, so it must be
     // empty until there is a real principal.
     const consoles = role ? consolesForRole(role) : ([] as ConsoleId[]);
-    let pack: { id: string; lens: string; label?: string; terminology?: Readonly<Record<string, string>> } = { id: 'healthcare.renal-enterprise', lens: 'provider' };
+    let pack: {
+      id: string; lens: string; label?: string; terminology?: Readonly<Record<string, string>>;
+      views?: readonly { id: string; label: string }[];
+    } = { id: 'healthcare.renal-enterprise', lens: 'provider' };
     let aggregates: Record<string, number> = {};
     try {
       // Pack Studio activation wins over the operating-model default: activating
@@ -1031,15 +1043,25 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
       const active = await w.activePack();
       if (active && opts.packs?.some((p) => p.id === active.packId)) {
         const resolved = opts.packs.find((p) => p.id === active.packId)!;
+        const snapshot = packResolution();
+        // Phase 3 close-out — the manifest is the SOURCE of the pack's metadata,
+        // not merely a file that gets compared to it. Where a pack ships a
+        // manifest, the runtime resolves what the pack declares.
+        const effective = packUnderContract(snapshot, resolved);
         // Phase 3 — the LENS is the pack's, not the shell's. Whatever the active
         // pack declares here is what the console renders, so a specialty arrives
         // through registration with no code change per specialty.
-        const lensSection = declaredLens(packResolution(), resolved.id);
+        const lensSection = declaredLens(snapshot, resolved.id);
         pack = {
-          id: resolved.id,
-          lens: lensForPack(resolved),
+          id: effective.id,
+          lens: lensForPack(effective),
           ...(lensSection?.label ? { label: lensSection.label } : {}),
           ...(lensSection?.terminology ? { terminology: lensSection.terminology } : {}),
+          // Phase 3 close-out — the VIEWS are the lens's. The shell renders what
+          // the active lens surfaces, so one specialty's pages cannot appear in
+          // another's console. An empty list is a real answer: a lens with no
+          // clinical views renders no specialty strip at all.
+          ...(lensSection?.views ? { views: lensSection.views } : {}),
         };
       } else {
         const org = await w.getPlatformOrganization();
@@ -1439,15 +1461,18 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
       packs: (opts.packs ?? []).map((p) => {
         const resource = resourceReportFor(snapshot.registry, p.id);
         const manifest = snapshot.manifests.get(p.id);
+        // The manifest is the source of the metadata where one exists; a pack
+        // without one is reported as such rather than silently treated as equal.
+        const effective = packUnderContract(snapshot, p);
         return {
           id: p.id,
-          version: p.version,
-          extends: p.extends?.map((e) => e.id) ?? [],
-          appliesTo: p.appliesTo,
-          capabilities: p.capabilities,
-          cmsUniverse: p.cmsUniverse,
-          requiredControls: p.requiredControls,
-          lens: lensForPack(p),
+          version: effective.version,
+          extends: effective.extends?.map((e) => e.id) ?? [],
+          appliesTo: effective.appliesTo,
+          capabilities: effective.capabilities,
+          cmsUniverse: effective.cmsUniverse,
+          requiredControls: effective.requiredControls,
+          lens: lensForPack(effective),
           active: active?.packId === p.id,
           // Phase 3 — what the pack's OWN manifest says it contributes, and
           // whether that declaration resolved.
@@ -1499,9 +1524,10 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
         });
       }
       const activation = await w.activatePack({ packId: id, by: req.body?.by?.trim() || 'platform-admin' });
+      const effective = packUnderContract(packResolution(), pack);
       return {
         ok: true,
-        pack: { id: pack.id, version: pack.version, lens: lensForPack(pack) },
+        pack: { id: effective.id, version: effective.version, lens: lensForPack(effective) },
         activation,
         conformance: { level: conformance.level, missingSections: conformance.missingSections },
       };

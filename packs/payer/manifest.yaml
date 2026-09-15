@@ -116,6 +116,10 @@ specialty:
   ui_lens:
     id: payer
     label: Payer
+    # Deliberately EMPTY of clinical views: a payer lens has no chart-side pages, so
+    # it surfaces none rather than inheriting the dialysis protocol strip. The shell
+    # then renders no specialty tab strip at all for this lens.
+    views: []
     terminology:
       patient: Member
       patient-plural: Members

@@ -101,6 +101,9 @@ export interface PlatformContext {
      *  `status-line`). A specialty arrives through registration by declaring
      *  these; the shell falls back to its own default for any slot it omits. */
     terminology?: Record<string, string>;
+    /** Platform views this lens surfaces, in display order. An empty array is a
+     *  real answer — a lens with no clinical views renders no specialty strip. */
+    views?: Array<{ id: string; label: string }>;
   };
   navigation: Array<{ id: string; label: string; console: ConsoleId; href: string }>;
   capabilities: string[];

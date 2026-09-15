@@ -152,6 +152,43 @@ required_controls: [access-policy]
     expect(pack.appliesTo.facilityKinds).toEqual(['dialysis']);
   });
 
+  it('keeps a DECLARED EMPTY view list apart from an omitted one', () => {
+    // `views: []` claims "this lens surfaces no clinical views"; omitting the key
+    // claims nothing at all and lets the shell use its own default. Collapsing the
+    // first into the second put the renal protocol strip back on a payer console —
+    // found by running it, not by reading it.
+    const declaredEmpty = fixtureRepo(`id: fixture-pack
+version: 1.0.0
+extends: [{ id: healthcare-core, version_range: ^0.2.0 }]
+applies_to: { organization_kinds: [payer] }
+capabilities: [x]
+required_controls: [access-policy]
+specialty:
+  ui_lens:
+    id: payer
+    label: Payer
+    views: []
+`);
+    const omitted = fixtureRepo(`id: fixture-pack
+version: 1.0.0
+extends: [{ id: healthcare-core, version_range: ^0.2.0 }]
+applies_to: { organization_kinds: [payer] }
+capabilities: [x]
+required_controls: [access-policy]
+specialty:
+  ui_lens:
+    id: payer
+    label: Payer
+`);
+    const a = loadPackManifest(declaredEmpty, 'fixture-pack').manifest!;
+    const b = loadPackManifest(omitted, 'fixture-pack').manifest!;
+
+    expect(a.specialty.uiLens?.views).toEqual([]);
+    expect(a.specialty.uiLens && 'views' in a.specialty.uiLens).toBe(true);
+    expect(b.specialty.uiLens?.views).toBeUndefined();
+    expect(b.specialty.uiLens && 'views' in b.specialty.uiLens).toBe(false);
+  });
+
   it('projects a specialty surface into the contract shape', () => {
     const root = fixtureRepo(`id: fixture-pack
 version: 1.0.0

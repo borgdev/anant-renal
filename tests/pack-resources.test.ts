@@ -49,7 +49,7 @@ import {
   resourcesByKind,
   type ResourceIssueCode,
 } from '../src/control-plane/pack-resources.js';
-import { PLATFORM_NAV_IDS, PLATFORM_CONCEPTS, validateSpecialtyPack } from '../src/control-plane/pack-contract.js';
+import { PLATFORM_NAV_IDS, PLATFORM_CONCEPTS, PLATFORM_LENS_VIEWS, validateSpecialtyPack } from '../src/control-plane/pack-contract.js';
 import { manifestAsDomainPack, manifestAsSpecialtySections } from '../src/control-plane/pack-manifest.js';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -72,7 +72,12 @@ function manifest(id: string, specialty: PackManifestSpecialty, extra: Partial<P
 }
 
 function resolve(manifests: readonly PackManifest[]) {
-  return buildResourceRegistry({ manifests, platformNavIds: PLATFORM_NAV_IDS, platformConcepts: PLATFORM_CONCEPTS });
+  return buildResourceRegistry({
+    manifests,
+    platformNavIds: PLATFORM_NAV_IDS,
+    platformConcepts: PLATFORM_CONCEPTS,
+    renderableViews: PLATFORM_LENS_VIEWS,
+  });
 }
 
 function codes(registry: ReturnType<typeof resolve>): ResourceIssueCode[] {
@@ -326,6 +331,50 @@ describe('the specialty lens', () => {
       manifest('a-pack', { uiLens: { id: 'a', label: 'A', nav: ['a-intake', 'a-review'] } }),
     ]);
     expect(registry.issues).toEqual([]);
+  });
+
+  it('refuses a lens that surfaces a view the shell cannot draw', () => {
+    const registry = resolve([
+      manifest('a-pack', {
+        uiLens: { id: 'a', label: 'A', views: [{ id: 'protocols', label: 'Cockpit' }, { id: 'made-up', label: 'Imaginary' }] },
+      }),
+    ]);
+    // An empty tab reads as a broken product, so an undrawable view is refused
+    // rather than rendered as blank.
+    expect(codes(registry)).toEqual(['unknown-lens-view']);
+    expect(registry.issues[0]?.detail).toContain('made-up');
+    expect(registry.issues[0]?.blocking).toBe(true);
+  });
+
+  it('accepts a lens that surfaces only renderable views', () => {
+    const registry = resolve([
+      manifest('a-pack', { uiLens: { id: 'a', label: 'A', views: [{ id: 'protocols', label: 'Cockpit' }] } }),
+    ]);
+    expect(registry.issues).toEqual([]);
+  });
+});
+
+describe('what the installed lenses surface', () => {
+  it('gives each lens exactly the views it declares, and none it does not', () => {
+    const { manifests } = loadPackManifests(REPO_ROOT);
+    const registry = resolve(manifests);
+
+    const renal = resourceReportFor(registry, 'dialysis-provider')!.lens!;
+    // The renal lens surfaces the protocol strip it actually has components for.
+    expect(renal.views.map((v) => v.id)).toEqual(PLATFORM_LENS_VIEWS);
+
+    // The payer lens surfaces NONE of them. This is the defect the field exists
+    // to fix: the shell used to render the hardcoded dialysis protocol strip in
+    // every lens, so a payer console showed Anemia & ESA, CKD-MBD and six more.
+    const payer = resourceReportFor(registry, 'payer')!.lens!;
+    expect(payer.views).toEqual([]);
+
+    // And no OTHER lens may claim renal's views, or the leak simply moves.
+    for (const report of registry.byPack) {
+      if (report.packId === 'dialysis-provider' || !report.lens) continue;
+      const leaked = report.lens.views.filter((v) => v.id === 'anemia' || v.id === 'mbd' || v.id === 'infection');
+      expect(leaked, `${report.packId} surfaces renal views`).toEqual([]);
+    }
   });
 });
 

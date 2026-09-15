@@ -120,20 +120,45 @@ export interface SpecialtyOntologySection {
   readonly conceptCount?: number;
 }
 
+export interface SpecialtyLensView {
+  readonly id: string;
+  readonly label: string;
+}
+
 export interface SpecialtyLensSection {
   readonly id: string;
   readonly label: string;
   /** Nav entries the shell will render for this lens. */
   readonly nav?: readonly string[];
   /**
-   * Lens vocabulary, keyed by well-known shell slots (`patient-view`,
-   * `synthetic-data`, `status-line`, ...). Every key is optional and the shell
-   * falls back to its own default, so a lens declares only what it renames.
-   * This is what makes a specialty render in the generic shell without a code
-   * change per specialty.
+   * Platform views this lens SURFACES, chosen from the renderable vocabulary
+   * below. This is the field that stops one specialty's pages leaking into
+   * another's console: the shell renders the views the active lens declares,
+   * not every view that happens to exist.
    */
+  readonly views?: readonly SpecialtyLensView[];
+  /** Lens vocabulary, keyed by well-known shell slots (`patient-view`,
+   *  `synthetic-data`, `status-line`, ...). Every key is optional and the shell
+   *  falls back to its own default, so a lens declares only what it renames.
+   *  This is what makes a specialty render in the generic shell without a code
+   *  change per specialty. */
   readonly terminology?: Readonly<Record<string, string>>;
 }
+
+/**
+ * Views the shell can actually draw. A lens may only surface one of these — a
+ * view id outside the set would be a declaration the console cannot render, and
+ * the honest failure is to refuse it rather than render an empty tab.
+ *
+ * This is the renal protocol strip plus the two round-level lenses, because
+ * those are what the shell has components for today. A second specialty adds its
+ * own components and then extends this list; the list names what EXISTS, never
+ * what is hoped for.
+ */
+export const PLATFORM_LENS_VIEWS: readonly string[] = Object.freeze([
+  'protocols', 'anemia', 'adequacy', 'fluid', 'vascular-access', 'mbd',
+  'nutrition', 'infection', 'protocol-assurance', 'next-session', 'round-digest',
+]);
 
 export interface SpecialtySections {
   readonly ontology?: SpecialtyOntologySection;

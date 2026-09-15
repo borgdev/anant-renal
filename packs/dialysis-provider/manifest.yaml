@@ -149,10 +149,25 @@ specialty:
   ui_lens:
     id: renal
     label: Renal
-    # Terminology only, deliberately. The shell already renders the navigation;
+    # The views this lens surfaces, in display order. The shell renders what the
+    # ACTIVE lens declares instead of every view that happens to exist, which is
+    # what stops a dialysis protocol strip appearing on a payer console.
+    views:
+      - { id: protocols, label: Cockpit }
+      - { id: anemia, label: Anemia & ESA }
+      - { id: adequacy, label: Adequacy & Kt/V }
+      - { id: fluid, label: Fluid & IDH }
+      - { id: vascular-access, label: Vascular access }
+      - { id: mbd, label: CKD-MBD }
+      - { id: nutrition, label: Nutrition & electrolytes }
+      - { id: infection, label: Infection & vaccination }
+      - { id: protocol-assurance, label: Cross-pack assurance }
+      - { id: next-session, label: Next session }
+      - { id: round-digest, label: Since your last round }
+    # Terminology only for navigation: the shell already renders the navigation;
     # a lens renames what the operator reads, and inventing nav ids here would
-    # be a claim about a UI that does not exist yet. Keys are shell slots, and a
-    # lens declares only the ones it renames.
+    # be a claim about a UI that does not exist yet. Keys are shell slots, and
+    # a lens declares only the ones it renames.
     terminology:
       patient: Patient
       patient-plural: Patients

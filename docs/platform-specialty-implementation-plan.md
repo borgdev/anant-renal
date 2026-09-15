@@ -6,6 +6,13 @@ Establish the shared healthcare platform as the reusable delivery layer, and kee
 
 This plan is intentionally structured so the team can execute in phases, track status, and scale to additional specialties without rewriting the system.
 
+> **Remaining work:** `docs/platform-specialty-remaining-work.md` is the gap
+> analysis of this plan against the code. It carries four structural gaps (G1—G4)
+> and the measured state of every deliverable. Where this document marks a phase
+> complete but the phase's own exit criteria are not met, the analysis says so —
+> Phase 3 is metadata-complete and behaviour-incomplete, because a pack still
+> cannot contribute routes.
+
 ---
 
 ## Core design decision
@@ -227,7 +234,7 @@ durable matrix. Until then every vendor honestly reads `harness-verified` or
 
 ## Phase 3 — Specialty pack contract model
 
-Status: **complete — the contract is enforced and the lens renders from pack data**
+Status: **metadata + lens complete; routes still platform-registered (see G1)**
 
 ### Goal
 
@@ -258,6 +265,13 @@ Define the exact contract a specialty pack must implement so new clinical domain
 - a new specialty can be introduced through pack registration only
 - Renal is no longer a special-case code path in the platform shell
 - pack-level onboarding is self-contained and reusable
+
+**Not yet met.** `src/server/app.ts` registers 12 renal-specialty route modules
+by name, so introducing a specialty still means editing the platform's boot file.
+The metadata side of the contract (identity, ontology, events, workflows,
+measures, lens, terminology, views, release gates) is enforced; the behavioural
+side is not. See G1 and G4 in
+docs/platform-specialty-remaining-work.md.
 
 ### What is built
 
