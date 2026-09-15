@@ -93,6 +93,29 @@ describe('Admin API (M6)', () => {
     await app.close();
   });
 
+  // Discovery is the pack TREE, not a list of names. This test exists because it
+  // was a list of names: `PACK_ROOTS` named six pack directories, so the console
+  // could not see the agents of the other nine packs that ship them (264 specs),
+  // and would load `packs/research-pharma/agents` in a deployment that never
+  // installed the pack. Both halves of that are asserted here — the missing packs
+  // are visible, and the count is the whole tree rather than a sixth of it.
+  it('GET /admin/agents discovers every pack that ships agents', async () => {
+    const app = await makeApp();
+    const res = await app.inject({ method: 'GET', url: '/admin/agents' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { count: number; total: number; agents: Array<{ packId: string }> };
+
+    const packs = new Set(body.agents.map((a) => a.packId));
+    // Four packs that were invisible while discovery was hand-written. renal and
+    // payer alone would not catch the regression, because renal was on the list.
+    for (const id of ['oncology-deep', 'radiology', 'home-health', 'revenue-cycle']) {
+      expect(packs.has(id), `${id} ships agents but discovery could not see them`).toBe(true);
+    }
+    expect(packs.size).toBeGreaterThanOrEqual(15);
+    expect(body.total).toBeGreaterThan(400);
+    await app.close();
+  });
+
   it('GET /admin/agents/:id 404s on unknown id, returns spec on known id', async () => {
     const app = await makeApp();
     const missing = await app.inject({ method: 'GET', url: '/admin/agents/does-not-exist' });

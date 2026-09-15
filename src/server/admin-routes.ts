@@ -39,10 +39,9 @@
 
 import type { FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
-import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parse as parseYaml } from 'yaml';
-import { validateAgentSpec, type AgentSpec } from '../agents/index.js';
+import type { AgentSpec } from '../agents/index.js';
+import { scanSpecTree, validateSpecYaml } from './agent-spec-store.js';
 import { ALL_CMS_MEASURES } from '../healthcare-core/cms-measure-catalog.js';
 import type { CMSMeasureSpec } from '../healthcare-core/cms-source-registry.js';
 import { RESEARCH_SOURCES } from '../research/index.js';
@@ -151,27 +150,30 @@ export function getMeasureEvaluator(): typeof _measureEvaluator {
 /** Drop the cached evaluator so the next read reloads the synced store. */
 export function invalidateMeasureEvaluator(): void { _measureEvaluator = null; }
 
-const PACK_ROOTS: readonly { id: string; dir: string }[] = [
-  { id: 'flagship-agents', dir: 'packs/flagship-agents/agents' },
-  { id: 'dialysis-deep', dir: 'packs/dialysis-deep/agents' },
-  { id: 'primary-care-deep', dir: 'packs/primary-care-deep/agents' },
-  { id: 'urgent-care-deep', dir: 'packs/urgent-care-deep/agents' },
-  { id: 'research-pharma', dir: 'packs/research-pharma/agents' },
-  { id: 'dialysis-provider', dir: 'packs/dialysis-provider/agents' },
-];
-
+/**
+ * Discovery is the pack TREE, not a list of names.
+ *
+ * This used to be a hand-written array of six pack directories. Two things were
+ * wrong with that, and only the first was visible: it *missed* any pack whose
+ * agents were not among the six (so the Agent Studio reported a fraction of the
+ * specs that were on disk), and it *included* packs nobody had installed —
+ * reading `packs/research-pharma/agents` off disk and loading its specs into a
+ * deployment that never installed the pack. Agents act, so a deployment running
+ * an uninstalled pack's agents is worse than a deployment missing a screen.
+ *
+ * `scanSpecTree` in agent-spec-store.ts already discovers the tree correctly
+ * (`packs/<packId>/agents` plus `packs/<packId>/drafts`) and is what the durable
+ * spec registry imports from. Reading through it here means the count the
+ * console shows and the count the registry holds can no longer disagree — which
+ * is exactly how the discrepancy was found in the first place.
+ */
 export function loadAllAgents(): { packId: string; spec: AgentSpec }[] {
   const out: { packId: string; spec: AgentSpec }[] = [];
-  for (const p of PACK_ROOTS) {
-    let files: string[];
-    try { files = readdirSync(p.dir).filter((f) => f.endsWith('.yaml')); }
-    catch { continue; }
-    for (const f of files) {
-      try {
-        const raw = parseYaml(readFileSync(`${p.dir}/${f}`, 'utf8'));
-        out.push({ packId: p.id, spec: validateAgentSpec(raw) });
-      } catch { /* skip malformed */ }
-    }
+  for (const located of scanSpecTree().located) {
+    // Drafts are surfaced by the studio's own authoring layer, not here.
+    if (located.status !== 'published') continue;
+    const parsed = validateSpecYaml(located.yaml);
+    if (parsed.ok && parsed.spec) out.push({ packId: located.packId, spec: parsed.spec });
   }
   return out;
 }

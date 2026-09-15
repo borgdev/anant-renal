@@ -205,6 +205,63 @@ expose real coupling, which is the point of doing it).
 
 ---
 
+## 2a. The sweep: everywhere the platform names a specialty
+
+"Just add a route" understating the work only matters if someone knows what the
+rest of the work is. This is the inventory, taken before G1 phase 2 so the
+migration does not have to be repeated for sites it did not know about.
+
+| Site | What it names | Kind | Correct home |
+| --- | --- | --- | --- |
+| `src/server/app.ts` (11 calls) | renal protocol modules | route registration | **G1** — pack contribution |
+| `src/swarm/assurance-track.ts` `PROTOCOL_PACKS` | 7 renal protocols + probes + MDR kinds | coverage/assurance surface | **G4** — pack contribution |
+| `src/knowledge/pack-subscriptions.ts` | ~12 packs, ~50 subscriptions (source, code filters, workflows, agents, measures, criticality, freshness) | knowledge-plane data | **manifest** — each pack declares what it consumes |
+| `src/healthcare-core/cms-source-registry.ts` | `consumedByPacks: ['dialysis-provider']` ×4 | provenance metadata | manifest, or derived from subscriptions |
+| `src/control-plane/cross-pack-workflows.ts` | dialysis-provider, payer, care-management, oncology-provider | orchestration | **G3** — pack-declared, and invisible to the contract today |
+| `src/fhir/mapping.ts` (~1379) | "F7 renal wire model" | wire format | pack-owned mapping registered as a contribution |
+| `src/server/bootstrap.ts`, `dev.ts` | the installed pack list | composition root | **correct as-is** — this *is* the install list |
+
+Two findings the sweep produced beyond the inventory:
+
+1. **The cross-pack workflows in `cross-pack-workflows.ts` are outside the
+   contract.** `pack-resources.ts` checks for a workflow id declared by two packs
+   (which is what makes it cross-pack), but no manifest declares
+   `x:hospitalization->payer-auth`, `x:denied-auth->reschedule+appeal` or
+   `x:oncology-plan->prior-auth`. The platform therefore enforces an invariant
+   over a set of workflows that is disjoint from the set it actually routes. The
+   check passes because the registry is empty of them, not because they are
+   consistent. G3's fix must move these onto the manifests, which is also what
+   makes the existing check meaningful for them.
+
+2. **A live defect, fixed in this slice: agent discovery was a six-name list.**
+   `admin-routes.ts` held `PACK_ROOTS`, a hand-written array of six pack
+   directories, and `loadAllAgents()` read `packs/<id>/agents` from disk for
+   those six — **fifteen packs ship agents**, so nine packs (264 specs:
+   `oncology-deep` 40, `home-health` 35, `long-term-care` 35, `behavioral-health`
+   30, `revenue-cycle` 30, `ed-throughput` 25, `hospital-at-home` 25, `radiology`
+   20, `mixed-sample-clinic` 24) were invisible to the Agent Studio.
+
+   It also read them *unconditionally*: a deployment that never installed
+   `research-pharma` still loaded its agent specs. Agents act, so this is worse
+   than a missing screen — it is the payer-route defect (absent pack still
+   served, now 404) in the one place where the consequence is an agent running
+   rather than an endpoint answering.
+
+   `loadAllAgents()` now reads through `scanSpecTree()` in
+   `agent-spec-store.ts`, which already discovered the tree correctly and is what
+   the durable spec registry imports from. The console's count and the registry's
+   count can no longer disagree. `tests/admin-routes.test.ts` pins it: ≥15 packs,
+   >400 specs, and specifically four packs that were invisible before.
+
+   Worth noting *how* this was found. The defect was already documented in the
+   header comment of `agent-spec-store.ts` — the registry's author found the
+   disagreement and wrote it down, but the read path was left alone. It surfaced
+   here only because G4's lesson was taken literally: this sweep grepped for pack
+   names across `src/` instead of reading the two files the analysis already
+   knew about.
+
+---
+
 ## 3. Phase-by-phase deliverable audit
 
 ### Phase 2 — EMR certification (blocked externally, one item internal)
