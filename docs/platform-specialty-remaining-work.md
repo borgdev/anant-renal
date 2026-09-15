@@ -1,7 +1,7 @@
 # Platform-first specialty implementation — remaining work
 
 **Analysis date:** 2026-09-15
-**Branch:** `platform` @ `d7abd7d` + this slice
+**Branch:** `platform` @ `e85f1ba`
 **Plan analysed:** `docs/platform-specialty-implementation-plan.md`
 
 This is a gap analysis of the implementation plan against the code. Each finding
@@ -57,6 +57,19 @@ works as a pack, not as a product-specific code branch".
 
 ## 2. The structural gaps, in dependency order
 
+### At a glance
+
+| Gap | In one line | Blocks | Size | Status |
+| --- | --- | --- | --- | --- |
+| **G1** | A pack cannot contribute routes | Phase 3 exit criterion, Phase 4, Phase 5 | M–L (11 modules) | phase 1 done (`payer`) |
+| **G2** | Only one pack can be active at a time | Phase 6 deliverable 1 | M | not started |
+| **G3** | Cross-pack workflows are dead code | Phase 4, Phase 6 | M | not started |
+| **G4** | "Cross-pack" assurance enumerates renal packs in code | Phase 6 | S | not started |
+| **G5** | A pack cannot contribute a screen | Phase 5, Phase 6 | M | not started |
+| **G6** | A specialty applies everywhere it is installed | the "all customers want all specialities" requirement | M | not started |
+
+Dependency order: **G1 → (G4, G5)**; **G2 ↔ G6** (they are the same subsystem seen twice — G2 is the symptom, G6 is the resolved model); **G2 → G3**. G1 is the only gap that must go first.
+
 ### G1 — A pack cannot contribute routes (Phase 3 criterion, Phase 4 exit criterion)
 
 **Evidence.** `app.ts` makes 36 route-registration calls, **11 of them renal
@@ -107,6 +120,91 @@ tomorrow (G4), and its screens after that (G5).
 `nutrition`, `infection`, `cross-pack-assurance`. One at a time, each proving a
 new shape the interface must support rather than a repetition of the last.
 
+#### G1 implementation
+
+The interface, as shipped (`src/control-plane/pack-contributions.ts`):
+
+```ts
+type PackRouteScope = 'exec' | 'ops';
+const SCOPE_NAMESPACES = { exec: '/admin/swarm/', ops: '/admin/platform/' };
+
+interface PackRouteContribution {
+  readonly id: string;
+  readonly scope: PackRouteScope;
+  readonly prefixes: readonly string[];   // declared, then asserted against the namespace
+  register(app: FastifyInstance, deps: PackRouteDeps): Promise<void> | void;
+}
+interface PackRouteDeps {
+  readonly workspace: () => SwarmWorkspaceStore;          // lazy: the runtime is rebuilt
+  readonly coordinator: () => PersistentOutcomeCoordinator;
+}
+type PackWithContributions = DomainPack & { readonly routes?: readonly PackRouteContribution[] };
+```
+
+Blocking validation issues: `duplicate-contribution-id`, `duplicate-prefix`,
+`missing-prefix`, `invalid-prefix`, `prefix-outside-scope-namespace`.
+
+**The interface as it stands is NOT sufficient for the burn-down, and this is the
+first thing phase 2 must settle.** Ten of the eleven modules are registered with
+`{ patients: renalPatients }` — see `app.ts:513–590` — and `renalPatients` is:
+
+```ts
+const renalPatients = deps.renalPatients ?? (() => renalPatientInputs(RealmRegistry.list()));   // app.ts:418
+```
+
+So a pack needs the patient population, and `PackRouteDeps` does not carry it.
+The answer that matches the reasoning the interface already uses for `workspace`:
+
+- **The platform owns who exists and what happened; the pack owns what that
+  means clinically.** A pack must NOT call `RealmRegistry` — it is the platform's
+  singleton, and a pack holding it across a runtime rebuild holds a store the
+  platform has already replaced. That is the stated reason deps are injected.
+- Therefore `PackRouteDeps` gains `patients: () => PatientProjection[]` and
+  `events: () => EventProjection[]`, supplied by the platform.
+- Concrete symptom this exposes: the projection already exists and lives in
+  `src/swarm/renal-cohort.ts` as `renalPatientInputs`. **The platform's patient
+  projection is a renal module.** Relocating/renaming it is part of phase 2, not
+  a tidy-up — it is the same defect class as G4.
+
+Burn-down map (measured — module, file, prefix, extra deps):
+
+| Module | File | Prefix | Extra deps |
+| --- | --- | --- | --- |
+| anemia | `anemia-routes.ts` | `/admin/swarm/anemia` | `events` (defaults to the realm ledger) |
+| renal | `renal-routes.ts` | `/admin/swarm/renal` | — |
+| protocol | `protocol-routes.ts` | `/admin/swarm/protocols` | — |
+| adequacy | `adequacy-routes.ts` | `/admin/swarm/adequacy` | — |
+| fluid | `fluid-routes.ts` | `/admin/swarm/fluid` | — |
+| round | `round-routes.ts` | `/admin/swarm/next-session`, `/admin/swarm/rounds` | — |
+| access | `access-routes.ts` | `/admin/swarm/access` | — |
+| mbd | `mbd-routes.ts` | `/admin/swarm/mbd` | `events` |
+| nutrition | `nutrition-routes.ts` | `/admin/swarm/nutrition` | `events` |
+| infection | `infection-routes.ts` | `/admin/swarm/infection` | `events` |
+| cross-pack-assurance | `assurance-track-routes.ts` | **`/admin/assurance/…` — in NEITHER scope namespace** | — |
+
+The last row is a blocker, not a detail. Migrating it forces the namespace
+decision in §4 defect 6; do not migrate it with the others.
+
+Per-module steps (following the `payer` proof):
+
+1. List the module's prefixes: `grep -oE "'/admin/(swarm|platform)/[a-z-]+" src/server/<m>-routes.ts`.
+2. Create `packs/<id>/routes.ts` exporting `readonly PackRouteContribution[]`, and
+   move the route module under the pack (payer's shape) rather than leaving it in
+   `src/server/`.
+3. Declare `routes: xRoutes` in `packs/<id>/index.ts`.
+4. Delete the `await registerXRoutes(app, …)` call **and its import** from
+   `app.ts`. The import is the easy half to leave behind; `noUnusedLocals` catches
+   it, the test suite does not.
+5. Pass the same deps through `PackRouteDeps` — add a dependency to the interface
+   *before* adding it to a pack.
+6. Add a route test pinning **absent pack → 404, not 403**, the property phase 1
+   established (the route does not exist; it is not a permission an operator
+   could be granted).
+
+Tests: `tests/pack-contributions.test.ts` already covers the validator. The
+burn-down needs one `tests/<pack>-routes.test.ts` per migrated pack asserting
+(a) the routes answer when the pack is installed and (b) 404 when it is not.
+
 ### G2 — Only one pack can be active at a time (Phase 6, and a Phase 5 correctness issue)
 
 **Evidence.** `SwarmWorkspaceStore.activatePack` is single-document
@@ -132,6 +230,29 @@ without pack-contributed routes has nothing to compose.
 open — one *lens* at a time is survivable for two specialties if they are not
 sold together. It stops being survivable at three, which is Phase 6.
 
+#### G2 implementation
+
+Today, exactly one line encodes the limit (`src/swarm/workspace.ts:2416`):
+
+```ts
+async activePack(): Promise<PackActivation | undefined> {
+  return (await this.list<PackActivation>('pack-activation'))[0];
+}
+```
+
+`activatePack` overwrites that one document, so activating oncology deactivates
+renal. **G2 is not fixed by making the list plural — see G6.** Making activation
+a list without first separating *applied* from *shown* produces the worst state:
+several specialties computing simultaneously while the console shows one, which
+is silent clinical computation with no surface. G6 is the design; G2 is the
+mechanism, and the order between them is: decide the binding model, then make it
+a list.
+
+Fan-out to check when it happens (each is a place "the active pack" is read):
+`/api/context` (`platform-routes.ts:1056`, `:1072`, `:1489`), the release/config
+gates that resolve a pack, the measure registry, and route registration itself
+(which is G1).
+
 ### G3 — Cross-pack workflows are dead code (Phase 4, Phase 6)
 
 **Evidence.** `src/control-plane/cross-pack-workflows.ts` defines
@@ -152,6 +273,38 @@ cross-pack trigger fires, and have the manifest's `workflows[].cross_pack_with`
 prerequisite — a cross-pack workflow needs both packs loaded, though not
 necessarily both "active" if the router reads the installed set.
 
+#### G3 implementation
+
+Three frozen workflows name four packs:
+
+| Workflow id | Trigger | Actions |
+| --- | --- | --- |
+| `x:hospitalization->payer-auth` | `hospitalization.admitted` from `dialysis-provider` | audit → notify `payer` → open case `care-management` |
+| `x:denied-auth->reschedule+appeal` | `prior-auth.denied` from `payer` | audit → notify `dialysis-provider` → open case `payer` |
+| `x:oncology-plan->prior-auth` | `oncology.plan-approved` from `oncology-provider` | audit → notify `payer` |
+
+Steps:
+
+1. **Move the declarations onto the manifests first.** `pack-resources.ts` already
+   checks "a workflow id declared by two packs" as the cross-pack invariant, but
+   no manifest declares any of these three ids — so the check passes because its
+   input set is empty. Until they are declared, the invariant is enforcing a rule
+   over a set disjoint from the set the router actually serves.
+2. Construct `CrossPackRouter(seedFromManifests)` at registration, not from
+   `seedCrossPackWorkflows` — the installed set is the seed.
+3. Subscribe the router to the realm/broker event path so a declared trigger
+   fires. The canonical event already exists (`effectToCanonicalEvent`); the
+   router is a consumer of the same stream the outbox publishes to.
+4. Make the actions real: `open-case` must open a durable episode through
+   `OutcomeEpisodeCoordinator`; `notify-pack` must enqueue the target pack's
+   workflow, not just record intent.
+5. Pin it with a test that fires a hospitalization and asserts the payer episode
+   exists — the current test only asserts the router can be constructed.
+
+Note the third row names `oncology-provider`, a pack that **ships no manifest**.
+A cross-pack workflow pointing at an undeclared pack is exactly what step 1 makes
+visible.
+
 ### G4 — "Cross-pack" assurance enumerates renal packs in code (same root as G1)
 
 **Evidence.** `src/swarm/assurance-track.ts` holds a **hand-written list of the
@@ -169,6 +322,36 @@ only route registration.
 
 **Size.** Small once the contribution interface exists: the probe becomes part of
 the pack contribution, and the list becomes a loop over installed packs.
+
+#### G4 implementation
+
+`PROTOCOL_PACKS` is seven frozen literals, each carrying a surprising amount of
+the pack's identity:
+
+```ts
+{ protocol: 'anemia', slice: 'P1', modelId: ESA_MODEL_ID, redTeamIds: ESA_RED_TEAM_IDS,
+  coverageDefaults: ESA_COVERAGE_DEFAULTS, artifactProbe: esaArtifactStatus,
+  routes: '/admin/swarm/anemia', mdrKind: 'esa-mdr-file' }
+```
+
+Steps:
+
+1. Add a pack-side assurance contribution (`PackAssuranceContribution`) carrying
+   exactly those fields, and declare it from the pack.
+2. Replace `PROTOCOL_PACKS` with a loop over the installed set. Keep `packFor()`
+   as the lookup, reading the collected contributions.
+3. **Preserve `normaliseArtifactStatus()`.** The artifact shapes are NOT uniform —
+   fluid exposes flags but no `band`, adequacy exposes neither band nor note,
+   anemia is a regression artifact (MAE vs baseline), and
+   infection/mbd/nutrition/access declare `band` + `note`. The normaliser derives
+   a band from the pack's own acceptance flags and never invents one. Moving
+   probes into packs must not tempt anyone into forcing one shape.
+4. Pin the honest empty state: with no pack declaring an assurance contribution,
+   the track reports that, rather than rendering an empty table that reads as
+   "nothing is wrong".
+5. Test with a **second** specialty's contribution registered (a synthetic one is
+   fine) — the whole point of G4 is that the track sees a pack it was not written
+   against. Asserting the seven renal packs still appear proves nothing.
 
 ### G5 — A specialty cannot add a *view* without an exec-app change (same root as G1, one layer up)
 
@@ -202,6 +385,117 @@ order to draw it.
 **Size.** Medium. Parser + contract change is small; the work is enumerating the
 existing renal views onto generic kinds honestly (some will not fit and will
 expose real coupling, which is the point of doing it).
+
+#### G5 implementation
+
+The two closed vocabularies today:
+
+- `PLATFORM_LENS_VIEWS` (11 ids) in `pack-contract.ts` — what a lens may declare.
+- `switch (activeNav)` in `exec-app/src/app.tsx:401` — ~22 hardcoded component
+  cases. A view id only means something because a `case` exists for it.
+
+Target shape: a view is `{ id, label, kind, source }`, and the shell holds a
+**renderer registry keyed by `kind`** instead of a switch keyed by id.
+
+Candidate kinds, and the honest mapping of the existing 11 renal views:
+
+| Renal view | Nearest kind | Fits? |
+| --- | --- | --- |
+| anemia, adequacy, fluid, vascular-access, mbd, nutrition, infection | `ranked-actions` | **yes — 7 views, one kind.** This is the strongest evidence the vocabulary is real: the ranked-actions panel already renders `Lead[]` from any endpoint. |
+| protocols (Cockpit) | `board` | yes, as a hub of per-pack sections |
+| protocol-assurance | `report` | **strains** — it is a multi-tab composition (rules, gate, fairness, burden, modes). Either a new `report` kind or an honest composite. |
+| next-session | `detail` + `timeline` | yes, as a composition |
+| round-digest | `timeline` + `diff table` | yes |
+
+Seven of eleven collapsing onto one kind is the finding. The two that strain
+(`protocol-assurance`, and the cockpit hub) are where the real decision is: a new
+kind, or a composite of existing ones.
+
+Steps:
+
+1. Add the renderer registry alongside the existing switch, and make the switch
+   the *fallback* — nothing breaks while views migrate.
+2. Replace `unknown-lens-view` with `unknown-view-kind` in the contract, and keep
+   the old check while any view still declares an id.
+3. Migrate the 11 renal declarations onto kinds, in the order that fails fastest
+   (assurance first — it is the one expected to strain).
+4. Delete the migrated `case` arms and the corresponding `NavigationId` entries.
+
+**The discipline:** a kind is justified when a **second** specialty needs it.
+Kinds are promoted from real packs, never designed up front — the same rule as
+`undefined` (map gap) vs `null` (deliberate no-action) in the action map, and "a
+declared bound beats a percentile" in cohort calibration.
+
+### G6 — A specialty applies everywhere it is installed (the "all customers want all specialities" requirement)
+
+**Evidence.** There is no notion of a specialty being *applicable* to a scope.
+Protocols evaluate cohort-wide: every installed pack's engine runs over every
+patient, and per-patient gating happens by **data** (window constructability +
+coverage gate), not by enrolment. Nothing protocol-related is stored on a patient
+entity. Operational controls are per-protocol and **fleet-wide**:
+`silent-mode.ts` keeps `Map<ProtocolId, ProtocolModeRecord>`, so you cannot take
+one pack dark for one facility.
+
+Separately, installation is the only switch: `PackActivation` is a single
+`{ packId, by }` document, so "installed" and "in use" are the same fact.
+
+**Why it matters.** This is the gap under the product requirement. "All customers
+want all specialities" cannot be served by a per-customer build; it needs *one
+artifact and N configurations*. And it cannot be served by a display switch
+alone, because a specialty that is installed but not shown **still computes**:
+hide oncology and leave it applied, and oncology NBAs appear on dialysis
+patients in My Work. That is a clinical safety problem, not UI noise.
+
+**Three questions the configuration must answer separately.** Conflating them is
+the trap — if one field answers all three, a display change silently changes
+clinical behaviour:
+
+| Question | Today | Answer it must have |
+| --- | --- | --- |
+| **Applied** | every installed pack, every patient, fleet-wide | does this pack evaluate this population, at this scope? |
+| **Shown** | one active pack (`activePack() = list()[0]`) | which lens/views does this console render? |
+| **Entitled** | absent | is this customer licensed for it? |
+
+**Precedent already in the codebase.** `src/evidence/silent-mode.ts` deliberately
+separates *computing* from *surfacing*: silent suppresses surfacing only, leaving
+silent requires a stated reason, and `assertSilentStillComputes` is the invariant
+probe. **Hidden ≠ not running**, and the config must say which one it means.
+Hence `applied` and `show` are separate fields, not one.
+
+**Fix shape.** A durable `specialty-binding` **list** kind:
+
+```yaml
+specialty-binding:
+  - scope: facility:rb-franklin
+    pack: dialysis-provider
+    applied: true      # evaluate this population
+    show: true         # render this lens
+    entitled: true     # licensed
+  - scope: facility:rb-nashville
+    pack: oncology-provider
+    applied: true
+    show: true
+```
+
+Scope resolution is already available: the actor carries `scopeIds` with a
+`scope:*` wildcard (`ActorContext`), which is what `canReadPhi`/scope checks
+already read. `pack-activation` survives as the fallback when no binding matches,
+so migration does not break the current console.
+
+**Dependency and interaction.** G6 is the resolved design for **G2** — G2 is the
+symptom (one active pack), G6 is the model (scoped bindings with three separate
+questions). Making activation a list *before* deciding G6 produces the worst
+state. G6 also makes **G1 mandatory rather than merely valuable**: install-all
+means every installed pack must register its own routes, or `app.ts` becomes the
+list of specialties the configuration is supposed to own.
+
+**Open decision to settle before implementing.** When a pack is installed but not
+`applied` at a scope, what does its endpoint return? The rule established in G1
+phase 1 is *absent pack → 404, not 403* (the route does not exist). Once every
+pack is installed the route exists, so "not applied here" needs its own honest
+signal. The leaning is: the endpoint exists and returns a scope-limited answer
+("no patients in scope"), because the pack *is* installed — and `show` handles
+the console.
 
 ---
 
@@ -259,6 +553,38 @@ Two findings the sweep produced beyond the inventory:
    here only because G4's lesson was taken literally: this sweep grepped for pack
    names across `src/` instead of reading the two files the analysis already
    knew about.
+
+---
+
+## 2b. The plugin boundary — options considered
+
+These are not alternatives to each other in one important respect: **A, B and D
+answer "how does the code arrive?"; the capability vocabulary (G5) answers "what
+can it say once it is here?"** Choosing a loader without the vocabulary produces
+a plugin that loads and cannot render.
+
+| Option | The boundary | Cost | Buys | Costs |
+| --- | --- | --- | --- | --- |
+| **A. In-tree contribution interfaces** (current) | a pack folder + an interface; one import line in the composition root | already paid | typechecked, one deploy, simplest | adding a specialty still edits a platform file |
+| **B. Manifest-driven loader** | scan `packs/*/manifest.yaml` → dynamic-import the declared entry → validate → register; delete the 16-entry import list | S–M | the platform stops naming specialties; a specialty is a folder | needs a failure-isolation rule (one bad pack must not stop boot), and B is only useful *with* G5 |
+| **C. Capability vocabulary** (= G5) | a view/compute `kind` + data source | M | a specialty composes generic screens and generic compute | the real product work; a `kind` is justified only when a second specialty needs it |
+| **D. Isolated plugins** | out-of-process (sidecar HTTP) or wasm module | L | sandboxing, independent release cadence, third-party-safe | needs a wire contract for evidence/effects/approvals |
+
+**Decisions taken:**
+
+1. **D is deferred, not rejected.** It is the right boundary for third-party
+   packs and premature for first-party specialties we control. It is a real path,
+   not a hypothetical one — the repo already builds wasm (`native/liquid-wasm`),
+   and the wire contract it would need is the shape the FHIR proposal ladder
+   already has.
+2. **B is one deliverable with G5**, never before it.
+3. **A is not replaced by B.** A is what a pack *is*; B is how it is *found*.
+   B's loader registers A's contributions. Nothing about A changes.
+4. **The 16-entry static import list is correct as an install list but wrong as
+   the specialty list.** `bootstrap.ts`/`dev.ts` naming the installed packs is
+   the composition root doing its job. What is wrong is that this is *also* the
+   only place a specialty can come from, with no configuration above it — which
+   is G6.
 
 ---
 
@@ -380,6 +706,39 @@ fixed or tracked.
    (`packs/revenue-cycle`, fixed in the previous slice) — recorded here because
    it is evidence for the class of defect, not a one-off: nothing read these
    files.
+6. **The exec console's *Assurance track* page is 403 for the two clinical exec
+   roles. VERIFIED by measurement, not by reading.** `assurance-track-routes.ts`
+   registers **11 routes under `/admin/assurance/…`**, which is in *neither*
+   scope namespace (`/admin/swarm/` = exec, `/admin/platform/` = ops). `api-auth.ts`
+   falls through to its default bucket at line 175 (`!roleAllowsConsole(role,
+   'ops')` → 403). Measured against a live app:
+
+   ```
+   /admin/assurance/overview   admin=200  md=403  safety=403
+   /admin/assurance/gate       admin=200  md=403  safety=403
+   /admin/assurance/modes      admin=200  md=403  safety=403
+   /admin/swarm/cells  (control)          md=200
+   ```
+
+   So `md` and `safety` — the exec-only clinical roles, who cannot enter the ops
+   console at all — are refused every call behind a page the exec console
+   renders. The page is a view in the exec protocol strip (`protocol-assurance`),
+   and all 13 of its calls in `exec-app/src/lib/assurance.ts` target
+   `/admin/assurance/*`.
+
+   This is the *same* defect as the payer-route finding (a specialty's endpoints
+   reachable outside the authority that should own them) except in the opposite
+   direction: not a specialization served too widely, but a specialization's
+   authority never classified. It is also **why G1 phase 2 must not migrate this
+   module with the others** — declaring a `scope` forces the namespace decision,
+   and the namespace is wrong today.
+
+   Not yet fixed. Blast radius is small and mechanical: **4 files, 49
+   references** — `assurance-track-routes.ts` (11 routes),
+   `exec-app/src/lib/assurance.ts` (13 calls), `tests/assurance-track.test.ts`,
+   plus a rebuilt exec-app dist. The fix is to move the routes to
+   `/admin/swarm/assurance/*` (exec-scoped), which matches the namespace rule
+   rather than adding an exception to it — the page *is* an exec surface.
 
 ---
 
@@ -388,33 +747,45 @@ fixed or tracked.
 | # | Item | Why now | Size |
 | --- | --- | --- | --- |
 | 1 | ~~**G1 phase 1** — define the route contribution, migrate one pack~~ **DONE** (`payer`) | Unblocked Phase 3's exit criterion and Phase 4's | S–M |
-| 2 | **Sweep for every name-enumerated specialty** (G4 and its siblings) | "Just add a route" understates it; the contribution surfaces are plural | S |
-| 3 | **G1 phase 2** — migrate the remaining renal protocol packs | Turns Phase 4 from "implemented" into "a pack" | M–L |
-| 4 | **Declare the renal protocol packs' surfaces** (ontology, measures, event contracts) | Makes the conformance matrix honest about 7 of the 12 partial packs | M |
-| 5 | **G2** — multi-pack activation | Required before a three-specialty customer exists; Phase 6 deliverable 1 | M |
-| 6 | **G3** — wire cross-pack workflows | The multi-specialty value proposition, currently dead code | M |
-| 7 | **G5** — a view becomes a `kind` + data source | Removes the last per-specialty shell edit; do it before onboarding a specialty that is not renal or payer | M |
-| 8 | Manifests for the 9 packs that ship none | Cheap; closes a visible gap in the Pack Studio | S |
-| 9 | Phase 6 governance, budgets, rollout | Needs 1–6 settled first | L |
-| 10 | Phase 2 sandbox runs | Blocked externally; start the access requests now | external |
+| 2 | ~~**Sweep for every name-enumerated specialty**~~ **DONE** (§2a; found a live defect and fixed it) | "Just add a route" understates it; the contribution surfaces are plural | S |
+| 3 | **G6** — the specialty binding model (`applied` / `show` / `entitled`, resolved by scope) | This is the product requirement ("all customers want all specialities", one artifact and N configs). It reframes G2, so it must be decided before activation becomes a list | M |
+| 4 | **G1 phase 2** — migrate the remaining specialty route modules | Now **mandatory**, not merely valuable: G6's install-all makes hand-written registration the thing the config is supposed to own. First settle `PackRouteDeps.patients`, relocate `renalPatientInputs` out of `renal-cohort.ts`, and fix the assurance namespace (§4.6) | M–L |
+| 5 | **G4** — assurance loops over installed packs | Follows G1 directly; makes the *Cross-pack assurance* claim true | S |
+| 6 | **G2** — activation becomes the list G6 requires | Subsumed by 3+4; the mechanism, not the design | S–M |
+| 7 | **G5 + B** — view kinds and the manifest loader (one deliverable) | Removes the last per-specialty shell edit and the last place the platform names specialties | M |
+| 8 | **G3** — cross-pack workflows onto the manifests, then wired | The multi-specialty value proposition, currently dead code | M |
+| 9 | **Declare the renal protocol packs' surfaces** (ontology, measures, event contracts) | Makes the conformance matrix honest about 7 of the 12 partial packs; this is the real content of Phase 4 | M |
+| 10 | Manifests for the 9 packs that ship none | Cheap; closes a visible gap in the Pack Studio. Note one of them, `oncology-provider`, is already referenced by a cross-pack workflow (G3) | S |
+| 11 | Phase 6 governance, budgets, rollout | Needs 1–10 settled first | L |
+| 12 | Phase 2 sandbox runs | Blocked externally; start the access requests now | external |
 
-**Do not start Phase 6 before G1 and G2.** Multi-specialty governance of a
-runtime that can only host one specialty at a time, and only with hand-written
-route registration, would codify the current shape into policy.
+**Do not start Phase 6 before G1 and G6.** Multi-specialty governance of a
+runtime that can host one specialty at a time, applies every installed pack
+fleet-wide, and registers routes by hand would codify the current shape into
+policy.
 
 ---
 
 ## 6. What this analysis is not claiming
 
 - It does **not** claim Phase 4's functionality is missing. The seven renal
-  protocol packs work, are tested (1,703 tests pass), and are wired to real
+  protocol packs work, are tested (1,720 tests pass), and are wired to real
   ledger data. What is missing is that they are platform-layer code rather than a
   pack.
 - It does **not** claim the platform is un-extensible. A specialty's *metadata,
   lens, terminology, views, ontology, events, workflows, measures and release
-  gates* are contract-enforced today. Its *routes* are not (G1), and a view it
-  declares must still be one the shell already knows how to draw (G5). Those are
-  two layers of the same gap, not two unrelated ones.
+  gates* are contract-enforced today. What is not: its *routes* (G1), the
+  *screens* it may declare (G5), the *assurance* it must appear in (G4), the
+  *scope* it applies to (G6), and the *orchestrations* that cross between
+  specialties (G3). These are one gap in five places — a specialty is fully
+  describable and only partly ownable.
+- It does **not** claim the evaluation side is the hard part. Each specialty's
+  computation already varies freely: features, thresholds, model artifact,
+  guardrails, cells, action map and governance are all pack-owned today, and the
+  protocol-pack template (engine → governance → artifact → what-if → twin →
+  validation → routes → page) already exists. The unsolved variability is on the
+  **surface** and **install** boundaries, not the clinical one.
 - It does **not** treat a green test suite as evidence of architectural
   progress. The suite is green at every step of this analysis; that is exactly
-  why these gaps are found by reading the registration and the wiring.
+  why these gaps are found by reading the registration and the wiring — including
+  the 403 in §4.6, which every test passes through.
