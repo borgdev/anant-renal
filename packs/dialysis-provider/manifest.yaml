@@ -151,10 +151,14 @@ specialty:
     label: Renal
     # Terminology only, deliberately. The shell already renders the navigation;
     # a lens renames what the operator reads, and inventing nav ids here would
-    # be a claim about a UI that does not exist yet.
+    # be a claim about a UI that does not exist yet. Keys are shell slots, and a
+    # lens declares only the ones it renames.
     terminology:
       patient: Patient
       patient-plural: Patients
+      patient-view: Patient intelligence
       episode: Treatment cycle
       session: Dialysis session
       program: Quality program
+      synthetic-data: Synthetic patient data
+      status-line: 12 cells · 14 policies · 8 verified sources

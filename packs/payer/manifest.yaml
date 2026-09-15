@@ -119,6 +119,9 @@ specialty:
     terminology:
       patient: Member
       patient-plural: Members
+      patient-view: Member intelligence
       episode: Care episode
       session: Review
       program: Benefit plan
+      synthetic-data: Synthetic member data
+      status-line: 6 payer cells · 4 policies · 8 verified sources

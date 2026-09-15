@@ -227,7 +227,7 @@ durable matrix. Until then every vendor honestly reads `harness-verified` or
 
 ## Phase 3 — Specialty pack contract model
 
-Status: **contract enforced — manifest is the authoring surface, resolution is checked**
+Status: **complete — the contract is enforced and the lens renders from pack data**
 
 ### Goal
 
@@ -249,9 +249,9 @@ Define the exact contract a specialty pack must implement so new clinical domain
 - [x] Pack manifest schema is complete
 - [x] Pack dependency model is defined
 - [x] Specialty ontology can be loaded without platform changes
-- [ ] Specialty UI lens can render in generic shell
+- [x] Specialty UI lens can render in generic shell
 - [x] Specialty workflows can register events, measures, and policies
-- [ ] Shared release validation recognizes pack-level rules and gates
+- [x] Shared release validation recognizes pack-level rules and gates
 
 ### Exit criteria
 
@@ -285,6 +285,38 @@ could name an ontology it did not ship and still report as conformant.
   resolved), the conformance matrix carries resource totals, and the flagship
   Pack registry in Configuration studio renders each pack's declared surface,
   its resolution, and any drift.
+
+### The lens renders from pack data (deliverable 4)
+
+A lens is what the ACTIVE PACK declares, served on `/api/context` as
+`pack.label` plus `pack.terminology` keyed by shell slot (`patient-view`,
+`synthetic-data`, `status-line`). The shell resolves **declared → built-in map →
+workspace default**, so a specialty arrives through registration and a lens that
+declares nothing changes nothing.
+
+Verified live by activating each pack in turn and reading the rendered console:
+
+| Active pack | Brand subtitle | Nav item | Status line | Synthetic tag |
+| --- | --- | --- | --- | --- |
+| `payer` | **PAYER** | Member intelligence | 6 payer cells · 4 policies · 8 verified sources | Synthetic member data |
+| `dialysis-provider` | **RENAL** | Patient intelligence | 12 cells · 14 policies · 8 verified sources | Synthetic patient data |
+
+The brand subtitle is the proof, not the decoration: no such field existed
+before, and the exec shell's own fallback map has no concept of it — it can only
+have come from the pack's declaration. Zero renal terminology remains on a payer
+lens.
+
+### Pack contracts gate a release (deliverable 6)
+
+`validateRelease` and `promoteCanary` each gained a **Pack contracts** check,
+feeding from a `setPackConformanceProvider` seam wired at platform registration.
+It blocks on a manifest that does not resolve, a declared surface the resource
+registry refused, or a manifest that disagrees with the descriptor.
+
+The asymmetry is deliberate and stated in the code: **drift blocks a release
+while only warning on a pack.** Drift means a reader may be told one thing while
+the runtime does another — survivable for a pack already running, but not
+something to activate a new configuration on top of.
 
 ### What this found — three defects, all real
 

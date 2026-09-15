@@ -73,5 +73,6 @@ specialty:
     terminology:
       patient: Patient
       patient-plural: Patients
+      patient-view: Patient intelligence
       episode: Navigation episode
       program: Stage program

@@ -125,6 +125,14 @@ export interface SpecialtyLensSection {
   readonly label: string;
   /** Nav entries the shell will render for this lens. */
   readonly nav?: readonly string[];
+  /**
+   * Lens vocabulary, keyed by well-known shell slots (`patient-view`,
+   * `synthetic-data`, `status-line`, ...). Every key is optional and the shell
+   * falls back to its own default, so a lens declares only what it renames.
+   * This is what makes a specialty render in the generic shell without a code
+   * change per specialty.
+   */
+  readonly terminology?: Readonly<Record<string, string>>;
 }
 
 export interface SpecialtySections {

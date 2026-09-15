@@ -501,6 +501,7 @@ export function manifestAsSpecialtySections(manifest: PackManifest): SpecialtySe
       id: s.uiLens.id,
       label: s.uiLens.label,
       ...(s.uiLens.nav ? { nav: s.uiLens.nav } : {}),
+      ...(s.uiLens.terminology ? { terminology: s.uiLens.terminology } : {}),
     };
   }
   return out as SpecialtySections;

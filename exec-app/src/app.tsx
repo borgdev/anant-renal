@@ -183,8 +183,12 @@ const ROLE_LABELS: Record<string, string> = {
   coder: "Medical Coder", auditor: "Compliance Auditor", "facilities-tech": "Facilities Technician", safety: "Safety Officer",
 };
 
-/** Lens-aware terminology — the active solution-pack lens from /api/context.
- *  Payer users never see renal concepts (spec §6.4 acceptance). */
+/** Lens-aware terminology.
+ *
+ * The FALLBACK map, not the source of truth. A specialty declares its own
+ * vocabulary in its pack manifest and the server serves it on `/api/context`;
+ * this map only covers a lens whose pack declares nothing (or no pack at all),
+ * so the console keeps working instead of rendering blank labels. */
 const LENS_TEXT = {
   // Unified brand (matches the landing page / operator console) — brand is lens-independent
   // and carries no subtitle, so the lockup reads simply "AnantHealth" in every lens.
@@ -218,6 +222,11 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
   const [workflowDetail, setWorkflowDetail] = useState<WorkflowDetail | null>(null);
   const [canSwitchToOps, setCanSwitchToOps] = useState(false);
   const [lens, setLens] = useState<"provider" | "payer" | "hybrid">("provider");
+  // Phase 3 — the lens the ACTIVE PACK declares. Declared-first, fallback-second:
+  // a specialty arrives through pack registration, and the shell renders it
+  // without a code change per specialty.
+  const [lensLabel, setLensLabel] = useState<string | undefined>(undefined);
+  const [lensTerminology, setLensTerminology] = useState<Record<string, string> | undefined>(undefined);
   // U #7 — one session-expiry banner for the whole console. Any 401 from any
   // fetch wrapper (harness/anemia/work/catalog) signals this; the page keeps its
   // own empty/loading/error states, but the sign-in gate is always the same.
@@ -234,6 +243,8 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
       if (!active) return;
       setCanSwitchToOps((ctx.consoles ?? []).includes("ops"));
       if (ctx.pack?.lens === "payer" || ctx.pack?.lens === "hybrid") setLens(ctx.pack.lens);
+      setLensLabel(ctx.pack?.label);
+      setLensTerminology(ctx.pack?.terminology);
     }).catch(() => { /* console/lens unavailable */ });
     return () => { active = false; };
   }, []);
@@ -378,12 +389,21 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
     }
   })();
 
+  /* Phase 3 — a shell slot is whatever the ACTIVE PACK declares, then the
+   * built-in map for that lens, then the workspace default. A specialty that
+   * declares nothing changes nothing. */
+  const slot = (name: string, fallback: string): string => lensTerminology?.[name] ?? fallback;
+  const patientView = slot("patient-view", LENS_TEXT.patientNav[lens] ?? "Patient intelligence");
+  const statusLine = slot("status-line", LENS_TEXT.statusLine[lens] ?? "12 cells · 14 policies · 8 verified sources");
+  const syntheticTag = slot("synthetic-data", LENS_TEXT.syntheticTag[lens] ?? "Synthetic patient data");
+  const brandSub = LENS_TEXT.brandSub[lens] || lensLabel || "";
+
   return (
     <div className={`product-shell ${collapsed ? "is-collapsed" : ""}`}>
       <aside className={`sidebar ${collapsed ? "is-collapsed" : ""} ${sidebarOpen ? "is-open" : ""}`} aria-label="Primary navigation">
         <div className="brand-lockup">
           <span className="brand-mark"><Activity size={21} aria-hidden="true" /></span>
-          <div><strong>{LENS_TEXT.brand[lens] ?? "AnantHealth"}</strong>{LENS_TEXT.brandSub[lens] ? <small>{LENS_TEXT.brandSub[lens]}</small> : null}</div>
+          <div><strong>{LENS_TEXT.brand[lens] ?? "AnantHealth"}</strong>{brandSub ? <small>{brandSub}</small> : null}</div>
           <button className="icon-button sidebar-collapse" onClick={toggleCollapse} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} type="button">{collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}</button>
           <button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" type="button"><X size={18} /></button>
         </div>
@@ -397,7 +417,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
                 return (
                   <button className={`nav-item ${activeNav === item.id ? "is-active" : ""}`} key={item.id} onClick={() => selectNav(item.id)} type="button">
                     <Icon size={17} aria-hidden="true" />
-                    <span>{item.id === "patient" ? (LENS_TEXT.patientNav[lens] ?? item.label) : item.label}</span>
+                    <span>{item.id === "patient" ? patientView : item.label}</span>
                     {item.badge ? <small>{item.badge}</small> : null}
                   </button>
                 );
@@ -408,7 +428,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
 
         <div className="sidebar-status">
           <div className="status-title"><span className="healthy-dot" /><strong>Harness healthy</strong><span>99.97%</span></div>
-          <p>{LENS_TEXT.statusLine[lens] ?? "12 cells · 14 policies · 8 verified sources"}</p>
+          <p>{statusLine}</p>
           <div className="status-footer"><span>Postgres outbox</span><span>v0.1.0</span></div>
         </div>
       </aside>
@@ -420,7 +440,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
             <div className="workspace-context"><span>{activeNav === "my-work" || activeNav === "ecosystem" || activeNav === "executive" ? demoContext.organization : demoContext.region}</span><strong>{activeLabel}</strong></div>
           </div>
           <div className="topbar-right">
-            <Tag tone="violet"><FlaskConical size={12} /> {LENS_TEXT.syntheticTag[lens] ?? "Synthetic patient data"}</Tag>
+            <Tag tone="violet"><FlaskConical size={12} /> {syntheticTag}</Tag>
             <Tag tone="mint"><DatabaseZap size={12} /> Public sources verified</Tag>
             {canSwitchToOps ? (
               <a className="button button-ghost console-switch" href="/admin/ui/" title="Open the AnantHealth operator console (server-authorized)"><MonitorUp size={13} /> Operator console</a>

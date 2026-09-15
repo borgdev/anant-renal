@@ -494,7 +494,19 @@ describe('Pack Studio (/admin/platform/packs — real catalog + durable lens swi
     expect(act.json().pack.lens).toBe('payer');
 
     const ctx = await app.inject({ method: 'GET', url: '/api/context' });
-    expect(ctx.json().pack).toEqual({ id: 'payer', lens: 'payer' });
+    const pack = ctx.json().pack as {
+      id: string; lens: string; label?: string; terminology?: Record<string, string>;
+    };
+    expect(pack.id).toBe('payer');
+    expect(pack.lens).toBe('payer');
+    // Phase 3 — the LENS is the pack's, read from its own manifest, so a
+    // specialty renders in the shared shell without a code change per specialty.
+    // Asserting the content (not just the id) is the point: an id would pass
+    // even if the shell ignored everything the pack declared.
+    expect(pack.label).toBe('Payer');
+    expect(pack.terminology?.patient).toBe('Member');
+    expect(pack.terminology?.['patient-view']).toBe('Member intelligence');
+    expect(pack.terminology?.['synthetic-data']).toBe('Synthetic member data');
 
     const listed = await app.inject({ method: 'GET', url: '/admin/platform/packs', headers: { cookie: cookie(admin) } });
     const payer = listed.json().packs.find((p: { id: string }) => p.id === 'payer');

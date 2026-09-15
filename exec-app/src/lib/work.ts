@@ -91,7 +91,17 @@ export interface PlatformContext {
   user: { username: string; displayName: string; role: string; clearance: string; purposeOfUse: string[]; scopeIds: string[] } | null;
   role: string | null;
   consoles: ConsoleId[];
-  pack: { id: string; lens: string };
+  pack: {
+    id: string;
+    lens: string;
+    /** The lens label the ACTIVE PACK's manifest declares ("Renal", "Payer").
+     *  Absent when no pack declares one — the shell then keeps its own. */
+    label?: string;
+    /** Lens vocabulary keyed by shell slot (`patient-view`, `synthetic-data`,
+     *  `status-line`). A specialty arrives through registration by declaring
+     *  these; the shell falls back to its own default for any slot it omits. */
+    terminology?: Record<string, string>;
+  };
   navigation: Array<{ id: string; label: string; console: ConsoleId; href: string }>;
   capabilities: string[];
   aggregates: Record<string, number>;

@@ -192,6 +192,13 @@ function contractFor(snapshot: PackResolutionSnapshot, pack: DomainPack): PackCo
   return validateSpecialtyPack(packUnderContract(snapshot, pack), packEvidence(snapshot, pack));
 }
 
+/** The lens a pack's OWN manifest declares, or null when it declares none. */
+function declaredLens(snapshot: PackResolutionSnapshot, packId: string) {
+  const manifest = snapshot.manifests.get(packId);
+  if (!manifest) return null;
+  return manifestAsSpecialtySections(manifest).uiLens ?? null;
+}
+
 /**
  * What blocks a release at the PACK level: a manifest that does not resolve, a
  * declared surface the resource registry refused, or a manifest that disagrees
@@ -1016,7 +1023,7 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
     // that no session backs — the console switcher reads this list, so it must be
     // empty until there is a real principal.
     const consoles = role ? consolesForRole(role) : ([] as ConsoleId[]);
-    let pack: { id: string; lens: string } = { id: 'healthcare.renal-enterprise', lens: 'provider' };
+    let pack: { id: string; lens: string; label?: string; terminology?: Readonly<Record<string, string>> } = { id: 'healthcare.renal-enterprise', lens: 'provider' };
     let aggregates: Record<string, number> = {};
     try {
       // Pack Studio activation wins over the operating-model default: activating
@@ -1024,7 +1031,16 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
       const active = await w.activePack();
       if (active && opts.packs?.some((p) => p.id === active.packId)) {
         const resolved = opts.packs.find((p) => p.id === active.packId)!;
-        pack = { id: resolved.id, lens: lensForPack(resolved) };
+        // Phase 3 — the LENS is the pack's, not the shell's. Whatever the active
+        // pack declares here is what the console renders, so a specialty arrives
+        // through registration with no code change per specialty.
+        const lensSection = declaredLens(packResolution(), resolved.id);
+        pack = {
+          id: resolved.id,
+          lens: lensForPack(resolved),
+          ...(lensSection?.label ? { label: lensSection.label } : {}),
+          ...(lensSection?.terminology ? { terminology: lensSection.terminology } : {}),
+        };
       } else {
         const org = await w.getPlatformOrganization();
         if (org) pack = { id: `healthcare.${org.operatingModel === 'payer' ? 'payer' : org.operatingModel === 'hybrid' ? 'hybrid' : 'provider'}`, lens: org.operatingModel };
