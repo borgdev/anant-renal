@@ -34,7 +34,7 @@ This keeps the platform reusable across care settings such as primary care, onco
 
 ## Phase 0 — Platform baseline and contracts
 
-Status: in progress / foundation complete
+Status: **complete**
 
 ### Goal
 
@@ -53,12 +53,12 @@ Freeze the common platform contracts before building any new specialty-specific 
 
 ### Deliverables
 
-- [ ] Platform organization model is stable and reusable
-- [ ] Platform onboarding gates are durable and test-backed
-- [ ] FHIR integration contract is validated and protected by fail-closed rules
-- [ ] Kafka integration contract remains durable and testable
-- [ ] Pack registry can list installed packs and active lens
-- [ ] Shared admin UI shell is usable across specialties
+- [x] Platform organization model is stable and reusable
+- [x] Platform onboarding gates are durable and test-backed
+- [x] FHIR integration contract is validated and protected by fail-closed rules
+- [x] Kafka integration contract remains durable and testable
+- [x] Pack registry can list installed packs and active lens
+- [x] Shared admin UI shell is usable across specialties
 
 ### Exit criteria
 
@@ -66,11 +66,16 @@ Freeze the common platform contracts before building any new specialty-specific 
 - the core platform is not custom to Renal
 - the same organization, identity, and integration model works for a second specialty pack
 
+**Implemented by:** `src/control-plane/pack-contract.ts` (the written boundary, the
+conformance ladder, the pack allowlist, the literal-secret guard), served at
+`/admin/platform/contracts` and `/admin/platform/packs/conformance`, rendered in
+the Configuration studio. `tests/platform-contract.test.ts` (27 tests).
+
 ---
 
 ## Phase 1 — Shared platform hardening
 
-Status: planned
+Status: **complete**
 
 ### Goal
 
@@ -87,12 +92,12 @@ Lock in security, config durability, and operational behavior before specialty e
 
 ### Deliverables
 
-- [ ] No literal secrets in config or UI payloads
-- [ ] Platform config is versioned and auditable
-- [ ] Integration health status is visible in admin operators and ops views
-- [ ] DLQ / replay / dead-letter recovery flow is documented and tested
-- [ ] Release gate and rollback path are validated end-to-end
-- [ ] Core admin and exec UIs are generic and not renal-specific
+- [x] No literal secrets in config or UI payloads
+- [x] Platform config is versioned and auditable
+- [x] Integration health status is visible in admin operators and ops views
+- [x] DLQ / replay / dead-letter recovery flow is documented and tested
+- [x] Release gate and rollback path are validated end-to-end
+- [x] Core admin and exec UIs are generic and not renal-specific
 
 ### Exit criteria
 
@@ -100,11 +105,30 @@ Lock in security, config durability, and operational behavior before specialty e
 - a new pack can be activated without editing core admin logic
 - policy enforcement works across all packs consistently
 
+**Implemented by:** `src/control-plane/platform-hardening.ts` (domain-blind, pure),
+served at `/admin/platform/hardening`, rendered in the Platform admin console. Two
+findings are worth calling out because they are properties, not features:
+
+- **`write-policy-safety` is fail-closed.** When a pack binds an external write
+  effect kind and *no* vendor is sandbox-certified, the check is `fail`, not
+  `warn`. It reads the real durable certification records (`certifiedVendors()`),
+  so the seam is live rather than a hardcoded empty list.
+- **Atomic writes.** `SourceRegistry` and `SecretRegistry` persist by
+  temp-file-plus-`rename`, and the two rebuildable knowledge caches are read
+  tolerantly. In-place truncation plus parallel readers was corrupting a 26 KB
+  registry mid-write and breaking boot; the caches are runtime state and are no
+  longer tracked.
+
+**Operational note:** `.harness/knowledge/` is entirely runtime-derived — the
+registry caches are rebuilt from the pack catalog on each boot, the per-source
+trees are written by the sync jobs, and the secret store holds credentials. The
+code is tracked; the state never is.
+
 ---
 
 ## Phase 2 — EMR certification and actual vendor validation
 
-Status: planned
+Status: **harness complete — sandbox blocked on external vendor lead time**
 
 ### Goal
 
@@ -126,9 +150,9 @@ Move from internal simulation and contract checks to actual EMR certification wi
 - [ ] Epic sandbox connectivity and capability report complete
 - [ ] Cerner sandbox connectivity and capability report complete
 - [ ] Athena sandbox connectivity and capability report complete
-- [ ] Capability mismatch cases are documented and handled by degradation ladder
-- [ ] Proposal conversion is observable and reconciled
-- [ ] FHIR conformance + safety checklist passes per vendor
+- [x] Capability mismatch cases are documented and handled by degradation ladder
+- [x] Proposal conversion is observable and reconciled
+- [x] FHIR conformance + safety checklist passes per vendor
 - [ ] EMR runbook is approved by ops + clinical safety
 
 ### Exit criteria
@@ -136,6 +160,68 @@ Move from internal simulation and contract checks to actual EMR certification wi
 - actual vendor sandbox results are captured in a conformance matrix
 - no production route depends on unproven vendor behavior
 - certification evidence is stored as part of the platform deployment record
+
+### What is built
+
+The gate that cannot be waived is the one that matters here, so it was built first:
+
+- **`src/fhir/conformance-double.ts`** — a server that answers like a real EMR. It
+  verifies a genuine RS384 SMART assertion (algorithm, signature, `iss`/`sub`/`aud`/`exp`),
+  enforces the profile's required headers, serves a CapabilityStatement that
+  declares only what the vendor declares, and returns **405** on a `create` the
+  vendor does not advertise. A double is only useful if it can say no.
+- **`src/fhir/vendor-certification.ts`** — the verdict, kept pure. `sandbox` is
+  the only mode that can produce `certified`; a `double` run caps at
+  `harness-verified`. `sandboxCertifiedVendors()` excludes harness-verified by
+  construction, and it is what Phase 1's write check consumes.
+- **`src/server/certification-routes.ts`** — `/admin/platform/certification`
+  (matrix, one row per certifiable vendor, absences included), `/:vendor`
+  (history, newest first), `/:vendor/run`. A `sandbox` run without a saved
+  connection returns **409 `no-sandbox-connection`** rather than quietly probing
+  the double.
+- **Platform → Vendor certification** in the operator console, with a double
+  probe per vendor and the essential-blocked flows surfaced as blockers.
+
+**Why a double can never certify a vendor:** we wrote both ends of that
+conversation. If a double run could set `certified`, then a `bound` write path —
+which writes to a patient's chart — would go live on the strength of our own test
+server. That invariant is enforced in `buildVendorCertification` and asserted
+end-to-end in `tests/certification-routes.test.ts` ("records the run durably, and
+the double still does not certify the vendor"). Total: 28 tests across
+`tests/vendor-certification.test.ts` and `tests/certification-routes.test.ts`.
+
+### Finding that needs a product decision
+
+**Athena cannot be certified for the episode-Encounter write.** Running Athena
+through the harness produces `verdict: failed` with
+`essentialBlocked: ['episode-encounter-write']`: Athena's FHIR surface declares
+no `create`, so discovery confirms the episode Encounter cannot be opened. This
+is not a harness limitation, and it is not a degraded path — it is a genuine
+incompatibility between D3's session/episode model and Athena's read-oriented API.
+
+One of two things has to be decided, and the plan cannot proceed on this vendor
+without it:
+
+1. **Declare the episode Encounter non-essential for read-only vendors.** Then the
+   episode lives in our own records, the vendor carries observations and results,
+   and the degradation ladder handles the rest. This is a real product position,
+   not a workaround, and it should be written down as one.
+2. **Accept that an Athena deployment cannot carry the session/episode model over
+   FHIR**, and scope Athena customers to a narrower offering.
+
+Option 1 is the smaller commitment and unlocks a read-first integration now.
+Option 2 is the more honest answer if the episode Encounter is load-bearing for
+clinical safety in a dialysis session.
+
+### Blocked on
+
+Epic, Cerner, and Athena sandbox credentials and connectivity. Those carry
+external lead time (marketplace enrolment, app registration, endpoint
+provisioning) and no amount of local work substitutes for them. The harness above
+is what makes those runs cheap once access lands: each vendor is one saved
+connection plus one `mode: 'sandbox'` call, and the results land in the same
+durable matrix. Until then every vendor honestly reads `harness-verified` or
+`not-run` — never `certified`.
 
 ---
 

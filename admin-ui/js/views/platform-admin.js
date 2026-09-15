@@ -201,6 +201,99 @@ export async function paContractsSection() {
     </div>`;
 }
 
+/**
+ * Vendor certification (Phase 2).
+ *
+ * The distinction this screen exists to make visible: probing our own
+ * conformance double proves the CLIENT is correct, and can never certify a
+ * vendor, because we wrote both ends of that conversation. Only a run against a
+ * configured vendor connection certifies. The verdict pills therefore read
+ * `harness-verified` for a double and `certified` only for a sandbox run — and
+ * the platform's fail-closed write check consumes only the latter, so a green
+ * row here is the thing that unlocks a live write path.
+ */
+export async function renderVendorCertification() {
+  let data = null; let err = null;
+  try { data = await plFetch('GET', '/admin/platform/certification'); } catch (e) { err = e.message; }
+  if (!data) {
+    main.innerHTML = `<div class="page-header"><div><h2 class="page-title">Vendor certification</h2></div></div>${loadFailureHTML('the certification matrix', err)}`;
+    hydrateIcons(); return;
+  }
+  const m = data.matrix || { vendors: [], sandboxCertified: [] };
+  const certified = new Set(m.sandboxCertified || []);
+  const verdictPill = (v) => `<span class="pill ${v === 'certified' ? 'mint' : v === 'harness-verified' ? 'amber' : v === 'failed' ? 'red' : 'muted'}">${esc(v)}</span>`;
+
+  main.innerHTML = `
+    <div class="page-header"><div><h2 class="page-title">Vendor certification</h2>
+      <p class="page-sub">A double run probes the client against a server we wrote — it proves signing, discovery reconciliation and that the degradation ladder engages, but it can never certify a vendor. Only a <b>sandbox</b> run against a configured vendor connection produces a certification, and that is the only verdict the platform's fail-closed write check accepts.</p></div></div>
+    <div class="cards" style="grid-template-columns:repeat(5,1fr);">
+      <div class="stat-card"><div class="num">${m.total ?? (m.vendors || []).length}</div><div class="lbl">Certifiable vendors</div></div>
+      <div class="stat-card"><div class="num">${m.certified ?? 0}</div><div class="lbl">Certified (sandbox)</div></div>
+      <div class="stat-card"><div class="num">${m.harnessVerified ?? 0}</div><div class="lbl">Harness-verified only</div></div>
+      <div class="stat-card"><div class="num">${m.failed ?? 0}</div><div class="lbl">Failed</div></div>
+      <div class="stat-card"><div class="num">${m.notRun ?? 0}</div><div class="lbl">Not run</div></div>
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span class="pill ${(m.anyCertified ? 'mint' : 'amber')}">${esc(m.headline || '')}</span>
+        <span class="muted" style="font-size:12px;">The write-policy safety check unlocks on: <b>${certified.size ? esc([...certified].join(', ')) : 'nothing yet'}</b></span>
+      </div>
+    </div>
+    <div class="detail" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Matrix</h3>
+      <div style="display:grid;gap:10px;">${(m.vendors || []).map((v) => certRow(v, verdictPill)).join('') || '<span class="muted" style="font-size:12px;">No certifiable vendors.</span>'}</div>
+    </div>
+    <div id="pc-out" class="muted" style="font-size:12px;margin-top:10px;">A sandbox run needs a saved connection for that vendor under Integrations; the server refuses rather than silently probing the double instead.</div>`;
+  hydrateIcons();
+}
+
+function certRow(v, verdictPill) {
+  const blocked = v.essentialBlocked || [];
+  const degraded = v.degraded || [];
+  const server = v.server || {};
+  return `<div style="padding:10px 12px;border:1px solid ${blocked.length ? 'rgba(200,60,60,.35)' : 'var(--line)'};border-radius:8px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <strong style="font-size:13px;">${esc(v.vendor)}</strong>
+        ${verdictPill(v.verdict)}
+        <span class="pill muted">mode · ${esc(v.mode)}</span>
+        ${v.ranAt ? `<span class="muted" style="font-size:11px;">${esc(String(v.ranAt))}</span>` : ''}
+        ${server.fhirVersion ? `<span class="pill muted">FHIR ${esc(server.fhirVersion)}</span>` : ''}
+        ${server.resourceTypes ? `<span class="pill muted">${server.resourceTypes} resource types</span>` : ''}
+        ${v.requestCount ? `<span class="pill muted">${v.requestCount} requests</span>` : ''}
+        ${v.profileOverstates ? '<span class="pill amber">profile overstates discovery</span>' : ''}
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-ghost" onclick="pcRun('${esc(v.vendor)}','double')"><i data-lucide="plug-zap" style="width:13px;height:13px"></i> Run double probe</button>
+        <button class="btn btn-primary" onclick="pcRun('${esc(v.vendor)}','sandbox')">Certify against vendor</button>
+      </div>
+    </div>
+    <div class="muted" style="font-size:12px;margin-top:4px;">${esc(v.headline || '')}</div>
+    ${v.blockedReason ? `<div style="font-size:11px;color:var(--warn);margin-top:2px;">→ ${esc(v.blockedReason)}</div>` : ''}
+    ${blocked.length ? `<div style="margin-top:5px;">${blocked.map((b) => `<span class="pill red" style="margin-right:5px;">essential blocked · <code>${esc(b)}</code></span>`).join('')}</div>` : ''}
+    ${degraded.length ? `<div style="margin-top:5px;">${degraded.map((d) => `<span class="pill amber" style="margin-right:5px;">degraded · <code>${esc(d)}</code></span>`).join('')}</div>` : ''}
+    ${(v.flows || []).length ? `<details style="margin-top:6px;"><summary class="muted" style="font-size:11px;cursor:pointer;">${(v.flows || []).length} flow assessments</summary>
+      <table style="width:100%;margin-top:5px;"><thead><tr><th>Flow</th><th>Resource</th><th>Verdict</th><th>Rung</th><th>Reason</th></tr></thead>
+      <tbody>${(v.flows || []).map((f) => `<tr><td>${esc(f.flow.label || f.flow.id)}</td><td><code>${esc(f.flow.resourceType)}</code>.${esc(f.flow.interaction)}</td><td><span class="pill ${f.verdict === 'available' ? 'mint' : f.verdict === 'degraded' ? 'amber' : 'red'}">${esc(f.verdict)}</span></td><td>${esc(f.rung || '—')}</td><td class="muted" style="font-size:11px;">${esc(f.reason)}</td></tr>`).join('')}</tbody></table></details>` : ''}
+    ${(v.steps || []).length ? `<details style="margin-top:4px;"><summary class="muted" style="font-size:11px;cursor:pointer;">${(v.steps || []).length} contract steps</summary>
+      <div style="margin-top:5px;">${(v.steps || []).map((s) => `<div style="display:flex;gap:8px;padding:3px 0;border-bottom:1px solid var(--border);font-size:11px;"><span class="pill ${s.status === 'ok' ? 'mint' : s.status === 'failed' ? 'red' : 'muted'}" style="flex:0 0 auto;">${esc(s.status)}</span><span style="flex:1 1 180px;">${esc(s.label)}</span><span class="muted" style="flex:2 1 240px;">${esc(s.detail)}</span></div>`).join('')}</div></details>` : ''}
+  </div>`;
+}
+
+/** Run a probe and re-render. A refused sandbox run reports the server's reason. */
+window.pcRun = async function pcRun(vendor, mode) {
+  const out = document.getElementById('pc-out');
+  if (out) out.textContent = `Running ${mode} probe for ${vendor}…`;
+  try {
+    const r = await plFetch('POST', `/admin/platform/certification/${encodeURIComponent(vendor)}/run`, { mode });
+    const c = r.certification || {};
+    if (out) out.innerHTML = `<span style="color:var(--good);">${esc(vendor)} · ${esc(mode)} → ${esc(c.verdict || '?')} — ${esc(c.headline || '')}</span>`;
+  } catch (e) {
+    if (out) out.innerHTML = `<span style="color:var(--warn);">${esc(vendor)} · ${esc(String(e.message))}</span>`;
+  }
+  renderVendorCertification();
+};
+
 export async function plFetch(method, path, body) {
   const init = { method, headers: {} };
   if (body !== undefined) {

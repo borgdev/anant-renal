@@ -102,6 +102,7 @@ export const NAV = [
     { view: 'platform-assurance', icon: 'shield-check', label: 'AI Assurance' },
     { view: 'platform-submissions', icon: 'send', label: 'CMS submissions' },
     { view: 'platform-releases', icon: 'git-branch', label: 'Release center' },
+    { view: 'platform-certification', icon: 'badge-check', label: 'Vendor certification' },
     { view: 'platform-dlq', icon: 'archive', label: 'Dead-letter queue' },
     { view: 'platform-context', icon: 'eye', label: 'Context API' },
     { view: 'rsi-intelligence', icon: 'network', label: 'Shared Intelligence ↗' },

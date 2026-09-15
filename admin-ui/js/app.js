@@ -73,7 +73,7 @@ import { renderMyWork, renderPlatformDlq, wqBegin, wqCancelDecline, wqClose, wqC
 import { renderAudit, renderLiquidTrain, renderLiquidWhatIf } from './views/narrative.js';
 import { nlObserve, renderNudgeLedger } from './views/nudge-ledger.js';
 import { wsOntologyAdd, wsOntologyPullLive, wsOntologyRemove, wsOntologySave, wsOntologySet } from './views/ontology.js';
-import { paIntegrationsSection, paSteps, paTopicsSection, plFetch, renderPlatformAdmin, renderPlatformReleases } from './views/platform-admin.js';
+import { paIntegrationsSection, paSteps, paTopicsSection, plFetch, renderPlatformAdmin, renderPlatformReleases, renderVendorCertification } from './views/platform-admin.js';
 import { cfgTab, plPackActivate, plPackDeactivate, renderPlatformConfig } from './views/platform-config.js';
 import { closeRealmModal, createModalHTML, openRealmModal, realmCard, renderEffects, renderPerception, renderPresences, trajPill } from './views/realm.js';
 import { renderRsiApp, renderRsiDeepLink } from './views/rsi.js';
@@ -273,6 +273,7 @@ registerView('platform-assurance', renderPlatformAssurance);
 registerView('rsi-intelligence', () => renderRsiDeepLink('intelligence', 'Shared Intelligence'));
 registerView('rsi-executive', () => renderRsiDeepLink('executive', 'Executive Outcomes'));
 registerView('platform-releases', renderPlatformReleases);
+registerView('platform-certification', renderVendorCertification);
 registerView('platform-submissions', renderWsSubmissions);
 registerView('platform-dlq', renderPlatformDlq);
 registerView('platform-context', renderPlatformContext);
