@@ -229,6 +229,11 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
   // views gets exactly those, so one specialty's pages cannot leak into another
   // console. `undefined` (nothing declared) keeps the shell's built-in list.
   const [lensViews, setLensViews] = useState<Array<{ id: string; label: string }> | undefined>(undefined);
+  // Every INSTALLED pack's view set, grouped. The submenu is built from this
+  // rather than from the active lens alone, because a deployment is not one
+  // specialty — renal protocols and a payer's programmes coexist, and the strip
+  // can only offer one of them if it reads one of them.
+  const [viewGroups, setViewGroups] = useState<Array<{ packId: string; label: string; primary: boolean; views: Array<{ id: string; label: string }> }> | undefined>(undefined);
   // U #7 — one session-expiry banner for the whole console. Any 401 from any
   // fetch wrapper (harness/anemia/work/catalog) signals this; the page keeps its
   // own empty/loading/error states, but the sign-in gate is always the same.
@@ -248,6 +253,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
       setLensLabel(ctx.pack?.label);
       setLensTerminology(ctx.pack?.terminology);
       setLensViews(ctx.pack?.views);
+      setViewGroups(ctx.viewGroups);
     }).catch(() => { /* console/lens unavailable */ });
     return () => { active = false; };
   }, []);
@@ -264,17 +270,36 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
   }
 
   const currentDemo = demoSteps[demoStep];
-  /* The specialty strip is the LENS's, not the shell's: a declared list wins
-   * (labels included, so a specialty can name its own views), and an empty
-   * declared list means "this lens has no clinical views" — a payer console
-   * gets no dialysis protocol tabs. Nothing declared falls back to the shell. */
-  const protocolViews = useMemo(
-    () => (lensViews
-      ? lensViews.map((view) => ({ id: view.id as NavigationId, label: view.label, stage: protocolStage(view.id) }))
-      : PROTOCOL_VIEWS),
-    [lensViews],
-  );
-  const isLensView = (id: NavigationId): boolean => protocolViews.some((view) => view.id === id);
+  /*
+   * The specialty submenu, grouped by the pack that declares it.
+   *
+   * Precedence, and why each step exists:
+   *   1. the INSTALLED packs' declared views — the deployment's real surface;
+   *   2. the active lens's own declared list — a lens whose pack declares views
+   *      the group set somehow missed;
+   *   3. the shell's built-in list — the single-specialty fallback, so a pack
+   *      that declares nothing changes nothing.
+   * An empty DECLARED list is not the same as nothing declared: "this lens has
+   * no views" is an answer, and it must not fall back to another specialty's.
+   */
+  const submenuGroups = useMemo(() => {
+    const map = (views: Array<{ id: string; label: string }>) =>
+      views.map((view) => ({ id: view.id as NavigationId, label: view.label, stage: protocolStage(view.id) }));
+
+    if (viewGroups && viewGroups.length) {
+      return [...viewGroups]
+        .sort((a, b) => Number(b.primary) - Number(a.primary))
+        .map((group) => ({
+          packId: group.packId,
+          label: group.label,
+          primary: group.primary,
+          views: map(group.views),
+        }));
+    }
+    if (lensViews) return [{ packId: "lens", label: "", primary: true, views: map(lensViews) }];
+    return [{ packId: "shell", label: "", primary: true, views: PROTOCOL_VIEWS }];
+  }, [viewGroups, lensViews]);
+  const protocolViews = useMemo(() => submenuGroups.flatMap((group) => group.views), [submenuGroups]);
   const activeLabel = useMemo(
     () => navGroups.flatMap((group) => group.items).find((item) => item.id === activeNav)?.label
       ?? protocolViews.find((view) => view.id === activeNav)?.label
@@ -474,20 +499,35 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
           </div>
         ) : null}
 
-        {isLensView(activeNav) ? (
-          <nav className="protocol-tabs" aria-label="Clinical protocols">
-            <span className="protocol-tabs-label"><FlaskConical size={13} aria-hidden="true" /> Protocols</span>
-            {protocolViews.map((view) => (
-              <button
-                className={`protocol-tab ${activeNav === view.id ? "is-active" : ""}`}
-                key={view.id}
-                onClick={() => selectNav(view.id)}
-                type="button"
-                aria-current={activeNav === view.id ? "page" : undefined}
+        {protocolViews.some((view) => view.id === activeNav) ? (
+          <nav className="protocol-tabs" aria-label="Specialty views">
+            {submenuGroups.map((group) => (
+              <div
+                className={`protocol-group${group.primary ? " is-primary" : ""}`}
+                key={group.packId}
               >
-                <span>{view.label}</span>
-                <small>{view.stage}</small>
-              </button>
+                {/* The group label is the PACK's, so the strip names the
+                    specialty it belongs to instead of assuming the shell's
+                    noun. "Protocols" was itself a renal-ism: a payer has
+                    programmes, not protocols. */}
+                {group.label ? (
+                  <span className="protocol-group-label">
+                    <FlaskConical size={12} aria-hidden="true" /> {group.label}
+                  </span>
+                ) : null}
+                {group.views.map((view) => (
+                  <button
+                    className={`protocol-tab ${activeNav === view.id ? "is-active" : ""}`}
+                    key={view.id}
+                    onClick={() => selectNav(view.id)}
+                    type="button"
+                    aria-current={activeNav === view.id ? "page" : undefined}
+                  >
+                    <span>{view.label}</span>
+                    <small>{view.stage}</small>
+                  </button>
+                ))}
+              </div>
             ))}
           </nav>
         ) : null}

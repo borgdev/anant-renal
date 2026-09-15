@@ -105,6 +105,22 @@ export interface PlatformContext {
      *  real answer — a lens with no clinical views renders no specialty strip. */
     views?: Array<{ id: string; label: string }>;
   };
+  /**
+   * The specialty submenu: one group per INSTALLED pack that declares views.
+   *
+   * Grouped by pack rather than flattened because a deployment is not one
+   * specialty — renal's eleven protocols plus a payer's programmes plus a future
+   * oncology pack's views in a single strip is unusable. `primary` marks the
+   * active lens's group, which is a display decision (which group leads, whose
+   * terminology applies), not a filter: a specialty's views are visible whether
+   * or not it is the primary lens.
+   */
+  viewGroups?: Array<{
+    packId: string;
+    label: string;
+    primary: boolean;
+    views: Array<{ id: string; label: string }>;
+  }>;
   navigation: Array<{ id: string; label: string; console: ConsoleId; href: string }>;
   capabilities: string[];
   aggregates: Record<string, number>;

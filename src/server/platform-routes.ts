@@ -1037,6 +1037,35 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
       views?: readonly { id: string; label: string }[];
     } = { id: 'healthcare.renal-enterprise', lens: 'provider' };
     let aggregates: Record<string, number> = {};
+    /**
+     * The specialty submenu, grouped by the pack that declares it.
+     *
+     * Built from the INSTALLED set rather than from the active lens, because a
+     * deployment is not one specialty: a dialysis organisation with a CKD
+     * programme and a payer contract has all three installed at once, and a
+     * submenu that only showed the primary one would hide two thirds of the
+     * product. The active lens marks its group `primary` — that is a display
+     * decision (which group leads, which terminology applies), not a filter.
+     *
+     * A pack that declares no views contributes no group, which is how a payer
+     * lens correctly has none: it has no chart-side pages to offer.
+     */
+    let viewGroups: { packId: string; label: string; primary: boolean; views: readonly { id: string; label: string }[] }[] = [];
+    try {
+      const snapshot = packResolution();
+      const active = await w.activePack();
+      viewGroups = (opts.packs ?? []).flatMap((p) => {
+        const lens = declaredLens(snapshot, p.id);
+        const views = lens?.views ?? [];
+        if (!views.length) return [];
+        return [{
+          packId: p.id,
+          label: lens?.label ?? p.id,
+          primary: active?.packId === p.id,
+          views,
+        }];
+      });
+    } catch { /* a broken manifest must not take the context down */ }
     try {
       // Pack Studio activation wins over the operating-model default: activating
       // a domain pack durably flips pack.id + lens (`POST /admin/platform/packs/:id/activate`).
@@ -1075,6 +1104,10 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
       role: role ?? null,
       consoles,
       pack,
+      // The submenu the shell renders: every installed pack's group, so a
+      // specialist's protocols appear alongside the primary specialty's rather
+      // than instead of them.
+      viewGroups,
       navigation: navigationFor(consoles),
       capabilities: capabilitiesFor(consoles),
       aggregates,

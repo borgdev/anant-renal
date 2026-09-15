@@ -55,7 +55,7 @@ works as a pack, not as a product-specific code branch".
 
 ---
 
-## 2. The three structural gaps, in dependency order
+## 2. The structural gaps, in dependency order
 
 ### G1 — A pack cannot contribute routes (Phase 3 criterion, Phase 4 exit criterion)
 
@@ -84,6 +84,28 @@ behind a documented list, and track the burn-down. Do not attempt all 11 at once
 **Risk if skipped.** Every future specialty copies the current shape, and
 "platform" becomes a word the code does not honour. This is the highest-value
 remaining item in the plan.
+
+**Progress.** Phase 1 **done**, using `payer` as the proof pack (not a fixture):
+`src/control-plane/pack-contributions.ts` defines `PackRouteContribution` with a
+`scope` that maps onto the existing `api-auth` URL-prefix authority, validates
+`duplicate-contribution-id` / `duplicate-prefix` / `missing-prefix` /
+`invalid-prefix` / `prefix-outside-scope-namespace`, and `app.ts` now registers
+contributions from the installed pack set. `src/server/payer-routes.ts` is
+deleted and `packs/payer/routes.ts` serves it.
+
+Two things phase 1 settled that the *burn-down* inherits. First, `payer` was
+chosen because it was **absent from the test suite's pack set and still served
+unconditionally** — migrating it exposed that the platform was serving a
+specialty's endpoints in a deployment that had not installed it. An absent pack
+is now **404, not 403**: the route does not exist, it is not a permission an
+operator could be granted. Second, the surface a pack must contribute is
+**plural** — routes today, and `assurance-track.ts`'s hand-written renal list
+tomorrow (G4), and its screens after that (G5).
+
+**Remaining burn-down (11 modules, `app.ts` lines ~465–571):**
+`anemia`, `renal`, `protocol`, `adequacy`, `fluid`, `round`, `access`, `mbd`,
+`nutrition`, `infection`, `cross-pack-assurance`. One at a time, each proving a
+new shape the interface must support rather than a repetition of the last.
 
 ### G2 — Only one pack can be active at a time (Phase 6, and a Phase 5 correctness issue)
 
@@ -147,6 +169,39 @@ only route registration.
 
 **Size.** Small once the contribution interface exists: the probe becomes part of
 the pack contribution, and the list becomes a loop over installed packs.
+
+### G5 — A specialty cannot add a *view* without an exec-app change (same root as G1, one layer up)
+
+**Evidence.** `PLATFORM_NAV_IDS` and the `unknown-lens-view` invariant let a lens
+name only a view the shell already knows how to draw. Turning the renal
+protocol strip into a per-lens menu *did* remove the hardcoded eleven tabs from
+the shell — but it replaced them with a **fixed vocabulary of view ids** the
+shell must be able to render. Declaring `views: [{id: 'oncology-regimen', …}]`
+is refused as a blocking issue.
+
+**Why it matters.** This is G1's defect one layer up. G1 was "a pack cannot
+contribute a route"; G5 is "a pack cannot contribute a screen". Both mean a new
+specialty needs a platform change, and the second is easy to miss because the
+grouped submenu *looks* data-driven — it reads the installed pack set and
+renders whatever the pack declares, up to the point where the pack asks for a
+kind of screen the shell has never heard of.
+
+**The fix — a view is a `kind` plus a data source, not an id.** Give the
+platform a small vocabulary of generic renderers (`ranked-actions`, `queue`,
+`table`, `timeline`, `detail`, `board`) and let a view declare
+`{ id, label, kind, source }`. Renal's *Anemia & ESA* becomes
+`kind: ranked-actions, source: /admin/swarm/anemia/state`; an oncology pack
+composes unlisted generic views against its own endpoints.
+
+The ranked-actions panel is *already* such a generic renderer — it renders
+`Lead[]` from any endpoint — so this is a matter of naming a pattern the code
+already has, not building one. `unknown-lens-view` then becomes
+`unknown-view-kind` and the shell no longer needs to know a specialty exists in
+order to draw it.
+
+**Size.** Medium. Parser + contract change is small; the work is enumerating the
+existing renal views onto generic kinds honestly (some will not fit and will
+expose real coupling, which is the point of doing it).
 
 ---
 
@@ -275,15 +330,16 @@ fixed or tracked.
 
 | # | Item | Why now | Size |
 | --- | --- | --- | --- |
-| 1 | **G1 phase 1** — define the route contribution, migrate one pack | Unblocks Phase 3's exit criterion and Phase 4's; small first step | S–M |
+| 1 | ~~**G1 phase 1** — define the route contribution, migrate one pack~~ **DONE** (`payer`) | Unblocked Phase 3's exit criterion and Phase 4's | S–M |
 | 2 | **Sweep for every name-enumerated specialty** (G4 and its siblings) | "Just add a route" understates it; the contribution surfaces are plural | S |
 | 3 | **G1 phase 2** — migrate the remaining renal protocol packs | Turns Phase 4 from "implemented" into "a pack" | M–L |
 | 4 | **Declare the renal protocol packs' surfaces** (ontology, measures, event contracts) | Makes the conformance matrix honest about 7 of the 12 partial packs | M |
 | 5 | **G2** — multi-pack activation | Required before a three-specialty customer exists; Phase 6 deliverable 1 | M |
 | 6 | **G3** — wire cross-pack workflows | The multi-specialty value proposition, currently dead code | M |
-| 7 | Manifests for the 9 packs that ship none | Cheap; closes a visible gap in the Pack Studio | S |
-| 8 | Phase 6 governance, budgets, rollout | Needs 1–6 settled first | L |
-| 9 | Phase 2 sandbox runs | Blocked externally; start the access requests now | external |
+| 7 | **G5** — a view becomes a `kind` + data source | Removes the last per-specialty shell edit; do it before onboarding a specialty that is not renal or payer | M |
+| 8 | Manifests for the 9 packs that ship none | Cheap; closes a visible gap in the Pack Studio | S |
+| 9 | Phase 6 governance, budgets, rollout | Needs 1–6 settled first | L |
+| 10 | Phase 2 sandbox runs | Blocked externally; start the access requests now | external |
 
 **Do not start Phase 6 before G1 and G2.** Multi-specialty governance of a
 runtime that can only host one specialty at a time, and only with hand-written
@@ -299,7 +355,9 @@ route registration, would codify the current shape into policy.
   pack.
 - It does **not** claim the platform is un-extensible. A specialty's *metadata,
   lens, terminology, views, ontology, events, workflows, measures and release
-  gates* are contract-enforced today. Only its *routes* are not.
+  gates* are contract-enforced today. Its *routes* are not (G1), and a view it
+  declares must still be one the shell already knows how to draw (G5). Those are
+  two layers of the same gap, not two unrelated ones.
 - It does **not** treat a green test suite as evidence of architectural
   progress. The suite is green at every step of this analysis; that is exactly
   why these gaps are found by reading the registration and the wiring.

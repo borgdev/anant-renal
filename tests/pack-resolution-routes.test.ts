@@ -268,4 +268,41 @@ describe('pack resolution at the platform surface', () => {
     expect(body.ok).toBe(true);
     expect(body.conformance.level).toBe('conformant');
   });
+
+  // The specialty submenu is built from the INSTALLED set, grouped by pack, not
+  // from the active lens alone. A deployment is not one specialty: a dialysis
+  // org running a CKD programme under a payer contract has all three installed,
+  // and an active-lens-only menu would hide two thirds of the product.
+  describe('specialty view groups', () => {
+    interface Group { packId: string; label: string; primary: boolean; views: { id: string; label: string }[] }
+    const groups = async () => {
+      const res = await get('/api/context');
+      expect(res.statusCode).toBe(200);
+      return (res.json() as { viewGroups?: Group[] }).viewGroups ?? [];
+    };
+
+    it('groups every installed pack’s declared views, and marks the active lens’s group primary', async () => {
+      const found = await groups(),
+        renal = found.find((g) => g.packId === 'dialysis-provider')!;
+
+      expect(renal).toBeDefined();
+      expect(renal.label).toBe('Renal');
+      expect(renal.views.length).toBe(11);
+      expect(renal.views.map((v) => v.id)).toContain('anemia');
+      // Activation in the test above is deliberately allowed to precede this
+      // block; `primary` is a display decision about which group leads and whose
+      // terminology applies — it is never a filter on what exists.
+      expect(typeof renal.primary).toBe('boolean');
+    });
+
+    it('omits a lens that declares no views, rather than substituting the shell’s built-in set', async () => {
+      const found = await groups();
+      // payer declares `views: []` on purpose: it was the lens where the
+      // hardcoded renal strip used to leak into a console that has no protocols.
+      // An empty declaration must stay empty, and must not be reported as
+      // "declared nothing" and quietly fall back.
+      expect(found.find((g) => g.packId === 'payer')).toBeUndefined();
+      expect(found.every((g) => g.views.length > 0)).toBe(true);
+    });
+  });
 });

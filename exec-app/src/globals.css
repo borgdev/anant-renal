@@ -272,6 +272,15 @@ a { color: inherit; }
 .protocol-tab.is-active { color: var(--text); background: color-mix(in srgb, var(--mint) 14%, transparent); border-color: color-mix(in srgb, var(--mint) 45%, transparent); }
 .protocol-tab small { color: var(--faint); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
 .protocol-tab.is-active small { color: var(--mint); }
+/* Specialty groups — one per INSTALLED pack that declares views, so the strip
+   names the specialty its views belong to. The active lens's group leads and is
+   visually dominant; the others stay legible but recede, because a specialist
+   watching a payer console still needs to reach the renal protocols. */
+.protocol-group { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 3px 10px 3px 0; border-right: 1px solid var(--line); }
+.protocol-group:last-child { border-right: 0; }
+.protocol-group.is-primary { border-right-color: var(--line-strong); }
+.protocol-group-label { display: inline-flex; align-items: center; gap: 5px; margin-right: 4px; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+.protocol-group.is-primary .protocol-group-label { color: var(--mint); }
 @media (max-width: 760px) { .protocol-tabs { padding: 10px 14px 0; } }
 
 .workspace-context span { color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spacing: .09em; }
