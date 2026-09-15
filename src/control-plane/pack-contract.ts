@@ -136,6 +136,24 @@ export interface SpecialtySections {
 }
 
 /**
+ * Navigation ids the platform shell renders. A specialty lens renders INSIDE the
+ * shared shell, so a lens may add navigation but may not take a platform slot —
+ * otherwise a pack could silently replace platform navigation with its own.
+ */
+export const PLATFORM_NAV_IDS: readonly string[] = Object.freeze([
+  'my-work', 'ecosystem', 'command', 'patient', 'assurance', 'admin',
+]);
+
+/**
+ * Concept ids the platform owns. A pack may extend this vocabulary; it may not
+ * redefine an entry, because every pack then inherits the new meaning.
+ */
+export const PLATFORM_CONCEPTS: readonly string[] = Object.freeze([
+  'platform.organization', 'platform.scope', 'platform.person', 'platform.event',
+  'platform.release', 'platform.approval', 'platform.audit',
+]);
+
+/**
  * A pack descriptor with the specialty sections. `DomainPack` stays minimal so
  * the existing packs keep compiling; this is the enriched shape a pack adopts
  * to be first-class.
@@ -180,12 +198,38 @@ function hasContent<T>(value: readonly T[] | undefined): boolean {
 }
 
 /**
+ * Extra evidence the contract may be given. Both fields are plain data so this
+ * module never has to import the loader — the loader already imports the
+ * contract for `SpecialtySections`, and a cycle here would be a real one.
+ */
+export interface PackValidationContext {
+  readonly resolution?: {
+    readonly resolved: boolean;
+    readonly issues: readonly { readonly detail: string; readonly blocking: boolean }[];
+  };
+  /** Fields where the manifest and the TypeScript descriptor disagree. */
+  readonly manifestDrift?: readonly { readonly field: string; readonly manifest: string; readonly pack: string }[];
+}
+
+/**
  * Validate one pack against the contract.
  *
  * Ordering matters for the reader: the hard requirements come first (so the
- * first `fail` is the one that matters), then the declared sections.
+ * first `fail` is the one that matters), then the declared sections, then — when
+ * evidence is supplied — whether those declarations actually RESOLVED, and
+ * whether the pack's two homes agree about what it is.
+ *
+ * The resolution check is the difference between a declaration and a claim.
+ * Without it, a pack that names an ontology module it does not ship reports as
+ * conformant, and the gap surfaces as a runtime `Cannot find module` in a
+ * specialty the platform has already agreed to host.
  */
-export function validateSpecialtyPack(pack: DomainPack & SpecialtySections): PackConformanceReport {
+export function validateSpecialtyPack(
+  pack: DomainPack & SpecialtySections,
+  context?: PackValidationContext,
+): PackConformanceReport {
+  const resolution = context?.resolution;
+  const manifestDrift = context?.manifestDrift ?? [];
   const checks: ContractCheck[] = [];
   const isSubstrate = pack.id === SUBSTRATE_PACK_ID;
 
@@ -290,9 +334,37 @@ export function validateSpecialtyPack(pack: DomainPack & SpecialtySections): Pac
     });
   }
 
+  // 8 — did the declared surface actually resolve? Only asked when a resource
+  // report was supplied, because resolution needs the repository on disk.
+  if (resolution && !isSubstrate) {
+    const blocking = resolution.issues.filter((i) => i.blocking);
+    checks.push({
+      id: 'resource-resolution',
+      label: 'Declared surface resolves',
+      status: blocking.length === 0 ? 'pass' : 'fail',
+      detail: blocking.length === 0
+        ? `${declaredSections.length === 0 ? 'nothing declared' : 'every declared artifact resolves'}`
+        : blocking.map((i) => i.detail).join('; '),
+    });
+  }
+
+  // 9 — do the pack's two homes agree? Warn, not fail: the runtime resolves the
+  // TypeScript descriptor, so drift means a reader may be told one thing and the
+  // platform may do another — which is a real problem, but not one that should
+  // block a pack that works. It must never be silent.
+  if (manifestDrift.length > 0) {
+    checks.push({
+      id: 'manifest-drift',
+      label: 'Manifest agrees with the pack descriptor',
+      status: 'warn',
+      detail: manifestDrift
+        .map((d) => `${d.field}: manifest "${d.manifest}" vs pack "${d.pack}"`)
+        .join('; '),
+    });
+  }
+
   const failed = checks.some((c) => c.status === 'fail');
-  const warned = checks.some((c) => c.status === 'warn');
-  const level: ConformanceLevel = isSubstrate
+  const warned = checks.some((c) => c.status === 'warn');  const level: ConformanceLevel = isSubstrate
     ? 'substrate'
     : failed
       ? 'nonconformant'
@@ -320,9 +392,12 @@ export interface ConformanceMatrix {
 }
 
 /** Run the contract over the whole installed set, in a stable order. */
-export function conformanceMatrix(packs: readonly (DomainPack & SpecialtySections)[]): ConformanceMatrix {
+export function conformanceMatrix(
+  packs: readonly (DomainPack & SpecialtySections)[],
+  evidence?: (packId: string) => PackValidationContext | undefined,
+): ConformanceMatrix {
   const reports = [...packs]
-    .map((p) => validateSpecialtyPack(p))
+    .map((p) => validateSpecialtyPack(p, evidence?.(p.id)))
     .sort((a, b) => a.packId.localeCompare(b.packId));
 
   const byLevel: Record<ConformanceLevel, number> = { substrate: 0, conformant: 0, partial: 0, nonconformant: 0 };
