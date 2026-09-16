@@ -56,7 +56,15 @@ export const SILENT_MODE_PROTOCOLS: readonly ProtocolId[] = RULE_PROTOCOLS;
 export type ProtocolMode = 'active' | 'silent';
 
 export interface ProtocolModeRecord {
-  protocol: ProtocolId;
+  /**
+   * The protocol this record is about, in the pack's own vocabulary.
+   *
+   * `string`, not the platform `ProtocolId`: a pack that declares a protocol the
+   * platform ships no mode for is still entitled to an answer, and `modeRecord()`
+   * already returns the honest one (silent, with the reason stated). Typing this
+   * as the closed union is what made a non-renal pack unable to appear here.
+   */
+  protocol: string;
   mode: ProtocolMode;
   /** ISO timestamp the mode took effect. */
   since: string;
@@ -96,7 +104,7 @@ export const PROTOCOL_MODE_RECORDS: readonly ProtocolModeRecord[] = SILENT_MODE_
   by: 'system',
 }));
 
-const REGISTRY = new Map<ProtocolId, ProtocolModeRecord>(
+const REGISTRY = new Map<string, ProtocolModeRecord>(
   PROTOCOL_MODE_RECORDS.map((r) => [r.protocol, r]),
 );
 
@@ -104,18 +112,27 @@ export function isProtocolId(value: string): value is ProtocolId {
   return (SILENT_MODE_PROTOCOLS as readonly string[]).includes(value);
 }
 
-/** Latest known mode record for a protocol; unknown protocols default silent. */
-export function modeRecord(protocol: ProtocolId): ProtocolModeRecord {
+/**
+ * Latest known mode record for a protocol; unknown protocols default silent.
+ *
+ * Takes `string` on purpose. A protocol the platform ships no record for gets the
+ * ACTIVATION DEFAULT — silent until shadow-mode agreement is demonstrated — with
+ * the reason saying so, which is the correct answer for a newly installed pack
+ * and is strictly safer than the alternative. Narrowing this parameter to the
+ * renal union meant the only honest answer available to a second specialty was
+ * a compile error.
+ */
+export function modeRecord(protocol: string): ProtocolModeRecord {
   const found = REGISTRY.get(protocol);
   if (found) return found;
   return { protocol, mode: SILENT_MODE_DEFAULT, since: '1970-01-01T00:00:00.000Z', reason: 'unknown protocol — defaulted silent', by: 'system' };
 }
 
-export function modeFor(protocol: ProtocolId): ProtocolMode {
+export function modeFor(protocol: string): ProtocolMode {
   return modeRecord(protocol).mode;
 }
 
-export function isSilent(protocol: ProtocolId): boolean {
+export function isSilent(protocol: string): boolean {
   return modeFor(protocol) === 'silent';
 }
 

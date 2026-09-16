@@ -676,7 +676,16 @@ export const RULE_PACK_BINDINGS: readonly RuleBinding[] = [
 
 export const RULE_PROTOCOLS: readonly ProtocolId[] = ['anemia', 'adequacy', 'fluid', 'access', 'ckd-mbd', 'nutrition-electrolytes', 'infection'];
 
-export function rulesForProtocol(protocol: ProtocolId): RuleDefinition[] {
+/**
+ * The platform's rule packs for a protocol.
+ *
+ * Takes `string` so a specialty the platform ships no rules for gets an EMPTY
+ * set rather than a compile error — the platform genuinely has no oncology
+ * guideline rules, and saying so is more useful than refusing to be asked. The
+ * caller distinguishes the two cases (`ruleCount === 0` is reported as
+ * "declares no guideline rules", never as compliance).
+ */
+export function rulesForProtocol(protocol: string): RuleDefinition[] {
   return RULE_PACKS.filter((r) => r.protocol === protocol);
 }
 
@@ -786,7 +795,7 @@ export function rulePackSummary(): RulePackSummary {
  * decision-support system is expected to declare. Used by the assurance
  * dashboard to show a gap rather than claim completeness.
  */
-export function enforcementGaps(protocol: ProtocolId): RuleEnforcement[] {
+export function enforcementGaps(protocol: string): RuleEnforcement[] {
   const present = new Set(rulesForProtocol(protocol).map((r) => r.enforcement));
   return (['guardrail', 'coverage-gate', 'authority', 'escalation', 'surveillance'] as RuleEnforcement[]).filter((e) => !present.has(e));
 }

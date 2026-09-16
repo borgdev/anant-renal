@@ -43,8 +43,6 @@
 // not import `packs/`, so "receive" is the only direction available — which is
 // also the honest one: a platform function cannot know which specialties exist.
 
-import type { ProtocolId } from '../protocols/shared-state.js';
-
 /** The narrow shape every pack's artefact probe is normalised into. */
 export interface ArtifactStatusLike {
   present: boolean;
@@ -62,7 +60,23 @@ export interface ArtifactStatusLike {
  * must not guess.
  */
 export interface ProtocolPackDescriptor {
-  protocol: ProtocolId;
+  /**
+   * The protocol this pack implements, in the PACK's own vocabulary.
+   *
+   * Deliberately `string`, not the platform's `ProtocolId` union. That union
+   * (and its twin in `src/evidence/rule-packs.ts`) enumerates the seven RENAL
+   * protocols, so typing this field with it meant a new specialty could not
+   * declare an assurance contribution without editing platform code — G1's and
+   * G5's defect one layer further down, and the reason G4 was only half
+   * achieved. A platform function cannot know which protocols exist.
+   *
+   * The property the closed union was standing in for — no two packs claiming
+   * one protocol — is enforced by `assuranceContributionIssues()` at runtime
+   * over the collected set, which is where it actually matters: `packFor()`
+   * resolves the FIRST match, so a duplicate silently shadows a pack instead of
+   * failing to compile.
+   */
+  protocol: string;
   /** P-number from the implementation strategy. */
   slice: string;
   modelId: string;
@@ -116,8 +130,62 @@ export function normaliseArtifactStatus(raw: object): ArtifactStatusLike {
  * clean track, which is the defect G4 is about.
  */
 export function packFor(
-  protocol: ProtocolId,
+  protocol: string,
   packs: readonly ProtocolPackDescriptor[],
 ): ProtocolPackDescriptor | undefined {
   return packs.find((p) => p.protocol === protocol);
+}
+
+export type AssuranceContributionIssueCode =
+  | 'empty-protocol'
+  | 'duplicate-protocol'
+  | 'empty-model-id';
+
+export interface AssuranceContributionIssue {
+  code: AssuranceContributionIssueCode;
+  /** the protocol id the issue is about, or `#<index>` when there is not one */
+  protocol: string;
+  detail: string;
+}
+
+/**
+ * Problems in a COLLECTED contribution set that a type cannot express.
+ *
+ * This is what replaces the closed `ProtocolId` union, and it is not a weaker
+ * check — it is a better one. `duplicate-protocol` is the case that matters:
+ * `packFor()` resolves by protocol and takes the first match, so two packs
+ * declaring one protocol means one is reviewed and the other is invisible, with
+ * no error anywhere. A closed union never caught that either; it only caught
+ * spellings neither pack had reason to use.
+ *
+ * A pack with no protocol id, or none it can name, is the same class of silent
+ * absence and is reported rather than skipped.
+ */
+export function assuranceContributionIssues(
+  packs: readonly ProtocolPackDescriptor[],
+): readonly AssuranceContributionIssue[] {
+  const issues: AssuranceContributionIssue[] = [];
+  const seen = new Set<string>();
+  for (const [i, pack] of packs.entries()) {
+    const protocol = typeof pack.protocol === 'string' ? pack.protocol.trim() : '';
+    if (!protocol) {
+      issues.push({ code: 'empty-protocol', protocol: `#${i}`, detail: `pack at index ${i} declares no protocol id — it cannot be resolved or reported on` });
+    } else if (seen.has(protocol)) {
+      issues.push({
+        code: 'duplicate-protocol',
+        protocol,
+        detail: `protocol '${protocol}' is declared by more than one pack — packFor() resolves the first and the later pack is never reviewed`,
+      });
+    } else {
+      seen.add(protocol);
+    }
+    if (!pack.modelId || !pack.modelId.trim()) {
+      issues.push({
+        code: 'empty-model-id',
+        protocol: protocol || `#${i}`,
+        detail: 'declares no model id, so its ledger evidence (registration, drift, red-team) cannot be resolved',
+      });
+    }
+  }
+  return issues;
 }

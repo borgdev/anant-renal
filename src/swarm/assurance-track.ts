@@ -54,7 +54,6 @@
 
 import type { SwarmWorkspaceStore } from './workspace.js';
 import type { AssuranceFinding, ModelDrift, ModelRecord, RedTeamRun } from './workspace.js';
-import type { ProtocolId } from '../protocols/shared-state.js';
 import { RULE_PROTOCOLS } from '../evidence/rule-packs.js';
 import { rulePackSummary, enforcementGaps, rulesForProtocol } from '../evidence/rule-packs.js';
 import { modeRecord, silentModeSummary, type ProtocolModeRecord } from '../evidence/silent-mode.js';
@@ -67,9 +66,10 @@ import { isEsaFinding } from './anemia-governance.js';
 // function cannot know which specialties exist anyway — which is the whole point
 // of G4: this table claimed to read the installed pack set while reading seven
 // names typed in here.
+import { assuranceContributionIssues } from './assurance-packs.js';
 import type { ArtifactStatusLike, ProtocolPackDescriptor } from './assurance-packs.js';
-export { packFor, normaliseArtifactStatus } from './assurance-packs.js';
-export type { ArtifactStatusLike, ProtocolPackDescriptor } from './assurance-packs.js';
+export { packFor, normaliseArtifactStatus, assuranceContributionIssues } from './assurance-packs.js';
+export type { ArtifactStatusLike, ProtocolPackDescriptor, AssuranceContributionIssue } from './assurance-packs.js';
 
 
 export type LedgerState = 'present' | 'missing' | 'stale';
@@ -96,7 +96,8 @@ export interface ProtocolLedgerEvidence {
 }
 
 export interface ProtocolAssessment {
-  protocol: ProtocolId;
+  /** the pack's OWN protocol id — the platform does not own this vocabulary */
+  protocol: string;
   modelId: string;
   coverageDefaults: unknown;
   ruleCount: number;
@@ -208,6 +209,12 @@ export function assessProtocol(pack: ProtocolPackDescriptor, ledger: ProtocolLed
   const safetyGaps = gaps.filter((g) => SAFETY_RULE_CLASSES.includes(g));
   const safetyClassName = (n: number): string => `${n} cited`;
   const mode = modeRecord(pack.protocol);
+  // Whether the PLATFORM's rule packs cover this protocol. The vocabulary here is
+  // genuinely platform-owned (the platform ships the renal guideline rules), so it
+  // is legitimately closed — but the pack's protocol id is not, and the two must
+  // not be conflated: being outside the platform's coverage is not the same
+  // failure as being inside it and missing a guardrail.
+  const covered = (RULE_PROTOCOLS as readonly string[]).includes(pack.protocol);
   const checks: ProtocolAssessment['checks'] = [];
   const blockers: string[] = [];
   const warnings: string[] = [];
@@ -220,12 +227,20 @@ export function assessProtocol(pack: ProtocolPackDescriptor, ledger: ProtocolLed
 
   add(
     'rules', 'Safety rules declared (guardrail + coverage gate)',
-    rules.length > 0 && safetyGaps.length === 0 ? 'pass' : 'fail',
-    rules.length === 0
-      ? `${pack.protocol} declares no guideline rules`
-      : safetyGaps.length > 0
-        ? `${pack.protocol} declares no ${safetyGaps.join('/')} rule`
-        : `${safetyClassName(rules.length)} safety rules declared`,
+    // Three cases, not two. A protocol the PLATFORM ships no rule pack for cannot
+    // be assessed against the platform's rule set at all: failing it would block
+    // every release containing a non-renal pack forever, on the grounds that it is
+    // not renal, which trains operators to ignore the gate. The absence is a
+    // warning naming exactly what is missing. A protocol the platform DOES cover,
+    // missing a safety class, is still a hard fail.
+    covered ? (rules.length > 0 && safetyGaps.length === 0 ? 'pass' : 'fail') : 'warn',
+    covered
+      ? rules.length === 0
+        ? `${pack.protocol} declares no guideline rules`
+        : safetyGaps.length > 0
+          ? `${pack.protocol} declares no ${safetyGaps.join('/')} rule`
+          : `${safetyClassName(rules.length)} safety rules declared`
+      : `no platform rule pack covers '${pack.protocol}' — its rules are the pack's own and are not assessed here (add them to src/evidence/rule-packs.ts to be covered)`,
   );
 
   add(
@@ -383,6 +398,15 @@ export async function crossPackAssurance(
       + 'which is not the same as nothing being wrong',
     );
   }
+  // A contribution set can be wrong in ways no type can catch, and `packFor()`
+  // resolves by protocol taking the FIRST match — so a duplicate silently shadows a
+  // pack, which is the case the closed `ProtocolId` union never actually prevented.
+  // The track cannot claim to have reviewed the installed set while one member of it
+  // is unreachable, so this holds rather than reporting a partial review as whole.
+  const contributionIssues = assuranceContributionIssues(inputs.packs);
+  for (const issue of contributionIssues) {
+    findings.push(`assurance contribution [${issue.code}]: ${issue.detail}`);
+  }
   for (const p of protocols) {
     if (p.verdict !== 'ship') findings.push(`${p.protocol}: ${p.verdict} — ${[...p.blockers, ...p.warnings].join('; ')}`);
   }
@@ -416,7 +440,7 @@ export async function crossPackAssurance(
   // per-pack verdicts are absent, and every check below is vacuously satisfied, so
   // the honest answer is "cannot be determined", which is a hold.
   const crossCutting: ReleaseDecision =
-    inputs.packs.length === 0 ? 'hold'
+    inputs.packs.length === 0 || contributionIssues.length > 0 ? 'hold'
       : criticalOpen > 0 ? 'block'
         : fairness.verdict === 'breach' ? 'block'
           : totals.artifactMissing > 0 ? 'block'
@@ -442,8 +466,8 @@ export interface CrossPackGateCheck {
   label: string;
   status: ReleaseCheckStatus;
   detail: string;
-  /** which protocols contributed to this check */
-  protocols: ProtocolId[];
+  // which protocols contributed to this check
+  protocols: string[];
 }
 
 export interface CrossPackReleaseGate {
@@ -454,7 +478,7 @@ export interface CrossPackReleaseGate {
   checks: CrossPackGateCheck[];
   /** per-protocol MDR / boundary documents this release would carry */
   mdrFiles: Array<{
-    protocol: ProtocolId;
+    protocol: string;
     kind: string;
     materialised: boolean;
     id: string;
@@ -472,7 +496,7 @@ export interface CrossPackReleaseGate {
 function gateCheck(
   id: string,
   label: string,
-  entries: readonly { protocol: ProtocolId; status: ReleaseCheckStatus; detail: string }[],
+  entries: readonly { protocol: string; status: ReleaseCheckStatus; detail: string }[],
 ): CrossPackGateCheck {
   const order: ReleaseCheckStatus[] = ['fail', 'warn', 'pass', 'skip'];
   const worst = order.find((s) => entries.some((e) => e.status === s)) ?? 'skip';
@@ -510,11 +534,17 @@ export async function assuranceReleaseGate(
 
   const authority = considered.filter((p) => p.mode.mode === 'silent').length;
   const checks: CrossPackGateCheck[] = [
-    gateCheck('rules', 'Every protocol declares its safety rules', considered.map((p) => ({
-      protocol: p.protocol,
-      status: (p.ruleCount > 0 && !p.ruleGaps.some((g) => SAFETY_RULE_CLASSES.includes(g))) ? 'pass' as const : 'fail' as const,
-      detail: p.ruleGaps.length > 0 ? `missing ${p.ruleGaps.join('/')} rule` : 'no rules declared',
-    }))),
+    gateCheck('rules', 'Every protocol declares its safety rules', considered.map((p) => {
+      // Read the per-pack verdict rather than recomputing it. Two expressions of
+      // one rule is how the gate and the detail table come to disagree about the
+      // same pack, and this one has just gained a third case.
+      const check = p.checks.find((c) => c.id === `${p.protocol}.rules`);
+      return {
+        protocol: p.protocol,
+        status: check?.status ?? 'fail' as const,
+        detail: check?.detail ?? 'not assessed',
+      };
+    })),
     gateCheck('rules-classes', 'Enforcement classes declared', considered.map((p) => ({
       protocol: p.protocol,
       status: 'pass' as const,

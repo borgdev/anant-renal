@@ -64,7 +64,7 @@ works as a pack, not as a product-specific code branch".
 | **G1** | A pack cannot contribute routes | Phase 3 exit criterion, Phase 4, Phase 5 | M–L (11 modules) | phase 1 done (`payer`) |
 | **G2** | Only one pack can be active at a time | Phase 6 deliverable 1 | M | not started |
 | **G3** | Cross-pack workflows are dead code | Phase 4, Phase 6 | M | not started |
-| **G4** | "Cross-pack" assurance enumerates renal packs in code | Phase 6 | S | not started |
+| **G4** | "Cross-pack" assurance enumerates renal packs in code | Phase 6 | S | **done** (both halves) |
 | **G5** | A pack cannot contribute a screen | Phase 5, Phase 6 | M | not started |
 | **G6** | A specialty applies everywhere it is installed | the "all customers want all specialities" requirement | M | **implemented** (slice 1) |
 
@@ -471,6 +471,39 @@ visible.
 > `ship` — every check vacuously satisfied, so reviewing nothing announced that
 > nothing was wrong. An empty set now reports "nothing was reviewed, which is not
 > the same as nothing being wrong" and holds.
+>
+> **SECOND HALF — CLOSED 2026-09-16.** `ProtocolPackDescriptor.protocol` is now
+> `string`, so a genuinely new specialty declares an assurance contribution with
+> no cast and no platform edit. What replaced the closed union is
+> `assuranceContributionIssues()`: `duplicate-protocol`, `empty-protocol`,
+> `empty-model-id`. That is a strictly BETTER check, not a weaker one —
+> `packFor()` resolves the FIRST match, so a duplicate silently shadows a pack,
+> and the closed union never caught that either; it only caught spellings neither
+> pack had reason to use.
+>
+> Four narrowing points had to be found rather than assumed: `modeRecord()`,
+> `modeFor()`, `isSilent()` and `rulesForProtocol()` were all typed with the renal
+> union while *already* handling an unknown protocol honestly (default silent,
+> empty rule set). The ones that genuinely need the union —
+> `evaluateProtocolForPatient` and the renal registry — were left closed, and
+> `tests/assurance-track.test.ts` now narrows through `isProtocolId()` explicitly
+> and **asserts the two vocabularies agree**, a coherence check that did not exist
+> while both sides happened to be typed the same.
+>
+> **The third case.** The rules check had two outcomes and needed three. A
+> protocol the platform ships no rule pack for cannot be assessed against the
+> platform's rules: failing it blocks every release containing a non-renal pack
+> forever, on the grounds that it is not renal, which trains operators to ignore
+> the gate. It warns, naming what is missing. A protocol the platform DOES cover,
+> missing a guardrail, is still a hard fail. The gate now reads the per-pack check
+> instead of recomputing it, so the two cannot disagree about one pack.
+>
+> **A live silent-wrong-answer fixed:**
+> `GET /admin/swarm/assurance/fairness?protocol=mbd` returned
+> `protocol: 'anemia'`. A supplied-but-unrecognised protocol is refused now; only
+> an ABSENT one keeps the default, which `fairnessReport` owns and states back.
+> Pinned in the routes test — where `?protocol=mbd` returning 400 also makes the
+> `ckd-mbd` / `mbd` vocabulary split visible in a test rather than in a grep.
 
 
 **Evidence.** `src/swarm/assurance-track.ts` holds a **hand-written list of the
@@ -993,7 +1026,7 @@ fixed or tracked.
 | 2 | ~~**Sweep for every name-enumerated specialty**~~ **DONE** (§2a; found a live defect and fixed it) | "Just add a route" understates it; the contribution surfaces are plural | S |
 | 3 | ~~**G6** — the specialty binding model (`applied` / `show` / `entitled`, resolved by scope)~~ **DONE** (slice 1 — model, wire, console). Remaining: enforcement at the patient seam, below | This was the product requirement ("all customers want all specialities", one artifact and N configs), and it reframes G2 | M |
 | 4 | **G1 phase 2** — migrate the remaining specialty route modules | Now **mandatory**, not merely valuable: G6's install-all makes hand-written registration the thing the config is supposed to own. First settle `PackRouteDeps.patients` (which is also where G6's `applied` gets enforced), relocate `renalPatientInputs` out of `renal-cohort.ts`, and fix the assurance namespace (§4.6) | M–L |
-| 5 | **G4** — assurance loops over installed packs | Follows G1 directly; makes the *Cross-pack assurance* claim true | S |
+| 5 | ~~**G4** — assurance loops over installed packs~~ **DONE** (both halves: the declaration is pack-owned and the protocol vocabulary is open) | Follows G1 directly; makes the *Cross-pack assurance* claim true | S |
 | 6 | **G2** — activation becomes the list G6 requires | Subsumed by 3+4; the mechanism, not the design | S–M |
 | 7 | **G5 + B** — view kinds and the manifest loader (one deliverable) | Removes the last per-specialty shell edit and the last place the platform names specialties | M |
 | 8 | **G3** — cross-pack workflows onto the manifests, then wired | The multi-specialty value proposition, currently dead code | M |

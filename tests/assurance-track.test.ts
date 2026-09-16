@@ -55,7 +55,7 @@ import type { ActorContext } from '../src/server/scoped-persistence.js';
 import type { CanonicalEvent } from '../src/healthcare-core/events.js';
 
 import {
-  applyMode, modeFor, isSilent, surfaceDecision, surfaceable, silentProtocols,
+  applyMode, modeFor, isSilent, isProtocolId, surfaceDecision, surfaceable, silentProtocols,
   allModeRecords, resetModes, silentModeSummary, assertSilentStillComputes,
   SILENT_MODE_REFERENCE, SILENT_MODE_PROTOCOLS,
 } from '../src/evidence/silent-mode.js';
@@ -66,7 +66,8 @@ import {
 import { burdenReport, burdenSignature, BURDEN_REFERENCE, type AlertEvent } from '../src/evidence/alert-burden.js';
 import {
   packFor, assessProtocol, findingBelongsTo, crossPackAssurance,
-  assuranceReleaseGate, ASSURANCE_TRACK_REFERENCE, type ProtocolLedgerEvidence,
+  assuranceReleaseGate, assuranceContributionIssues,
+  ASSURANCE_TRACK_REFERENCE, type ProtocolLedgerEvidence,
 } from '../src/swarm/assurance-track.js';
 // The declarations belong to the pack that owns them (G4); the track receives
 // them. This alias keeps the existing assertions reading the same way.
@@ -126,9 +127,18 @@ describe('silent mode', () => {
     expect(facts.labs.HGB).toBe(9.1);
 
     for (const pack of PROTOCOL_PACKS) {
+      // The pack's protocol id is the PACK's vocabulary (`string` since G4b); the
+      // renal registry is the PLATFORM's. Narrowing here is deliberate rather than
+      // a cast: this test drives the renal registry, so it states that these ids
+      // are ones the registry resolves — which also makes the assertion below a
+      // real coherence check between the pack's assurance declarations and
+      // `src/protocols/registry.ts`, the drift nobody would otherwise notice.
+      const protocol = pack.protocol;
+      expect(isProtocolId(protocol), `${protocol} is declared for assurance but is not in the renal registry`).toBe(true);
+      if (!isProtocolId(protocol)) continue;
       const probe = assertSilentStillComputes({
-        protocol: pack.protocol,
-        compute: () => evaluateProtocolForPatient(pack.protocol, facts),
+        protocol,
+        compute: () => evaluateProtocolForPatient(protocol, facts),
         signature: (s) => `${s.status}|${s.severity}|${s.drivers.join(',')}`,
       });
       expect(probe.identical, `${pack.protocol} changed its computation with the mode`).toBe(true);
@@ -524,6 +534,10 @@ describe('assurance routes', () => {
   it('rejects an unknown dimension and an unknown protocol rather than guessing', async () => {
     const { app } = await build();
     expect((await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness?dimension=height' })).statusCode).toBe(400);
+    // A supplied-but-unrecognised protocol is refused on the FAIRNESS route too. It
+    // used to return `protocol: 'anemia'` — a wrong answer shaped exactly like a
+    // right one, which is worse than a 400 because nothing downstream can tell.
+    expect((await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness?protocol=mbd' })).statusCode).toBe(400);
     expect((await app.inject({ method: 'GET', url: '/admin/swarm/assurance/rules?protocol=oncology' })).statusCode).toBe(400);
     const badMode = await app.inject({ method: 'POST', url: '/admin/swarm/assurance/modes', payload: { protocol: 'nope', mode: 'active', reason: 'x'.repeat(20) } });
     expect(badMode.statusCode).toBe(400);
@@ -643,16 +657,16 @@ describe('G4 — a specialty the track was not written against is reviewed', () 
   /**
    * A synthetic oncology pack: no renal vocabulary anywhere in it.
    *
-   * The cast is load-bearing and it is a FINDING, not a convenience.
-   * `ProtocolPackDescriptor.protocol` is typed `ProtocolId`, which
-   * `src/protocols/shared-state.ts` defines as a CLOSED union of the seven renal
-   * protocols. So even with the list collected instead of hardcoded, a genuinely
-   * new specialty cannot declare an assurance contribution until that union is
-   * widened — the contract is closed to the exact thing G4 exists to allow. The
-   * last test in this block asserts that limitation so it stays visible.
+   * This literal is annotated with the CONTRACT type and cast nothing. That IS the
+   * assertion: until `ProtocolPackDescriptor.protocol` was widened from the closed
+   * renal `ProtocolId` union to `string`, this object only compiled behind
+   * `as unknown as ProtocolPackDescriptor`, so a genuinely new specialty could not
+   * declare an assurance contribution without editing platform code. G4 was half
+   * achieved until that changed. If the cast becomes necessary again, this file
+   * stops compiling — which is the point.
    */
-  const ONCOLOGY_PACK = {
-    protocol: 'oncology' as const,
+  const ONCOLOGY_PACK: ProtocolPackDescriptor = {
+    protocol: 'oncology',
     slice: 'X1',
     modelId: 'oncology.regimen-v0',
     redTeamIds: ['rt-900'],
@@ -698,15 +712,43 @@ describe('G4 — a specialty the track was not written against is reviewed', () 
     expect(assurance.findings.join(' ')).toMatch(/nothing was reviewed/);
   });
 
-  it('DOCUMENTS THE LIMIT: the descriptor is still closed to non-renal ids', () => {
-    // Passing this test would mean `ProtocolId` was widened. Until then, G4 is
-    // only half-achieved: the platform no longer names the specialties, but the
-    // CONTRACT still does. Asserting it here so the next reader does not mistake
-    // "the list is collected" for "a new specialty can join".
-    const renalOnly = PROTOCOL_PACKS.every((p) => typeof p.protocol === 'string');
-    expect(renalOnly).toBe(true);
-    // The synthetic pack only type-checks behind a cast — which IS the finding.
-    expect(String(ONCOLOGY_PACK.protocol)).toBe('oncology');
+  it('assesses a non-renal protocol without accusing it of missing renal rules', async () => {
+    // The honest THIRD case. The platform ships guideline rule packs for seven
+    // RENAL protocols; oncology is outside that coverage. Reporting `fail` here
+    // would block every release containing a non-renal pack forever, on the grounds
+    // that it is not renal — a false accusation that trains operators to ignore the
+    // gate. It warns, and the warning names what is actually missing.
+    const store = new SwarmWorkspaceStore();
+    const assurance = await crossPackAssurance(store, {
+      packs: [ONCOLOGY_PACK], fairnessRows: [], alerts: [], patients: 0,
+    });
+    const oncology = assurance.protocols[0];
+    const rules = oncology?.checks.find((c) => c.id === 'oncology.rules');
+    expect(rules?.status).toBe('warn');
+    expect(rules?.detail).toMatch(/no platform rule pack covers 'oncology'/);
+    expect(oncology?.verdict).not.toBe('block');
+  });
+
+  it('holds when two packs claim one protocol, because packFor() takes the first', async () => {
+    // The property the closed union was standing in for, checked where it actually
+    // matters. `packFor()` resolves the FIRST match, so a duplicate silently
+    // shadows a pack and the track reports a complete review of an incomplete set.
+    const shadow: ProtocolPackDescriptor = { ...ONCOLOGY_PACK, modelId: 'oncology.regimen-v1' };
+    expect(assuranceContributionIssues([ONCOLOGY_PACK, shadow]).map((i) => i.code))
+      .toEqual(['duplicate-protocol']);
+    expect(packFor('oncology', [ONCOLOGY_PACK, shadow])?.modelId).toBe('oncology.regimen-v0');
+
+    const store = new SwarmWorkspaceStore();
+    const assurance = await crossPackAssurance(store, {
+      packs: [ONCOLOGY_PACK, shadow], fairnessRows: [], alerts: [], patients: 0,
+    });
+    expect(assurance.decision).toBe('hold');
+    expect(assurance.findings.join(' ')).toMatch(/duplicate-protocol/);
+  });
+
+  it('reports a pack that names no protocol rather than skipping it', () => {
+    expect(assuranceContributionIssues([{ ...ONCOLOGY_PACK, protocol: '  ' }]).map((i) => i.code))
+      .toEqual(['empty-protocol']);
   });
 
   it('the pack declares its own seven, so the platform names none', async () => {

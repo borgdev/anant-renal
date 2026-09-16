@@ -402,6 +402,11 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
       return error(reply, 400, `unknown-dimension: ${dimension}`);
     }
     const protocolParam = request.query?.protocol;
+    // A supplied-but-unrecognised protocol is REFUSED rather than silently answered
+    // about a different one: `?protocol=mbd` used to return ANEMIA's fairness
+    // report, which is a wrong answer shaped like a right one. The default for an
+    // ABSENT protocol stays, because `fairnessReport` owns it and states it back.
+    if (protocolParam && !isProtocolId(protocolParam)) return error(reply, 400, `unknown-protocol: ${protocolParam}`);
     const protocol: ProtocolId = protocolParam && isProtocolId(protocolParam) ? protocolParam : 'anemia';
 
     if (dimension) {
