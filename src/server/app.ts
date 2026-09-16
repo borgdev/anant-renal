@@ -77,6 +77,9 @@ import { registerOpsConfigRoutes } from './ops-config-routes.js';
 import { registerFhirIntegrationRoutes } from './fhir-integration-routes.js';
 import { registerPackRoutes, type PackRouteContribution, type PackRouteDeps, type PackRouteExtra, type PackWithContributions } from '../control-plane/pack-contributions.js';
 import { appliedPatients, registerSpecialtyApplyGate } from './specialty-apply.js';
+import { registerCrossPackRoutes } from './cross-pack-routes.js';
+import { crossPackRouterFromManifests, setCrossPackRouter } from '../control-plane/cross-pack-workflows.js';
+import { loadPackManifests } from '../control-plane/pack-manifest.js';
 import { eventProjection } from './platform-projections.js';
 import { registerCohortRoutes } from './cohort-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
@@ -501,6 +504,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     (deps.packs ?? []) as readonly PackWithContributions[],
     packRouteDepsFor,
   );
+
+  // G3 — a cross-pack hand-off runs only when every pack its definition involves
+  // declares it. Built from the INSTALLED manifests, so this reads what the packs
+  // agreed rather than what the platform once wrote down: the seed list used to be
+  // the router's only input, which is how a workflow no pack had ever declared
+  // would have fired, and how the whole surface stayed dead code nobody could see.
+  setCrossPackRouter(crossPackRouterFromManifests(loadPackManifests(process.cwd()).manifests));
+  await registerCrossPackRoutes(app, { installedPackIds: (deps.packs ?? []).map((p) => p.id) });
 
   // G6 — the `applied` gate. Registered AFTER the pack routes it governs, so the
   // hooks are in place for every specialty endpoint, and before anything that

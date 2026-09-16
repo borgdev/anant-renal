@@ -108,6 +108,15 @@ specialty:
       module: utilization-management.ts
       events: [prior-auth.submitted, coverage.active]
 
+    # Cross-pack participation (G3). Both sides declare the same id and name each
+    # other, which is the shape `pack-resources.ts` accepts as a supported
+    # duplicate — a workflow the two packs mutually declare is a connection, not a
+    # collision. One side alone would be refused as one-sided.
+    - id: x:hospitalization->payer-auth
+      cross_pack_with: [dialysis-provider, care-management]
+    - id: x:denied-auth->reschedule+appeal
+      cross_pack_with: [dialysis-provider]
+
   measures:
     - id: cms-0057-f:prior-auth-response
       module: cms-0057-f.ts

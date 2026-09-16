@@ -63,7 +63,7 @@ works as a pack, not as a product-specific code branch".
 | --- | --- | --- | --- | --- |
 | **G1** | A pack cannot contribute routes | Phase 3 exit criterion, Phase 4, Phase 5 | M–L (11 modules) | phase 1 done (`payer`) |
 | **G2** | Only one pack can be active at a time | Phase 6 deliverable 1 | M | **done** (the activation document was the last singular part) |
-| **G3** | Cross-pack workflows are dead code | Phase 4, Phase 6 | M | not started |
+| **G3** | Cross-pack workflows are dead code | Phase 4, Phase 6 | M | **done** (declared, declaration-driven, firing; step 4 for `audit` only, reported for the rest) |
 | **G4** | "Cross-pack" assurance enumerates renal packs in code | Phase 6 | S | **done** (both halves) |
 | **G5** | A pack cannot contribute a screen | Phase 5, Phase 6 | M | **contract + registry done**; renal views deliberately not migrated |
 | **G6** | A specialty applies everywhere it is installed | the "all customers want all specialities" requirement | M | **implemented** (slice 1) |
@@ -438,6 +438,45 @@ Steps:
    workflow, not just record intent.
 5. Pin it with a test that fires a hospitalization and asserts the payer episode
    exists — the current test only asserts the router can be constructed.
+
+#### G3 SHIPPED 2026-09-16 — declared, built from declarations, and firing
+
+Steps 1–3 are done; step 4 is done for `audit` and REPORTED for the other two.
+
+- **Declared.** `dialysis-provider`, `payer` and `care-management` now declare
+  `x:hospitalization->payer-auth` and `x:denied-auth->reschedule+appeal` with
+  mutual `cross_pack_with`, so the one-sided invariant has a non-empty input set
+  for the first time. **Two of the three were declared, not three** — see below.
+- **Built from declarations.** `crossPackRouterFromManifests()` seeds the router
+  from what the packs agreed, not from `seedCrossPackWorkflows`. A definition is
+  no longer enough to make a hand-off run. `notRunning` reports what did not make
+  it, with the reason, because "nobody declared it" and "declared but not agreed"
+  are different problems.
+- **Firing.** `handleCrossPackEvent()` routes a canonical event; `dev.ts` and
+  `bootstrap.ts` subscribe on the SAME stream the live feed consumes, and
+  `GET /admin/swarm/cross-pack` (exec-scoped, deliberately) serves what runs, what
+  cannot, and the bounded firing log. Verified live: 2 running, 1 undeclared.
+
+**The third workflow does not run, and that is the finding.**
+`x:oncology-plan->prior-auth` triggers on `oncology.plan-approved`, which is **not
+a canonical event type** in `src/healthcare-core/events.ts` and is declared by no
+pack's event contracts. Before this it would have fired anyway, because the seed
+list was the router's only input. It now reports `undeclared`, which is the honest
+state: the hand-off exists as an intention with no event to trigger it, and a
+reader of the old file would have counted three working orchestrations.
+
+**Step 4 is half done and says so.** `audit` has a handler (a structured line in
+the process log). `notify-pack` and `open-case` have none — they need a pack queue
+and a durable case opened through `OutcomeEpisodeCoordinator`, neither of which
+exists as a call path — so they are reported as `executed: false` **with their
+detail**, and the caller logs a warning per firing. An observability layer that
+recorded only successes would reproduce this gap's own defect: a hand-off that
+looks wired and does nothing.
+
+**One bug this found in itself.** The first `handleCrossPackEvent` pushed firings
+to the module log and never to its return value, so it always returned `[]` — a
+function shaped like it reports what happened, which never does. The test asserted
+the return value rather than the log, which is why it was caught.
 
 Note the third row names `oncology-provider`, a pack that **ships no manifest**.
 A cross-pack workflow pointing at an undeclared pack is exactly what step 1 makes
@@ -1170,7 +1209,7 @@ fixed or tracked.
 | 5 | ~~**G4** — assurance loops over installed packs~~ **DONE** (both halves: the declaration is pack-owned and the protocol vocabulary is open) | Follows G1 directly; makes the *Cross-pack assurance* claim true | S |
 | 6 | **G2** — activation becomes the list G6 requires | Subsumed by 3+4; the mechanism, not the design | S–M |
 | 7 | ~~**G5 + B** — view kinds and the manifest loader (one deliverable)~~ **DONE** — G5a (contract + registry; the renal views deliberately not migrated, they are page compositions) and B (the manifest loader, 23 manifests) | Removes the last per-specialty shell edit and the last place the platform names specialties | M |
-| 8 | **G3** — cross-pack workflows onto the manifests, then wired | The multi-specialty value proposition, currently dead code | M |
+| 8 | ~~**G3** — cross-pack workflows onto the manifests, then wired~~ **DONE** (two of three declared; the third triggers on an event type that does not exist) | The multi-specialty value proposition, which was dead code | M |
 | 9 | **Declare the renal protocol packs' surfaces** (ontology, measures, event contracts) | Makes the conformance matrix honest about 7 of the 12 partial packs; this is the real content of Phase 4 | M |
 | 10 | Manifests for the 9 packs that ship none | Cheap; closes a visible gap in the Pack Studio. Note one of them, `oncology-provider`, is already referenced by a cross-pack workflow (G3) | S |
 | 11 | Phase 6 governance, budgets, rollout | Needs 1–10 settled first | L |

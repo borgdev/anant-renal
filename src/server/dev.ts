@@ -87,6 +87,7 @@ import type { ActorContext } from './scoped-persistence.js';
 // replaced sixteen imports plus a hand-maintained array, which was the last place
 // introducing a specialty meant editing a platform file.
 import { loadInstalledPacks } from '../control-plane/pack-loader.js';
+import { crossPackRouterState, handleCrossPackEvent } from '../control-plane/cross-pack-workflows.js';
 
 /** Minimal in-memory stand-in for `PostgresEventStore` used by the app. */
 function inMemoryStore(): PostgresEventStore {
@@ -412,6 +413,38 @@ export async function main(): Promise<void> {
   // If no fresh scenario was started above, resume a previously-persisted fleet
   // (reloads/restarts bring the sim back with its realms + controls intact).
   await resumeSimulatorFleet(getSimulatorController(), sqlStore);
+
+  // G3 — the cross-pack hand-offs, on the SAME canonical stream everything else
+  // consumes. This is what turns the router from a data structure into behaviour:
+  // before it, three orchestrated hand-offs existed and none of them ran.
+  //
+  // Subscribed AFTER buildApp because the router is built from the installed
+  // manifests during registration — the packs decide which of them run.
+  const crossPack = crossPackRouterState();
+  if (crossPack) {
+    await broker.subscribe(
+      { topic: config.eventBrokerTopic, source: 'dev-cross-pack', eventType: ALL_TYPES, subjectPath: 'subjectId' },
+      async (msg) => {
+        const e = decodeCanonicalEvent(msg.value);
+        if (!e) return;
+        // Only `audit` has a handler. The other two actions are REPORTED as not
+        // executed rather than silently dropped: opening a durable case and
+        // enqueueing a target pack's workflow need the coordinator and a pack
+        // queue that do not exist yet, and a log that recorded only successes
+        // would reproduce the very defect this gap is about — a hand-off that
+        // looks wired and does nothing.
+        const fired = handleCrossPackEvent(crossPack.router, { type: e.type, id: e.id }, {
+          onAudit: (action, workflow) => telemetry.log('info', `cross-pack ${workflow.id}: ${action.action}`, { attributes: { eventId: e.id } }),
+        });
+        for (const f of fired) {
+          const skipped = f.outcomes.filter((o) => !o.executed);
+          if (skipped.length > 0) {
+            telemetry.log('warn', `cross-pack ${f.workflowId}: ${skipped.length} action(s) declared but not executed`, { attributes: { actions: skipped.map((s) => `${s.kind}:${s.detail}`).join('; ') } });
+          }
+        }
+      },
+    );
+  }
 
   telemetry.log('info', `${durable ? `durable postgres store (${durable.database}/${durable.schema})` : 'IN-MEMORY store (not durable)'} + ${bus.driverName()} job bus + ${broker.driver} event broker (${config.eventBrokerTopic})`, {});
   telemetry.log('info', 'admin UI routes: /admin/*  ·  health: /health  ·  packs: /packs', {});

@@ -22,3 +22,12 @@ required_controls:
   - audit-provenance
   - data-quality
   - sla-monitor
+
+# A specialty block that declares exactly one thing: participation in a cross-pack
+# workflow. The pack ships no ontology, measures or lens, and inventing those here
+# would turn "declares nothing else" into a claim. Declaring only what exists is
+# the reason the conformance matrix can be trusted when it says a pack is partial.
+specialty:
+  workflows:
+    - id: x:hospitalization->payer-auth
+      cross_pack_with: [dialysis-provider, payer]

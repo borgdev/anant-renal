@@ -141,6 +141,22 @@ specialty:
       module: labs/index.ts
       events: [lab.result-arrived]
 
+    # Cross-pack participation (G3). `pack-resources.ts` has always refused a
+    # workflow declared by ONE side only — "one side believes it is connected and
+    # the other has never heard of it" — but no manifest declared any of these, so
+    # the check passed over an EMPTY set. Declaring them is what makes the
+    # invariant refer to the workflows the router actually serves.
+    #
+    # Note what is NOT here. `x:oncology-plan->prior-auth` triggers on
+    # `oncology.plan-approved`, which is not a canonical event type in
+    # `src/healthcare-core/events.ts` and is declared by no pack's event contracts.
+    # Declaring it would be a claim with no source, so it stays undeclared — and
+    # the router, which is built from declarations, therefore does not run it.
+    - id: x:hospitalization->payer-auth
+      cross_pack_with: [payer, care-management]
+    - id: x:denied-auth->reschedule+appeal
+      cross_pack_with: [payer]
+
   measures:
     - id: esrd-qip:ktv
       module: measures/esrd-qip.ts

@@ -68,6 +68,7 @@ import { buildApp } from './app.js';
 // started here, so a background timer is a decision the entry point makes.
 import { getProposalSweeper } from '../fhir/routes.js';
 import { loadInstalledPacks } from '../control-plane/pack-loader.js';
+import { crossPackRouterState, handleCrossPackEvent } from '../control-plane/cross-pack-workflows.js';
 import type { ActorContext } from './scoped-persistence.js';
 import { LocalUserStore, seedDefaultUsers, SessionManager, sessionActorResolver, sqlSessionPersistence, sqlUserPersistence } from './auth/index.js';
 import type { FastifyRequest } from 'fastify';
@@ -237,6 +238,32 @@ export async function main(): Promise<void> {
 
   const address = await app.listen({ port: cfg.httpPort, host: cfg.httpHost });
   telemetry.log('info', `harness listening on ${address}`, {});
+
+  // G3 — cross-pack hand-offs, on the same canonical stream. Subscribed AFTER
+  // buildApp because the router is built from the installed manifests during
+  // registration: the packs decide which hand-offs run, not this file.
+  const crossPack = crossPackRouterState();
+  if (crossPack) {
+    await broker.subscribe(
+      { topic: cfg.eventBrokerTopic, source: 'bootstrap-cross-pack', eventType: ALL_TYPES, subjectPath: 'subjectId' },
+      async (msg) => {
+        const e = decodeCanonicalEvent(msg.value);
+        if (!e) return;
+        // Only `audit` has a handler; the other actions are reported as not
+        // executed rather than dropped, because a hand-off that looks wired and
+        // does nothing is the defect this gap is about.
+        const fired = handleCrossPackEvent(crossPack.router, { type: e.type, id: e.id }, {
+          onAudit: (action, workflow) => telemetry.log('info', `cross-pack ${workflow.id}: ${action.action}`, { attributes: { eventId: e.id } }),
+        });
+        for (const f of fired) {
+          const skipped = f.outcomes.filter((o) => !o.executed);
+          if (skipped.length > 0) {
+            telemetry.log('warn', `cross-pack ${f.workflowId}: ${skipped.length} action(s) declared but not executed`, { attributes: { actions: skipped.map((s) => `${s.kind}:${s.detail}`).join('; ') } });
+          }
+        }
+      },
+    );
+  }
 
   // F9.3 — start the proposal expiry sweeper. Registering the FHIR surface built
   // it; nothing retires a stale machine draft until something starts the timer.
