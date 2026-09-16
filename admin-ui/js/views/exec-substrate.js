@@ -63,7 +63,7 @@ export async function cfgObjectsBody() {
   body.innerHTML = `
     ${err ? `<div class="state-card"><div class="state-title">${esc(err)}</div></div>` : ''}
     <div class="field-row" style="margin-bottom:12px;">
-      <div class="field"><label>Catalog</label><select id="ws-cat-kind" onchange="wsCatKind=this.value;wsCatalogBody()">${WS_CATALOG_KINDS.map((k) => `<option value="${k}" ${k === wsCatKind ? 'selected' : ''}>${k}</option>`).join('')}</select></div>
+      <div class="field"><label>Catalog</label><select id="ws-cat-kind" onchange="wsCatalogKind(this.value)">${WS_CATALOG_KINDS.map((k) => `<option value="${k}" ${k === wsCatKind ? 'selected' : ''}>${k}</option>`).join('')}</select></div>
       <div class="field" style="flex:1;"><label>JSON payload</label><input id="ws-cat-json" placeholder='{"name":"New item"}'></div>
       <button class="btn btn-primary" onclick="wsCatalogCreate()"><i data-lucide="plus"></i> Add row</button>
       <button class="btn" onclick="cfgObjectsBody()"><i data-lucide="refresh-cw" style="width:13px;height:13px"></i> Refresh</button></div>
@@ -79,6 +79,23 @@ export let wsCatEditIndex = -1;
 export let wsCatIsSingle = false;
 
 export let wsCatKind = 'agent-manifest';
+
+/**
+ * The Catalog kind selector.
+ *
+ * Exposed on `window` because an inline handler runs in GLOBAL scope, which made
+ * the previous version inert twice over: `wsCatalogBody()` was never a name at
+ * all (the renderer is `cfgObjectsBody`), so the change threw; and a bare
+ * `wsCatKind = this.value` assigns a GLOBAL, leaving this module's binding
+ * untouched, so the selection would not have taken effect even with the right
+ * function name. Both are the module-split failure mode — a handler loses the
+ * module scope it used to share — and neither is visible until someone uses the
+ * control.
+ */
+window.wsCatalogKind = async function wsCatalogKind(value) {
+  wsCatKind = value;
+  await cfgObjectsBody();
+};
 
 export let wsCatRows = [];
 

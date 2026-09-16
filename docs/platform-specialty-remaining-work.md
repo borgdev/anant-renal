@@ -66,7 +66,7 @@ works as a pack, not as a product-specific code branch".
 | **G3** | Cross-pack workflows are dead code | Phase 4, Phase 6 | M | not started |
 | **G4** | "Cross-pack" assurance enumerates renal packs in code | Phase 6 | S | not started |
 | **G5** | A pack cannot contribute a screen | Phase 5, Phase 6 | M | not started |
-| **G6** | A specialty applies everywhere it is installed | the "all customers want all specialities" requirement | M | not started |
+| **G6** | A specialty applies everywhere it is installed | the "all customers want all specialities" requirement | M | **implemented** (slice 1) |
 
 Dependency order: **G1 → (G4, G5)**; **G2 ↔ G6** (they are the same subsystem seen twice — G2 is the symptom, G6 is the resolved model); **G2 → G3**. G1 is the only gap that must go first.
 
@@ -497,6 +497,63 @@ signal. The leaning is: the endpoint exists and returns a scope-limited answer
 ("no patients in scope"), because the pack *is* installed — and `show` handles
 the console.
 
+#### G6 implementation — slice 1 SHIPPED (the model, the wire, the console)
+
+What exists now:
+
+- **`src/control-plane/specialty-bindings.ts`** (NEW, pure — no I/O, no store, no
+  swarm import, so it runs at boot, in a route and in a test). Exports
+  `SpecialtyBindingLike`, `resolveSpecialtyBindings`, `bindingMatchesViewer`,
+  `shownSpecialties`, `bindingIssues`, `hasBlockingBindingIssue`, and the one
+  `specialtyBindingId` / `parseSpecialtyBindingId` pair.
+- **Durable kind `specialty-binding`** (a LIST) + `listSpecialtyBindings` /
+  `saveSpecialtyBinding` / `removeSpecialtyBinding`. The id is **derived from
+  (scope, packId)**, so "one binding per scope per pack" is structural rather
+  than something a validator must catch afterwards.
+- **Routes**: `GET/PUT/DELETE /admin/platform/specialty-bindings`. Blocking
+  problems (`pack-not-installed`, `invalid-scope`, `duplicate-scope-and-pack`)
+  are refused with 400 and their reasons; soft ones (`show-without-applied`,
+  `applied-without-entitled`) are **recorded and returned**, because refusing to
+  store a trial licence would push an operator to claim one they do not have.
+- **`/api/context`** now returns `packs: ResolvedSpecialty[]` (applied,
+  appliedScopes, show, entitled, primary, reason, decisions) and derives
+  `viewGroups` and the leading lens from the resolution. `pack` and `viewGroups`
+  keep their existing shapes, so **no exec-app change was needed**.
+- **admin-ui** → Platform → **Specialty bindings**: the three flags as three
+  separate controls, the resolved view *for the caller* (because the same config
+  resolves differently for a different operator), and a red **`computes, hidden`**
+  pill on the one combination that is dangerous rather than merely off.
+
+Four decisions that are load-bearing:
+
+1. **Bindings are OVERRIDES, not a switch to opt-in.** A pack with no binding
+   keeps the pre-G6 behaviour (installed ⇒ applied and shown, legacy activation
+   leads). Read the other way, adding one binding for one pack would dark every
+   other specialty in the deployment.
+2. **`scope:*` means two different things on the two sides** — as a BINDING it
+   means "for everyone" (matches any viewer); as a VIEWER's scope it means
+   "unscoped" (matches any binding). The first draft implemented only the second,
+   so a global rule resolved for super-admins alone: correct in a test written
+   from the super-admin seat, wrong for every other operator.
+3. **The resolver does not invent a leader.** With several packs shown and none
+   claiming `primary`, it returns none. "First in installed order" looks harmless
+   and elects `healthcare-core` — the substrate, which is not a specialty — at
+   exactly the moment the deployment has expressed no preference. It promotes only
+   a *sole* shown pack; otherwise the caller's own fallback (the organization's
+   operating model) decides.
+4. **`applied` is enforced where the platform hands patients to a pack** — the
+   `PackRouteDeps.patients` seam in G1 phase 2. The platform owns that projection,
+   so it owns the filtering; until that lands, `applied` is reported and scoped
+   but not yet enforced. This is the explicit hand-off between G6 and G1.
+
+**Still open in G6:** per-scope enforcement of `applied` at the patient seam
+(G1 phase 2, above); `entitled` is recorded but not enforced, because there is no
+licensing source to enforce against yet; and a facility- or region-level binding
+only resolves for actors whose `scopeIds` carry that scope — today
+`LocalUserStore` defaults to `['scope:*']`, so a deployment wanting per-site
+specialty configuration must provision those scope ids first. That is a
+prerequisite, not a detail.
+
 ---
 
 ## 2a. The sweep: everywhere the platform names a specialty
@@ -739,6 +796,26 @@ fixed or tracked.
    plus a rebuilt exec-app dist. The fix is to move the routes to
    `/admin/swarm/assurance/*` (exec-scoped), which matches the namespace rule
    rather than adding an exception to it — the page *is* an exec surface.
+7. **`pack-activation` was in the `WorkspaceKind` union but missing from the
+   runtime `WORKSPACE_KINDS` array — so the Pack Studio's activation was written
+   durably and never loaded back.** `hydrate()` walks that array and it is the
+   only thing that populates the in-memory maps, while `list()`/`get()` read the
+   maps — so `activePack()` returned `undefined` after every restart and the
+   console silently forgot which lens was active. **Fixed**, and this is the
+   SECOND occurrence (`cohort-decision` was the first, whose declines were
+   forgotten). `tests/workspace-kinds.test.ts` (NEW) now parses both lists out of
+   the source and fails if they ever disagree — the union is a type and has no
+   runtime representation to compare against, which is why this was found by hand
+   twice and is now found by a machine.
+8. **The Catalog kind selector in the exec-substrate console was inert, and
+   threw.** Found by a new inline-handler checker while validating G6's own panel.
+   `onchange="wsCatKind=this.value;wsCatalogBody()"` had two faults, both the
+   module-split failure mode: `wsCatalogBody` **is not defined anywhere** (the
+   renderer is `cfgObjectsBody`), and a bare `wsCatKind = this.value` assigns a
+   GLOBAL — the real binding is `export let wsCatKind` in the module, so the
+   selection would not have taken effect even with the right function name.
+   **Fixed** via a `window.wsCatalogKind(value)` handler that sets the module
+   binding and re-renders.
 
 ---
 
@@ -748,8 +825,8 @@ fixed or tracked.
 | --- | --- | --- | --- |
 | 1 | ~~**G1 phase 1** — define the route contribution, migrate one pack~~ **DONE** (`payer`) | Unblocked Phase 3's exit criterion and Phase 4's | S–M |
 | 2 | ~~**Sweep for every name-enumerated specialty**~~ **DONE** (§2a; found a live defect and fixed it) | "Just add a route" understates it; the contribution surfaces are plural | S |
-| 3 | **G6** — the specialty binding model (`applied` / `show` / `entitled`, resolved by scope) | This is the product requirement ("all customers want all specialities", one artifact and N configs). It reframes G2, so it must be decided before activation becomes a list | M |
-| 4 | **G1 phase 2** — migrate the remaining specialty route modules | Now **mandatory**, not merely valuable: G6's install-all makes hand-written registration the thing the config is supposed to own. First settle `PackRouteDeps.patients`, relocate `renalPatientInputs` out of `renal-cohort.ts`, and fix the assurance namespace (§4.6) | M–L |
+| 3 | ~~**G6** — the specialty binding model (`applied` / `show` / `entitled`, resolved by scope)~~ **DONE** (slice 1 — model, wire, console). Remaining: enforcement at the patient seam, below | This was the product requirement ("all customers want all specialities", one artifact and N configs), and it reframes G2 | M |
+| 4 | **G1 phase 2** — migrate the remaining specialty route modules | Now **mandatory**, not merely valuable: G6's install-all makes hand-written registration the thing the config is supposed to own. First settle `PackRouteDeps.patients` (which is also where G6's `applied` gets enforced), relocate `renalPatientInputs` out of `renal-cohort.ts`, and fix the assurance namespace (§4.6) | M–L |
 | 5 | **G4** — assurance loops over installed packs | Follows G1 directly; makes the *Cross-pack assurance* claim true | S |
 | 6 | **G2** — activation becomes the list G6 requires | Subsumed by 3+4; the mechanism, not the design | S–M |
 | 7 | **G5 + B** — view kinds and the manifest loader (one deliverable) | Removes the last per-specialty shell edit and the last place the platform names specialties | M |

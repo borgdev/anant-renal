@@ -100,6 +100,15 @@ import { validateSpecialtyPack, conformanceMatrix, platformBoundary, SPECIALTY_C
 import { loadPackManifests, manifestAsDomainPack, manifestAsSpecialtySections, manifestDrift, type PackManifest } from '../control-plane/pack-manifest.js';
 import { buildResourceRegistry, resourceReportFor, resourcesByKind, type ResourceRegistry } from '../control-plane/pack-resources.js';
 import { buildHardeningReport, boundWriteKinds, type PlatformHardeningInput } from '../control-plane/platform-hardening.js';
+import {
+  resolveSpecialtyBindings,
+  bindingIssues,
+  hasBlockingBindingIssue,
+  specialtyBindingId,
+  isUsableBindingScope,
+  type SpecialtyBindingLike,
+  type ResolvedSpecialty,
+} from '../control-plane/specialty-bindings.js';
 
 export interface PlatformRouteOptions {
   /** Live realm snapshots (for scope/aggregate badges on context + work). */
@@ -1038,58 +1047,70 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
     } = { id: 'healthcare.renal-enterprise', lens: 'provider' };
     let aggregates: Record<string, number> = {};
     /**
-     * The specialty submenu, grouped by the pack that declares it.
+     * The specialty submenu, grouped by the pack that declares it — and, from G6,
+     * filtered by what the configuration says is SHOWN.
      *
-     * Built from the INSTALLED set rather than from the active lens, because a
+     * Built from the INSTALLED set rather than from the leading lens, because a
      * deployment is not one specialty: a dialysis organisation with a CKD
      * programme and a payer contract has all three installed at once, and a
      * submenu that only showed the primary one would hide two thirds of the
-     * product. The active lens marks its group `primary` — that is a display
-     * decision (which group leads, which terminology applies), not a filter.
+     * product. What the installed set could not express was "installed here, not
+     * shown here", which is what a binding supplies.
      *
      * A pack that declares no views contributes no group, which is how a payer
      * lens correctly has none: it has no chart-side pages to offer.
      */
     let viewGroups: { packId: string; label: string; primary: boolean; views: readonly { id: string; label: string }[] }[] = [];
+    let resolvedPacks: ResolvedSpecialty[] = [];
     try {
+      // ONE manifest resolution per request. `packResolution()` reads and parses
+      // every `packs/*/manifest.yaml`, and this handler used to call it twice.
       const snapshot = packResolution();
-      const active = await w.activePack();
+      const installedPackIds = (opts.packs ?? []).map((p) => p.id);
+      const legacy = await w.activePack();
+      resolvedPacks = resolveSpecialtyBindings({
+        bindings: await w.listSpecialtyBindings(),
+        installedPackIds,
+        // An anonymous caller (the login screen) has no scopes, so it resolves the
+        // global rules and nothing scoped. That is the same surface /api/context
+        // already had: pack + viewGroups, with consoles and navigation empty.
+        viewerScopeIds: user?.scopeIds ?? [],
+        ...(legacy?.packId ? { legacyActivePackId: legacy.packId } : {}),
+      });
+      const stateByPack = new Map(resolvedPacks.map((r) => [r.packId, r]));
+
       viewGroups = (opts.packs ?? []).flatMap((p) => {
+        const state = stateByPack.get(p.id);
+        if (state && !state.show) return [];
         const lens = declaredLens(snapshot, p.id);
         const views = lens?.views ?? [];
         if (!views.length) return [];
-        return [{
-          packId: p.id,
-          label: lens?.label ?? p.id,
-          primary: active?.packId === p.id,
-          views,
-        }];
+        return [{ packId: p.id, label: lens?.label ?? p.id, primary: state?.primary === true, views }];
       });
-    } catch { /* a broken manifest must not take the context down */ }
-    try {
-      // Pack Studio activation wins over the operating-model default: activating
-      // a domain pack durably flips pack.id + lens (`POST /admin/platform/packs/:id/activate`).
-      const active = await w.activePack();
-      if (active && opts.packs?.some((p) => p.id === active.packId)) {
-        const resolved = opts.packs.find((p) => p.id === active.packId)!;
-        const snapshot = packResolution();
+
+      // Which lens leads is now a RESOLVED display decision rather than a lookup
+      // of the single activation document. `pack-activation` still decides it for
+      // any pack no binding mentions, so this changes nothing until an operator
+      // writes a binding.
+      const leadingPack = (opts.packs ?? []).find((p) => stateByPack.get(p.id)?.primary);
+      if (leadingPack) {
         // Phase 3 close-out — the manifest is the SOURCE of the pack's metadata,
         // not merely a file that gets compared to it. Where a pack ships a
         // manifest, the runtime resolves what the pack declares.
-        const effective = packUnderContract(snapshot, resolved);
-        // Phase 3 — the LENS is the pack's, not the shell's. Whatever the active
+        const effective = packUnderContract(snapshot, leadingPack);
+        // Phase 3 — the LENS is the pack's, not the shell's. Whatever the leading
         // pack declares here is what the console renders, so a specialty arrives
         // through registration with no code change per specialty.
-        const lensSection = declaredLens(snapshot, resolved.id);
+        const lensSection = declaredLens(snapshot, leadingPack.id);
         pack = {
           id: effective.id,
           lens: lensForPack(effective),
           ...(lensSection?.label ? { label: lensSection.label } : {}),
           ...(lensSection?.terminology ? { terminology: lensSection.terminology } : {}),
           // Phase 3 close-out — the VIEWS are the lens's. The shell renders what
-          // the active lens surfaces, so one specialty's pages cannot appear in
-          // another's console. An empty list is a real answer: a lens with no
-          // clinical views renders no specialty strip at all.
+          // the lens surfaces, so one specialty's pages cannot appear in another's
+          // console. An empty list is a real answer: a lens with no clinical views
+          // renders no specialty strip at all.
           ...(lensSection?.views ? { views: lensSection.views } : {}),
         };
       } else {
@@ -1104,6 +1125,11 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
       role: role ?? null,
       consoles,
       pack,
+      // G6 — the resolved specialty set for this caller: per pack, whether it is
+      // APPLIED (and at which scopes), SHOWN, ENTITLED, and which one leads. The
+      // shell reads `viewGroups` to draw the submenu; this is the same decision
+      // with its reasons attached, for anything that needs to explain itself.
+      packs: resolvedPacks,
       // The submenu the shell renders: every installed pack's group, so a
       // specialist's protocols appear alongside the primary specialty's rather
       // than instead of them.
@@ -1571,6 +1597,113 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
   app.post<{ Body: { by?: string } }>('/admin/platform/packs/deactivate', async () => {
     await ws().deactivatePack();
     return { ok: true };
+  });
+
+  /* ---------- G6 — specialty bindings (applied / shown / entitled, per scope) ----------
+   *
+   * `pack-activation` answers one question for one pack. These answer three for
+   * a set: does a specialty EVALUATE this population, does the console SHOW it,
+   * and is the customer LICENSED for it. A configuration that could only answer
+   * the middle one would let an operator hide a specialty that was still
+   * computing against real patients, with no surface on which anyone could see it.
+   * ------------------------------------------------------------------------- */
+
+  // GET /admin/platform/specialty-bindings — the configuration, its health, and
+  // what it resolves to FOR THE CALLER. The resolution is included because the
+  // question an operator actually has is "what does this do to me, right now",
+  // and a console that showed only the raw rows would leave them to work it out.
+  app.get('/admin/platform/specialty-bindings', async (req) => {
+    const w = ws();
+    const installed = (opts.packs ?? []).map((p) => p.id);
+    const bindings = await w.listSpecialtyBindings();
+    const viewerScopeIds = sessionUser(req)?.scopeIds ?? [];
+    const legacy = await w.activePack();
+    return {
+      bindings,
+      issues: bindingIssues(bindings, installed),
+      installed,
+      // Every scope any binding mentions, plus the viewer's own — enough for a
+      // console to offer a picker without inventing a scope vocabulary of its own.
+      scopes: Array.from(new Set([...bindings.map((b) => b.scope), ...viewerScopeIds])).sort(),
+      viewerScopeIds,
+      resolved: resolveSpecialtyBindings({
+        bindings,
+        installedPackIds: installed,
+        viewerScopeIds,
+        ...(legacy?.packId ? { legacyActivePackId: legacy.packId } : {}),
+      }),
+    };
+  });
+
+  // PUT /admin/platform/specialty-bindings — upsert one binding, keyed on
+  // (scope, pack). Rejected when the set it would produce is one that cannot do
+  // what it appears to do: a pack nobody installed, an unusable scope, a
+  // duplicate row. Soft problems (shown but not applied, applied without an
+  // entitlement) are RETURNED rather than refused — refusing to record a trial
+  // licence would push an operator to claim one they do not have.
+  app.put<{
+    Body: {
+      scope?: string;
+      packId?: string;
+      applied?: boolean;
+      show?: boolean;
+      entitled?: boolean;
+      primary?: boolean;
+      by?: string;
+      note?: string;
+    };
+  }>('/admin/platform/specialty-bindings', async (req, reply) => {
+    const w = ws();
+    const installed = (opts.packs ?? []).map((p) => p.id);
+    const body = req.body ?? {};
+    const scope = typeof body.scope === 'string' ? body.scope.trim() : '';
+    const packId = typeof body.packId === 'string' ? body.packId.trim() : '';
+    if (!scope || !packId) return reply.code(400).send({ error: 'scope-and-pack-required', scope, packId });
+    if (!isUsableBindingScope(scope)) return reply.code(400).send({ error: 'invalid-scope', scope });
+
+    const draft: SpecialtyBindingLike = {
+      id: specialtyBindingId(scope, packId),
+      scope,
+      packId,
+      applied: body.applied === true,
+      show: body.show === true,
+      entitled: body.entitled === true,
+      ...(typeof body.primary === 'boolean' ? { primary: body.primary } : {}),
+    };
+
+    // Validate against the set as it will BE, not as it is: the upsert replaces
+    // this key, so checking the raw list would report a binding's own previous
+    // version as a duplicate of itself and refuse every edit.
+    const others = (await w.listSpecialtyBindings()).filter((b) => b.id !== draft.id);
+    const issues = bindingIssues([...others, draft], installed);
+    if (hasBlockingBindingIssue(issues)) {
+      return reply.code(400).send({
+        error: 'binding-invalid',
+        issues: issues.filter((i) => i.blocking),
+        detail: 'This binding would not do what it appears to do.',
+      });
+    }
+
+    const saved = await w.saveSpecialtyBinding({
+      scope,
+      packId,
+      applied: draft.applied,
+      show: draft.show,
+      entitled: draft.entitled,
+      ...(draft.primary !== undefined ? { primary: draft.primary } : {}),
+      by: body.by?.trim() || 'platform-admin',
+      ...(body.note ? { note: body.note } : {}),
+    });
+    return { ok: true, binding: saved, issues };
+  });
+
+  // DELETE /admin/platform/specialty-bindings/:id — remove one override. The pack
+  // returns to the install-or-not behaviour, which the response says out loud so
+  // "I deleted it" is not mistaken for "it is now off".
+  app.delete<{ Params: { id: string } }>('/admin/platform/specialty-bindings/:id', async (req, reply) => {
+    const removed = await ws().removeSpecialtyBinding(req.params.id);
+    if (!removed) return reply.code(404).send({ error: 'binding-not-found', id: req.params.id });
+    return { ok: true, note: 'The pack now follows the install default: applied and shown until another binding says otherwise.' };
   });
 
   /* ---------- Phase 0 — the platform ⇄ specialty contract ---------- */

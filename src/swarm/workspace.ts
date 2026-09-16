@@ -72,6 +72,9 @@ import type { CapabilityReport, CapabilityStatementSummary } from '../fhir/capab
 import type { IdentifierSystem, IdentityLinkStore, PatientCrossReference } from '../fhir/identity.js';
 import type { FhirProposal, ProposalFilter, ProposalLifecycle, ProposalStore } from '../fhir/proposal.js';
 import { OPEN_PROPOSAL_LIFECYCLES } from '../fhir/proposal.js';
+// The one builder for a binding's derived id lives with the resolution logic, so
+// the writing and the reading of that key cannot drift apart.
+import { specialtyBindingId } from '../control-plane/specialty-bindings.js';
 
 export type WorkspaceKind =
   | 'red-team-scenario'
@@ -137,6 +140,11 @@ export type WorkspaceKind =
      an import/export artifact. */
   | 'agent-spec'
   | 'pack-activation'
+  /* G6 — where a specialty APPLIES and where it is SHOWN, per scope. A LIST kind,
+     because a deployment is not one specialty: `pack-activation` above can only
+     ever name one pack, and it conflated three separate questions (which packs
+     compute, which lens renders, which one the customer bought). */
+  | 'specialty-binding'
   | 'esa-validation-report'
   | 'esa-study-record'
   | 'esa-mdr-file'
@@ -866,11 +874,44 @@ function normaliseKeyPart(value: string): string {
 }
 
 /** Durable Pack Studio activation — which installed domain pack drives the
- *  exec lens (`/api/context`). Single-doc kind (`pack-activation`). */
+ *  exec lens (`/api/context`). Single-doc kind (`pack-activation`).
+ *
+ *  Superseded by `specialty-binding` below as the deployment grows past one
+ *  specialty; it survives as the FALLBACK for any pack no binding mentions, so
+ *  introducing bindings changes nothing until an operator writes one. */
 export interface PackActivation extends WorkspaceDoc {
   packId: string;
   at: string;
   by: string;
+}
+
+/**
+ * G6 — where a specialty APPLIES and where it is SHOWN, per scope.
+ *
+ * A list kind, and the three flags are separate on purpose. `silent-mode` already
+ * sets the precedent that COMPUTING and SURFACING are different claims; a
+ * specialty that is applied but not shown computes against real patients with no
+ * surface on which anyone could notice, which is the dangerous direction and the
+ * reason `applied` is not derived from `show`.
+ */
+export interface SpecialtyBindingDoc extends WorkspaceDoc {
+  /** An element of the actor's scope vocabulary, or `scope:*` for every scope. */
+  scope: string;
+  packId: string;
+  /** Does this pack evaluate this population? Enforced where the platform hands
+   *  patients to a pack — the platform owns that projection, so it owns this. */
+  applied: boolean;
+  /** Does the console render this lens? */
+  show: boolean;
+  /** Is this customer licensed for it? Recorded, not enforced, until there is a
+   *  licensing source to enforce against. */
+  entitled: boolean;
+  /** Which lens leads when several are shown. A display decision only — it never
+   *  decides what exists. */
+  primary?: boolean;
+  by: string;
+  note?: string;
+  at: string;
 }
 
 /** A durable human decision over a ranked next-best action (NBA). */
@@ -2432,6 +2473,57 @@ export class SwarmWorkspaceStore {
     if (existing) await this.remove('pack-activation', existing.id);
   }
 
+  /* ---------- G6 — specialty bindings (applied / shown / entitled, per scope) ---------- */
+
+  async listSpecialtyBindings(): Promise<SpecialtyBindingDoc[]> {
+    return this.list<SpecialtyBindingDoc>('specialty-binding');
+  }
+
+  /**
+   * Upsert one binding.
+   *
+   * The id is DERIVED from (scope, packId) rather than supplied, so "one binding
+   * per scope per pack" is structural: there is no way to write the duplicate
+   * that `bindingIssues` would otherwise have to catch after the fact. The same
+   * reasoning as building a cohort's work id in one place instead of at each call
+   * site.
+   */
+  async saveSpecialtyBinding(input: {
+    scope: string;
+    packId: string;
+    applied: boolean;
+    show: boolean;
+    entitled: boolean;
+    primary?: boolean;
+    by: string;
+    note?: string;
+  }): Promise<SpecialtyBindingDoc> {
+    const scope = input.scope.trim();
+    const packId = input.packId.trim();
+    const id = specialtyBindingId(scope, packId);
+    const doc: Omit<SpecialtyBindingDoc, 'id' | 'createdAt' | 'updatedAt'> = {
+      scope,
+      packId,
+      applied: input.applied,
+      show: input.show,
+      entitled: input.entitled,
+      ...(input.primary !== undefined ? { primary: input.primary } : {}),
+      by: input.by.trim() || 'platform-admin',
+      ...(input.note ? { note: input.note } : {}),
+      at: this.now(),
+    };
+    const existing = await this.get<SpecialtyBindingDoc>('specialty-binding', id);
+    if (existing) {
+      await this.update<SpecialtyBindingDoc>('specialty-binding', id, doc);
+      return { ...existing, ...doc };
+    }
+    return this.create<SpecialtyBindingDoc>('specialty-binding', id, doc);
+  }
+
+  async removeSpecialtyBinding(id: string): Promise<boolean> {
+    return this.remove('specialty-binding', id);
+  }
+
   /** Verified-value rollup (Journey N): resolved outcome episodes with a met
    *  measure result — value, not activity counts. */
   async verifiedOutcomes(coordEpisodes: Array<{ kind: string; state: string; measureResult?: { measureId: string; met: boolean } }>): Promise<{
@@ -3434,6 +3526,13 @@ export const WORKSPACE_KINDS: readonly WorkspaceKind[] = [
   'delegated-work',
   'vendor-certification',
   'agent-spec',
+  // `pack-activation` was in the WorkspaceKind UNION but missing from this list,
+  // and this list is what `hydrate()` walks — so the row was written durably and
+  // never loaded back. `activePack()` returned undefined after every restart and
+  // the Pack Studio silently forgot which lens was active. Same defect class as
+  // the missing `cohort-decision`; `tests/workspace-kinds.test.ts` now guards it.
+  'pack-activation',
+  'specialty-binding',
   'esa-validation-report',
   'esa-study-record',
   'esa-mdr-file',

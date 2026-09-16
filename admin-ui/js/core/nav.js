@@ -97,6 +97,7 @@ export const NAV = [
   { section: 'Platform', icon: 'server', tabbed: true, items: [
     { view: 'platform-admin', icon: 'compass', label: 'Platform admin' },
     { view: 'platform-config', icon: 'sliders-horizontal', label: 'Configuration studio' },
+    { view: 'platform-bindings', icon: 'plug', label: 'Specialty bindings' },
     { view: 'platform-cohorts', icon: 'layers', label: 'Living cohorts', count: 'c-cohorts' },
     { view: 'platform-agents', icon: 'eye', label: 'Observer studio' },
     { view: 'platform-assurance', icon: 'shield-check', label: 'AI Assurance' },
