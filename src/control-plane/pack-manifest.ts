@@ -122,6 +122,17 @@ export interface PackManifest {
   readonly cmsUniverse: readonly { readonly id: string; readonly title: string; readonly authority: string }[];
   readonly requiredControls: readonly string[];
   readonly specialty: PackManifestSpecialty;
+  /**
+   * The module a loader imports to obtain the pack, relative to the pack
+   * directory (option B in the remaining-work analysis).
+   *
+   * Declared rather than inferred so the manifest is the thing that says where a
+   * specialty's code lives — a loader that guessed `index.ts` would work for every
+   * pack that already exists and fail for the first one that is arranged
+   * differently, which is the shape of assumption that makes "a specialty is a
+   * folder" untrue in practice.
+   */
+  readonly entry: string;
   /** Repository-relative path of the file this came from. */
   readonly path: string;
 }
@@ -398,6 +409,7 @@ function toManifest(packId: string, path: string, raw: Record<string, unknown>):
     cmsUniverse: normaliseCmsUniverse(raw['cms_universe'] ?? raw['cmsUniverse']),
     requiredControls: strList(raw['required_controls'] ?? raw['requiredControls']),
     specialty: normaliseSpecialty(raw['specialty'] ?? raw),
+    entry: str(raw['entry']) ?? 'index.ts',
     path,
   };
 }

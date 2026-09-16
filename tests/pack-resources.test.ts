@@ -66,6 +66,7 @@ function manifest(id: string, specialty: PackManifestSpecialty, extra: Partial<P
     cmsUniverse: [],
     requiredControls: ['access-policy'],
     specialty,
+    entry: 'index.ts',
     path: `packs/${id}/manifest.yaml`,
     ...extra,
   };

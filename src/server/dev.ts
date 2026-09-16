@@ -82,22 +82,11 @@ import type { PostgresEventStore } from './postgres-event-store.js';
 import type { CanonicalEvent } from '../healthcare-core/events.js';
 import type { LedgerEntry } from '../hypergraph/ledger.js';
 import type { ActorContext } from './scoped-persistence.js';
-import { healthcareCorePack } from '../../packs/healthcare-core/index.js';
-import { behavioralHealthPack } from '../../packs/behavioral-health/index.js';
-import { oncologyDeepPack } from '../../packs/oncology-deep/index.js';
-import { homeHealthPack } from '../../packs/home-health/index.js';
-import { longTermCarePack } from '../../packs/long-term-care/index.js';
-import { radiologyPack } from '../../packs/radiology/index.js';
-import { edThroughputPack } from '../../packs/ed-throughput/index.js';
-import { revenueCyclePack } from '../../packs/revenue-cycle/index.js';
-import { hospitalAtHomePack } from '../../packs/hospital-at-home/index.js';
-import { dialysisProviderPack } from '../../packs/dialysis-provider/index.js';
-import { payerPack } from '../../packs/payer/index.js';
-import { ckdNavigationPack } from '../../packs/ckd-navigation/index.js';
-import { cmsUniversePack } from '../../packs/cms-universe/index.js';
-import { oncologyProviderPack } from '../../packs/oncology-provider/index.js';
-import { infusionProviderPack } from '../../packs/infusion-provider/index.js';
-import { careManagementPack } from '../../packs/care-management/index.js';
+// Option B — the platform does not name a specialty. The installed set comes from
+// the pack catalog, and each pack's own manifest says where its code lives. This
+// replaced sixteen imports plus a hand-maintained array, which was the last place
+// introducing a specialty meant editing a platform file.
+import { loadInstalledPacks } from '../control-plane/pack-loader.js';
 
 /** Minimal in-memory stand-in for `PostgresEventStore` used by the app. */
 function inMemoryStore(): PostgresEventStore {
@@ -337,15 +326,19 @@ export async function main(): Promise<void> {
   registerAgentTriggerHandler(bus, async (p) => { telemetry.log('info', `[job-bus] agent.trigger ${p.agentId} ${p.triggerType}`, {}); });
   await bus.enqueue('system.heartbeat', { at: new Date().toISOString() }, { idempotencyKey: `hb-${Date.now()}` });
 
+  // Loaded from the pack catalog rather than imported by name. A pack that fails
+  // to load is REPORTED and skipped: it is third-party-shaped code arriving in
+  // this process, and a boot that dies because one pack has a syntax error takes
+  // the platform down for specialties that are not even applied.
+  const { packs: installedPacks, issues: packLoadIssues } = await loadInstalledPacks(process.cwd());
+  for (const issue of packLoadIssues) {
+    telemetry.log('warn', `pack not loaded: ${issue.packId} (${issue.code})`, { attributes: { detail: issue.detail } });
+  }
+
   const app = await buildApp({
     store,
     telemetry,
-    packs: [
-      healthcareCorePack, dialysisProviderPack, payerPack, ckdNavigationPack, cmsUniversePack,
-      oncologyProviderPack, infusionProviderPack, careManagementPack,
-      behavioralHealthPack, oncologyDeepPack, homeHealthPack, longTermCarePack,
-      radiologyPack, edThroughputPack, revenueCyclePack, hospitalAtHomePack,
-    ],
+    packs: installedPacks,
     // Dev auth: honor an explicit `x-actor` header (JSON ActorContext), else a
     // valid console session (`hh_session` cookie), else the local power-user.
     authenticate: async (req: FastifyRequest): Promise<ActorContext> => {

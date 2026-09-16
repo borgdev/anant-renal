@@ -67,22 +67,7 @@ import { buildApp } from './app.js';
 // F9.3 — the proposal expiry sweeper is configured by `registerFhirRoutes` and
 // started here, so a background timer is a decision the entry point makes.
 import { getProposalSweeper } from '../fhir/routes.js';
-import { healthcareCorePack } from '../../packs/healthcare-core/index.js';
-import { behavioralHealthPack } from '../../packs/behavioral-health/index.js';
-import { oncologyDeepPack } from '../../packs/oncology-deep/index.js';
-import { homeHealthPack } from '../../packs/home-health/index.js';
-import { longTermCarePack } from '../../packs/long-term-care/index.js';
-import { radiologyPack } from '../../packs/radiology/index.js';
-import { edThroughputPack } from '../../packs/ed-throughput/index.js';
-import { revenueCyclePack } from '../../packs/revenue-cycle/index.js';
-import { hospitalAtHomePack } from '../../packs/hospital-at-home/index.js';
-import { dialysisProviderPack } from '../../packs/dialysis-provider/index.js';
-import { payerPack } from '../../packs/payer/index.js';
-import { ckdNavigationPack } from '../../packs/ckd-navigation/index.js';
-import { cmsUniversePack } from '../../packs/cms-universe/index.js';
-import { oncologyProviderPack } from '../../packs/oncology-provider/index.js';
-import { infusionProviderPack } from '../../packs/infusion-provider/index.js';
-import { careManagementPack } from '../../packs/care-management/index.js';
+import { loadInstalledPacks } from '../control-plane/pack-loader.js';
 import type { ActorContext } from './scoped-persistence.js';
 import { LocalUserStore, seedDefaultUsers, SessionManager, sessionActorResolver, sqlSessionPersistence, sqlUserPersistence } from './auth/index.js';
 import type { FastifyRequest } from 'fastify';
@@ -211,15 +196,18 @@ export async function main(): Promise<void> {
     throw new Error('missing x-actor or session');
   };
 
+  // Option B — loaded from the pack catalog, not imported by name. A pack that
+  // fails to load is reported and skipped rather than fatal; the platform must not
+  // refuse to boot because one specialty is broken.
+  const { packs: installedPacks, issues: packLoadIssues } = await loadInstalledPacks(process.cwd());
+  for (const issue of packLoadIssues) {
+    telemetry.log('warn', `pack not loaded: ${issue.packId} (${issue.code})`, { attributes: { detail: issue.detail } });
+  }
+
   const app = await buildApp({
     store,
     telemetry,
-    packs: [
-      healthcareCorePack, dialysisProviderPack, payerPack, ckdNavigationPack, cmsUniversePack,
-      oncologyProviderPack, infusionProviderPack, careManagementPack,
-      behavioralHealthPack, oncologyDeepPack, homeHealthPack, longTermCarePack,
-      radiologyPack, edThroughputPack, revenueCyclePack, hospitalAtHomePack,
-    ],
+    packs: installedPacks,
     authenticate,
     checkHealth: async () => {
       let db = false; let r = false;

@@ -67,6 +67,7 @@ function manifest(id: string, specialty: PackManifestSpecialty): PackManifest {
     cmsUniverse: [],
     requiredControls: ['access-policy'],
     specialty,
+    entry: 'index.ts',
     path: `packs/${id}/manifest.yaml`,
   };
 }

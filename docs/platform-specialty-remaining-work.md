@@ -924,6 +924,42 @@ a plugin that loads and cannot render.
    and the wire contract it would need is the shape the FHIR proposal ladder
    already has.
 2. **B is one deliverable with G5**, never before it.
+   **SHIPPED 2026-09-16, alongside G5's first half.** `src/control-plane/pack-loader.ts`
+   scans `packs/*/manifest.yaml`, reads the declared `entry`, dynamically imports it
+   and returns the installed set in dependency order; `dev.ts` and `bootstrap.ts`
+   each lost sixteen imports and a hand-written array. A specialty is now a folder
+   plus a manifest, which is the first time Phase 3's "introduced through pack
+   registration only" has been true of the composition root.
+
+   Four decisions, each of which a naive loader gets wrong:
+
+   - **The entry is DECLARED, not inferred.** A loader that guessed `index.ts`
+     would work for all 23 packs today and fail for the first one arranged
+     differently — and it would fail at boot, in a deployment that had already
+     agreed to host the pack.
+   - **Order is computed, not inherited.** The hand-written list encoded `extends`
+     order implicitly by putting the substrate first. `orderByDependency` makes it
+     explicit (alphabetical within each level, so `readdir` order cannot matter),
+     because an implicit ordering is fine while a human maintains a list and a trap
+     the moment one is generated.
+   - **Failure is ISOLATED and REPORTED.** A pack that cannot load is skipped, never
+     fatal: it is third-party-shaped code arriving in our process, and a boot that
+     dies for one broken pack takes the platform down for specialties that are not
+     even applied. The report is what keeps that honest — a silently skipped pack is
+     the "absent pack still served" defect from the other direction.
+   - **A requested pack that does not exist is LOUD.** The first draft iterated the
+     directories on disk and filtered, so an install list naming a pack that is not
+     there produced no packs and no issues — indistinguishable from a specialty that
+     is installed, applied and simply has no surface. `tests/pack-loader.test.ts`
+     caught it.
+
+   **A consequence to state rather than discover:** loading every directory that
+   ships a manifest changes the dev/bootstrap deployment from **16 installed packs
+   to 23**, because six directories carry a real `DomainPack` descriptor and were
+   never in the import list. That is consistent with G6 — installed and applied are
+   now different facts, and a specialty nobody bound does not compute — but it is a
+   deployment-shape change, not a refactor, and the console was re-verified against
+   it (lens, 11 views, routes all intact).
 3. **A is not replaced by B.** A is what a pack *is*; B is how it is *found*.
    B's loader registers A's contributions. Nothing about A changes.
 4. **The 16-entry static import list is correct as an install list but wrong as
@@ -967,6 +1003,21 @@ Still open:
       `research-pharma`, `urgent-care-deep`. The platform reports
       `manifest.present: false`, so it is visible rather than silent — but a pack
       without a manifest has no declared surface at all.
+      **CLOSED 2026-09-16.** All 23 directories ship a manifest, generated from
+      the runtime descriptor by `scripts/generate-pack-manifests.ts` so drift is
+      zero by construction rather than by care. `tests/pack-manifest-catalog.test.ts`
+      holds four claims: every directory has one, every one parses and none blocks,
+      every one agrees with its descriptor, and every one declares an `entry` that
+      exists.
+
+      **A correction to this very item.** Six of the nine are NOT installed —
+      `dialysis-deep`, `flagship-agents`, `policy-templates`, `primary-care-deep`,
+      `research-pharma`, `urgent-care-deep` are absent from `packs/index.ts`, which
+      is the install list. So the true installed gap was THREE packs, not nine, and
+      the first generator pass (which enumerated the barrel) reported them as having
+      nothing to declare. A manifest covers the CATALOG; installation is a
+      deployment decision, and conflating the two is how a gap gets counted wrong
+      in the direction that looks like progress.
 - [ ] **13 of 16 installed packs declare no specialty surface.** They load as
       dependencies, not as specialties. `dialysis-provider` and `payer` declare
       all five sections; `ckd-navigation` declares four.
@@ -1118,7 +1169,7 @@ fixed or tracked.
 | 4 | **G1 phase 2** — migrate the remaining specialty route modules | Now **mandatory**, not merely valuable: G6's install-all makes hand-written registration the thing the config is supposed to own. First settle `PackRouteDeps.patients` (which is also where G6's `applied` gets enforced), relocate `renalPatientInputs` out of `renal-cohort.ts`, and fix the assurance namespace (§4.6) | M–L |
 | 5 | ~~**G4** — assurance loops over installed packs~~ **DONE** (both halves: the declaration is pack-owned and the protocol vocabulary is open) | Follows G1 directly; makes the *Cross-pack assurance* claim true | S |
 | 6 | **G2** — activation becomes the list G6 requires | Subsumed by 3+4; the mechanism, not the design | S–M |
-| 7 | **G5 + B** — view kinds and the manifest loader (one deliverable) | Removes the last per-specialty shell edit and the last place the platform names specialties | M |
+| 7 | ~~**G5 + B** — view kinds and the manifest loader (one deliverable)~~ **DONE** — G5a (contract + registry; the renal views deliberately not migrated, they are page compositions) and B (the manifest loader, 23 manifests) | Removes the last per-specialty shell edit and the last place the platform names specialties | M |
 | 8 | **G3** — cross-pack workflows onto the manifests, then wired | The multi-specialty value proposition, currently dead code | M |
 | 9 | **Declare the renal protocol packs' surfaces** (ontology, measures, event contracts) | Makes the conformance matrix honest about 7 of the 12 partial packs; this is the real content of Phase 4 | M |
 | 10 | Manifests for the 9 packs that ship none | Cheap; closes a visible gap in the Pack Studio. Note one of them, `oncology-provider`, is already referenced by a cross-pack workflow (G3) | S |
