@@ -338,6 +338,75 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
     [activeNav, protocolViews],
   );
 
+  /*
+   * Two levels, because one does not scale.
+   *
+   * The strip used to render EVERY specialty's views in one wrapping row, so the
+   * space a deployment needed was (specialties × views). Five specialties with ten
+   * protocols each is fifty pills — not clipped, which would at least be visible,
+   * but silently wrapped into six rows that push the page down and make "which
+   * specialty am I in" unanswerable at a glance.
+   *
+   * The layer above is the SPECIALTY, which the submenu data already carried: the
+   * groups are one per pack, each with a label and a `primary` flag. So this is the
+   * shell catching up to the model rather than a new capability — the platform has
+   * grouped views by specialty since Phase 3, and only the rendering assumed one.
+   *
+   * The cost is bounded at (specialties + views-of-the-active-one), and the whole
+   * second level is scoped to the first. A single-specialty deployment renders
+   * exactly what it rendered before: one row, no chooser.
+   */
+  const activeGroup = useMemo(
+    () => submenuGroups.find((group) => group.views.some((view) => view.id === activeNav)),
+    [submenuGroups, activeNav],
+  );
+
+  /*
+   * Which view the operator was last on, per specialty.
+   *
+   * Switching specialty returns you where you were rather than to the top. A mode
+   * switch that loses your place is one people stop using, and this strip only
+   * earns its keep if moving between specialties is cheap.
+   */
+  const lastViewByPack = useRef(new Map<string, NavigationId>());
+  useEffect(() => {
+    if (activeGroup) lastViewByPack.current.set(activeGroup.packId, activeNav);
+  }, [activeGroup, activeNav]);
+
+  function openSpecialty(group: (typeof submenuGroups)[number]) {
+    const remembered = lastViewByPack.current.get(group.packId);
+    const target = remembered && group.views.some((view) => view.id === remembered)
+      ? remembered
+      : group.views[0]?.id;
+    if (target) selectNav(target);
+  }
+
+  /*
+   * `role="tablist"` promises arrow-key movement, so it has to be there.
+   *
+   * Movement only — focus, not activation. Both rows hold buttons that already
+   * activate on Enter and Space, and a row that ALSO activates on arrow gives an
+   * operator no way to look before they leap: the specialty row would fire a
+   * navigation on every keystroke of a scan.
+   */
+  function onTabRowKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    const at = tabs.indexOf(event.target as HTMLButtonElement);
+    if (at < 0) return;
+    event.preventDefault();
+    const step = event.key === "ArrowRight" ? 1 : -1;
+    tabs[(at + step + tabs.length) % tabs.length]?.focus();
+  }
+
+  // A deep link or a remembered view can be scrolled out of the row, and a tab
+  // strip that opens with the active tab off-screen reads as "nothing is selected".
+  const viewRowRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!viewRowRef.current) return;
+    viewRowRef.current.querySelector<HTMLElement>(".protocol-tab.is-active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeNav, submenuGroups]);
+
   function selectNav(id: NavigationId) {
     setActiveNav(id);
     setSidebarOpen(false);
@@ -539,36 +608,70 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
           </div>
         ) : null}
 
-        {protocolViews.some((view) => view.id === activeNav) ? (
-          <nav className="protocol-tabs" aria-label="Specialty views">
-            {submenuGroups.map((group) => (
+        {protocolViews.some((view) => view.id === activeNav) && activeGroup ? (
+          <nav className="specialty-nav" aria-label="Specialty views">
+            {/* The OUTER level, and it exists only when there is a choice to make.
+                One specialty renders no chooser at all, so a single-specialty
+                deployment sees exactly what it saw before this existed. */}
+            {submenuGroups.length > 1 ? (
+              <div className="specialty-row" role="tablist" aria-label="Specialties" onKeyDown={onTabRowKeyDown}>
+                {submenuGroups.map((group) => (
+                  <button
+                    className={`specialty-tab${group.packId === activeGroup.packId ? " is-active" : ""}${group.primary ? " is-primary" : ""}`}
+                    key={group.packId}
+                    type="button"
+                    role="tab"
+                    aria-selected={group.packId === activeGroup.packId}
+                    onClick={() => openSpecialty(group)}
+                  >
+                    <FlaskConical size={12} aria-hidden="true" />
+                    <span>{group.label}</span>
+                    {/* The count, so a specialty can be judged before it is opened.
+                        It is also what makes an empty specialty visible instead of
+                        looking like a tab that does nothing. */}
+                    <small>{group.views.length}</small>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="view-strip">
+              {/* The group label is the PACK's, so the strip names the specialty it
+                  belongs to instead of assuming the shell's noun. "Protocols" was
+                  itself a renal-ism: a payer has programmes, not protocols.
+                  Kept OUTSIDE the scrolling row so it cannot scroll away from the
+                  thing it labels. */}
+              {submenuGroups.length === 1 && activeGroup.label ? (
+                <span className="protocol-group-label">
+                  <FlaskConical size={12} aria-hidden="true" /> {activeGroup.label}
+                </span>
+              ) : null}
               <div
-                className={`protocol-group${group.primary ? " is-primary" : ""}`}
-                key={group.packId}
+                className="protocol-tabs"
+                role="tablist"
+                aria-label={`${activeGroup.label || "Specialty"} views`}
+                ref={viewRowRef}
+                onKeyDown={onTabRowKeyDown}
               >
-                {/* The group label is the PACK's, so the strip names the
-                    specialty it belongs to instead of assuming the shell's
-                    noun. "Protocols" was itself a renal-ism: a payer has
-                    programmes, not protocols. */}
-                {group.label ? (
-                  <span className="protocol-group-label">
-                    <FlaskConical size={12} aria-hidden="true" /> {group.label}
-                  </span>
-                ) : null}
-                {group.views.map((view) => (
+                {activeGroup.views.map((view) => (
                   <button
                     className={`protocol-tab ${activeNav === view.id ? "is-active" : ""}`}
                     key={view.id}
                     onClick={() => selectNav(view.id)}
                     type="button"
-                    aria-current={activeNav === view.id ? "page" : undefined}
+                    role="tab"
+                    aria-selected={activeNav === view.id}
                   >
                     <span>{view.label}</span>
-                    <small>{view.stage}</small>
+                    {/* `stage` is a renal P-number. Rendering it empty for every
+                        other specialty left a stray gap beside the label, so it
+                        appears only where a specialty actually declares one —
+                        which also makes the day it becomes generic visible. */}
+                    {view.stage ? <small>{view.stage}</small> : null}
                   </button>
                 ))}
               </div>
-            ))}
+            </div>
           </nav>
         ) : null}
 

@@ -111,6 +111,27 @@ describe('G5 — the platform and the shell agree on the view kinds', () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it('the view row does NOT wrap, because its height must not grow with the catalog', () => {
+    // The regression this pins, in the shape it actually took: the strip was
+    // `flex-wrap: wrap`, so the console's chrome height was a function of
+    // (specialties × views). Five specialties with ten protocols each is fifty
+    // pills — not clipped, which would at least be visible, but silently wrapped
+    // into six rows that push the page down and make "which specialty am I in"
+    // unanswerable at a glance. `nowrap` + `overflow-x: auto` bounds the footprint
+    // to exactly one row however many views a specialty declares, which is what
+    // makes adding a specialty cost ONE tab instead of M.
+    //
+    // Only the CSS half is checked here. The two-level STRUCTURE is a DOM
+    // property, and a regex over JSX would pin the shape of the markup rather
+    // than the behaviour; it is verified in a browser instead, and this guard
+    // exists because this is the half a later edit can undo with one word.
+    const css = readFileSync(new URL('../exec-app/src/globals.css', import.meta.url), 'utf8');
+    const rule = /\.protocol-tabs\s*\{([^}]*)\}/.exec(css);
+    expect(rule, '.protocol-tabs rule not found — this guard cannot check it').toBeTruthy();
+    expect(rule![1]).toMatch(/flex-wrap:\s*nowrap/);
+    expect(rule![1]).toMatch(/overflow-x:\s*auto/);
+  });
 });
 
 describe('G5 — a second specialty declares a screen by KIND', () => {

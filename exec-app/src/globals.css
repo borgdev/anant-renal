@@ -265,23 +265,45 @@ a { color: inherit; }
 .workspace-context { display: grid; gap: 1px; }
 
 /* ============ Clinical protocol tab strip ============ */
-.protocol-tabs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 12px 24px 0; }
-.protocol-tabs-label { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
-.protocol-tab { display: inline-flex; align-items: baseline; gap: 6px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--elevate) 1.5%, transparent); color: var(--muted); font-size: 13px; cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease; }
+/* ============ specialty view chrome (two levels) ============ */
+
+/* The outer container owns the page padding so the inner scroller can be flush. */
+.specialty-nav { display: flex; flex-direction: column; gap: 8px; padding: 12px 24px 0; }
+
+/* Level 1 — the specialty. Wraps, because a deployment can have a dozen and
+   twelve short labels are cheap; the point is that it does NOT grow with the
+   number of VIEWS, which is the axis that made the old strip unusable. */
+.specialty-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.specialty-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease; }
+.specialty-tab:hover { color: var(--text); border-color: var(--line-strong); }
+.specialty-tab.is-active { color: var(--text); border-color: color-mix(in srgb, var(--mint) 45%, transparent); background: color-mix(in srgb, var(--mint) 10%, transparent); }
+.specialty-tab.is-active svg { color: var(--mint); }
+.specialty-tab small { color: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+.specialty-tab.is-active small { color: color-mix(in srgb, var(--mint) 80%, transparent); }
+/* The specialty whose lens LEADS the console. A left accent rather than a fill,
+   so "leads" and "selected" stay legible as two different facts. */
+.specialty-tab.is-primary { border-left: 2px solid color-mix(in srgb, var(--mint) 60%, transparent); }
+
+.view-strip { display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+/* Level 2 — the active specialty's views. NOWRAP + horizontal scroll is the whole
+   fix: `flex-wrap: wrap` meant the strip's height was a function of how many
+   specialties a customer had installed, so it grew silently into the page. A row
+   that scrolls keeps the footprint constant however many views a specialty
+   declares. */
+.protocol-tabs { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; overflow-x: auto; min-width: 0; flex: 1 1 auto; padding-bottom: 2px; scrollbar-width: thin; scroll-behavior: smooth; }
+.protocol-tab { flex: 0 0 auto; display: inline-flex; align-items: baseline; gap: 6px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--elevate) 1.5%, transparent); color: var(--muted); font-size: 13px; cursor: pointer; transition: color .15s ease, border-color .15s ease, background .15s ease; }
 .protocol-tab:hover { color: var(--text); border-color: var(--line-strong); }
 .protocol-tab.is-active { color: var(--text); background: color-mix(in srgb, var(--mint) 14%, transparent); border-color: color-mix(in srgb, var(--mint) 45%, transparent); }
 .protocol-tab small { color: var(--faint); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
 .protocol-tab.is-active small { color: var(--mint); }
+.protocol-group-label { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; color: var(--mint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+@media (max-width: 760px) { .specialty-nav { padding: 10px 14px 0; } }
 /* Specialty groups — one per INSTALLED pack that declares views, so the strip
    names the specialty its views belong to. The active lens's group leads and is
    visually dominant; the others stay legible but recede, because a specialist
    watching a payer console still needs to reach the renal protocols. */
-.protocol-group { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 3px 10px 3px 0; border-right: 1px solid var(--line); }
-.protocol-group:last-child { border-right: 0; }
-.protocol-group.is-primary { border-right-color: var(--line-strong); }
-.protocol-group-label { display: inline-flex; align-items: center; gap: 5px; margin-right: 4px; color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
-.protocol-group.is-primary .protocol-group-label { color: var(--mint); }
-@media (max-width: 760px) { .protocol-tabs { padding: 10px 14px 0; } }
+@media (max-width: 760px) { .specialty-nav { padding: 10px 14px 0; } }
 
 .workspace-context span { color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spacing: .09em; }
 .workspace-context strong { font-size: 12px; }
