@@ -58,6 +58,7 @@ import { mbdRoutes } from './mbd-routes.js';
 import { nutritionRoutes } from './nutrition-routes.js';
 import { infectionRoutes } from './infection-routes.js';
 import { anemiaRoutes } from './anemia-routes.js';
+import { assuranceTrackRoutes } from './assurance-track-routes.js';
 
 /** Every route this pack contributes, in registration order. */
 export const dialysisProviderRoutes: readonly PackRouteContribution[] = Object.freeze([
@@ -71,4 +72,5 @@ export const dialysisProviderRoutes: readonly PackRouteContribution[] = Object.f
   ...nutritionRoutes,
   ...infectionRoutes,
   ...anemiaRoutes,
+  ...assuranceTrackRoutes,
 ]);

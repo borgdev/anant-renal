@@ -36,7 +36,7 @@
 // One page for the questions no single protocol pack can answer: is every pack
 // wired the same way, do the patients break down fairly, what does the alert
 // volume cost, and can this set be released. Every number comes from the durable
-// ledger via /admin/assurance/*; nothing is computed twice in the browser.
+// ledger via /admin/swarm/assurance/*; nothing is computed twice in the browser.
 
 import { responseOrThrow } from "./session";
 
@@ -307,27 +307,27 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const assuranceApi = {
-  overview: () => get<AssuranceOverview>("/admin/assurance/overview"),
+  overview: () => get<AssuranceOverview>("/admin/swarm/assurance/overview"),
   gate: (activeOnly = false) =>
-    get<AssuranceGate>(`/admin/assurance/gate${activeOnly ? "?activeOnly=true" : ""}`),
-  fairness: () => get<{ report: FairnessReport; signature: string; reference: FairnessReport["reference"] }>("/admin/assurance/fairness"),
+    get<AssuranceGate>(`/admin/swarm/assurance/gate${activeOnly ? "?activeOnly=true" : ""}`),
+  fairness: () => get<{ report: FairnessReport; signature: string; reference: FairnessReport["reference"] }>("/admin/swarm/assurance/fairness"),
   fairnessDimension: (dimension: string) =>
-    get<{ dimension: DisparityReport }>(`/admin/assurance/fairness?dimension=${encodeURIComponent(dimension)}`),
+    get<{ dimension: DisparityReport }>(`/admin/swarm/assurance/fairness?dimension=${encodeURIComponent(dimension)}`),
   burden: (weeks?: number) =>
-    get<{ report: BurdenReport; signature: string }>(`/admin/assurance/burden${weeks ? `?weeks=${weeks}` : ""}`),
-  modes: () => get<{ summary: ModeSummary; modes: ProtocolModeRecord[] }>("/admin/assurance/modes"),
+    get<{ report: BurdenReport; signature: string }>(`/admin/swarm/assurance/burden${weeks ? `?weeks=${weeks}` : ""}`),
+  modes: () => get<{ summary: ModeSummary; modes: ProtocolModeRecord[] }>("/admin/swarm/assurance/modes"),
   setMode: (body: { protocol: string; mode: ProtocolMode; reason: string; by?: string }) =>
-    post<{ record: ProtocolModeRecord; summary: ModeSummary }>("/admin/assurance/modes", body),
+    post<{ record: ProtocolModeRecord; summary: ModeSummary }>("/admin/swarm/assurance/modes", body),
   probeMode: (protocol: string, patientId?: string) =>
-    post<ModeProbe>("/admin/assurance/mode-probe", { protocol, ...(patientId ? { patientId } : {}) }),
+    post<ModeProbe>("/admin/swarm/assurance/mode-probe", { protocol, ...(patientId ? { patientId } : {}) }),
   rules: (protocol?: string) =>
-    get<RulePacksView>(`/admin/assurance/rules${protocol ? `?protocol=${encodeURIComponent(protocol)}` : ""}`),
+    get<RulePacksView>(`/admin/swarm/assurance/rules${protocol ? `?protocol=${encodeURIComponent(protocol)}` : ""}`),
   runAllRedTeams: (ranBy?: string) =>
-    post<CrossPackAction>("/admin/assurance/red-team/run-all", { ...(ranBy ? { ranBy } : {}) }),
+    post<CrossPackAction>("/admin/swarm/assurance/red-team/run-all", { ...(ranBy ? { ranBy } : {}) }),
   snapshotAllDrift: (ranBy?: string) =>
-    post<CrossPackAction>("/admin/assurance/drift/snapshot-all", { ...(ranBy ? { ranBy } : {}) }),
+    post<CrossPackAction>("/admin/swarm/assurance/drift/snapshot-all", { ...(ranBy ? { ranBy } : {}) }),
   cohortRows: () =>
-    get<{ patients: number; rows: unknown[]; alerts: unknown[] }>("/admin/assurance/cohort-rows"),
+    get<{ patients: number; rows: unknown[]; alerts: unknown[] }>("/admin/swarm/assurance/cohort-rows"),
 };
 
 export const VERDICT_TONE: Record<ProtocolVerdict, "mint" | "amber" | "red"> = {

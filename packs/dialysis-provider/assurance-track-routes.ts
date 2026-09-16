@@ -33,45 +33,45 @@
 
 // Cross-pack assurance routes.
 //
-//   GET  /admin/assurance/overview      — one row per protocol pack + the cohort findings
-//   GET  /admin/assurance/gate          — the single release gate for the whole set
-//   GET  /admin/assurance/fairness      — slice report per dimension (age/sex/vintage/access)
-//   GET  /admin/assurance/burden        — alert burden over the live cohort
-//   GET  /admin/assurance/modes         — per-protocol surfacing modes
-//   POST /admin/assurance/modes         — set a mode (durable, reason required to activate)
-//   GET  /admin/assurance/rules         — the guideline rule packs
-//   POST /admin/assurance/mode-probe    — prove silent mode did not change the computation
+//   GET  /admin/swarm/assurance/overview      — one row per protocol pack + the cohort findings
+//   GET  /admin/swarm/assurance/gate          — the single release gate for the whole set
+//   GET  /admin/swarm/assurance/fairness      — slice report per dimension (age/sex/vintage/access)
+//   GET  /admin/swarm/assurance/burden        — alert burden over the live cohort
+//   GET  /admin/swarm/assurance/modes         — per-protocol surfacing modes
+//   POST /admin/swarm/assurance/modes         — set a mode (durable, reason required to activate)
+//   GET  /admin/swarm/assurance/rules         — the guideline rule packs
+//   POST /admin/swarm/assurance/mode-probe    — prove silent mode did not change the computation
 //
 // The cohort is the same ledger-derived cohort the protocol cockpit reads, so
 // the fairness and burden numbers here are the real cohort's, not a fixture.
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { RealmRegistry } from '../realm/registry.js';
-import { renalPatientFacts, renalPatientInputs, type RenalPatientInput } from '../swarm/renal-cohort.js';
-import { RENAL_PROTOCOLS, evaluateProtocolForPatient } from '../protocols/registry.js';
-import { getSwarmWorkspace } from './swarm-routes.js';
-import type { SwarmWorkspaceStore, WorkspaceDoc } from '../swarm/workspace.js';
+import { renalPatientFacts, type RenalPatientInput } from '../../src/swarm/renal-cohort.js';
+import type { PackPatient, PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
+import { RENAL_PROTOCOLS, evaluateProtocolForPatient } from '../../src/protocols/registry.js';
+import { getSwarmWorkspace } from '../../src/server/swarm-routes.js';
+import type { SwarmWorkspaceStore, WorkspaceDoc } from '../../src/swarm/workspace.js';
 import {
   assuranceReleaseGate, crossPackAssurance, PROTOCOL_PACKS, packFor,
   ASSURANCE_TRACK_REFERENCE, type AssuranceInputs,
-} from '../swarm/assurance-track.js';
+} from '../../src/swarm/assurance-track.js';
 import {
   applyMode, allModeRecords, isProtocolId, modeRecord, silentModeSummary,
   assertSilentStillComputes, SILENT_MODE_REFERENCE, type ProtocolMode,
-} from '../evidence/silent-mode.js';
+} from '../../src/evidence/silent-mode.js';
 import {
   fairnessReport, disparityReport, fairnessSignature, SLICE_DIMENSIONS, FAIRNESS_DIMENSION_LABELS,
   FAIRNESS_REFERENCE, type FairnessRow, type SliceDimension,
-} from '../evidence/fairness.js';
+} from '../../src/evidence/fairness.js';
 import {
   burdenReport, burdenSignature, BURDEN_REFERENCE, type AlertEvent,
-} from '../evidence/alert-burden.js';
-import { RULE_PACKS, RULE_PROTOCOLS, rulePackSummary, rulePackEditions, enforcementGaps, rulesForProtocol } from '../evidence/rule-packs.js';
-import type { ProtocolId } from '../protocols/shared-state.js';
+} from '../../src/evidence/alert-burden.js';
+import { RULE_PACKS, RULE_PROTOCOLS, rulePackSummary, rulePackEditions, enforcementGaps, rulesForProtocol } from '../../src/evidence/rule-packs.js';
+import type { ProtocolId } from '../../src/protocols/shared-state.js';
 
 export interface AssuranceRouteOptions {
-  /** override the live patient source (tests) */
-  patients?: (() => RenalPatientInput[]) | undefined;
+  /** The platform's patient projection. */
+  patients: () => readonly PackPatient[];
 }
 
 /** Durable per-protocol surfacing mode, persisted as a `protocol-mode` document. */
@@ -171,8 +171,8 @@ export function cohortSignals(inputs: readonly RenalPatientInput[]): CohortSigna
   };
 }
 
-export async function registerAssuranceRoutes(app: FastifyInstance, opts: AssuranceRouteOptions = {}): Promise<void> {
-  const patients = opts.patients ?? (() => renalPatientInputs(RealmRegistry.list()));
+export async function registerAssuranceRoutes(app: FastifyInstance, opts: AssuranceRouteOptions): Promise<void> {
+  const patients = opts.patients;
 
   const ws = (): SwarmWorkspaceStore => {
     const w = getSwarmWorkspace();
@@ -211,7 +211,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
 
   /* ---------- overview ---------- */
 
-  app.get('/admin/assurance/overview', async () => {
+  app.get('/admin/swarm/assurance/overview', async () => {
     const store = ws();
     await hydrateModes(store);
     const view = signals();
@@ -304,7 +304,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
     return triggered;
   }
 
-  app.post<{ Body: { ranBy?: string } }>('/admin/assurance/red-team/run-all', async (request) => {
+  app.post<{ Body: { ranBy?: string } }>('/admin/swarm/assurance/red-team/run-all', async (request) => {
     const store = ws();
     await hydrateModes(store);
     const ranBy = request.body?.ranBy?.trim() || 'assurance-track';
@@ -323,7 +323,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
     };
   });
 
-  app.post<{ Body: { ranBy?: string } }>('/admin/assurance/drift/snapshot-all', async (request) => {
+  app.post<{ Body: { ranBy?: string } }>('/admin/swarm/assurance/drift/snapshot-all', async (request) => {
     const store = ws();
     await hydrateModes(store);
     const ranBy = request.body?.ranBy?.trim() || 'assurance-track';
@@ -342,7 +342,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
     };
   });
 
-  app.get<{ Querystring: { activeOnly?: string } }>('/admin/assurance/gate', async (request) => {
+  app.get<{ Querystring: { activeOnly?: string } }>('/admin/swarm/assurance/gate', async (request) => {
     const store = ws();
     await hydrateModes(store);
     const view = signals();
@@ -374,7 +374,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
 
   /* ---------- fairness ---------- */
 
-  app.get<{ Querystring: { dimension?: string; protocol?: string } }>('/admin/assurance/fairness', async (request, reply) => {
+  app.get<{ Querystring: { dimension?: string; protocol?: string } }>('/admin/swarm/assurance/fairness', async (request, reply) => {
     const view = signals();
     const dimension = request.query?.dimension;
     if (dimension && !(SLICE_DIMENSIONS as readonly string[]).includes(dimension)) {
@@ -407,7 +407,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
 
   /* ---------- alert burden ---------- */
 
-  app.get<{ Querystring: { weeks?: string } }>('/admin/assurance/burden', async (request) => {
+  app.get<{ Querystring: { weeks?: string } }>('/admin/swarm/assurance/burden', async (request) => {
     const view = signals();
     const weeks = Number(request.query?.weeks);
     const report = burdenReport(view.alerts, {
@@ -426,7 +426,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
 
   /* ---------- surfacing modes ---------- */
 
-  app.get('/admin/assurance/modes', async () => {
+  app.get('/admin/swarm/assurance/modes', async () => {
     const store = ws();
     await hydrateModes(store);
     return {
@@ -441,7 +441,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
   });
 
   app.post<{ Body: { protocol?: string; mode?: ProtocolMode; reason?: string; by?: string } }>(
-    '/admin/assurance/modes',
+    '/admin/swarm/assurance/modes',
     async (request, reply) => {
       const body = request.body ?? {};
       const protocol = body.protocol;
@@ -480,7 +480,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
    * probe uses the cohort-level status as the computation, so the check is the
    * real one, not a toy.
    */
-  app.post<{ Body: { protocol?: string; patientId?: string } }>('/admin/assurance/mode-probe', async (request, reply) => {
+  app.post<{ Body: { protocol?: string; patientId?: string } }>('/admin/swarm/assurance/mode-probe', async (request, reply) => {
     const body = request.body ?? {};
     const protocol = body.protocol;
     if (!protocol || !isProtocolId(protocol)) return error(reply, 400, `unknown-protocol: ${protocol ?? 'missing'}`);
@@ -505,7 +505,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
 
   /* ---------- guideline rule packs ---------- */
 
-  app.get<{ Querystring: { protocol?: string } }>('/admin/assurance/rules', async (request, reply) => {
+  app.get<{ Querystring: { protocol?: string } }>('/admin/swarm/assurance/rules', async (request, reply) => {
     const protocolParam = request.query?.protocol;
     if (protocolParam && !isProtocolId(protocolParam)) return error(reply, 400, `unknown-protocol: ${protocolParam}`);
     const protocol = protocolParam && isProtocolId(protocolParam) ? protocolParam : undefined;
@@ -528,7 +528,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
 
   /* ---------- seed for the console ---------- */
 
-  app.get('/admin/assurance/cohort-rows', async () => {
+  app.get('/admin/swarm/assurance/cohort-rows', async () => {
     const view = signals();
     return {
       generatedAt: view.generatedAt,
@@ -538,3 +538,15 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
     };
   });
 }
+
+/** This module's route surface. */
+export const assuranceTrackRoutes: readonly PackRouteContribution[] = Object.freeze([
+  {
+    id: 'dialysis.assurance-track',
+    scope: 'exec',
+    prefixes: ['/admin/swarm/assurance'],
+    register(app, deps) {
+      return registerAssuranceRoutes(app, { patients: deps.patients });
+    },
+  },
+]);

@@ -283,6 +283,7 @@ describe('the burn-down: packs declare their routes, app.ts stops naming modules
       '/admin/swarm/access',
       '/admin/swarm/adequacy',
       '/admin/swarm/anemia',
+      '/admin/swarm/assurance',
       '/admin/swarm/fluid',
       '/admin/swarm/infection',
       '/admin/swarm/mbd',
@@ -295,21 +296,18 @@ describe('the burn-down: packs declare their routes, app.ts stops naming modules
     for (const r of dialysisProviderPack.routes ?? []) expect(r.scope).toBe('exec');
   });
 
-  it('app.ts no longer registers each migrated module by name', async () => {
+  it('app.ts names no specialty module at all', async () => {
     const { readFileSync } = await import('node:fs');
     const app = readFileSync(new URL('../src/server/app.ts', import.meta.url), 'utf8');
-    for (const gone of ['registerPayerRoutes', 'registerRenalRoutes', 'registerAnemiaRoutes', 'registerProtocolRoutes', 'registerAdequacyRoutes', 'registerFluidRoutes', 'registerRoundRoutes', 'registerAccessRoutes', 'registerMbdRoutes', 'registerNutritionRoutes', 'registerInfectionRoutes']) {
+    for (const gone of ['registerPayerRoutes', 'registerRenalRoutes', 'registerAnemiaRoutes', 'registerProtocolRoutes', 'registerAdequacyRoutes', 'registerFluidRoutes', 'registerRoundRoutes', 'registerAccessRoutes', 'registerMbdRoutes', 'registerNutritionRoutes', 'registerInfectionRoutes', 'registerCrossPackAssuranceRoutes']) {
       expect(app, gone).not.toContain(gone);
     }
 
-    // ONE specialty module is still named, and deliberately: the cross-pack
-    // assurance track sits under `/admin/assurance/*`, which is in neither scope
-    // namespace, so it has to move before it can declare a scope. Asserting it as
-    // the exact remaining list means this cannot quietly grow — and, just as
-    // importantly, that a module cannot be deleted from app.ts without its pack
-    // declaring it, because the list would shorten and this would fail.
+    // The burn-down's closing assertion, and the strongest form of it: ZERO
+    // matches. Phase 3's exit criterion is "renal is no longer a special-case
+    // code path in the platform shell", and this is that criterion as a test.
+    // A future specialty cannot be added by naming it here without failing this.
     const named = app.match(/await register(Anemia|Renal|Protocol|Adequacy|Fluid|Access|Mbd|Nutrition|Infection|Round|CrossPackAssurance)Routes/g) ?? [];
-    expect(named.map((n) => n.replace('await register', '').replace('Routes', '')))
-      .toEqual(['CrossPackAssurance']);
+    expect(named).toEqual([]);
   });
 });

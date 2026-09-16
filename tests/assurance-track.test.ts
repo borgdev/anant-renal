@@ -71,7 +71,7 @@ import {
 import { RULE_PROTOCOLS, rulePackSummary } from '../src/evidence/rule-packs.js';
 import { evaluateProtocolForPatient, RENAL_PROTOCOLS } from '../src/protocols/registry.js';
 import { renalPatientFacts, type RenalPatientInput } from '../src/swarm/renal-cohort.js';
-import { cohortSignals } from '../src/server/assurance-track-routes.js';
+import { cohortSignals } from '../packs/dialysis-provider/assurance-track-routes.js';
 
 /* ======================================================================
  * 1. Silent mode — a surfacing switch, never a computation switch
@@ -444,16 +444,16 @@ describe('assurance routes', () => {
   it('serves the overview, gate, fairness, burden, modes and rules surfaces', async () => {
     const { app } = await build();
     for (const url of [
-      '/admin/assurance/overview', '/admin/assurance/gate', '/admin/assurance/gate?activeOnly=true',
-      '/admin/assurance/fairness', '/admin/assurance/fairness?dimension=access',
-      '/admin/assurance/burden', '/admin/assurance/modes', '/admin/assurance/rules',
-      '/admin/assurance/cohort-rows',
+      '/admin/swarm/assurance/overview', '/admin/swarm/assurance/gate', '/admin/swarm/assurance/gate?activeOnly=true',
+      '/admin/swarm/assurance/fairness', '/admin/swarm/assurance/fairness?dimension=access',
+      '/admin/swarm/assurance/burden', '/admin/swarm/assurance/modes', '/admin/swarm/assurance/rules',
+      '/admin/swarm/assurance/cohort-rows',
     ]) {
       const res = await app.inject({ method: 'GET', url });
       expect(res.statusCode, url).toBe(200);
     }
 
-    const overviewPayload = (await app.inject({ method: 'GET', url: '/admin/assurance/overview' })).json() as {
+    const overviewPayload = (await app.inject({ method: 'GET', url: '/admin/swarm/assurance/overview' })).json() as {
       decision: string; totals: { protocols: number; rules: number; silentPacks: number };
       protocols: Array<{ protocol: string; verdict: string; mode: string; rules: number }>;
       fairness: {
@@ -479,7 +479,7 @@ describe('assurance routes', () => {
     expect(overview.burden.totals.alerts).toBeGreaterThan(0);
     expect(['ship', 'hold', 'block']).toContain(overview.decision);
 
-    const gate = (await app.inject({ method: 'GET', url: '/admin/assurance/gate' })).json() as {
+    const gate = (await app.inject({ method: 'GET', url: '/admin/swarm/assurance/gate' })).json() as {
       decision: string; checks: Array<{ id: string; status: string }>; mdrFiles: Array<{ protocol: string; materialised: boolean }>;
       fairnessVerdict: string; burdenVerdict: string;
     };
@@ -488,7 +488,7 @@ describe('assurance routes', () => {
     expect(gate.mdrFiles).toHaveLength(7);
     expect(gate.mdrFiles.every((m) => m.materialised === false)).toBe(true);
 
-    const fairness = (await app.inject({ method: 'GET', url: '/admin/assurance/fairness' })).json() as {
+    const fairness = (await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness' })).json() as {
       report: { dimensions: Array<{ dimension: string; slices: unknown[] }> }; signature: string;
     };
     expect(fairness.report.dimensions.map((d) => d.dimension)).toEqual(['age', 'sex', 'vintage', 'access']);
@@ -503,13 +503,13 @@ describe('assurance routes', () => {
     expect(overviewPayload.burden.window.weeks).toBeGreaterThan(0);
     expect(overviewPayload.burden.byProtocol).toHaveLength(7);
 
-    const burden = (await app.inject({ method: 'GET', url: '/admin/assurance/burden' })).json() as {
+    const burden = (await app.inject({ method: 'GET', url: '/admin/swarm/assurance/burden' })).json() as {
       report: { totals: { alertsPerPatientWeek: number }; byProtocol: unknown[] }; sampleSize: number;
     };
     expect(burden.sampleSize).toBeGreaterThan(0);
     expect(burden.report.byProtocol).toHaveLength(7);
 
-    const rules = (await app.inject({ method: 'GET', url: '/admin/assurance/rules' })).json() as {
+    const rules = (await app.inject({ method: 'GET', url: '/admin/swarm/assurance/rules' })).json() as {
       summary: { total: number; unenforced: unknown[] }; editions: unknown[]; protocols: Array<{ protocol: string; gaps: string[] }>;
     };
     expect(rules.summary.total).toBeGreaterThan(40);
@@ -519,18 +519,18 @@ describe('assurance routes', () => {
 
   it('rejects an unknown dimension and an unknown protocol rather than guessing', async () => {
     const { app } = await build();
-    expect((await app.inject({ method: 'GET', url: '/admin/assurance/fairness?dimension=height' })).statusCode).toBe(400);
-    expect((await app.inject({ method: 'GET', url: '/admin/assurance/rules?protocol=oncology' })).statusCode).toBe(400);
-    const badMode = await app.inject({ method: 'POST', url: '/admin/assurance/modes', payload: { protocol: 'nope', mode: 'active', reason: 'x'.repeat(20) } });
+    expect((await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness?dimension=height' })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'GET', url: '/admin/swarm/assurance/rules?protocol=oncology' })).statusCode).toBe(400);
+    const badMode = await app.inject({ method: 'POST', url: '/admin/swarm/assurance/modes', payload: { protocol: 'nope', mode: 'active', reason: 'x'.repeat(20) } });
     expect(badMode.statusCode).toBe(400);
-    const shortReason = await app.inject({ method: 'POST', url: '/admin/assurance/modes', payload: { protocol: 'anemia', mode: 'active', reason: 'because' } });
+    const shortReason = await app.inject({ method: 'POST', url: '/admin/swarm/assurance/modes', payload: { protocol: 'anemia', mode: 'active', reason: 'because' } });
     expect(shortReason.statusCode).toBe(400);
   });
 
   it('activates a protocol with a reason, persists the mode, and keeps the computation identical', async () => {
     const { app } = await build();
     const activation = await app.inject({
-      method: 'POST', url: '/admin/assurance/modes',
+      method: 'POST', url: '/admin/swarm/assurance/modes',
       payload: { protocol: 'infection', mode: 'active', reason: 'shadow-mode agreement 94% over 60 days', by: 'dr.reyes' },
     });
     expect(activation.statusCode).toBe(200);
@@ -539,16 +539,16 @@ describe('assurance routes', () => {
     expect(activated.record.by).toBe('dr.reyes');
     expect(activated.summary.active).toContain('infection');
 
-    const modes = (await app.inject({ method: 'GET', url: '/admin/assurance/modes' })).json() as {
+    const modes = (await app.inject({ method: 'GET', url: '/admin/swarm/assurance/modes' })).json() as {
       modes: Array<{ protocol: string; mode: string }>;
     };
     expect(modes.modes.find((m) => m.protocol === 'infection')!.mode).toBe('active');
     // the persisted document is the durable record
-    const persisted = await app.inject({ method: 'GET', url: '/admin/assurance/overview' });
+    const persisted = await app.inject({ method: 'GET', url: '/admin/swarm/assurance/overview' });
     expect(persisted.statusCode).toBe(200);
 
     const probe = await app.inject({
-      method: 'POST', url: '/admin/assurance/mode-probe',
+      method: 'POST', url: '/admin/swarm/assurance/mode-probe',
       payload: { protocol: 'infection', patientId: 'fac-a-pt-0001' },
     });
     expect(probe.statusCode).toBe(200);
@@ -562,13 +562,13 @@ describe('assurance routes', () => {
     const { app } = await build();
 
     // the gate starts out naming the gap: no red-team run, no drift snapshot
-    const before = (await app.inject({ method: 'GET', url: '/admin/assurance/gate' })).json() as {
+    const before = (await app.inject({ method: 'GET', url: '/admin/swarm/assurance/gate' })).json() as {
       checks: Array<{ id: string; status: string; detail: string }>;
     };
     expect(before.checks.find((c) => c.id === 'red-team')!.detail).toMatch(/no red-team runs recorded/);
     expect(before.checks.find((c) => c.id === 'drift')!.detail).toMatch(/no drift snapshot recorded/);
 
-    const redTeam = await app.inject({ method: 'POST', url: '/admin/assurance/red-team/run-all', payload: { ranBy: 'test' } });
+    const redTeam = await app.inject({ method: 'POST', url: '/admin/swarm/assurance/red-team/run-all', payload: { ranBy: 'test' } });
     expect(redTeam.statusCode).toBe(200);
     const redBody = redTeam.json() as {
       ran: number; failed: number;
@@ -584,7 +584,7 @@ describe('assurance routes', () => {
     const afterRed = redBody.gate.checks.find((c) => c.id === 'red-team')!;
     expect(afterRed.detail).not.toMatch(/no red-team runs recorded/);
 
-    const drift = await app.inject({ method: 'POST', url: '/admin/assurance/drift/snapshot-all', payload: { ranBy: 'test' } });
+    const drift = await app.inject({ method: 'POST', url: '/admin/swarm/assurance/drift/snapshot-all', payload: { ranBy: 'test' } });
     expect(drift.statusCode).toBe(200);
     const driftBody = drift.json() as {
       ran: number; failed: number;
@@ -600,7 +600,7 @@ describe('assurance routes', () => {
     const { app } = await build();
     // a red-team run with no findings is a real result; the shape must always
     // carry per-protocol outcomes so a failure is visible, not swallowed
-    const res = await app.inject({ method: 'POST', url: '/admin/assurance/red-team/run-all', payload: {} });
+    const res = await app.inject({ method: 'POST', url: '/admin/swarm/assurance/red-team/run-all', payload: {} });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { ranBy: string; triggered: Array<{ protocol: string; path: string; status: number; ok: boolean }> };
     expect(body.ranBy).toBe('assurance-track');

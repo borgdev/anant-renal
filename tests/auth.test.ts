@@ -34,7 +34,7 @@
 // Console auth — login / logout / me, local user management, and the
 // session→ActorContext mapping that lets the console run under a real identity.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { buildApp } from '../src/server/app.js';
 import { Telemetry, InMemorySink } from '../src/server/telemetry.js';
 import type { PostgresEventStore } from '../src/server/postgres-event-store.js';
@@ -180,11 +180,38 @@ describe('console auth', () => {
   });
 
   it('sessions expire and are pruned', () => {
-    const s = new SessionManager(1); // 1ms TTL
+    // A TTL long enough to survive the gap between `create` and `get`. At 1ms the
+    // assertion raced the event loop: under a loaded full-suite run the session
+    // had already expired by the time it was read, so this passed alone and
+    // failed roughly one run in ten — a false red for whoever ran the suite next.
+    const s = new SessionManager(60_000);
     const token = s.create('admin');
     expect(s.get(token)).toBeDefined();
-    // Force expiry check via a stale timestamp isn't needed — prune() removes expired.
     expect(s.count()).toBe(1);
+  });
+
+  it('prune drops an expired session and keeps a live one', () => {
+    // Deterministic expiry: the session record ages with the mocked clock rather
+    // than with wall time, so this cannot race the event loop the way a 1ms TTL
+    // did (it passed alone and failed roughly one full-suite run in ten).
+    const s = new SessionManager(60_000);
+    vi.useFakeTimers();
+    try {
+      const t0 = Date.now();
+      vi.setSystemTime(t0);
+      const stale = s.create('nurse'); // expires t0 + 60s
+      vi.setSystemTime(t0 + 40_000);
+      const live = s.create('admin'); // expires t0 + 100s
+
+      vi.setSystemTime(t0 + 70_000);
+      expect(s.get(stale)).toBeUndefined();
+      expect(s.get(live)).toBeDefined();
+
+      s.prune();
+      expect(s.count()).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

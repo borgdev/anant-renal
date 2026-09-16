@@ -207,9 +207,9 @@ above says relocating `renalPatientInputs` is part of phase 2. It is, but the
 order matters and I had it backwards. `src/swarm/renal-cohort.ts` is imported by
 **31 files** and `RenalPatientInput` appears **42 times**; eight route modules call
 `renalPatientInputs(RealmRegistry.list())` directly. After migration those eight
-call sites are gone — the platform calls the projection **once**, in `app.ts`, to
-build `deps.patients`. Migrating first shrinks the rename from 31 files to about
-one. Rename second.
+call sites are gone — the platform calls the projection **once**, in
+`platform-projections.ts`, to build `deps.patients`. Migrating first shrank the
+rename from 31 files to about one.
 
 **Whether a pack that is installed but not `applied` should answer.** It should,
 scope-limited ("no patients in scope"), not 404. The pack IS installed and its
@@ -217,32 +217,93 @@ endpoints exist; `show` is what the console reads, and `applied` is enforced at
 the `patients` seam. 404 stays reserved for genuinely absent packs, which is the
 property `tests/dialysis-provider-routes.test.ts` pins.
 
-Migrated so far: **`renal` → `packs/dialysis-provider/renal-routes.ts`** (prefix
-`/admin/swarm/renal`), aggregated in `packs/dialysis-provider/routes.ts`,
-declared on the pack descriptor. `src/server/renal-routes.ts` is **deleted**.
-Ten modules remain; the guard in `tests/pack-contributions.test.ts` asserts the
-remaining list by name, so a module cannot be dropped from `app.ts` without its
-pack declaring it.
+#### SHIPPED: all eleven modules migrated — Phase 3's exit criterion is met
 
-**The seam is now enforced at one point, and this is the whole point of the
-slice.** `/admin/swarm/renal/*` 404s when `dialysis-provider` is not installed,
-pinned by `tests/dialysis-provider-routes.test.ts` (not yet exercised against a
-running server). `tests/renal-data-model.test.ts` had to be changed to install the
-pack, which is the migration working as intended: the test was relying on the
-platform registering a specialty's endpoints unconditionally.
+`src/server/` contains **no specialty route module at all**. Every one of the
+eleven lives in `packs/dialysis-provider/` and is registered by the platform's
+loop from the pack's own declaration. `tests/pack-contributions.test.ts` asserts
+**zero** matches for `await register<Specialty>Routes` in `app.ts`, which is
+Phase 3's exit criterion ("Renal is no longer a special-case code path in the
+platform shell") written as a test rather than as a claim.
+
+Twelve declared prefixes: `access`, `adequacy`, `anemia`, `assurance`, `fluid`,
+`infection`, `mbd`, `next-session`, `nutrition`, `protocols`, `renal`, `rounds`.
+Registration order is preserved because `rounds` reads the same windows `fluid`
+publishes.
+
+**Correction 3 — `events` IS a platform projection, and correction 1 was too
+strong.** The first slice argued the four modules with an `events` seam carried
+"four different shapes", so `events` could not be a platform projection. Measuring
+it settled the question the other way: all seven twin event types
+(`EsaTwinEventInput`, `AdequacyTwinEventInput`, `FluidTwinEventInput`,
+`AccessTwinEventInput`, `MbdTwinEventInput`, `NutritionTwinEventInput`,
+`InfectionTwinEventInput`) are **identical** apart from optional
+`realmId`/`eventId`. Seven names, one type — which is exactly why seven
+byte-identical `ledgerEvents()` loops went unnoticed, six of them inside the very
+modules being migrated.
+
+So `PackRouteDeps.events: () => ProjectedEvent[]` is now a real projection, those
+six copies are **deleted rather than relocated**, and `extra` is correctly scoped
+to what is genuinely per-module: the two anemia fixture seams whose shapes differ.
+
+**`extra` is keyed by CONTRIBUTION, not pack.** All nine protocol modules live in
+one pack, so `packId` cannot tell them apart — keyed on the pack, every module
+would receive the same fixture. `registerPackRoutes` therefore passes the
+contribution to the deps factory.
+
+**A bug the tests caught rather than review:** two object spreads under the same
+key in `app.ts` (`{'dialysis.anemia': {events}}` then `…: {patients}`) silently
+**replace** instead of merge. The events fixture vanished, the ESA twin fell back
+to patient state, and `provenance.derivedFrom` came back `patient-state` where the
+test required `ledger`. One merged entry now.
+
+**New: `src/server/platform-projections.ts`** — `patientProjection()` and
+`eventProjection()`, the platform's single answer to "who exists" and "what
+happened". Eleven modules previously answered those themselves, which is why the
+platform could not scope, filter or replace the population it handed over, and
+why `applied` on a specialty binding had nothing to enforce.
+
+**§4.6 FIXED — the assurance namespace.** `assurance-track-routes.ts` registered
+eleven routes under `/admin/assurance/*`, which is in **neither** scope namespace,
+so `api-auth.ts` fell through to its ops bucket and the exec-only clinical roles
+got 403 on the exec console's own *Assurance track* page. Moved to
+`/admin/swarm/assurance/*` (4 files, 54 references) and migrated with the others.
+
+Measured live, before → after, on the running server:
+
+| Role | `/admin/swarm/assurance/overview` | `/admin/swarm/cells` (control) |
+| --- | --- | --- |
+| admin | 200 | 200 |
+| **md** | **403 → 200** | 200 |
+| **safety** | **403 → 200** | 200 |
+| nurse / auditor | 403 | 403 |
+
+The old prefix 404s, and `POST /admin/swarm/assurance/red-team/run-all` returns
+`ran 7, failed 0` — independent evidence that the seven migrated packs' own
+red-team routes resolve through the pack registrations.
+
+**Sixteen test harnesses had to install the pack**, which is the migration working
+as intended: they were reading specialty endpoints the platform no longer
+registers. `tests/renal-data-model.test.ts` was the first; the rest followed.
+
+**Also hardened:** `tests/auth.test.ts`'s session-expiry test used a **1 ms** TTL,
+so under a loaded full-suite run the session expired between `create` and `get` —
+it passed alone and failed roughly one full run in ten. It now uses a realistic
+TTL, and a second test asserts `prune()` with a mocked clock. Verified
+pre-existing and not caused by this work (it passed on both trees in isolation).
 
 Burn-down map (measured — module, file, prefix, extra deps):
 
 | Module | File | Prefix | Extra deps |
 | --- | --- | --- | --- |
-| anemia | `anemia-routes.ts` | `/admin/swarm/anemia` | `events` (defaults to the realm ledger), `patients` |
-| ~~renal~~ | ~~`renal-routes.ts`~~ **MIGRATED** | `/admin/swarm/renal` | — |
-| protocol | `protocol-routes.ts` | `/admin/swarm/protocols` | — |
-| adequacy | `adequacy-routes.ts` | `/admin/swarm/adequacy` | — |
-| fluid | `fluid-routes.ts` | `/admin/swarm/fluid` | — |
-| round | `round-routes.ts` | `/admin/swarm/next-session`, `/admin/swarm/rounds` | — |
-| access | `access-routes.ts` | `/admin/swarm/access` | — |
-| mbd | `mbd-routes.ts` | `/admin/swarm/mbd` | `events` |
+| ~~anemia~~ `anemia-routes.ts` **MIGRATED** | pack | `/admin/swarm/anemia` | `events`, `patients` (fixtures) |
+| ~~renal~~ `renal-routes.ts` **MIGRATED** | pack | `/admin/swarm/renal` | — |
+| ~~protocol~~ `protocol-routes.ts` **MIGRATED** | pack | `/admin/swarm/protocols` | — |
+| ~~adequacy~~ `adequacy-routes.ts` **MIGRATED** | pack | `/admin/swarm/adequacy` | — |
+| ~~fluid~~ `fluid-routes.ts` **MIGRATED** | pack | `/admin/swarm/fluid` | — |
+| ~~round~~ `round-routes.ts` **MIGRATED** | pack | `/admin/swarm/next-session`, `/admin/swarm/rounds` | — |
+| ~~access~~ `access-routes.ts` **MIGRATED** | pack | `/admin/swarm/access` | — |
+| ~~mbd~~ `mbd-routes.ts` **MIGRATED** | pack | `/admin/swarm/mbd` | `events` (fixture) |
 | nutrition | `nutrition-routes.ts` | `/admin/swarm/nutrition` | `events` |
 | infection | `infection-routes.ts` | `/admin/swarm/infection` | `events` |
 | cross-pack-assurance | `assurance-track-routes.ts` | **`/admin/assurance/…` — in NEITHER scope namespace** | — |

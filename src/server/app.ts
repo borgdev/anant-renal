@@ -76,7 +76,6 @@ import { registerPlatformRoutes } from './platform-routes.js';
 import { registerOpsConfigRoutes } from './ops-config-routes.js';
 import { registerFhirIntegrationRoutes } from './fhir-integration-routes.js';
 import { registerPackRoutes, type PackRouteContribution, type PackRouteDeps, type PackRouteExtra, type PackWithContributions } from '../control-plane/pack-contributions.js';
-import { registerAssuranceRoutes as registerCrossPackAssuranceRoutes } from './assurance-track-routes.js';
 import { eventProjection } from './platform-projections.js';
 import { registerCohortRoutes } from './cohort-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
@@ -502,26 +501,20 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // our own CapabilityStatement at GET /fhir/metadata.
   await registerFhirIntegrationRoutes(app);
 
-  // The specialty surfaces that used to be registered here by name — renal data
-  // model (F1), protocol cockpit (F3), adequacy (P1), fluid/IDH (P2), the two
-  // round lenses (3.2/3.3), vascular access (P3), CKD-MBD (P4), nutrition (P5)
-  // and infection/vaccination (P6) — are now `packs/dialysis-provider/*-routes.ts`
-  // and are registered by the loop above. The platform no longer knows their
-  // names, their prefixes or their order; the pack declares all three.
+  // The specialty surfaces that used to be registered here by name — the renal
+  // data model (F1), protocol cockpit (F3), adequacy (P1), fluid/IDH (P2), the
+  // two round lenses (3.2/3.3), vascular access (P3), CKD-MBD (P4), nutrition
+  // (P5), infection/vaccination (P6), anemia/ESA and the cross-pack assurance
+  // track — are now `packs/dialysis-provider/*-routes.ts` and are registered by
+  // the loop above. The platform no longer knows their names, their prefixes or
+  // their order; the pack declares all three. There is no specialty module named
+  // in this file.
   //
   // What each one used to reach for is now handed to it: the patient population
   // and the ledger projection come from `deps.patients` / `deps.events`, so a
   // pack cannot see a patient or an event the platform did not give it. That is
   // what makes `applied` on a specialty binding enforceable (G6) instead of
   // merely reported.
-
-  // Cross-pack assurance track — the one view across all seven protocol packs:
-  // declared guideline rules, per-protocol ledger evidence, cohort fairness
-  // slices, alert burden, surfacing modes and a single release gate that
-  // aggregates every pack's per-protocol MDR file.
-  await registerCrossPackAssuranceRoutes(app, {
-    patients: renalPatients,
-  });
 
   // Living cohorts — operator-configurable clinical cohorts whose membership is a
   // declaration over existing pack outputs. Cohorts SUGGEST; they never act, and
