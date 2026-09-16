@@ -139,6 +139,21 @@ const PROTOCOL_VIEWS: Array<{ id: NavigationId; label: string; stage: string }> 
 const protocolStage = (id: string): string => PROTOCOL_VIEWS.find((view) => view.id === id)?.stage ?? "";
 
 /**
+ * How many specialties may be shown as TABS before the strip switches to a picker.
+ *
+ * Five is measured, not chosen. The row gets 637px at the realistic narrow end (a
+ * 1024px window with the sidebar docked), and five typical specialty labels plus
+ * their count badges need ~574px while six need ~690px. Ten need 1329px, which is
+ * three wrapped rows — the chrome above the content would tripled at exactly the
+ * deployment size this is meant to serve.
+ *
+ * Deliberately set for the NARROW case rather than the widest: wrapping is the
+ * failure that hides itself, and a picker that occasionally replaces tabs on a
+ * wide monitor is a smaller cost than three rows of tabs on a laptop.
+ */
+const SPECIALTY_TAB_LIMIT = 5;
+
+/**
  * The renderer REGISTRY — G5's open half, alongside the switch below.
  *
  * Typed from `VIEW_RENDERER_KINDS`, which `tests/view-kinds.test.ts` asserts
@@ -612,8 +627,42 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
           <nav className="specialty-nav" aria-label="Specialty views">
             {/* The OUTER level, and it exists only when there is a choice to make.
                 One specialty renders no chooser at all, so a single-specialty
-                deployment sees exactly what it saw before this existed. */}
-            {submenuGroups.length > 1 ? (
+                deployment sees exactly what it saw before this existed.
+
+                TWO CONTROLS, chosen by a measured limit rather than a preference.
+                Measured in the running console at the realistic minimum width — a
+                docked sidebar on a 1024px window leaves 637px for this row — ten
+                typical specialty labels need 1329px, so tabs WRAP into three rows
+                and the chrome above the content triples. Five labels need ~574px
+                and fit. So: tabs while they fit, a picker when they stop.
+
+                A picker is the right control past that point and not a retreat:
+                the specialty is a CONTEXT chosen rarely, and a native select
+                handles ten long labels with typeahead and full keyboard access,
+                where a scrolling tab row would hide half of them behind an
+                affordance with nothing to indicate it. */}
+            {submenuGroups.length > SPECIALTY_TAB_LIMIT ? (
+              <div className="specialty-row">
+                <label className="specialty-picker">
+                  <FlaskConical size={12} aria-hidden="true" />
+                  <span className="sr-only">Specialty</span>
+                  <select
+                    value={activeGroup.packId}
+                    onChange={(event) => {
+                      const chosen = submenuGroups.find((group) => group.packId === event.target.value);
+                      if (chosen) openSpecialty(chosen);
+                    }}
+                  >
+                    {submenuGroups.map((group) => (
+                      <option key={group.packId} value={group.packId}>
+                        {group.label} · {group.views.length} view{group.views.length === 1 ? "" : "s"}
+                      </option>
+                    ))}
+                  </select>
+                  {activeGroup.primary ? <small className="specialty-picker-lead">leads</small> : null}
+                </label>
+              </div>
+            ) : submenuGroups.length > 1 ? (
               <div className="specialty-row" role="tablist" aria-label="Specialties" onKeyDown={onTabRowKeyDown}>
                 {submenuGroups.map((group) => (
                   <button
