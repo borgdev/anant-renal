@@ -76,6 +76,7 @@ import { registerPlatformRoutes } from './platform-routes.js';
 import { registerOpsConfigRoutes } from './ops-config-routes.js';
 import { registerFhirIntegrationRoutes } from './fhir-integration-routes.js';
 import { registerPackRoutes, type PackRouteContribution, type PackRouteDeps, type PackRouteExtra, type PackWithContributions } from '../control-plane/pack-contributions.js';
+import { appliedPatients, registerSpecialtyApplyGate } from './specialty-apply.js';
 import { eventProjection } from './platform-projections.js';
 import { registerCohortRoutes } from './cohort-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
@@ -461,7 +462,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     ...(Object.keys(anemiaFixture).length > 0 ? { 'dialysis.anemia': anemiaFixture } : {}),
   };
   const packRouteDepsFor = (
-    _packId: string,
+    packId: string,
     contribution: PackRouteContribution,
   ): PackRouteDeps => ({
     workspace: () => {
@@ -474,11 +475,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       if (!c) throw new Error('swarm-coordinator-not-ready');
       return c;
     },
-    // The platform's projections, handed over rather than reached for. The
-    // patient projection is the seam that makes a specialty binding's `applied`
-    // mean something: once no pack calls `renalPatientInputs` itself, the
-    // platform is the only thing that knows which patients exist.
-    patients: renalPatients,
+    // The platform's projections, handed over rather than reached for. This is
+    // the seam that makes a specialty binding's `applied` mean something: once no
+    // pack calls `renalPatientInputs` itself, the platform is the only thing that
+    // knows which patients exist — and therefore the only thing that can withhold
+    // them.
+    //
+    // G6 — ENFORCED here, not merely reported. A pack that is installed but not
+    // applied for this caller gets an EMPTY population and its own surfaces say
+    // "no patients in scope", rather than computing against patients the
+    // configuration excluded. That is the failure a display-only switch cannot
+    // prevent, and `silent-mode`'s precedent is that computing and surfacing are
+    // separate claims.
+    patients: () => appliedPatients(packId, renalPatients()),
     events: eventProjection,
     // Collected from every INSTALLED pack, so the cross-pack assurance track
     // reviews what is installed rather than a list hardcoded in a platform module
@@ -492,6 +501,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     (deps.packs ?? []) as readonly PackWithContributions[],
     packRouteDepsFor,
   );
+
+  // G6 — the `applied` gate. Registered AFTER the pack routes it governs, so the
+  // hooks are in place for every specialty endpoint, and before anything that
+  // could hand a pack a population.
+  await registerSpecialtyApplyGate(app, {
+    users,
+    sessions,
+    bindings: async () => {
+      const w = getSwarmWorkspace();
+      if (!w) throw new Error('swarm-workspace-not-ready');
+      return w.listSpecialtyBindings();
+    },
+  });
 
   // Operator-console setup surface (ops-scoped /admin/platform/*): organization
   // profile, action policy, integration contract, release gate and the

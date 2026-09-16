@@ -109,6 +109,9 @@ import {
   type SpecialtyBindingLike,
   type ResolvedSpecialty,
 } from '../control-plane/specialty-bindings.js';
+// The `applied` gate reads a snapshot rather than the durable read, because
+// `PackRouteDeps.patients` is synchronous. A binding write re-primes it.
+import { setSpecialtyBindingSnapshot } from './specialty-apply.js';
 
 export interface PlatformRouteOptions {
   /** Live realm snapshots (for scope/aggregate badges on context + work). */
@@ -1712,6 +1715,10 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
       by: body.by?.trim() || 'platform-admin',
       ...(body.note ? { note: body.note } : {}),
     });
+    // G6 — the gate reads a snapshot, so a write has to re-prime it. Without this
+    // an operator's change would take effect on the next restart, which is the
+    // shape of bug where the console says one thing and the runtime does another.
+    setSpecialtyBindingSnapshot(await w.listSpecialtyBindings());
     return { ok: true, binding: saved, issues };
   });
 
@@ -1721,6 +1728,7 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
   app.delete<{ Params: { id: string } }>('/admin/platform/specialty-bindings/:id', async (req, reply) => {
     const removed = await ws().removeSpecialtyBinding(req.params.id);
     if (!removed) return reply.code(404).send({ error: 'binding-not-found', id: req.params.id });
+    setSpecialtyBindingSnapshot(await ws().listSpecialtyBindings());
     return { ok: true, note: 'The pack now follows the install default: applied and shown until another binding says otherwise.' };
   });
 

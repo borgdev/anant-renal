@@ -745,13 +745,62 @@ Four decisions that are load-bearing:
    so it owns the filtering; until that lands, `applied` is reported and scoped
    but not yet enforced. This is the explicit hand-off between G6 and G1.
 
-**Still open in G6:** per-scope enforcement of `applied` at the patient seam
-(G1 phase 2, above); `entitled` is recorded but not enforced, because there is no
+**Still open in G6:** `entitled` is recorded but not enforced, because there is no
 licensing source to enforce against yet; and a facility- or region-level binding
 only resolves for actors whose `scopeIds` carry that scope — today
 `LocalUserStore` defaults to `['scope:*']`, so a deployment wanting per-site
 specialty configuration must provision those scope ids first. That is a
 prerequisite, not a detail.
+
+#### G6 implementation — `applied` is ENFORCED (closed 2026-09-16)
+
+`applied` was reported and scoped but not enforced, which is the dangerous
+direction rather than merely an incomplete one: a specialty that is installed but
+not applied still COMPUTES. Its recommendations reach the work queue and its twin
+runs over real patients, with no console surface on which anyone could notice.
+`silent-mode`'s precedent is that computing and surfacing are different claims,
+and a display-only switch is exactly what that precedent forbids.
+
+`src/server/specialty-apply.ts` closes it. Two facts have to meet SYNCHRONOUSLY
+inside `PackRouteDeps.patients`:
+
+- **Who is asking.** Every specialty module calls `deps.patients()` with no
+  arguments, and requiring eleven modules to thread a viewer through would be the
+  platform asking a pack to know something the platform already knows. So the
+  viewer travels out-of-band, in an `AsyncLocalStorage` scope established once per
+  request.
+- **What the configuration says.** A durable read, which cannot happen inside a
+  synchronous projection, so the binding set is SNAPSHOTTED — primed lazily on the
+  first request that needs it and re-primed by every binding write. A write that
+  did not re-prime would take effect at the next restart, which is the shape of
+  bug where the console says one thing and the runtime does another.
+
+**The mechanism is one line and it is load-bearing.** The scope is established in
+a SYNCHRONOUS `onRequest` hook that wraps the continuation:
+`viewerScope.run(scopes, () => done())`. An async hook cannot do this — an async
+function body gets its own async context, so `enterWith()` there would set the
+store for the hook and not for the handler, and the gate would resolve every pack
+as "no viewer in scope" and enforce NOTHING while reporting success. A gate that
+cannot fail is worse than no gate, so `tests/specialty-apply.test.ts` asserts
+`viewerKnown === true` through a real Fastify request rather than trusting the
+reasoning.
+
+Two decisions worth stating:
+
+- **An empty snapshot applies every pack.** That is the behaviour that shipped
+  before bindings existed, so arming the gate changes nothing until an operator
+  writes a binding — the same reasoning as `no-binding` in the resolver. A
+  configuration feature that defaults to off is the only kind an operator will try.
+- **`viewerKnown` is a separate field from `applied`.** "Nobody asked" and "asked
+  and the answer is yes" are different facts, and a caller that conflated them
+  would report an unenforced gate as a permitted one.
+
+**What is still NOT enforced, and said so rather than implied:** the gate answers
+"is this pack applied AT ALL for this caller". It does not narrow the population
+to the applied SCOPES, so a pack applied at `facility:a` and `facility:b` hands
+the same population to a viewer at either. Narrowing needs the patient projection
+to carry a facility, which it does not yet — `PackPatient` carries `realmId`, and
+mapping `facility:` scopes onto patients is the next step, not a detail.
 
 ---
 
