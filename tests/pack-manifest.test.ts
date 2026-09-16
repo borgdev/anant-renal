@@ -103,7 +103,13 @@ describe('the repository’s own manifests', () => {
   it('the declared specialty packs point at modules that exist', () => {
     const { manifests } = loadPackManifests(REPO_ROOT);
     const declared = manifests.filter((m) => Object.keys(m.specialty).length > 0);
-    expect(declared.map((m) => m.id).sort()).toEqual(['ckd-navigation', 'dialysis-provider', 'payer']);
+    // `care-management` joined this set when G3 declared the cross-pack hand-off
+    // it participates in. Note what it declares: workflows ONLY — no ontology, no
+    // measures, no lens. A specialty block is not a claim to be a specialty, and
+    // listing it here is what makes that visible rather than inferred.
+    expect(declared.map((m) => m.id).sort()).toEqual([
+      'care-management', 'ckd-navigation', 'dialysis-provider', 'payer',
+    ]);
 
     for (const m of declared) {
       for (const decl of resourceDeclarations(m)) {

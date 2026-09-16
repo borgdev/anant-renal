@@ -1210,8 +1210,7 @@ fixed or tracked.
 | 6 | **G2** — activation becomes the list G6 requires | Subsumed by 3+4; the mechanism, not the design | S–M |
 | 7 | ~~**G5 + B** — view kinds and the manifest loader (one deliverable)~~ **DONE** — G5a (contract + registry; the renal views deliberately not migrated, they are page compositions) and B (the manifest loader, 23 manifests) | Removes the last per-specialty shell edit and the last place the platform names specialties | M |
 | 8 | ~~**G3** — cross-pack workflows onto the manifests, then wired~~ **DONE** (two of three declared; the third triggers on an event type that does not exist) | The multi-specialty value proposition, which was dead code | M |
-| 9 | **Declare the renal protocol packs' surfaces** (ontology, measures, event contracts) | Makes the conformance matrix honest about 7 of the 12 partial packs; this is the real content of Phase 4 | M |
-| 10 | Manifests for the 9 packs that ship none | Cheap; closes a visible gap in the Pack Studio. Note one of them, `oncology-provider`, is already referenced by a cross-pack workflow (G3) | S |
+| 9 | **Declare the renal protocol packs' surfaces** (ontology, measures, event contracts) | Makes the conformance matrix honest about 7 of the 12 partial packs; this is the real content of Phase 4 | M || 10 | ~~Manifests for the 9 packs that ship none~~ **DONE** — all 23 directories ship one, generated from the descriptor so drift is zero by construction | Cheap; closes a visible gap in the Pack Studio. `oncology-provider`, referenced by a cross-pack workflow, was one of them | S |
 | 11 | Phase 6 governance, budgets, rollout | Needs 1–10 settled first | L |
 | 12 | Phase 2 sandbox runs | Blocked externally; start the access requests now | external |
 
