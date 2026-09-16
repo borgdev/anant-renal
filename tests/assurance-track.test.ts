@@ -49,6 +49,7 @@ import { buildApp } from '../src/server/app.js';
 import { Telemetry, InMemorySink } from '../src/server/telemetry.js';
 import { SwarmWorkspaceStore } from '../src/swarm/workspace.js';
 import { healthcareCorePack } from '../packs/healthcare-core/index.js';
+import { dialysisProviderPack } from '../packs/dialysis-provider/index.js';
 import type { PostgresEventStore } from '../src/server/postgres-event-store.js';
 import type { ActorContext } from '../src/server/scoped-persistence.js';
 import type { CanonicalEvent } from '../src/healthcare-core/events.js';
@@ -418,7 +419,7 @@ describe('assurance routes', () => {
     const app = await buildApp({
       store: inMemoryStore(),
       telemetry: new Telemetry('test', new InMemorySink()),
-      packs: [healthcareCorePack],
+      packs: [healthcareCorePack, dialysisProviderPack],
       authenticate: async () => actor,
       checkHealth: async () => ({ db: true, redis: true }),
       renalPatients: () => Array.from({ length: 8 }, (_, i) => cohortInput(i)),

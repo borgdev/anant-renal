@@ -45,33 +45,28 @@
 // Every status is derived from the realm ledger / patient state (F1).
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { RealmRegistry } from '../realm/registry.js';
-import { buildRenalCohort, renalPatientInputs, type RenalPatientInput } from '../swarm/renal-cohort.js';
-import { buildRenalState, forecastRenalState, RENAL_FORECAST_HORIZONS_DAYS, RENAL_SUBSTATES } from '../protocols/shared-state.js';
-import { runF2Evaluation, defaultCohort, type F2EvaluationReport } from '../protocols/shared-state.js';
+import { buildRenalCohort } from '../../src/swarm/renal-cohort.js';
+import { buildRenalState, forecastRenalState, RENAL_FORECAST_HORIZONS_DAYS, RENAL_SUBSTATES } from '../../src/protocols/shared-state.js';
+import { runF2Evaluation, defaultCohort, type F2EvaluationReport } from '../../src/protocols/shared-state.js';
 import {
   RENAL_PROTOCOLS, assessProtocols, cockpitIndex,
   evaluateProtocolForPatient, protocolById,
-} from '../protocols/registry.js';
-import { PRIOR_CATALOG } from '../protocols/priors.js';
+} from '../../src/protocols/registry.js';
+import { PRIOR_CATALOG } from '../../src/protocols/priors.js';
+import type { PackPatient, PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
 
 export interface ProtocolRouteOptions {
-  /** Override the patient source (tests). Defaults to every realm in the registry. */
-  patients?: () => RenalPatientInput[];
+  /** The platform's patient projection. */
+  patients: () => readonly PackPatient[];
 }
 
 const error = (reply: FastifyReply, code: number, message: string) => reply.code(code).send({ error: message });
 
-/** Default patient source: ledger-derived renal inputs across every registered realm. */
-function registryPatients(): RenalPatientInput[] {
-  return renalPatientInputs(RealmRegistry.list());
-}
-
 let cachedEvaluation: { report: F2EvaluationReport; at: number } | undefined;
 const EVALUATION_TTL_MS = 5 * 60_000;
 
-export async function registerProtocolRoutes(app: FastifyInstance, opts: ProtocolRouteOptions = {}): Promise<void> {
-  const patientSource = opts.patients ?? registryPatients;
+export async function registerProtocolRoutes(app: FastifyInstance, opts: ProtocolRouteOptions): Promise<void> {
+  const patientSource = opts.patients;
 
   app.get('/admin/swarm/protocols', async () => ({
     generatedAt: new Date().toISOString(),
@@ -153,3 +148,17 @@ export async function registerProtocolRoutes(app: FastifyInstance, opts: Protoco
 export function resetProtocolEvaluationCache(): void {
   cachedEvaluation = undefined;
 }
+
+/** This module's route surface. */
+export const protocolsRoutes: readonly PackRouteContribution[] = Object.freeze([
+  {
+    id: 'dialysis.protocols',
+    scope: 'exec',
+    prefixes: ['/admin/swarm/protocols'],
+    register(app, deps) {
+      return registerProtocolRoutes(app, {
+        patients: deps.patients,
+      });
+    },
+  },
+]);

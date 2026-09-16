@@ -58,8 +58,7 @@
 // stand alone. The platform orders nothing.
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { getSwarmWorkspace, getSwarmCoordinator } from './swarm-routes.js';
-import { RealmRegistry } from '../realm/registry.js';
+import { getSwarmWorkspace, getSwarmCoordinator } from '../../src/server/swarm-routes.js';
 import {
   NUTRITION_CELLS, NUTRITION_CONSUMED_BY, NUTRITION_FEATURES, NUTRITION_REFERENCE,
   NUTRITION_REFERENCE_SUMMARY, NUTRITION_ADVISOR_MODEL,
@@ -67,52 +66,33 @@ import {
   nutritionRecommend, guardNutritionPlan, assessPew, pewPathways, forecastPotassium,
   nutritionLatent,
   type NutritionGuardInput,
-} from '../swarm/nutrition.js';
+} from '../../src/swarm/nutrition.js';
 import {
   nutritionRecommendCovered, ensureNutritionModel, ensureNutritionRedTeamScenarios,
   isNutritionFinding, nutritionRedTeamProbe, computeNutritionDrift, recordNutritionDrift,
   deriveNutritionAdvisorGate, NUTRITION_RED_TEAM_DEFS, NUTRITION_RED_TEAM_IDS,
   NUTRITION_MODEL_ID, NUTRITION_REGULATORY_POSTURE, NUTRITION_COVERAGE_DEFAULTS,
   NUTRITION_GOVERNANCE_REFERENCE,
-} from '../swarm/nutrition-governance.js';
-import { nutritionWhatIf, pathwayProjection, NUTRITION_SIMULATOR_MODEL, NUTRITION_TRADEOFF_WEIGHTS } from '../swarm/nutrition-simulator.js';
-import { buildNutritionTwin, scoreNutritionTwinDrift, nutritionWindowFromTwin, type NutritionTwinEventInput } from '../swarm/nutrition-twin.js';
-import { nutritionPewTrained, nutritionArtifactStatus, NUTRITION_ARTIFACT_ID, buildNutritionTrainingRows, trainNutritionArtifact, loadNutritionArtifact } from '../swarm/nutrition-model.js';
-import { buildRenalCohort, renalPatientInputs, attributePatientIdFromOrder } from '../swarm/renal-cohort.js';
-import { clinicalNbaState, nutritionFindings, NUTRITION_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
-import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
+} from '../../src/swarm/nutrition-governance.js';
+import { nutritionWhatIf, pathwayProjection, NUTRITION_SIMULATOR_MODEL, NUTRITION_TRADEOFF_WEIGHTS } from '../../src/swarm/nutrition-simulator.js';
+import { buildNutritionTwin, scoreNutritionTwinDrift, nutritionWindowFromTwin, type NutritionTwinEventInput } from '../../src/swarm/nutrition-twin.js';
+import { nutritionPewTrained, nutritionArtifactStatus, NUTRITION_ARTIFACT_ID, buildNutritionTrainingRows, trainNutritionArtifact, loadNutritionArtifact } from '../../src/swarm/nutrition-model.js';
+import { buildRenalCohort, attributePatientIdFromOrder } from '../../src/swarm/renal-cohort.js';
+import { clinicalNbaState, nutritionFindings, NUTRITION_CLINICAL_ACTIONS, clinicalActionsPayload } from '../../src/swarm/clinical-nba.js';
+import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../../src/swarm/workspace.js';
+import { extraFn, type PackPatient, type PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
 
 export interface NutritionRouteOptions {
   /** override the live patient source (tests) */
-  patients?: () => ReturnType<typeof renalPatientInputs>;
+  patients: () => readonly PackPatient[];
   /** override the ledger event source for the twin (tests) */
-  events?: () => NutritionTwinEventInput[];
+  events: () => NutritionTwinEventInput[];
 }
 
 const error = (reply: FastifyReply, code: number, message: string) => reply.code(code).send({ error: message });
 const NOW = (): string => new Date().toISOString();
 
 /** Ledger events for the nutrition twin (serial labs, handgrip, ECG patterns). */
-function ledgerEvents(): NutritionTwinEventInput[] {
-  const out: NutritionTwinEventInput[] = [];
-  for (const realm of RealmRegistry.list()) {
-    for (const e of realm.ledger.listAll()) {
-      const payload = e.effect as Record<string, unknown>;
-      const pid = payload.patientId;
-      out.push({
-        realmId: realm.id,
-        eventId: e.effectId,
-        kind: e.effect.kind,
-        emittedAt: e.emittedAt,
-        ...(e.realmAt ? { realmAt: e.realmAt } : {}),
-        ...(typeof pid === 'string' ? { patientId: pid } : {}),
-        payload,
-      });
-    }
-  }
-  return out;
-}
-
 /**
  * Attribute every ledger event to a patient ONCE per request (see the P4 route):
  * the twin does the same attribution, but doing it here keeps the state route at
@@ -150,8 +130,8 @@ export interface LiveNutritionWindow extends NutritionGuardInput {
  * (results attributed by order-id prefix + the session ring), never a fixture.
  */
 export function liveNutritionWindows(
-  patients = renalPatientInputs(RealmRegistry.list()),
-  events: readonly NutritionTwinEventInput[] = ledgerEvents(),
+  patients: readonly PackPatient[],
+  events: readonly NutritionTwinEventInput[],
 ): LiveNutritionWindow[] {
   const { patients: facts } = buildRenalCohort(patients);
   const patientStates = patients.map((p) => ({ patientId: p.id, realmId: p.realmId, state: p.state }));
@@ -170,9 +150,9 @@ export function liveNutritionWindows(
   });
 }
 
-export async function registerNutritionRoutes(app: FastifyInstance, opts: NutritionRouteOptions = {}): Promise<void> {
-  const patientSource = opts.patients ?? (() => renalPatientInputs(RealmRegistry.list()));
-  const eventSource = opts.events ?? ledgerEvents;
+export async function registerNutritionRoutes(app: FastifyInstance, opts: NutritionRouteOptions): Promise<void> {
+  const patientSource = opts.patients;
+  const eventSource = opts.events;
 
   const ws = (): SwarmWorkspaceStore => {
     const w = getSwarmWorkspace();
@@ -681,3 +661,18 @@ function toNumeric(w: NutritionGuardInput): Record<string, number> {
 }
 
 export { nutritionRecommend, assessPew, forecastPotassium, NUTRITION_ADVISOR_MODEL };
+
+/** This module's route surface. */
+export const nutritionRoutes: readonly PackRouteContribution[] = Object.freeze([
+  {
+    id: 'dialysis.nutrition',
+    scope: 'exec',
+    prefixes: ['/admin/swarm/nutrition'],
+    register(app, deps) {
+      return registerNutritionRoutes(app, {
+        patients: deps.patients,
+      events: extraFn<NutritionTwinEventInput[]>(deps.extra, 'events') ?? deps.events,
+      });
+    },
+  },
+]);

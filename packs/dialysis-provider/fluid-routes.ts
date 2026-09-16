@@ -55,32 +55,32 @@
 // setting. There is no autonomous ultrafiltration authority, ever.
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { getSwarmWorkspace, getSwarmCoordinator } from './swarm-routes.js';
-import { RealmRegistry } from '../realm/registry.js';
+import { getSwarmWorkspace, getSwarmCoordinator } from '../../src/server/swarm-routes.js';
 import {
   FLUID_CELLS, FLUID_CONSUMED_BY, FLUID_FEATURES, FLUID_REFERENCE,
   buildFluidDemo, fluidEpisodes, dropFluidEpisodes, seedFluidEpisodes,
   fluidRecommend, type FluidPatientWindow,
-} from '../swarm/fluid.js';
+} from '../../src/swarm/fluid.js';
 import {
   fluidRecommendCovered, ensureFluidModel, ensureFluidRedTeamScenarios,
   isFluidFinding, fluidRedTeamProbe, computeFluidDrift, recordFluidDrift,
   deriveFluidAdvisorGate, FLUID_RED_TEAM_DEFS, FLUID_RED_TEAM_IDS,
   FLUID_MODEL_ID, FLUID_REGULATORY_POSTURE, FLUID_COVERAGE_DEFAULTS,
   FLUID_GOVERNANCE_REFERENCE,
-} from '../swarm/fluid-governance.js';
-import { fluidWhatIf, FLUID_SIMULATOR_MODEL } from '../swarm/fluid-simulator.js';
-import { buildFluidTwin, scoreFluidTwinDrift, fluidWindowFromTwin, type FluidTwinEventInput } from '../swarm/fluid-twin.js';
-import { fluidRecommendTrained, fluidArtifactStatus, FLUID_ARTIFACT_ID, buildFluidTrainingRows, trainFluidArtifact, loadFluidArtifact } from '../swarm/fluid-model.js';
-import { buildRenalCohort, renalPatientInputs } from '../swarm/renal-cohort.js';
-import { clinicalNbaState, fluidFindings, FLUID_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
-import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
+} from '../../src/swarm/fluid-governance.js';
+import { fluidWhatIf, FLUID_SIMULATOR_MODEL } from '../../src/swarm/fluid-simulator.js';
+import { buildFluidTwin, scoreFluidTwinDrift, fluidWindowFromTwin, type FluidTwinEventInput } from '../../src/swarm/fluid-twin.js';
+import { fluidRecommendTrained, fluidArtifactStatus, FLUID_ARTIFACT_ID, buildFluidTrainingRows, trainFluidArtifact, loadFluidArtifact } from '../../src/swarm/fluid-model.js';
+import { buildRenalCohort } from '../../src/swarm/renal-cohort.js';
+import { clinicalNbaState, fluidFindings, FLUID_CLINICAL_ACTIONS, clinicalActionsPayload } from '../../src/swarm/clinical-nba.js';
+import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../../src/swarm/workspace.js';
+import { extraFn, type PackPatient, type PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
 
 export interface FluidRouteOptions {
   /** override the live patient source (tests) */
-  patients?: () => ReturnType<typeof renalPatientInputs>;
+  patients: () => readonly PackPatient[];
   /** override the ledger event source for the twin (tests) */
-  events?: () => FluidTwinEventInput[];
+  events: () => FluidTwinEventInput[];
 }
 
 const error = (reply: FastifyReply, code: number, message: string) => reply.code(code).send({ error: message });
@@ -94,7 +94,7 @@ const NOW = (): string => new Date().toISOString();
  * assessment timestamp is the most recent session, and the provenance is stated
  * rather than assumed.
  */
-export function liveFluidWindows(patients = renalPatientInputs(RealmRegistry.list())): Array<FluidPatientWindow & { facilityId?: string | undefined; source: 'realm'; dryWeightSource: string }> {
+export function liveFluidWindows(patients: readonly PackPatient[]): Array<FluidPatientWindow & { facilityId?: string | undefined; source: 'realm'; dryWeightSource: string }> {
   const { patients: facts } = buildRenalCohort(patients);
   return facts.map((f) => ({
     patientId: f.patientId,
@@ -115,29 +115,9 @@ export function liveFluidWindows(patients = renalPatientInputs(RealmRegistry.lis
 }
 
 /** Ledger events for the fluid twin (session telemetry + closes). */
-function ledgerEvents(): FluidTwinEventInput[] {
-  const out: FluidTwinEventInput[] = [];
-  for (const realm of RealmRegistry.list()) {
-    for (const e of realm.ledger.listAll()) {
-      const payload = e.effect as Record<string, unknown>;
-      const pid = payload.patientId;
-      out.push({
-        realmId: realm.id,
-        eventId: e.effectId,
-        kind: e.effect.kind,
-        emittedAt: e.emittedAt,
-        ...(e.realmAt ? { realmAt: e.realmAt } : {}),
-        ...(typeof pid === 'string' ? { patientId: pid } : {}),
-        payload,
-      });
-    }
-  }
-  return out;
-}
-
-export async function registerFluidRoutes(app: FastifyInstance, opts: FluidRouteOptions = {}): Promise<void> {
-  const patientSource = opts.patients ?? (() => renalPatientInputs(RealmRegistry.list()));
-  const eventSource = opts.events ?? ledgerEvents;
+export async function registerFluidRoutes(app: FastifyInstance, opts: FluidRouteOptions): Promise<void> {
+  const patientSource = opts.patients;
+  const eventSource = opts.events;
 
   const ws = (): SwarmWorkspaceStore => {
     const w = getSwarmWorkspace();
@@ -519,3 +499,18 @@ function toNumeric(w: FluidPatientWindow): Record<string, number> {
   put('adherencePct', w.adherencePct);
   return out;
 }
+
+/** This module's route surface. */
+export const fluidRoutes: readonly PackRouteContribution[] = Object.freeze([
+  {
+    id: 'dialysis.fluid',
+    scope: 'exec',
+    prefixes: ['/admin/swarm/fluid'],
+    register(app, deps) {
+      return registerFluidRoutes(app, {
+        patients: deps.patients,
+      events: extraFn<FluidTwinEventInput[]>(deps.extra, 'events') ?? deps.events,
+      });
+    },
+  },
+]);

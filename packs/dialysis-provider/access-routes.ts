@@ -56,33 +56,33 @@
 // by the platform. Every referral is a proposal for a human decision.
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { getSwarmWorkspace, getSwarmCoordinator } from './swarm-routes.js';
-import { RealmRegistry } from '../realm/registry.js';
+import { getSwarmWorkspace, getSwarmCoordinator } from '../../src/server/swarm-routes.js';
 import {
   ACCESS_CELLS, ACCESS_CONSUMED_BY, ACCESS_FEATURES, ACCESS_REFERENCE,
   buildAccessDemo, accessEpisodes, dropAccessEpisodes, seedAccessEpisodes,
   accessRecommend, accessBaseline, guardAccessReferral, stenosisProbability, thrombosisRisk,
   type AccessGuardInput,
-} from '../swarm/access.js';
+} from '../../src/swarm/access.js';
 import {
   accessRecommendCovered, ensureAccessModel, ensureAccessRedTeamScenarios,
   isAccessFinding, accessRedTeamProbe, computeAccessDrift, recordAccessDrift,
   deriveAccessAdvisorGate, ACCESS_RED_TEAM_DEFS, ACCESS_RED_TEAM_IDS,
   ACCESS_MODEL_ID, ACCESS_REGULATORY_POSTURE, ACCESS_COVERAGE_DEFAULTS,
   ACCESS_GOVERNANCE_REFERENCE, ACCESS_ACOUSTIC_FLAG, accessAcousticEnabled,
-} from '../swarm/access-governance.js';
-import { accessWhatIf, accessRiskSurface, ACCESS_SIMULATOR_MODEL } from '../swarm/access-simulator.js';
-import { buildAccessTwin, scoreAccessTwinDrift, accessWindowFromTwin, type AccessTwinEventInput } from '../swarm/access-twin.js';
-import { accessRecommendTrained, accessArtifactStatus, ACCESS_ARTIFACT_ID, buildAccessTrainingRows, trainAccessArtifact, loadAccessArtifact, accessAcousticDelta } from '../swarm/access-model.js';
-import { buildRenalCohort, renalPatientInputs } from '../swarm/renal-cohort.js';
-import { clinicalNbaState, accessFindings, ACCESS_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
-import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
+} from '../../src/swarm/access-governance.js';
+import { accessWhatIf, accessRiskSurface, ACCESS_SIMULATOR_MODEL } from '../../src/swarm/access-simulator.js';
+import { buildAccessTwin, scoreAccessTwinDrift, accessWindowFromTwin, type AccessTwinEventInput } from '../../src/swarm/access-twin.js';
+import { accessRecommendTrained, accessArtifactStatus, ACCESS_ARTIFACT_ID, buildAccessTrainingRows, trainAccessArtifact, loadAccessArtifact, accessAcousticDelta } from '../../src/swarm/access-model.js';
+import { buildRenalCohort } from '../../src/swarm/renal-cohort.js';
+import { clinicalNbaState, accessFindings, ACCESS_CLINICAL_ACTIONS, clinicalActionsPayload } from '../../src/swarm/clinical-nba.js';
+import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../../src/swarm/workspace.js';
+import { extraFn, type PackPatient, type PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
 
 export interface AccessRouteOptions {
   /** override the live patient source (tests) */
-  patients?: () => ReturnType<typeof renalPatientInputs>;
+  patients: () => readonly PackPatient[];
   /** override the ledger event source for the twin (tests) */
-  events?: () => AccessTwinEventInput[];
+  events: () => AccessTwinEventInput[];
 }
 
 const error = (reply: FastifyReply, code: number, message: string) => reply.code(code).send({ error: message });
@@ -92,7 +92,7 @@ const NOW = (): string => new Date().toISOString();
  * Live windows from the F1 access surveillance series: the patient's own first
  * measurements form the baseline the Δ terms are computed against.
  */
-export function liveAccessWindows(patients = renalPatientInputs(RealmRegistry.list())): Array<AccessGuardInput & { patientId: string; facilityId?: string | undefined; lastObservationAt?: string | undefined; source: 'realm'; acousticCaptures: number }> {
+export function liveAccessWindows(patients: readonly PackPatient[]): Array<AccessGuardInput & { patientId: string; facilityId?: string | undefined; lastObservationAt?: string | undefined; source: 'realm'; acousticCaptures: number }> {
   const { patients: facts } = buildRenalCohort(patients);
   return facts.map((f) => {
     const series = f.access.series ?? [];
@@ -135,29 +135,9 @@ export function liveAccessWindows(patients = renalPatientInputs(RealmRegistry.li
 }
 
 /** Ledger events for the access twin (surveillance observations + acoustic captures). */
-function ledgerEvents(): AccessTwinEventInput[] {
-  const out: AccessTwinEventInput[] = [];
-  for (const realm of RealmRegistry.list()) {
-    for (const e of realm.ledger.listAll()) {
-      const payload = e.effect as Record<string, unknown>;
-      const pid = payload.patientId;
-      out.push({
-        realmId: realm.id,
-        eventId: e.effectId,
-        kind: e.effect.kind,
-        emittedAt: e.emittedAt,
-        ...(e.realmAt ? { realmAt: e.realmAt } : {}),
-        ...(typeof pid === 'string' ? { patientId: pid } : {}),
-        payload,
-      });
-    }
-  }
-  return out;
-}
-
-export async function registerAccessRoutes(app: FastifyInstance, opts: AccessRouteOptions = {}): Promise<void> {
-  const patientSource = opts.patients ?? (() => renalPatientInputs(RealmRegistry.list()));
-  const eventSource = opts.events ?? ledgerEvents;
+export async function registerAccessRoutes(app: FastifyInstance, opts: AccessRouteOptions): Promise<void> {
+  const patientSource = opts.patients;
+  const eventSource = opts.events;
 
   const ws = (): SwarmWorkspaceStore => {
     const w = getSwarmWorkspace();
@@ -581,3 +561,18 @@ function toNumeric(w: AccessGuardInput & { patientId: string }): Record<string, 
 }
 
 export { accessRecommend, stenosisProbability, thrombosisRisk };
+
+/** This module's route surface. */
+export const accessRoutes: readonly PackRouteContribution[] = Object.freeze([
+  {
+    id: 'dialysis.access',
+    scope: 'exec',
+    prefixes: ['/admin/swarm/access'],
+    register(app, deps) {
+      return registerAccessRoutes(app, {
+        patients: deps.patients,
+      events: extraFn<AccessTwinEventInput[]>(deps.extra, 'events') ?? deps.events,
+      });
+    },
+  },
+]);

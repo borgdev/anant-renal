@@ -45,6 +45,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from '../src/server/app.js';
 import { Telemetry, InMemorySink } from '../src/server/telemetry.js';
 import { healthcareCorePack } from '../packs/healthcare-core/index.js';
+import { dialysisProviderPack } from '../packs/dialysis-provider/index.js';
 import { SwarmWorkspaceStore } from '../src/swarm/workspace.js';
 import { loadEsaArtifact, predictEsaDoseUnits, type EsaTrainedArtifact } from '../src/swarm/anemia-model.js';
 import {
@@ -83,7 +84,7 @@ async function build() {
   return buildApp({
     store: inMemoryStore(),
     telemetry: new Telemetry('test', new InMemorySink()),
-    packs: [healthcareCorePack],
+    packs: [healthcareCorePack, dialysisProviderPack],
     authenticate: async () => actor,
     checkHealth: async () => ({ db: true, redis: true }),
     adminApiAuth: true,

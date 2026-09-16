@@ -46,7 +46,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { registerSwarmRoutes, resetSwarmRuntime } from '../src/server/swarm-routes.js';
-import { registerRoundRoutes } from '../src/server/round-routes.js';
+import { registerRoundRoutes } from '../packs/dialysis-provider/round-routes.js';
 import type { FluidPatientWindow } from '../src/swarm/fluid.js';
 import type { RenalPatientInput } from '../src/swarm/renal-cohort.js';
 

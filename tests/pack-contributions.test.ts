@@ -90,6 +90,7 @@ const deps: PackRouteDeps = {
   workspace: () => { throw new Error('not used'); },
   coordinator: () => { throw new Error('not used'); },
   patients: () => [],
+  events: () => [],
   extra: {},
 };
 
@@ -187,7 +188,7 @@ describe('registration', () => {
           register: () => { seen.push('a'); },
         })]),
       ],
-      () => ({ workspace: () => { throw new Error('x'); }, coordinator: () => { throw new Error('x'); }, patients: () => [], extra: {} }),
+      () => ({ workspace: () => { throw new Error('x'); }, coordinator: () => { throw new Error('x'); }, patients: () => [], events: () => [], extra: {} }),
     );
     expect(seen).toEqual(['a']);
     expect(registry.contributingPacks).toEqual(['a-pack']);
@@ -271,26 +272,44 @@ describe('the burn-down: packs declare their routes, app.ts stops naming modules
     expect(payerPack.routes?.[0]?.prefixes).toEqual(['/admin/swarm/payer']);
   });
 
-  it('dialysis-provider declares the renal data-model surface', async () => {
+  it('dialysis-provider declares every specialty surface it serves', async () => {
     const { dialysisProviderPack } = await import('../packs/dialysis-provider/index.js');
-    const renal = dialysisProviderPack.routes?.find((r) => r.prefixes.includes('/admin/swarm/renal'));
-    expect(renal?.scope).toBe('exec');
+    const declared = (dialysisProviderPack.routes ?? []).flatMap((r) => [...r.prefixes]).sort();
+    // The whole burn-down in one assertion: these ten prefixes used to be nine
+    // named `await registerXRoutes(...)` calls plus one pack, and the platform
+    // knew every one of them. Now the pack declares them and the platform reads
+    // the declaration.
+    expect(declared).toEqual([
+      '/admin/swarm/access',
+      '/admin/swarm/adequacy',
+      '/admin/swarm/anemia',
+      '/admin/swarm/fluid',
+      '/admin/swarm/infection',
+      '/admin/swarm/mbd',
+      '/admin/swarm/next-session',
+      '/admin/swarm/nutrition',
+      '/admin/swarm/protocols',
+      '/admin/swarm/renal',
+      '/admin/swarm/rounds',
+    ]);
+    for (const r of dialysisProviderPack.routes ?? []) expect(r.scope).toBe('exec');
   });
 
   it('app.ts no longer registers each migrated module by name', async () => {
     const { readFileSync } = await import('node:fs');
     const app = readFileSync(new URL('../src/server/app.ts', import.meta.url), 'utf8');
-    expect(app).not.toContain('registerPayerRoutes');
-    expect(app).not.toContain('registerRenalRoutes');
+    for (const gone of ['registerPayerRoutes', 'registerRenalRoutes', 'registerAnemiaRoutes', 'registerProtocolRoutes', 'registerAdequacyRoutes', 'registerFluidRoutes', 'registerRoundRoutes', 'registerAccessRoutes', 'registerMbdRoutes', 'registerNutritionRoutes', 'registerInfectionRoutes']) {
+      expect(app, gone).not.toContain(gone);
+    }
 
-    // The remaining specialty modules are still named, and are tracked in
-    // docs/platform-specialty-remaining-work.md. Asserting the count here means
-    // the burn-down cannot silently grow — and, just as importantly, that a
-    // module cannot be deleted from app.ts without its pack declaring it, because
-    // the count would drop and this would fail. Update it deliberately, one per
-    // migration, never to make a red test green.
+    // ONE specialty module is still named, and deliberately: the cross-pack
+    // assurance track sits under `/admin/assurance/*`, which is in neither scope
+    // namespace, so it has to move before it can declare a scope. Asserting it as
+    // the exact remaining list means this cannot quietly grow — and, just as
+    // importantly, that a module cannot be deleted from app.ts without its pack
+    // declaring it, because the list would shorten and this would fail.
     const named = app.match(/await register(Anemia|Renal|Protocol|Adequacy|Fluid|Access|Mbd|Nutrition|Infection|Round|CrossPackAssurance)Routes/g) ?? [];
     expect(named.map((n) => n.replace('await register', '').replace('Routes', '')))
-      .toEqual(['Anemia', 'Protocol', 'Adequacy', 'Fluid', 'Round', 'Access', 'Mbd', 'Nutrition', 'Infection', 'CrossPackAssurance']);
+      .toEqual(['CrossPackAssurance']);
   });
 });

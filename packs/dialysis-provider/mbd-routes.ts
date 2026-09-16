@@ -56,33 +56,33 @@
 // platform, and no dosage arithmetic is presented as a prescription.
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { getSwarmWorkspace, getSwarmCoordinator } from './swarm-routes.js';
-import { RealmRegistry } from '../realm/registry.js';
+import { getSwarmWorkspace, getSwarmCoordinator } from '../../src/server/swarm-routes.js';
 import {
   MBD_CELLS, MBD_CONSUMED_BY, MBD_FEATURES, MBD_REFERENCE, MBD_REFERENCE_SUMMARY,
   buildMbdDemo, mbdEpisodes, dropMbdEpisodes, seedMbdEpisodes,
   mbdRecommend, guardMbdTherapy, projectMbdTherapy, correctedCalcium,
   type MbdCoupledInput, type MbdTherapyState,
-} from '../swarm/mbd.js';
+} from '../../src/swarm/mbd.js';
 import {
   mbdRecommendCovered, ensureMbdModel, ensureMbdRedTeamScenarios,
   isMbdFinding, mbdRedTeamProbe, computeMbdDrift, recordMbdDrift,
   deriveMbdAdvisorGate, MBD_RED_TEAM_DEFS, MBD_RED_TEAM_IDS,
   MBD_MODEL_ID, MBD_REGULATORY_POSTURE, MBD_COVERAGE_DEFAULTS,
   MBD_GOVERNANCE_REFERENCE,
-} from '../swarm/mbd-governance.js';
-import { mbdWhatIf, mbdCouplingMap, MBD_SIMULATOR_MODEL } from '../swarm/mbd-simulator.js';
-import { buildMbdTwin, scoreMbdTwinDrift, mbdWindowFromTwin, type MbdTwinEventInput } from '../swarm/mbd-twin.js';
-import { mbdProjectTrained, mbdArtifactStatus, MBD_ARTIFACT_ID, buildMbdTrainingRows, trainMbdArtifact, loadMbdArtifact } from '../swarm/mbd-model.js';
-import { buildRenalCohort, renalPatientInputs, attributePatientIdFromOrder } from '../swarm/renal-cohort.js';
-import { clinicalNbaState, mbdFindings, MBD_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
-import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
+} from '../../src/swarm/mbd-governance.js';
+import { mbdWhatIf, mbdCouplingMap, MBD_SIMULATOR_MODEL } from '../../src/swarm/mbd-simulator.js';
+import { buildMbdTwin, scoreMbdTwinDrift, mbdWindowFromTwin, type MbdTwinEventInput } from '../../src/swarm/mbd-twin.js';
+import { mbdProjectTrained, mbdArtifactStatus, MBD_ARTIFACT_ID, buildMbdTrainingRows, trainMbdArtifact, loadMbdArtifact } from '../../src/swarm/mbd-model.js';
+import { buildRenalCohort, attributePatientIdFromOrder } from '../../src/swarm/renal-cohort.js';
+import { clinicalNbaState, mbdFindings, MBD_CLINICAL_ACTIONS, clinicalActionsPayload } from '../../src/swarm/clinical-nba.js';
+import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../../src/swarm/workspace.js';
+import { extraFn, type PackPatient, type PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
 
 export interface MbdRouteOptions {
   /** override the live patient source (tests) */
-  patients?: () => ReturnType<typeof renalPatientInputs>;
+  patients: () => readonly PackPatient[];
   /** override the ledger event source for the twin (tests) */
-  events?: () => MbdTwinEventInput[];
+  events: () => MbdTwinEventInput[];
 }
 
 const error = (reply: FastifyReply, code: number, message: string) => reply.code(code).send({ error: message });
@@ -90,26 +90,6 @@ const NOW = (): string => new Date().toISOString();
 const NO_THERAPY_STATE: MbdTherapyState = { binderMgPerDay: 0, binderClass: 'none', calcimimeticMgPerDay: 0, activeVitaminDMcgPerDay: 0 };
 
 /** Ledger events for the MBD twin (P/Ca/PTH/vitamin-D results + therapy orders). */
-function ledgerEvents(): MbdTwinEventInput[] {
-  const out: MbdTwinEventInput[] = [];
-  for (const realm of RealmRegistry.list()) {
-    for (const e of realm.ledger.listAll()) {
-      const payload = e.effect as Record<string, unknown>;
-      const pid = payload.patientId;
-      out.push({
-        realmId: realm.id,
-        eventId: e.effectId,
-        kind: e.effect.kind,
-        emittedAt: e.emittedAt,
-        ...(e.realmAt ? { realmAt: e.realmAt } : {}),
-        ...(typeof pid === 'string' ? { patientId: pid } : {}),
-        payload,
-      });
-    }
-  }
-  return out;
-}
-
 /**
  * Attribute every ledger event to a patient ONCE per request. The twin performs
  * the same attribution internally, but doing it here turns the state route from
@@ -144,8 +124,8 @@ export interface LiveMbdWindow extends MbdCoupledInput {
  * realm ledger (results attributed by order-id prefix), never from a fixture.
  */
 export function liveMbdWindows(
-  patients = renalPatientInputs(RealmRegistry.list()),
-  events: readonly MbdTwinEventInput[] = ledgerEvents(),
+  patients: readonly PackPatient[],
+  events: readonly MbdTwinEventInput[],
 ): LiveMbdWindow[] {
   const { patients: facts } = buildRenalCohort(patients);
   const patientStates = patients.map((p) => ({ patientId: p.id, realmId: p.realmId, state: p.state }));
@@ -162,9 +142,9 @@ export function liveMbdWindows(
   });
 }
 
-export async function registerMbdRoutes(app: FastifyInstance, opts: MbdRouteOptions = {}): Promise<void> {
-  const patientSource = opts.patients ?? (() => renalPatientInputs(RealmRegistry.list()));
-  const eventSource = opts.events ?? ledgerEvents;
+export async function registerMbdRoutes(app: FastifyInstance, opts: MbdRouteOptions): Promise<void> {
+  const patientSource = opts.patients;
+  const eventSource = opts.events;
 
   const ws = (): SwarmWorkspaceStore => {
     const w = getSwarmWorkspace();
@@ -618,3 +598,18 @@ function toNumeric(w: MbdCoupledInput): Record<string, number> {
 }
 
 export { mbdRecommend, projectMbdTherapy, correctedCalcium };
+
+/** This module's route surface. */
+export const mbdRoutes: readonly PackRouteContribution[] = Object.freeze([
+  {
+    id: 'dialysis.mbd',
+    scope: 'exec',
+    prefixes: ['/admin/swarm/mbd'],
+    register(app, deps) {
+      return registerMbdRoutes(app, {
+        patients: deps.patients,
+      events: extraFn<MbdTwinEventInput[]>(deps.extra, 'events') ?? deps.events,
+      });
+    },
+  },
+]);

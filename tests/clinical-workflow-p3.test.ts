@@ -54,6 +54,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp, } from '../src/server/app.js';
 import { Telemetry, InMemorySink } from '../src/server/telemetry.js';
 import { healthcareCorePack } from '../packs/healthcare-core/index.js';
+import { dialysisProviderPack } from '../packs/dialysis-provider/index.js';
 import { getSwarmWorkspace, resetSwarmRuntime } from '../src/server/swarm-routes.js';
 import { RealmRegistry, populateFacility } from '../src/realm/index.js';
 import { OutcomeEpisodeCoordinator } from '../src/swarm/outcome-episode.js';
@@ -361,7 +362,7 @@ async function build() {
   return buildApp({
     store: inMemoryStore(),
     telemetry: new Telemetry('test', new InMemorySink()),
-    packs: [healthcareCorePack],
+    packs: [healthcareCorePack, dialysisProviderPack],
     authenticate: async () => ({ actorRef: 'user:test', scopeIds: ['scope:*'], clearance: 'restricted-phi', purposeOfUse: 'operations' } as ActorContext),
     checkHealth: async () => ({ db: true, redis: true }),
     adminApiAuth: true,

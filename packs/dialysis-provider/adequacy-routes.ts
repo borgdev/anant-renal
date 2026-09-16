@@ -55,41 +55,41 @@
 // CDSS only: recommends, never orders, and never touches machine parameters.
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { getSwarmWorkspace, getSwarmCoordinator } from './swarm-routes.js';
-import { RealmRegistry } from '../realm/registry.js';
+import { getSwarmWorkspace, getSwarmCoordinator } from '../../src/server/swarm-routes.js';
 import {
   ADEQUACY_CELLS, ADEQUACY_CONSUMED_BY, ADEQUACY_FEATURES, ADEQUACY_REFERENCE,
   buildAdequacyDemo, adequacyEpisodes, dropAdequacyEpisodes, seedAdequacyEpisodes,
   adequacyRecommend, type AdequacyPatientWindow,
-} from '../swarm/adequacy.js';
+} from '../../src/swarm/adequacy.js';
 import {
   adequacyRecommendCovered, ensureAdequacyModel, ensureAdequacyRedTeamScenarios,
   isAdequacyFinding, adequacyRedTeamProbe, computeAdequacyDrift, recordAdequacyDrift,
   deriveAdequacyAdvisorGate, ADEQUACY_RED_TEAM_DEFS, ADEQUACY_RED_TEAM_IDS,
   ADEQUACY_MODEL_ID, ADEQUACY_REGULATORY_POSTURE, ADEQUACY_COVERAGE_DEFAULTS,
   ADEQUACY_GOVERNANCE_REFERENCE,
-} from '../swarm/adequacy-governance.js';
-import { adequacyWhatIf, ADEQUACY_SIMULATOR_MODEL } from '../swarm/adequacy-prescription.js';
-import { buildAdequacyTwin, scoreAdequacyTwinDrift, adequacyWindowFromTwin, type AdequacyTwinEventInput } from '../swarm/adequacy-twin.js';
-import { adequacyRecommendTrained, adequacyArtifactStatus, ADEQUACY_ARTIFACT_ID, buildAdequacyTrainingRows, defaultAdequacyTrainingSpecs, trainAdequacyArtifact, loadAdequacyArtifact } from '../swarm/adequacy-model.js';
-import { buildRenalCohort, renalPatientInputs } from '../swarm/renal-cohort.js';
-import { clinicalNbaState, adequacyFindings, ADEQUACY_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
-import { loadQipReadiness } from '../cms/qip.js';
-import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
+} from '../../src/swarm/adequacy-governance.js';
+import { adequacyWhatIf, ADEQUACY_SIMULATOR_MODEL } from '../../src/swarm/adequacy-prescription.js';
+import { buildAdequacyTwin, scoreAdequacyTwinDrift, adequacyWindowFromTwin, type AdequacyTwinEventInput } from '../../src/swarm/adequacy-twin.js';
+import { adequacyRecommendTrained, adequacyArtifactStatus, ADEQUACY_ARTIFACT_ID, buildAdequacyTrainingRows, defaultAdequacyTrainingSpecs, trainAdequacyArtifact, loadAdequacyArtifact } from '../../src/swarm/adequacy-model.js';
+import { buildRenalCohort } from '../../src/swarm/renal-cohort.js';
+import { clinicalNbaState, adequacyFindings, ADEQUACY_CLINICAL_ACTIONS, clinicalActionsPayload } from '../../src/swarm/clinical-nba.js';
+import { loadQipReadiness } from '../../src/cms/qip.js';
+import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../../src/swarm/workspace.js';
+import { extraFn, type PackPatient, type PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
 
 export interface AdequacyRouteOptions {
   seed?: boolean;
   /** override the live patient source (tests) */
-  patients?: () => ReturnType<typeof renalPatientInputs>;
+  patients: () => readonly PackPatient[];
   /** override the ledger event source for the twin (tests) */
-  events?: () => AdequacyTwinEventInput[];
+  events: () => AdequacyTwinEventInput[];
 }
 
 const error = (reply: FastifyReply, code: number, message: string) => reply.code(code).send({ error: message });
 const NOW = (): string => new Date().toISOString();
 
 /** Live windows derived from realm patient state + ledger (F1 facts). */
-export function liveAdequacyWindows(patients = renalPatientInputs(RealmRegistry.list())): Array<AdequacyPatientWindow & { facilityId?: string | undefined; source: 'realm' }> {
+export function liveAdequacyWindows(patients: readonly PackPatient[]): Array<AdequacyPatientWindow & { facilityId?: string | undefined; source: 'realm' }> {
   const { patients: facts } = buildRenalCohort(patients);
   return facts.map((f) => {
     const accessType: 'avf' | 'avg' | 'catheter' | undefined = f.access.type === 'catheter' ? 'catheter' : f.access.type === 'avg' ? 'avg' : f.access.type === 'avf' ? 'avf' : undefined;
@@ -113,29 +113,9 @@ export function liveAdequacyWindows(patients = renalPatientInputs(RealmRegistry.
 }
 
 /** Ledger events for the adequacy twin (session + lab effects). */
-function ledgerEvents(): AdequacyTwinEventInput[] {
-  const out: AdequacyTwinEventInput[] = [];
-  for (const realm of RealmRegistry.list()) {
-    for (const e of realm.ledger.listAll()) {
-      const payload = e.effect as Record<string, unknown>;
-      const pid = payload.patientId;
-      out.push({
-        realmId: realm.id,
-        eventId: e.effectId,
-        kind: e.effect.kind,
-        emittedAt: e.emittedAt,
-        ...(e.realmAt ? { realmAt: e.realmAt } : {}),
-        ...(typeof pid === 'string' ? { patientId: pid } : {}),
-        payload,
-      });
-    }
-  }
-  return out;
-}
-
-export async function registerAdequacyRoutes(app: FastifyInstance, opts: AdequacyRouteOptions = {}): Promise<void> {
-  const patientSource = opts.patients ?? (() => renalPatientInputs(RealmRegistry.list()));
-  const eventSource = opts.events ?? ledgerEvents;
+export async function registerAdequacyRoutes(app: FastifyInstance, opts: AdequacyRouteOptions): Promise<void> {
+  const patientSource = opts.patients;
+  const eventSource = opts.events;
 
   const ws = (): SwarmWorkspaceStore => {
     const w = getSwarmWorkspace();
@@ -522,3 +502,18 @@ function toNumeric(w: AdequacyPatientWindow): Record<string, number> {
   put('potassium', w.potassium);
   return out;
 }
+
+/** This module's route surface. */
+export const adequacyRoutes: readonly PackRouteContribution[] = Object.freeze([
+  {
+    id: 'dialysis.adequacy',
+    scope: 'exec',
+    prefixes: ['/admin/swarm/adequacy'],
+    register(app, deps) {
+      return registerAdequacyRoutes(app, {
+        patients: deps.patients,
+      events: extraFn<AdequacyTwinEventInput[]>(deps.extra, 'events') ?? deps.events,
+      });
+    },
+  },
+]);

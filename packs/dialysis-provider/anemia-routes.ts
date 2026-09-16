@@ -72,48 +72,48 @@
  ******************************************************************************/
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { getSwarmWorkspace, getSwarmCoordinator } from './swarm-routes.js';
+import { getSwarmWorkspace, getSwarmCoordinator } from '../../src/server/swarm-routes.js';
 import {
   buildAnemiaDemo, dropAnemiaEpisodes, anemiaEpisodes, seedAnemiaEpisodes,
   ESA_CELLS, ESA_FEATURES, HGB_TARGET, ESA_ADVISOR_MODEL, ANEMIA_CONSUMED_BY,
   type EsaPatientWindow,
-} from '../swarm/anemia.js';
+} from '../../src/swarm/anemia.js';
 import {
   ESA_COVERAGE_DEFAULTS, ESA_MODEL_ID, ESA_REGULATORY_POSTURE, ESA_RED_TEAM_DEFS,
   deriveEsaAdvisorGate, ensureEsaModel, ensureEsaRedTeamScenarios, esaRecommendCovered,
   esaRedTeamProbe, isEsaFinding, recordEsaDrift,
-} from '../swarm/anemia-governance.js';
-import { esaRecommendTrained, loadEsaArtifact } from '../swarm/anemia-model.js';
-import { esaRecommendMpc, esaWhatIf } from '../swarm/anemia-forecast.js';
-import { esaExposure, ESA_EXPOSURE_CATALOG, type EsaExposureOptions } from '../swarm/anemia-exposure.js';
-import { esaResponsiveness, ESA_PHENOTYPE_CATALOG } from '../swarm/anemia-phenotype.js';
-import { esaSuggestionDst } from '../swarm/anemia-dst.js';
+} from '../../src/swarm/anemia-governance.js';
+import { esaRecommendTrained, loadEsaArtifact } from '../../src/swarm/anemia-model.js';
+import { esaRecommendMpc, esaWhatIf } from '../../src/swarm/anemia-forecast.js';
+import { esaExposure, ESA_EXPOSURE_CATALOG, type EsaExposureOptions } from '../../src/swarm/anemia-exposure.js';
+import { esaResponsiveness, ESA_PHENOTYPE_CATALOG } from '../../src/swarm/anemia-phenotype.js';
+import { esaSuggestionDst } from '../../src/swarm/anemia-dst.js';
 import {
   buildEsaTwin, scoreEsaTwinDrift,
   type EsaTwin, type EsaTwinDriftScore, type EsaTwinEventInput, type EsaTwinPatientInput, type EsaTwinProvenance,
-} from '../swarm/anemia-twin.js';
+} from '../../src/swarm/anemia-twin.js';
 import {
   ensureEsaMdrFile, esaAcceptanceStats, getEsaMdrFile, getEsaValidationReport,
   listEsaStudyRecords, recordEsaStudyDecision, runEsaValidation,
   type EsaClinicianAction,
-} from '../swarm/anemia-validation.js';
-import type { RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
-import { RealmRegistry } from '../realm/registry.js';
-import { renalPatientInputs } from '../swarm/renal-cohort.js';
-import { clinicalNbaState, anemiaFindings, ANEMIA_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
+} from '../../src/swarm/anemia-validation.js';
+import type { RedTeamRun, SwarmWorkspaceStore } from '../../src/swarm/workspace.js';
+import type { PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
+import { extraFn } from '../../src/control-plane/pack-contributions.js';
+import { clinicalNbaState, anemiaFindings, ANEMIA_CLINICAL_ACTIONS, clinicalActionsPayload } from '../../src/swarm/clinical-nba.js';
 
 export interface AnemiaRouteOptions {
   /** Seed the durable anemia episodes on POST /demo. Default true. */
   seed?: boolean;
-  /** Real realm ledger events for the patient twin (defaults to none). */
-  events?: () => EsaTwinEventInput[];
-  /** Live patient twin state for the patient twin (defaults to none). */
-  patients?: () => EsaTwinPatientInput[];
+  /** The platform's ledger projection, as the ESA twin consumes it. */
+  events: () => EsaTwinEventInput[];
+  /** The platform's patient projection, as the ESA twin consumes it. */
+  patients: () => EsaTwinPatientInput[];
 }
 
 const error = (reply: FastifyReply, code: number, message: string) => reply.code(code).send({ error: message });
 
-export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRouteOptions = {}): Promise<void> {
+export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRouteOptions): Promise<void> {
   const ws = (): SwarmWorkspaceStore => {
     const w = getSwarmWorkspace();
     if (!w) throw new Error('swarm-workspace-not-ready');
@@ -155,36 +155,8 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
   const missingWindow = (body: Partial<EsaPatientWindow>): boolean =>
     !body.patientId || body.currentHgb === undefined || body.onESA === undefined;
 
-  /** Ledger events for the ESA twin (Hb/iron results + ESA and iron orders). */
-  const esaLedgerEvents = (): EsaTwinEventInput[] => {
-    const out: EsaTwinEventInput[] = [];
-    for (const realm of RealmRegistry.list()) {
-      for (const e of realm.ledger.listAll()) {
-        const payload = e.effect as Record<string, unknown>;
-        const pid = payload.patientId;
-        out.push({
-          realmId: realm.id,
-          eventId: e.effectId,
-          kind: e.effect.kind,
-          emittedAt: e.emittedAt,
-          ...(e.realmAt ? { realmAt: e.realmAt } : {}),
-          ...(typeof pid === 'string' ? { patientId: pid } : {}),
-          payload,
-        });
-      }
-    }
-    return out;
-  };
-
-  const esaPatientInputs = (): EsaTwinPatientInput[] =>
-    renalPatientInputs(RealmRegistry.list()).map((p) => ({
-      realmId: p.realmId,
-      patientId: p.id,
-      state: p as unknown as Record<string, unknown>,
-    }));
-
-  const twinEvents = (): EsaTwinEventInput[] => opts.events?.() ?? esaLedgerEvents();
-  const twinPatients = (): EsaTwinPatientInput[] => opts.patients?.() ?? esaPatientInputs();
+  const twinEvents = (): EsaTwinEventInput[] => opts.events();
+  const twinPatients = (): EsaTwinPatientInput[] => opts.patients();
 
   /** Live governed ESA windows — one per realm patient the twin can build (a
    *  patient with no Hb observation yields no window and therefore no action). */
@@ -539,3 +511,28 @@ export async function registerAnemiaRoutes(app: FastifyInstance, opts: AnemiaRou
     return { file };
   });
 }
+
+/** This module's route surface. */
+export const anemiaRoutes: readonly PackRouteContribution[] = Object.freeze([
+  {
+    id: 'dialysis.anemia',
+    scope: 'exec',
+    prefixes: ['/admin/swarm/anemia'],
+    register(app, deps) {
+      return registerAnemiaRoutes(app, {
+        events: extraFn<EsaTwinEventInput[]>(deps.extra, 'events') ?? deps.events,
+        // Anemia's twin consumes a patient shape of its own ({patientId}, not
+        // {id}), so the mapping lives here rather than widening the platform's
+        // projection for one consumer.
+        patients:
+          extraFn<EsaTwinPatientInput[]>(deps.extra, 'patients') ??
+          (() =>
+            deps.patients().map((p) => ({
+              realmId: p.realmId,
+              patientId: p.id,
+              state: p as unknown as Record<string, unknown>,
+            }))),
+      });
+    },
+  },
+]);

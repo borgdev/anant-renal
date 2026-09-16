@@ -38,19 +38,18 @@
 // /separation (the proof that the prevention half cannot be moved by the model).
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { getSwarmWorkspace, getSwarmCoordinator } from './swarm-routes.js';
-import { RealmRegistry } from '../realm/registry.js';
+import { getSwarmWorkspace, getSwarmCoordinator } from '../../src/server/swarm-routes.js';
 import {
   INFECTION_CELLS, INFECTION_CONSUMED_BY, INFECTION_FEATURES, INFECTION_REFERENCE,
   INFECTION_REFERENCE_SUMMARY, INFECTION_ADVISOR_MODEL, INFECTION_ANTIMICROBIAL_AUTHORITY,
   buildInfectionDemo, infectionEpisodes, dropInfectionEpisodes, seedInfectionEpisodes,
   infectionRecommend, guardInfectionTriage, assessBsi, infectionLatent, computeNlr,
   type InfectionInput,
-} from '../swarm/infection.js';
+} from '../../src/swarm/infection.js';
 import {
   preventionPlan, preventionPlanWithSummary, preventionDeterminismSignature,
   VACCINE_SCHEDULE, AUDIT_CADENCE, SEROLOGY,
-} from '../swarm/infection-prevention.js';
+} from '../../src/swarm/infection-prevention.js';
 import {
   infectionRecommendCovered, ensureInfectionModel, ensureInfectionRedTeamScenarios,
   isInfectionFinding, infectionRedTeamProbe, computeInfectionDrift, recordInfectionDrift,
@@ -58,55 +57,36 @@ import {
   INFECTION_RED_TEAM_DEFS, INFECTION_RED_TEAM_IDS, INFECTION_MODEL_ID,
   INFECTION_REGULATORY_POSTURE, INFECTION_COVERAGE_DEFAULTS, INFECTION_HALF_CLASSIFICATION,
   INFECTION_GOVERNANCE_REFERENCE, INFECTION_DEFAULT_SEPARATION_PROBE,
-} from '../swarm/infection-governance.js';
+} from '../../src/swarm/infection-governance.js';
 import {
   infectionWhatIf, infectionPreventionSchedule, infectionTriageSensitivity,
   INFECTION_SIMULATOR_MODEL, INFECTION_TRADEOFF_WEIGHTS, INFECTION_REFUSED_ACTIONS,
-} from '../swarm/infection-simulator.js';
+} from '../../src/swarm/infection-simulator.js';
 import {
   buildInfectionTwin, scoreInfectionTwinTriage, infectionPreventionStability,
   infectionTwinGuardrails, type InfectionTwinEventInput,
-} from '../swarm/infection-twin.js';
+} from '../../src/swarm/infection-twin.js';
 import {
   infectionTriageTrained, infectionArtifactStatus, INFECTION_ARTIFACT_ID,
   buildInfectionTrainingRows, trainInfectionArtifact, loadInfectionArtifact,
   temperatureRuleScore, INFECTION_MODEL_TARGET_AUROC,
-} from '../swarm/infection-model.js';
-import { buildRenalCohort, renalPatientInputs, attributePatientIdFromOrder } from '../swarm/renal-cohort.js';
-import { clinicalNbaState, infectionFindings, INFECTION_CLINICAL_ACTIONS, clinicalActionsPayload } from '../swarm/clinical-nba.js';
-import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../swarm/workspace.js';
+} from '../../src/swarm/infection-model.js';
+import { buildRenalCohort, attributePatientIdFromOrder } from '../../src/swarm/renal-cohort.js';
+import { clinicalNbaState, infectionFindings, INFECTION_CLINICAL_ACTIONS, clinicalActionsPayload } from '../../src/swarm/clinical-nba.js';
+import type { AssuranceFinding, RedTeamRun, SwarmWorkspaceStore } from '../../src/swarm/workspace.js';
+import { extraFn, type PackPatient, type PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
 
 export interface InfectionRouteOptions {
   /** override the live patient source (tests) */
-  patients?: () => ReturnType<typeof renalPatientInputs>;
+  patients: () => readonly PackPatient[];
   /** override the ledger event source for the twin (tests) */
-  events?: () => InfectionTwinEventInput[];
+  events: () => InfectionTwinEventInput[];
 }
 
 const error = (reply: FastifyReply, code: number, message: string) => reply.code(code).send({ error: message });
 const NOW = (): string => new Date().toISOString();
 
 /** Ledger events for the infection twin (temperatures, markers, cultures, records). */
-function ledgerEvents(): InfectionTwinEventInput[] {
-  const out: InfectionTwinEventInput[] = [];
-  for (const realm of RealmRegistry.list()) {
-    for (const e of realm.ledger.listAll()) {
-      const payload = e.effect as Record<string, unknown>;
-      const pid = payload.patientId;
-      out.push({
-        realmId: realm.id,
-        eventId: e.effectId,
-        kind: e.effect.kind,
-        emittedAt: e.emittedAt,
-        ...(e.realmAt ? { realmAt: e.realmAt } : {}),
-        ...(typeof pid === 'string' ? { patientId: pid } : {}),
-        payload,
-      });
-    }
-  }
-  return out;
-}
-
 /** Attribute every ledger event to a patient ONCE per request (the P4/P5 pattern). */
 function indexEventsByPatient<T extends { payload: Record<string, unknown> }>(
   events: readonly T[],
@@ -142,8 +122,8 @@ export interface LiveInfectionWindow extends InfectionInput {
  * never a fixture.
  */
 export function liveInfectionWindows(
-  patients = renalPatientInputs(RealmRegistry.list()),
-  events: readonly InfectionTwinEventInput[] = ledgerEvents(),
+  patients: readonly PackPatient[],
+  events: readonly InfectionTwinEventInput[],
 ): LiveInfectionWindow[] {
   const { patients: facts } = buildRenalCohort(patients);
   const patientStates = patients.map((p) => ({ patientId: p.id, realmId: p.realmId, state: p.state }));
@@ -163,9 +143,9 @@ export function liveInfectionWindows(
   });
 }
 
-export async function registerInfectionRoutes(app: FastifyInstance, opts: InfectionRouteOptions = {}): Promise<void> {
-  const patientSource = opts.patients ?? (() => renalPatientInputs(RealmRegistry.list()));
-  const eventSource = opts.events ?? ledgerEvents;
+export async function registerInfectionRoutes(app: FastifyInstance, opts: InfectionRouteOptions): Promise<void> {
+  const patientSource = opts.patients;
+  const eventSource = opts.events;
 
   const ws = (): SwarmWorkspaceStore => {
     const w = getSwarmWorkspace();
@@ -752,3 +732,18 @@ function toNumeric(w: InfectionInput): Record<string, number> {
 }
 
 export { infectionRecommend, assessBsi, preventionPlan, INFECTION_ADVISOR_MODEL, infectionLatent };
+
+/** This module's route surface. */
+export const infectionRoutes: readonly PackRouteContribution[] = Object.freeze([
+  {
+    id: 'dialysis.infection',
+    scope: 'exec',
+    prefixes: ['/admin/swarm/infection'],
+    register(app, deps) {
+      return registerInfectionRoutes(app, {
+        patients: deps.patients,
+      events: extraFn<InfectionTwinEventInput[]>(deps.extra, 'events') ?? deps.events,
+      });
+    },
+  },
+]);

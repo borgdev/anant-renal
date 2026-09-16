@@ -77,6 +77,7 @@ import type { PostgresEventStore } from '../src/server/postgres-event-store.js';
 import type { CanonicalEvent } from '../src/healthcare-core/events.js';
 import type { LedgerEntry } from '../src/hypergraph/ledger.js';
 import { healthcareCorePack } from '../packs/healthcare-core/index.js';
+import { dialysisProviderPack } from '../packs/dialysis-provider/index.js';
 import type { ActorContext } from '../src/server/scoped-persistence.js';
 
 const NOW = '2026-09-01T10:00:00Z';
@@ -730,7 +731,7 @@ describe('P6-F — routes over the live ledger', () => {
     return buildApp({
       store: inMemoryStore(),
       telemetry: new Telemetry('test', new InMemorySink()),
-      packs: [healthcareCorePack],
+      packs: [healthcareCorePack, dialysisProviderPack],
       authenticate: async () => actor,
       checkHealth: async () => ({ db: true, redis: true }),
       infectionEvents: () => ledgerEvents,

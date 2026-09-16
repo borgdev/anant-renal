@@ -48,6 +48,7 @@ import { resolve } from 'node:path';
 import { buildApp } from '../src/server/app.js';
 import { Telemetry, InMemorySink } from '../src/server/telemetry.js';
 import { healthcareCorePack } from '../packs/healthcare-core/index.js';
+import { dialysisProviderPack } from '../packs/dialysis-provider/index.js';
 import {
   ESA_DOSE_STEP, ESA_FEATURES, HGB_TARGET, esaRecommend, type EsaPatientWindow,
 } from '../src/swarm/anemia.js';
@@ -92,7 +93,7 @@ async function build() {
   return buildApp({
     store: inMemoryStore(),
     telemetry: new Telemetry('test', new InMemorySink()),
-    packs: [healthcareCorePack],
+    packs: [healthcareCorePack, dialysisProviderPack],
     authenticate: async () => actor,
     checkHealth: async () => ({ db: true, redis: true }),
     adminApiAuth: true,

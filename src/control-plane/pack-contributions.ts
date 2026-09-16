@@ -115,13 +115,62 @@ export interface PackPatient {
 }
 
 /**
+ * One thing that happened, as the platform projects it from a realm ledger.
+ *
+ * This is the canonical shape, and the reason it belongs on the platform
+ * side of the boundary is that SEVEN specialty modules were each deriving it
+ * themselves from `RealmRegistry` — byte-identical copies of the same loop over
+ * every realm's ledger, six of them named `ledgerEvents()`. Each pack declared
+ * its own alias for the shape (`InfectionTwinEventInput`, `MbdTwinEventInput`, …)
+ * which is why the duplication was invisible: seven names, one type.
+ *
+ * `payload` and the array are mutable for the same reason `PackPatient.state` is
+ * (see below): a readonly index signature is not assignable to a mutable one, so
+ * a stricter type here would make this projection unusable by every existing
+ * consumer and force a cast at each pack boundary — the exact coupling the
+ * projection exists to remove.
+ */
+export interface ProjectedEvent {
+  /** Absent only for events the platform could not attribute to a realm. */
+  readonly realmId?: string;
+  readonly eventId?: string;
+  readonly kind: string;
+  readonly emittedAt: string;
+  /**
+   * Realm-clock timestamp. The clinically meaningful time in an accelerated
+   * realm, where wall-clock `emittedAt` collapses months of realm time into
+   * minutes — a twin that reads the wall clock sees one week and calls the
+   * history insufficient.
+   */
+  readonly realmAt?: string;
+  /** Present when the projection attributed the event to a patient. */
+  readonly patientId?: string;
+  readonly payload: Record<string, unknown>;
+}
+
+/**
  * Types a pack declares for itself and the platform fills in.
  *
  * A separate field rather than an index signature on this interface, so a pack
  * cannot shadow the platform's own guarantees (`workspace`, `coordinator`,
- * `patients`) by happening to declare a key with the same name.
+ * `patients`, `events`) by happening to declare a key with the same name.
  */
 export type PackRouteExtra = Readonly<Record<string, unknown>>;
+
+/**
+ * Read a function-valued entry out of a pack's own dependency bag.
+ *
+ * The bag is untyped at the platform boundary on purpose — the platform has no
+ * business knowing what a specialty declares for itself — so the pack is where
+ * the type is reasserted, once, next to the option it feeds. Returning
+ * `undefined` for a non-function rather than throwing means a missing fixture is
+ * the same case as an absent key: the module's own default applies, which is the
+ * only sane reading of "the platform did not override this".
+ */
+export function extraFn<T>(extra: PackRouteExtra, key: string): (() => T) | undefined {
+  const value = extra[key];
+  return typeof value === 'function' ? (value as () => T) : undefined;
+}
 
 /** What the platform supplies to a pack's route contribution. */
 export interface PackRouteDeps {
@@ -143,6 +192,12 @@ export interface PackRouteDeps {
    * platform owns the projection.
    */
   readonly patients: () => readonly PackPatient[];
+  /**
+   * Everything that happened, as the platform projected it from the realm
+   * ledgers. The pack maps this to whatever it reasons over; it does not decide
+   * what exists or what occurred.
+   */
+  readonly events: () => ProjectedEvent[];
   /** The pack's own dependency bag, declared by the pack and filled by the platform. */
   readonly extra: PackRouteExtra;
 }
@@ -286,16 +341,21 @@ export function blockingContributionIssues(registry: ContributionRegistry): read
  * than one that does not start, because the console will render the pack's views
  * and the operator will find out from the 404s.
  *
- * Deps are resolved PER PACK rather than passed once. The platform owes different
- * packs different things — every pack needs the patient projection, while a few
- * carry an event-ledger seam that tests inject fixtures through — and a single
- * shared object would have to grow a field per pack until it was the union of
- * everything anyone needed.
+ * Deps are resolved PER CONTRIBUTION rather than passed once. The platform owes
+ * different packs different things — every pack needs the patient and event
+ * projections, while a few carry a ledger seam that tests inject fixtures
+ * through — and a single shared object would have to grow a field per module
+ * until it was the union of everything anyone needed.
+ *
+ * The CONTRIBUTION is passed alongside the pack id because one pack can declare
+ * several contributions: the nine dialysis protocol modules all live in
+ * `dialysis-provider`, so the pack id alone cannot tell them apart, and keying a
+ * per-module dependency on it would hand every module the same fixture.
  */
 export async function registerPackRoutes(
   app: FastifyInstance,
   packs: readonly PackWithContributions[],
-  depsFor: (packId: string) => PackRouteDeps,
+  depsFor: (packId: string, contribution: PackRouteContribution) => PackRouteDeps,
 ): Promise<ContributionRegistry> {
   const registry = validatePackContributions(packs);
   const blocking = blockingContributionIssues(registry);
@@ -305,7 +365,7 @@ export async function registerPackRoutes(
   }
 
   for (const { packId, contribution } of registry.contributions) {
-    await contribution.register(app, depsFor(packId));
+    await contribution.register(app, depsFor(packId, contribution));
   }
   return registry;
 }

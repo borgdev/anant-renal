@@ -40,18 +40,18 @@
 // Both are READ-ONLY over the clinical state except for closing a round, which
 // writes one durable snapshot and nothing else.
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { RealmRegistry } from '../realm/registry.js';
-import { buildRenalCohort, renalPatientInputs, type RenalPatientInput } from '../swarm/renal-cohort.js';
+import { buildRenalCohort } from '../../src/swarm/renal-cohort.js';
 import { liveFluidWindows } from './fluid-routes.js';
-import { fluidRecommend, type FluidPatientWindow } from '../swarm/fluid.js';
-import { nextSessionDigest, nextSessionRisk, type NextSessionDigest } from '../swarm/next-session.js';
-import { diffRounds, snapshotRound, type RoundDigest, type RoundSnapshot } from '../swarm/round-digest.js';
-import { getSwarmWorkspace } from './swarm-routes.js';
-import type { SwarmWorkspaceStore } from '../swarm/workspace.js';
+import { fluidRecommend, type FluidPatientWindow } from '../../src/swarm/fluid.js';
+import { nextSessionDigest, nextSessionRisk, type NextSessionDigest } from '../../src/swarm/next-session.js';
+import { diffRounds, snapshotRound, type RoundDigest, type RoundSnapshot } from '../../src/swarm/round-digest.js';
+import { getSwarmWorkspace } from '../../src/server/swarm-routes.js';
+import type { SwarmWorkspaceStore } from '../../src/swarm/workspace.js';
+import type { PackPatient, PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
 
 export interface RoundRouteOptions {
   /** Patient source, injectable so tests can drive a fixed cohort. */
-  patients?: (() => RenalPatientInput[]) | undefined;
+  patients: () => readonly PackPatient[];
   /** Fluid windows, injectable so tests do not need a live realm. */
   windows?: (() => Array<FluidPatientWindow & { facilityId?: string | undefined; dryWeightSource?: string }>) | undefined;
 }
@@ -62,8 +62,8 @@ const NOW = (): string => new Date().toISOString();
 /** Cap the response so a large fleet cannot turn the lens into a wall of rows. */
 const LENS_LIMIT = 60;
 
-export async function registerRoundRoutes(app: FastifyInstance, opts: RoundRouteOptions = {}): Promise<void> {
-  const patientSource = opts.patients ?? (() => renalPatientInputs(RealmRegistry.list()));
+export async function registerRoundRoutes(app: FastifyInstance, opts: RoundRouteOptions): Promise<void> {
+  const patientSource = opts.patients;
   const windowSource = opts.windows ?? (() => liveFluidWindows(patientSource()));
   const ws = (): SwarmWorkspaceStore => {
     const w = getSwarmWorkspace();
@@ -169,3 +169,17 @@ export async function registerRoundRoutes(app: FastifyInstance, opts: RoundRoute
     };
   });
 }
+
+/** This module's route surface. */
+export const roundsRoutes: readonly PackRouteContribution[] = Object.freeze([
+  {
+    id: 'dialysis.rounds',
+    scope: 'exec',
+    prefixes: ['/admin/swarm/rounds', '/admin/swarm/next-session'],
+    register(app, deps) {
+      return registerRoundRoutes(app, {
+        patients: deps.patients,
+      });
+    },
+  },
+]);

@@ -33,24 +33,42 @@
 
 // The dialysis-provider pack's route surface, aggregated.
 //
-// One entry per migrated module, and this list is declared by the PACK. The
-// platform learns that this pack serves `/admin/swarm/renal` by reading the pack,
-// not by naming the module — which is what makes installing the pack the whole
-// act of installing the endpoints, and what makes an uninstalled pack's endpoints
+// One entry per module, and every entry is declared HERE, by the pack. The
+// platform learns that this specialty serves /admin/swarm/renal,
+// /admin/swarm/adequacy, /admin/swarm/mbd and the rest by reading the pack — not
+// by naming the modules — which is what makes installing the pack the whole act
+// of installing the endpoints, and what makes an uninstalled pack's endpoints
 // 404 rather than 403. (404 is the honest answer: the route genuinely does not
 // exist. A 403 would claim the caller lacks authority over a surface nobody
 // registered.)
 //
-// Each module keeps its own `registerXRoutes(app, opts)` and exports a
-// contribution that maps the platform's deps onto that function's options. The
-// wrapper is where a platform-supplied value (`deps.patients`) meets a module
-// option, so the module itself needs no knowledge of the platform's deps shape
-// and its existing option-level test seams keep working.
+// REGISTRATION ORDER IS PRESERVED. `rounds` publishes the two round-level lenses
+// and reads the SAME windows the fluid pack produces, so fluid is declared before
+// it. Reordering this array changes behaviour, which is why the order is written
+// the way the platform used to register them rather than alphabetically.
 
 import type { PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
 import { renalRoutes } from './renal-routes.js';
+import { protocolsRoutes } from './protocol-routes.js';
+import { adequacyRoutes } from './adequacy-routes.js';
+import { fluidRoutes } from './fluid-routes.js';
+import { roundsRoutes } from './round-routes.js';
+import { accessRoutes } from './access-routes.js';
+import { mbdRoutes } from './mbd-routes.js';
+import { nutritionRoutes } from './nutrition-routes.js';
+import { infectionRoutes } from './infection-routes.js';
+import { anemiaRoutes } from './anemia-routes.js';
 
 /** Every route this pack contributes, in registration order. */
 export const dialysisProviderRoutes: readonly PackRouteContribution[] = Object.freeze([
   ...renalRoutes,
+  ...protocolsRoutes,
+  ...adequacyRoutes,
+  ...fluidRoutes,
+  ...roundsRoutes,
+  ...accessRoutes,
+  ...mbdRoutes,
+  ...nutritionRoutes,
+  ...infectionRoutes,
+  ...anemiaRoutes,
 ]);

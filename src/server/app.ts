@@ -75,17 +75,9 @@ import { registerSwarmRoutes, getSwarmWorkspace, getSwarmCoordinator, resetSwarm
 import { registerPlatformRoutes } from './platform-routes.js';
 import { registerOpsConfigRoutes } from './ops-config-routes.js';
 import { registerFhirIntegrationRoutes } from './fhir-integration-routes.js';
-import { registerPackRoutes, type PackRouteDeps, type PackWithContributions } from '../control-plane/pack-contributions.js';
-import { registerAnemiaRoutes } from './anemia-routes.js';
-import { registerProtocolRoutes } from './protocol-routes.js';
-import { registerAdequacyRoutes } from './adequacy-routes.js';
-import { registerFluidRoutes } from './fluid-routes.js';
-import { registerRoundRoutes } from './round-routes.js';
-import { registerAccessRoutes } from './access-routes.js';
-import { registerMbdRoutes } from './mbd-routes.js';
-import { registerNutritionRoutes } from './nutrition-routes.js';
-import { registerInfectionRoutes } from './infection-routes.js';
+import { registerPackRoutes, type PackRouteContribution, type PackRouteDeps, type PackRouteExtra, type PackWithContributions } from '../control-plane/pack-contributions.js';
 import { registerAssuranceRoutes as registerCrossPackAssuranceRoutes } from './assurance-track-routes.js';
+import { eventProjection } from './platform-projections.js';
 import { registerCohortRoutes } from './cohort-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
 import { registerAssuranceRoutes } from './assurance-routes.js';
@@ -445,12 +437,34 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // loop, with every declared prefix asserted against its scope's namespace
   // first, because the auth guard decides authority by URL prefix.
   //
-  // Payers is the first migrated pack; the renal protocol modules below are
-  // still registered by name and are tracked as a burn-down (see
-  // docs/platform-specialty-remaining-work.md). Each migration moves one module
-  // to packs/dialysis-provider/ and turns its `deps.X` access into a read from
-  // `deps.patients` / `deps.extra`, which is why the seam is resolved per pack.
-  const packRouteDepsFor = (_packId: string): PackRouteDeps => ({
+  // Deps are resolved PER CONTRIBUTION: the nine dialysis protocol modules all
+  // live in the dialysis-provider pack, so the pack id alone cannot tell them
+  // apart, and keying a per-module fixture on it would hand every module the
+  // same one.
+  //
+  // `packFixtures` is a TEST seam and nothing else. In a deployment with no
+  // fixtures it is empty and every module reads the platform projection, which
+  // is what the platform is for. It is keyed by contribution id so a single
+  // module can be seeded without disturbing its siblings, and it is deliberately
+  // the ONLY place a module's identity is named.
+  // Note the shape: anemia needs BOTH a ledger and a patient fixture, and two
+  // spreads under the same key would silently REPLACE rather than merge — the
+  // events override would vanish and the twin would quietly fall back to patient
+  // state. One entry, merged field by field.
+  const anemiaFixture: PackRouteExtra = {
+    ...(deps.anemiaEvents ? { events: deps.anemiaEvents } : {}),
+    ...(deps.anemiaPatients ? { patients: deps.anemiaPatients } : {}),
+  };
+  const packFixtures: Readonly<Record<string, PackRouteExtra>> = {
+    ...(deps.mbdEvents ? { 'dialysis.mbd': { events: deps.mbdEvents } } : {}),
+    ...(deps.nutritionEvents ? { 'dialysis.nutrition': { events: deps.nutritionEvents } } : {}),
+    ...(deps.infectionEvents ? { 'dialysis.infection': { events: deps.infectionEvents } } : {}),
+    ...(Object.keys(anemiaFixture).length > 0 ? { 'dialysis.anemia': anemiaFixture } : {}),
+  };
+  const packRouteDepsFor = (
+    _packId: string,
+    contribution: PackRouteContribution,
+  ): PackRouteDeps => ({
     workspace: () => {
       const w = getSwarmWorkspace();
       if (!w) throw new Error('swarm-workspace-not-ready');
@@ -461,19 +475,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       if (!c) throw new Error('swarm-coordinator-not-ready');
       return c;
     },
-    // The platform's patient projection, handed over rather than reached for.
-    // This is the seam that makes a specialty binding's `applied` mean
-    // something: once the pack stops calling `renalPatientInputs` itself, the
-    // platform is the only thing that knows which patients exist. The provider is
-    // zero-argument today because the projection is not yet scope-filtered; when
-    // it is, this signature widens to take the actor and every existing
-    // zero-argument provider stays assignable.
+    // The platform's projections, handed over rather than reached for. The
+    // patient projection is the seam that makes a specialty binding's `applied`
+    // mean something: once no pack calls `renalPatientInputs` itself, the
+    // platform is the only thing that knows which patients exist.
     patients: renalPatients,
-    // The pack's own dependency bag. Filled per pack as that pack's modules
-    // migrate: the pre-G1 seams (`mbdEvents`, `nutritionEvents`, `infectionEvents`,
-    // `anemiaEvents`, `anemiaPatients`) are fixture injections that tests use, so
-    // they travel with the pack rather than becoming fields on a shared object.
-    extra: {},
+    events: eventProjection,
+    extra: packFixtures[contribution.id] ?? {},
   });
   await registerPackRoutes(
     app,
@@ -494,104 +502,18 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // our own CapabilityStatement at GET /fhir/metadata.
   await registerFhirIntegrationRoutes(app);
 
-  // Anemia / ESA dose-adjustment CDSS (P0 reference) — a governed, Class-C,
-  // human-in-the-loop decision-support domain (manifold-learning EPO model)
-  // over the same shared coordinator + workspace contracts. Recommends, never
-  // orders. The patient twin reads the REAL realm ledger + patient state.
-  await registerAnemiaRoutes(app, {
-    ...(deps.anemiaEvents
-      ? { events: deps.anemiaEvents }
-      : {
-          events: () => RealmRegistry.list().flatMap((r) =>
-            r.ledger.listAll().map((e) => {
-              const pid = (e.effect as { patientId?: unknown }).patientId;
-              return {
-                realmId: r.id,
-                eventId: e.effectId,
-                kind: e.effect.kind,
-                emittedAt: e.emittedAt,
-                ...(e.realmAt ? { realmAt: e.realmAt } : {}),
-                ...(typeof pid === 'string' ? { patientId: pid } : {}),
-                payload: e.effect as Record<string, unknown>,
-              };
-            }),
-          ),
-        }),
-    ...(deps.anemiaPatients
-      ? { patients: deps.anemiaPatients }
-      : {
-          patients: () => RealmRegistry.list().flatMap((r) =>
-            r.graph.listKind('patient').map((p) => ({ realmId: r.id, patientId: p.id, state: p.state as Record<string, unknown> })),
-          ),
-        }),
-  });
-
-  // F1 — renal data model read surface (sessions, access, MBD/nutrition/infection
-  // panel labs, maintenance exposures) derived from realm state + ledger.
+  // The specialty surfaces that used to be registered here by name — renal data
+  // model (F1), protocol cockpit (F3), adequacy (P1), fluid/IDH (P2), the two
+  // round lenses (3.2/3.3), vascular access (P3), CKD-MBD (P4), nutrition (P5)
+  // and infection/vaccination (P6) — are now `packs/dialysis-provider/*-routes.ts`
+  // and are registered by the loop above. The platform no longer knows their
+  // names, their prefixes or their order; the pack declares all three.
   //
-  // Registered by the dialysis-provider PACK now, not here: see
-  // packs/dialysis-provider/renal-routes.ts. It reads the patient projection the
-  // platform hands it (`deps.patients`) rather than reaching for RealmRegistry.
-
-  // F3 — protocol operations shell: registry-driven cockpit (green/amber/red
-  // across all seven renal protocols) + the F2 head-vs-baseline evaluation.
-  await registerProtocolRoutes(app, {
-    patients: renalPatients,
-  });
-
-  // P1 — dialysis adequacy protocol pack (engine · guardrails · what-if · twin ·
-  // trained artifact · governance). CDSS: recommends, never touches a machine.
-  await registerAdequacyRoutes(app, {
-    patients: renalPatients,
-  });
-
-  // P2 — fluid / dry weight / IDH protocol pack (engine · guardrails · UF
-  // counterfactual simulator · twin over the real ledger · trained artifact ·
-  // governance). CDSS: advisory only, never an autonomous UF change.
-  await registerFluidRoutes(app, {
-    patients: renalPatients,
-  });
-
-  // Phase 3.2/3.3 — the two round-level lenses: chair-side IDH risk for the NEXT
-  // session (with the UF counterfactual), and the severity diff since the last
-  // recorded round. Registered AFTER fluid so the lens reads the same windows the
-  // fluid pack publishes.
-  await registerRoundRoutes(app, {
-    patients: renalPatients,
-  });
-
-  // P3 — vascular access pack (longitudinal pressure/flow observer + gated
-  // acoustic contract + referral proposal). CDSS: referrals are proposals for
-  // the access team; the platform never books a procedure.
-  await registerAccessRoutes(app, {
-    patients: renalPatients,
-  });
-
-  // P4 — CKD-MBD pack (coupled [P, Ca, PTH] responder + KDIGO hard envelope +
-  // counterfactual over candidate therapies + twin + multi-output artifact +
-  // governance). CDSS: advisory only, never a prescribed dose.
-  await registerMbdRoutes(app, {
-    patients: renalPatients,
-    ...(deps.mbdEvents ? { events: deps.mbdEvents } : {}),
-  });
-
-  // P5 — nutrition / electrolytes pack (five-pathway PEW decomposition +
-  // potassium forecast with the mandatory lab-confirmation contract + plan
-  // counterfactual + twin + artifact). CDSS: the ECG is an adjunct only.
-  await registerNutritionRoutes(app, {
-    patients: renalPatients,
-    ...(deps.nutritionEvents ? { events: deps.nutritionEvents } : {}),
-  });
-
-  // P6 — infection / vaccination pack. The first pack whose answer is split: a
-  // statistical TRIAGE head and a DETERMINISTIC, model-free PREVENTION state
-  // machine over immunisation / serology / audit records. CDSS: the platform
-  // holds no antimicrobial or prescribing authority, and blood cultures must
-  // exist before any antimicrobial discussion.
-  await registerInfectionRoutes(app, {
-    patients: renalPatients,
-    ...(deps.infectionEvents ? { events: deps.infectionEvents } : {}),
-  });
+  // What each one used to reach for is now handed to it: the patient population
+  // and the ledger projection come from `deps.patients` / `deps.events`, so a
+  // pack cannot see a patient or an event the platform did not give it. That is
+  // what makes `applied` on a specialty binding enforceable (G6) instead of
+  // merely reported.
 
   // Cross-pack assurance track — the one view across all seven protocol packs:
   // declared guideline rules, per-protocol ledger evidence, cohort fairness

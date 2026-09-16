@@ -58,6 +58,7 @@ import type { PostgresEventStore } from '../src/server/postgres-event-store.js';
 import type { CanonicalEvent } from '../src/healthcare-core/events.js';
 import type { LedgerEntry } from '../src/hypergraph/ledger.js';
 import { healthcareCorePack } from '../packs/healthcare-core/index.js';
+import { dialysisProviderPack } from '../packs/dialysis-provider/index.js';
 import type { ActorContext } from '../src/server/scoped-persistence.js';
 
 const NO_THERAPY: MbdTherapyState = { binderMgPerDay: 0, binderClass: 'none', calcimimeticMgPerDay: 0, activeVitaminDMcgPerDay: 0 };
@@ -476,7 +477,7 @@ describe('P4-F — routes over the live ledger', () => {
     return buildApp({
       store: inMemoryStore(),
       telemetry: new Telemetry('test', new InMemorySink()),
-      packs: [healthcareCorePack],
+      packs: [healthcareCorePack, dialysisProviderPack],
       authenticate: async () => actor,
       checkHealth: async () => ({ db: true, redis: true }),
       mbdEvents: () => ledgerEvents,
