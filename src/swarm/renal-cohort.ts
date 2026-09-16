@@ -464,7 +464,7 @@ export function renalPatientFacts(input: RenalPatientInput): RenalPatientFacts {
 }
 
 /** F1 — cohort + fleet-level roll-up derived from realm patient state. */
-export function buildRenalCohort(inputs: RenalPatientInput[]): { patients: RenalPatientFacts[]; summary: RenalCohortSummary } {
+export function buildRenalCohort(inputs: readonly RenalPatientInput[]): { patients: RenalPatientFacts[]; summary: RenalCohortSummary } {
   const patients = inputs.map(renalPatientFacts);
   const sessionCounts = patients.map((p) => p.sessions.count);
   const recirc = patients.map((p) => p.sessions.avgRecirculationPct).filter((v): v is number => v !== undefined);

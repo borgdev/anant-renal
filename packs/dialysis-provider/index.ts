@@ -31,7 +31,8 @@
  *
  ******************************************************************************/
 
-import type { DomainPack } from '../../src/control-plane/pack-registry.js';
+import type { PackWithContributions } from '../../src/control-plane/pack-contributions.js';
+import { dialysisProviderRoutes } from './routes.js';
 
 export * from './ontology.js';
 export * from './cycles.js';
@@ -49,7 +50,7 @@ export * as qapiEvidence from './qapi-evidence/index.js';
 export * as measures from './measures/esrd-qip.js';
 export { dialysisReplayReducer } from './replay-reducer.js';
 
-export const dialysisProviderPack: DomainPack = Object.freeze({
+export const dialysisProviderPack: PackWithContributions = Object.freeze({
   id: 'dialysis-provider',
   version: '0.3.0',
   extends: [{ id: 'healthcare-core', versionRange: '^0.2.0' }],
@@ -87,4 +88,5 @@ export const dialysisProviderPack: DomainPack = Object.freeze({
     'qapi-plan',
     'break-glass-ledger',
   ],
+  routes: dialysisProviderRoutes,
 });

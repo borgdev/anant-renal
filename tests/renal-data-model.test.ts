@@ -38,6 +38,7 @@ import type { PostgresEventStore } from '../src/server/postgres-event-store.js';
 import type { CanonicalEvent } from '../src/healthcare-core/events.js';
 import type { LedgerEntry } from '../src/hypergraph/ledger.js';
 import { healthcareCorePack } from '../packs/healthcare-core/index.js';
+import { dialysisProviderPack } from '../packs/dialysis-provider/index.js';
 import type { ActorContext } from '../src/server/scoped-persistence.js';
 import { RealmRegistry } from '../src/realm/index.js';
 import { SimulatorController } from '../src/simulator/controller.js';
@@ -279,7 +280,12 @@ describe('F1 renal read routes', () => {
     return buildApp({
       store: inMemoryStore(),
       telemetry: new Telemetry('test', new InMemorySink()),
-      packs: [healthcareCorePack],
+      // The pack is INSTALLED here, and that is now load-bearing: the renal
+      // data-model surface used to be registered by the platform by name, so it
+      // answered whether or not the specialty was installed. It belongs to the
+      // pack now (packs/dialysis-provider/renal-routes.ts), so a test that wants
+      // to read it has to install it.
+      packs: [healthcareCorePack, dialysisProviderPack],
       authenticate: async () => actor,
       checkHealth: async () => ({ db: true, redis: true }),
       renalPatients: () => [

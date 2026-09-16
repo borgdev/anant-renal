@@ -33,37 +33,43 @@
 
 // F1 — Renal data-model read routes.
 //
-//   GET /admin/swarm/renal/cohort                     — per-patient renal facts
-//                                                       (sessions, access, panel
-//                                                       labs, exposures, signals)
-//   GET /admin/swarm/renal/summary                    — fleet roll-up
+//   GET /admin/swarm/renal/cohort                       — per-patient renal facts
+//                                                         (sessions, access, panel
+//                                                         labs, exposures, signals)
+//   GET /admin/swarm/renal/summary                      — fleet roll-up
 //   GET /admin/swarm/renal/patients/:patientId/sessions — full session + access history
 //
 // Every value is derived from the realm ledger / patient state (F1 sim objects);
 // this router invents nothing. Exec-guarded via the /admin/swarm/* prefix.
+//
+// This file used to be `src/server/renal-routes.ts` — a platform module that
+// happened to serve dialysis. It lives here now because the endpoints a specialty
+// serves are part of the specialty. The load-bearing change is what it no longer
+// does: it used to call `renalPatientInputs(RealmRegistry.list())` itself, so the
+// platform could not scope, filter or replace the population it was handing to a
+// pack, and the pack reached for a platform singleton to find out who its
+// patients were. It now receives the projection through `deps.patients`.
+//
+// The `patients` option is still honoured because tests inject fixtures through
+// it; the platform's source is the default and lives at the call site.
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { RealmRegistry } from '../realm/registry.js';
+import type { PackPatient, PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
 import {
-  buildRenalCohort, renalPatientFacts, renalPatientInputs, RENAL_PANEL_KEYS, RENAL_CORE_LAB_KEYS,
-  type RenalPatientFacts, type RenalPatientInput,
-} from '../swarm/renal-cohort.js';
+  buildRenalCohort, renalPatientFacts, RENAL_PANEL_KEYS, RENAL_CORE_LAB_KEYS,
+  type RenalPatientFacts,
+} from '../../src/swarm/renal-cohort.js';
 
 export interface RenalRouteOptions {
-  /** Override the patient source (tests). Defaults to every realm in the registry. */
-  patients?: () => RenalPatientInput[];
+  /** The patients to report on. Supplied by the platform; overridden by tests. */
+  patients: () => readonly PackPatient[];
 }
 
 const error = (reply: FastifyReply, code: number, message: string) => reply.code(code).send({ error: message });
 
-/** Default patient source: ledger-derived renal inputs across every registered realm. */
-function registryPatients(): RenalPatientInput[] {
-  return renalPatientInputs(RealmRegistry.list());
-}
-
-export async function registerRenalRoutes(app: FastifyInstance, opts: RenalRouteOptions = {}): Promise<void> {
-  const patients = opts.patients ?? registryPatients;
-  const findPatient = (id: string): { input: RenalPatientInput; facts: RenalPatientFacts } | undefined => {
+export async function registerRenalRoutes(app: FastifyInstance, opts: RenalRouteOptions): Promise<void> {
+  const patients = opts.patients;
+  const findPatient = (id: string): { input: PackPatient; facts: RenalPatientFacts } | undefined => {
     const input = patients().find((p) => p.id === id);
     if (!input) return undefined;
     return { input, facts: renalPatientFacts(input) };
@@ -104,3 +110,15 @@ export async function registerRenalRoutes(app: FastifyInstance, opts: RenalRoute
     };
   });
 }
+
+/** This pack's route surface. */
+export const renalRoutes: readonly PackRouteContribution[] = Object.freeze([
+  {
+    id: 'dialysis.renal',
+    scope: 'exec',
+    prefixes: ['/admin/swarm/renal'],
+    register(app, deps) {
+      return registerRenalRoutes(app, { patients: deps.patients });
+    },
+  },
+]);

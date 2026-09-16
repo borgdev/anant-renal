@@ -87,6 +87,42 @@ export const SCOPE_NAMESPACES: Readonly<Record<PackRouteScope, string>> = Object
   ops: '/admin/platform/',
 });
 
+/**
+ * What the platform knows about a patient, as a pack sees it.
+ *
+ * Deliberately STRUCTURAL and deliberately small: the platform's patient
+ * projection is the platform's business, and a pack that depended on its concrete
+ * type would be coupled to a shape it does not own. Everything a specialty adds
+ * on top (a protocol's features, a twin's window) is derived by the pack from
+ * `state`, `medCodes` and `labs`, which is where that derivation belongs.
+ *
+ * `state` is a mutable record on purpose. The alternative — `Readonly<Record<…>>`
+ * — reads stricter but makes this type unassignable to every existing consumer,
+ * because a readonly index signature blocks assignability to a mutable one. Packs
+ * are trusted code reading a projection that is re-derived on every call, so the
+ * mutability is a style signal here, not a boundary. What IS load-bearing is that
+ * this shape stays mutually assignable with the platform's own projection, which
+ * `tests/pack-contributions.test.ts` pins at compile time.
+ */
+export interface PackPatient {
+  readonly id: string;
+  readonly realmId: string;
+  readonly state: Record<string, unknown>;
+  /** Medication codes seen on the ledger. */
+  readonly medCodes?: readonly string[];
+  /** Latest lab value per code, with when it was measured. */
+  readonly labs?: Readonly<Record<string, { readonly value: number; readonly at: string }>>;
+}
+
+/**
+ * Types a pack declares for itself and the platform fills in.
+ *
+ * A separate field rather than an index signature on this interface, so a pack
+ * cannot shadow the platform's own guarantees (`workspace`, `coordinator`,
+ * `patients`) by happening to declare a key with the same name.
+ */
+export type PackRouteExtra = Readonly<Record<string, unknown>>;
+
 /** What the platform supplies to a pack's route contribution. */
 export interface PackRouteDeps {
   /**
@@ -96,6 +132,19 @@ export interface PackRouteDeps {
    */
   readonly workspace: () => SwarmWorkspaceStore;
   readonly coordinator: () => PersistentOutcomeCoordinator;
+  /**
+   * The patients that exist, projected by the platform.
+   *
+   * Supplied rather than imported, and this is the load-bearing half of G1 phase
+   * 2: a specialty module used to call `renalPatientInputs(RealmRegistry.list())`
+   * itself, which meant a pack reached for a platform singleton and the platform
+   * could not scope, filter or replace the population it was handing over.
+   * `applied` in a specialty binding is enforced HERE, because this is where the
+   * platform owns the projection.
+   */
+  readonly patients: () => readonly PackPatient[];
+  /** The pack's own dependency bag, declared by the pack and filled by the platform. */
+  readonly extra: PackRouteExtra;
 }
 
 /** One pack's route surface. */
@@ -236,11 +285,17 @@ export function blockingContributionIssues(registry: ContributionRegistry): read
  * server that quietly starts without the endpoints a specialty declares is worse
  * than one that does not start, because the console will render the pack's views
  * and the operator will find out from the 404s.
+ *
+ * Deps are resolved PER PACK rather than passed once. The platform owes different
+ * packs different things — every pack needs the patient projection, while a few
+ * carry an event-ledger seam that tests inject fixtures through — and a single
+ * shared object would have to grow a field per pack until it was the union of
+ * everything anyone needed.
  */
 export async function registerPackRoutes(
   app: FastifyInstance,
   packs: readonly PackWithContributions[],
-  deps: PackRouteDeps,
+  depsFor: (packId: string) => PackRouteDeps,
 ): Promise<ContributionRegistry> {
   const registry = validatePackContributions(packs);
   const blocking = blockingContributionIssues(registry);
@@ -249,8 +304,8 @@ export async function registerPackRoutes(
     throw new Error(`pack-route-contribution-invalid: ${detail}`);
   }
 
-  for (const { contribution } of registry.contributions) {
-    await contribution.register(app, deps);
+  for (const { packId, contribution } of registry.contributions) {
+    await contribution.register(app, depsFor(packId));
   }
   return registry;
 }

@@ -77,7 +77,6 @@ import { registerOpsConfigRoutes } from './ops-config-routes.js';
 import { registerFhirIntegrationRoutes } from './fhir-integration-routes.js';
 import { registerPackRoutes, type PackRouteDeps, type PackWithContributions } from '../control-plane/pack-contributions.js';
 import { registerAnemiaRoutes } from './anemia-routes.js';
-import { registerRenalRoutes } from './renal-routes.js';
 import { registerProtocolRoutes } from './protocol-routes.js';
 import { registerAdequacyRoutes } from './adequacy-routes.js';
 import { registerFluidRoutes } from './fluid-routes.js';
@@ -448,8 +447,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   //
   // Payers is the first migrated pack; the renal protocol modules below are
   // still registered by name and are tracked as a burn-down (see
-  // docs/platform-specialty-remaining-work.md).
-  const packRouteDeps: PackRouteDeps = {
+  // docs/platform-specialty-remaining-work.md). Each migration moves one module
+  // to packs/dialysis-provider/ and turns its `deps.X` access into a read from
+  // `deps.patients` / `deps.extra`, which is why the seam is resolved per pack.
+  const packRouteDepsFor = (_packId: string): PackRouteDeps => ({
     workspace: () => {
       const w = getSwarmWorkspace();
       if (!w) throw new Error('swarm-workspace-not-ready');
@@ -460,8 +461,25 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       if (!c) throw new Error('swarm-coordinator-not-ready');
       return c;
     },
-  };
-  await registerPackRoutes(app, (deps.packs ?? []) as readonly PackWithContributions[], packRouteDeps);
+    // The platform's patient projection, handed over rather than reached for.
+    // This is the seam that makes a specialty binding's `applied` mean
+    // something: once the pack stops calling `renalPatientInputs` itself, the
+    // platform is the only thing that knows which patients exist. The provider is
+    // zero-argument today because the projection is not yet scope-filtered; when
+    // it is, this signature widens to take the actor and every existing
+    // zero-argument provider stays assignable.
+    patients: renalPatients,
+    // The pack's own dependency bag. Filled per pack as that pack's modules
+    // migrate: the pre-G1 seams (`mbdEvents`, `nutritionEvents`, `infectionEvents`,
+    // `anemiaEvents`, `anemiaPatients`) are fixture injections that tests use, so
+    // they travel with the pack rather than becoming fields on a shared object.
+    extra: {},
+  });
+  await registerPackRoutes(
+    app,
+    (deps.packs ?? []) as readonly PackWithContributions[],
+    packRouteDepsFor,
+  );
 
   // Operator-console setup surface (ops-scoped /admin/platform/*): organization
   // profile, action policy, integration contract, release gate and the
@@ -510,9 +528,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   // F1 — renal data model read surface (sessions, access, MBD/nutrition/infection
   // panel labs, maintenance exposures) derived from realm state + ledger.
-  await registerRenalRoutes(app, {
-    patients: renalPatients,
-  });
+  //
+  // Registered by the dialysis-provider PACK now, not here: see
+  // packs/dialysis-provider/renal-routes.ts. It reads the patient projection the
+  // platform hands it (`deps.patients`) rather than reaching for RealmRegistry.
 
   // F3 — protocol operations shell: registry-driven cockpit (green/amber/red
   // across all seven renal protocols) + the F2 head-vs-baseline evaluation.

@@ -166,12 +166,77 @@ The answer that matches the reasoning the interface already uses for `workspace`
   projection is a renal module.** Relocating/renaming it is part of phase 2, not
   a tidy-up — it is the same defect class as G4.
 
+#### SHIPPED: the interface (Stage 1) and the first migration (`renal`)
+
+The interface is settled and one of eleven modules has moved. What follows
+records the decisions, including two corrections to the analysis above.
+
+`PackRouteDeps` now carries:
+
+```ts
+readonly patients: () => readonly PackPatient[];
+readonly extra: PackRouteExtra;   // the pack's own bag, typed by the pack
+```
+
+**Correction 1 — `events` is not a platform projection.** The line above asserting
+`events: () => EventProjection[]` was wrong, and measurement said so: the four
+modules carrying an `events` seam carry *different shapes* (`MbdTwinEventInput`,
+`NutritionTwinEventInput`, `InfectionTwinEventInput`, and anemia's inline
+projection), they are all **optional overrides for tests**, and with no override
+the module derives its own events from the ledger. So there is no single
+platform-owned event projection to hand over. A pack-specific dependency is
+declared by the *pack* (it knows what it needs) and filled by the *platform*,
+which is what `extra` is for. It is a separate field rather than an index
+signature specifically so a pack cannot shadow `workspace`, `coordinator` or
+`patients` by declaring a key with the same name.
+
+**`registerPackRoutes` resolves deps PER PACK**, not once for all:
+`depsFor: (packId: string) => PackRouteDeps`. A single shared object would have to
+grow a field per pack until it was the union of everything anyone needed.
+
+**`PackPatient.state` is deliberately mutable.** The stricter
+`Readonly<Record<string, unknown>>` reads better and makes the type unassignable to
+every existing consumer, because a readonly index signature blocks assignability
+to a mutable one. `tests/dialysis-provider-routes.test.ts` pins mutual
+assignability with the platform's own projection in both directions at compile
+time, so the two cannot drift silently. `buildRenalCohort` was widened to accept
+`readonly RenalPatientInput[]` — it only reads, so it always should have.
+
+**Correction 2 — relocation must FOLLOW migration, not accompany it.** The note
+above says relocating `renalPatientInputs` is part of phase 2. It is, but the
+order matters and I had it backwards. `src/swarm/renal-cohort.ts` is imported by
+**31 files** and `RenalPatientInput` appears **42 times**; eight route modules call
+`renalPatientInputs(RealmRegistry.list())` directly. After migration those eight
+call sites are gone — the platform calls the projection **once**, in `app.ts`, to
+build `deps.patients`. Migrating first shrinks the rename from 31 files to about
+one. Rename second.
+
+**Whether a pack that is installed but not `applied` should answer.** It should,
+scope-limited ("no patients in scope"), not 404. The pack IS installed and its
+endpoints exist; `show` is what the console reads, and `applied` is enforced at
+the `patients` seam. 404 stays reserved for genuinely absent packs, which is the
+property `tests/dialysis-provider-routes.test.ts` pins.
+
+Migrated so far: **`renal` → `packs/dialysis-provider/renal-routes.ts`** (prefix
+`/admin/swarm/renal`), aggregated in `packs/dialysis-provider/routes.ts`,
+declared on the pack descriptor. `src/server/renal-routes.ts` is **deleted**.
+Ten modules remain; the guard in `tests/pack-contributions.test.ts` asserts the
+remaining list by name, so a module cannot be dropped from `app.ts` without its
+pack declaring it.
+
+**The seam is now enforced at one point, and this is the whole point of the
+slice.** `/admin/swarm/renal/*` 404s when `dialysis-provider` is not installed,
+pinned by `tests/dialysis-provider-routes.test.ts` (not yet exercised against a
+running server). `tests/renal-data-model.test.ts` had to be changed to install the
+pack, which is the migration working as intended: the test was relying on the
+platform registering a specialty's endpoints unconditionally.
+
 Burn-down map (measured — module, file, prefix, extra deps):
 
 | Module | File | Prefix | Extra deps |
 | --- | --- | --- | --- |
-| anemia | `anemia-routes.ts` | `/admin/swarm/anemia` | `events` (defaults to the realm ledger) |
-| renal | `renal-routes.ts` | `/admin/swarm/renal` | — |
+| anemia | `anemia-routes.ts` | `/admin/swarm/anemia` | `events` (defaults to the realm ledger), `patients` |
+| ~~renal~~ | ~~`renal-routes.ts`~~ **MIGRATED** | `/admin/swarm/renal` | — |
 | protocol | `protocol-routes.ts` | `/admin/swarm/protocols` | — |
 | adequacy | `adequacy-routes.ts` | `/admin/swarm/adequacy` | — |
 | fluid | `fluid-routes.ts` | `/admin/swarm/fluid` | — |
@@ -195,11 +260,23 @@ Per-module steps (following the `payer` proof):
 4. Delete the `await registerXRoutes(app, …)` call **and its import** from
    `app.ts`. The import is the easy half to leave behind; `noUnusedLocals` catches
    it, the test suite does not.
-5. Pass the same deps through `PackRouteDeps` — add a dependency to the interface
-   *before* adding it to a pack.
+5. Map the module's options onto `PackRouteDeps` — `patients: deps.patients`, and
+   any test seam through `deps.extra`. Add a dependency to the interface *before*
+   adding it to a pack.
 6. Add a route test pinning **absent pack → 404, not 403**, the property phase 1
    established (the route does not exist; it is not a permission an operator
    could be granted).
+
+Two things this list did not anticipate, both learned from doing `renal`:
+
+- **Any test that boots the app without the pack will start failing.** It was
+  relying on the platform registering the specialty's endpoints unconditionally.
+  The fix is to install the pack in the test — not to make the platform register
+  it again — and the failure is the migration working.
+- **`renal` is the easy one and it still touched four files.** Expected shape per
+  module: the module itself, the pack's `routes.ts`, `app.ts` (import + call), and
+  one test harness. Modules with an `extra` seam additionally touch the
+deps factory in `app.ts`.
 
 Tests: `tests/pack-contributions.test.ts` already covers the validator. The
 burn-down needs one `tests/<pack>-routes.test.ts` per migrated pack asserting

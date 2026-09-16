@@ -48,6 +48,7 @@ import {
   SCOPE_NAMESPACES,
   type PackRouteContribution,
   type PackRouteDeps,
+  type PackRouteExtra,
   type PackWithContributions,
 } from '../src/control-plane/pack-contributions.js';
 import { roleAllowsConsole } from '../src/server/console-gate.js';
@@ -88,7 +89,12 @@ function pack(id: string, routes: readonly PackRouteContribution[]): PackWithCon
 const deps: PackRouteDeps = {
   workspace: () => { throw new Error('not used'); },
   coordinator: () => { throw new Error('not used'); },
+  patients: () => [],
+  extra: {},
 };
+
+/** The platform is allowed to resolve deps per pack; most tests do not care. */
+const sameDeps = (): PackRouteDeps => deps;
 
 describe('the scope namespace table is the guard’s own boundary', () => {
   it('maps each scope to the prefix api-auth classifies as that console', () => {
@@ -181,7 +187,7 @@ describe('registration', () => {
           register: () => { seen.push('a'); },
         })]),
       ],
-      { workspace: () => { throw new Error('x'); }, coordinator: () => { throw new Error('x'); } },
+      () => ({ workspace: () => { throw new Error('x'); }, coordinator: () => { throw new Error('x'); }, patients: () => [], extra: {} }),
     );
     expect(seen).toEqual(['a']);
     expect(registry.contributingPacks).toEqual(['a-pack']);
@@ -189,6 +195,37 @@ describe('registration', () => {
     const res = await app.inject({ method: 'GET', url: '/admin/swarm/a/probe' });
     expect(res.statusCode).toBe(200);
     expect(res.json().workspace).toBe('function');
+    await app.close();
+  });
+
+  it('resolves deps PER PACK rather than handing every pack one shared object', async () => {
+    // The platform owes different packs different things — every pack needs the
+    // patient projection, a few carry a ledger seam that tests inject fixtures
+    // through — so resolving per pack is what keeps a pack's own dependencies
+    // travelling with the pack instead of accumulating on a shared object until
+    // it is the union of everything anyone needed.
+    const app = Fastify();
+    const seen: Array<{ pack: string; patients: number; extra: PackRouteExtra }> = [];
+    const recorder = (pack: string) => ({
+      id: pack,
+      prefixes: [`/admin/swarm/${pack}`],
+      register: (_app: unknown, d: PackRouteDeps) => {
+        seen.push({ pack, patients: d.patients().length, extra: d.extra });
+      },
+    });
+    await registerPackRoutes(
+      app,
+      [pack('a-pack', [contribution(recorder('a'))]), pack('b-pack', [contribution(recorder('b'))])],
+      (packId) => ({
+        ...deps,
+        patients: () => (packId === 'a-pack' ? [{ id: 'p1', realmId: 'r1', state: {} }] : []),
+        extra: packId === 'a-pack' ? { ledger: 'a-only' } : {},
+      }),
+    );
+    expect(seen).toEqual([
+      { pack: 'a', patients: 1, extra: { ledger: 'a-only' } },
+      { pack: 'b', patients: 0, extra: {} },
+    ]);
     await app.close();
   });
 
@@ -204,7 +241,7 @@ describe('registration', () => {
         })]),
         pack('b-pack', [contribution({ id: 'b', scope: 'exec', prefixes: ['/admin/platform/b'] })]),
       ],
-      deps,
+      sameDeps,
     )).rejects.toThrow(/pack-route-contribution-invalid/);
 
     // Fail before the first route, not halfway through the list: a partially
@@ -226,7 +263,7 @@ describe('registration', () => {
   });
 });
 
-describe('the payer pack is migrated, and the rest are not yet', () => {
+describe('the burn-down: packs declare their routes, app.ts stops naming modules', () => {
   it('payer declares its routes on the descriptor', async () => {
     const { payerPack } = await import('../packs/payer/index.js');
     expect(payerPack.routes).toHaveLength(1);
@@ -234,15 +271,26 @@ describe('the payer pack is migrated, and the rest are not yet', () => {
     expect(payerPack.routes?.[0]?.prefixes).toEqual(['/admin/swarm/payer']);
   });
 
-  it('app.ts no longer registers payer by name (the burn-down starts here)', async () => {
+  it('dialysis-provider declares the renal data-model surface', async () => {
+    const { dialysisProviderPack } = await import('../packs/dialysis-provider/index.js');
+    const renal = dialysisProviderPack.routes?.find((r) => r.prefixes.includes('/admin/swarm/renal'));
+    expect(renal?.scope).toBe('exec');
+  });
+
+  it('app.ts no longer registers each migrated module by name', async () => {
     const { readFileSync } = await import('node:fs');
     const app = readFileSync(new URL('../src/server/app.ts', import.meta.url), 'utf8');
     expect(app).not.toContain('registerPayerRoutes');
+    expect(app).not.toContain('registerRenalRoutes');
 
-    // The remaining renal protocol modules are still named, and are tracked in
+    // The remaining specialty modules are still named, and are tracked in
     // docs/platform-specialty-remaining-work.md. Asserting the count here means
-    // the burn-down cannot silently grow.
+    // the burn-down cannot silently grow — and, just as importantly, that a
+    // module cannot be deleted from app.ts without its pack declaring it, because
+    // the count would drop and this would fail. Update it deliberately, one per
+    // migration, never to make a red test green.
     const named = app.match(/await register(Anemia|Renal|Protocol|Adequacy|Fluid|Access|Mbd|Nutrition|Infection|Round|CrossPackAssurance)Routes/g) ?? [];
-    expect(named).toHaveLength(11);
+    expect(named.map((n) => n.replace('await register', '').replace('Routes', '')))
+      .toEqual(['Anemia', 'Protocol', 'Adequacy', 'Fluid', 'Round', 'Access', 'Mbd', 'Nutrition', 'Infection', 'CrossPackAssurance']);
   });
 });
