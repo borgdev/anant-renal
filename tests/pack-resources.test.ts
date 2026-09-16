@@ -161,11 +161,15 @@ describe('the installed set', () => {
     const registry = resolve(manifests);
     const byKind = resourcesByKind(registry);
 
-    expect(byKind.ontology).toHaveLength(3);
-    expect(byKind['ui-lens']).toHaveLength(3);
+    // Four packs declare a surface through the contract: dialysis-provider,
+    // payer, ckd-navigation and oncology-provider. oncology-provider was the
+    // ninth directory with no manifest at all — installed, and declaring nothing,
+    // which is indistinguishable from absent to anyone reading the console.
+    expect(byKind.ontology).toHaveLength(4);
+    expect(byKind['ui-lens']).toHaveLength(4);
     // dialysis-provider is the deepest specialty in the repo.
-    expect(byKind.workflows.length).toBeGreaterThanOrEqual(9);
-    expect(byKind.measures).toHaveLength(2);
+    expect(byKind.workflows.length).toBeGreaterThanOrEqual(12);
+    expect(byKind.measures).toHaveLength(3);
   });
 });
 

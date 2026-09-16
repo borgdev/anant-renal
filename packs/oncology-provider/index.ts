@@ -37,6 +37,8 @@
 // Model (OCM) + Enhancing Oncology Model (EOM) hooks live under cmsUniverse.
 
 import type { DomainPack } from '../../src/control-plane/pack-registry.js';
+import type { PackWithContributions } from '../../src/control-plane/pack-contributions.js';
+import { oncologyRoutes } from './routes.js';
 
 export type OncologyTreatmentIntent = 'curative' | 'palliative' | 'adjuvant' | 'neoadjuvant' | 'maintenance';
 
@@ -61,7 +63,7 @@ export interface ToxicityAssessment {
   readonly requiresHospitalization: boolean;
 }
 
-export const oncologyProviderPack: DomainPack = Object.freeze({
+export const oncologyProviderPack: PackWithContributions = Object.freeze({
   id: 'oncology-provider',
   version: '0.1.0',
   extends: [{ id: 'healthcare-core', versionRange: '^0.2.0' }],
@@ -72,4 +74,7 @@ export const oncologyProviderPack: DomainPack = Object.freeze({
     { id: 'cms:enhancing-oncology-model', title: 'Enhancing Oncology Model (EOM)', authority: 'CMS' },
   ],
   requiredControls: ['access-policy', 'audit-provenance', 'data-quality', 'toxicity-alerting', 'prior-auth-coordination'],
+  // The specialty's endpoints are part of the specialty. Without this the pack was
+  // installed and had no surface at all, which is indistinguishable from absent.
+  routes: [oncologyRoutes],
 });

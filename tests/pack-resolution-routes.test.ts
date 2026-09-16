@@ -241,8 +241,11 @@ describe('pack resolution at the platform surface', () => {
 
     expect(body.manifestIssues).toEqual([]);
     expect(body.resources.blockedPacks).toEqual([]);
-    expect(body.resources.byKind.ontology).toBe(3);
-    expect(body.resources.byKind['ui-lens']).toBe(3);
+    // Four packs declare an ontology and a lens: dialysis-provider, payer,
+    // ckd-navigation, oncology-provider. oncology-provider was installed and
+    // declared nothing at all until its own manifest block gave it a surface.
+    expect(body.resources.byKind.ontology).toBe(4);
+    expect(body.resources.byKind['ui-lens']).toBe(4);
     expect(body.resources.total).toBeGreaterThanOrEqual(20);
     // A shared canonical event type is informational, never blocking.
     expect(body.resources.issues.every((i) => !i.blocking || i.code !== 'shared-event-type')).toBe(true);

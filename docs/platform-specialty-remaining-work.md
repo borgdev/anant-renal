@@ -1090,9 +1090,42 @@ Still open:
       nothing to declare. A manifest covers the CATALOG; installation is a
       deployment decision, and conflating the two is how a gap gets counted wrong
       in the direction that looks like progress.
-- [ ] **13 of 16 installed packs declare no specialty surface.** They load as
-      dependencies, not as specialties. `dialysis-provider` and `payer` declare
-      all five sections; `ckd-navigation` declares four.
+- [ ] **Packs that declare no specialty surface.** They load as dependencies, not
+      as specialties. **Measured 2026-09-16:** four of the **23** installed packs
+      declare one — `dialysis-provider` and `payer` declare all five sections,
+      `ckd-navigation` four, `oncology-provider` all five (added below), and
+      `care-management` declares workflows only because G3 gave it a hand-off to
+      participate in. The other eighteen still declare nothing.
+      **The count moved twice and both are worth knowing:** it was `13 of 16`
+      because six directories carrying a real `DomainPack` descriptor were never in
+      the install list, and option B now loads them. Installation grew from 16 to
+      23; declarations grew from 2 to 4.
+
+      **`oncology-provider` was the sharpest example.** It was installed and
+      declared *nothing at all* — no ontology, events, workflows, measures, lens or
+      routes — so a reader of the console had no way to distinguish "installed and
+      idle" from "absent". Declaring its surface was **one manifest block and one
+      route contribution**, with **no edit to `src/`**: a lens whose view names the
+      `ranked-actions` KIND and its own route, the five ontology concepts its
+      TypeScript already modelled, three workflows, a CMS-bound measure, and event
+      contracts over GENERIC canonical types.
+
+      **And one thing it could not declare honestly:** there is no oncology event in
+      `src/healthcare-core/events.ts`. The canonical vocabulary is renal- and
+      payer-shaped, so this specialty maps its facts onto the generic events that
+      exist — a chemo cycle is `medication.ordered`, an infusion is
+      `procedure.performed`, a tumour board is `encounter.summary` — rather than
+      inventing types the platform cannot carry. That is also why
+      `x:oncology-plan->prior-auth` still does not run: its trigger names an event
+      type that does not exist, and no generic mapping was chosen for it.
+
+      **Its board is empty, and says why.** A synthetic regimen board would have
+      been easy to write and would have been a lie, so the route publishes an empty
+      board with a stated reason: `PackRouteDeps.patients` hands every specialty the
+      same projection and that projection is renal-shaped (`PackPatient` carries
+      dialysis state), so a non-renal specialty cannot identify its own population
+      from it. That is the remaining half of the G1-phase-2 note about
+      `renalPatientInputs` being the platform's patient projection.
 - [ ] **11 of 12 renal packs have no manifest or declare nothing** at all. The
       renal *protocols* (anemia, adequacy, fluid, access, mbd, nutrition,
       infection) are not packs — they are `src/swarm/*.ts` modules with routes,
