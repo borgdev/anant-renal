@@ -41,54 +41,68 @@
 //
 // WHAT THE BOARD SAYS, and why it is empty rather than illustrative.
 //
-// A synthetic regimen board would be easy to write and would be a lie: this
-// deployment has no oncology cohort, and inventing one would put invented clinical
-// recommendations behind a screen that says "Oncology". So the board is empty AND
-// NAMES THE REASON, which is the discipline the rest of the platform already
-// follows — `RankedActionsPanel` takes an `emptyHint` precisely because "nothing
-// ranked" must never be read as "nothing to do".
+// A synthetic regimen board would be easy to write and would be a lie: inventing
+// oncology treatment recommendations is a clinical position, not a platform fix,
+// and putting one behind a screen that says "Oncology" is the worst place to be
+// wrong. So the board ranks what it can honestly derive — which today is nothing —
+// and it SAYS WHY, distinguishing the absences rather than collapsing them.
 //
-// The reason is a real architectural fact, not a placeholder: `PackRouteDeps.patients`
-// hands every pack the same projection, and that projection is renal-shaped —
-// `PackPatient` carries dialysis state (access, sessions, Kt/V, dry weight). A
-// non-renal specialty therefore cannot identify its own population from it. That is
-// the remaining half of the G1-phase-2 note about `renalPatientInputs` being the
-// platform's patient projection; it is written down here rather than papered over
-// with fake patients.
+// The three states are genuinely different and the operator cannot tell them apart
+// from a blank panel:
+//
+//   no population   no patient has a malignancy on their recorded problem list
+//   no records      the cohort exists and no treatment plan has been recorded yet
+//   nothing to do   a plan exists and every cycle is on schedule
+//
+// Before this pack declared a cohort, ALL THREE rendered as "empty", because the
+// specialty could not name a patient it was responsible for. Reporting the cohort
+// size is what turns the first two into statements.
 
 import type { FastifyInstance } from 'fastify';
-import type { PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
+import type { PackRouteContribution, PackRouteDeps } from '../../src/control-plane/pack-contributions.js';
+import { problemListOf } from './cohort.js';
 
-const EMPTY_BOARD_REASON = [
-  'No oncology cohort is enrolled in this deployment.',
-  '',
-  'This is not an empty worklist. The platform hands every specialty the same patient',
-  'projection, and that projection is renal-shaped — PackPatient carries dialysis state',
-  '(access, sessions, Kt/V, dry weight), which is how oncology would have to identify its',
-  'own patients. Hoisting PackPatient to a platform shape with a specialty-neutral cohort',
-  'source is what would let this board fill.',
-].join('\n');
+/** A patient is "on a plan" when the chart says so — not when a code suggests it. */
+function hasRecordedPlan(patient: { readonly state: Record<string, unknown> }): boolean {
+  const plans = patient.state['treatmentPlans'];
+  return Array.isArray(plans) && plans.length > 0;
+}
 
 export const oncologyRoutes: PackRouteContribution = Object.freeze({
   id: 'oncology.board',
   scope: 'exec',
   prefixes: ['/admin/swarm/oncology'],
-  register(app: FastifyInstance) {
-    app.get('/admin/swarm/oncology/board', async () => ({
-      // The board contract every `ranked-actions` view publishes. Zeroes rather
-      // than absent fields, so the renderer distinguishes "nothing was considered"
-      // from "the response was not a board at all".
-      actions: {
-        nbas: [],
-        considered: 0,
-        actionable: 0,
-        suppressed: 0,
-        kinds: [],
-        unmapped: [],
-        rejected: [],
-      },
-      // Read by the `ranked-actions` renderer and shown in place of a blank panel.
-      emptyHint: EMPTY_BOARD_REASON,
-    }));
+  register(app: FastifyInstance, deps: PackRouteDeps) {
+    app.get('/admin/swarm/oncology/board', async () => {
+      // The pack's OWN cohort. The platform resolved it from this pack's
+      // declaration, so the pack never enumerates patients itself.
+      const cohort = deps.patients();
+      const onPlan = cohort.filter(hasRecordedPlan);
+      const withProblems = cohort.map((patient) => ({ id: patient.id, problems: problemListOf(patient) }));
+
+      return {
+        // The board contract every `ranked-actions` view publishes. Zeroes rather
+        // than absent fields, so the renderer distinguishes "nothing was
+        // considered" from "the response was not a board at all".
+        actions: {
+          nbas: [],
+          considered: cohort.length,
+          actionable: 0,
+          suppressed: 0,
+          kinds: [],
+          unmapped: [],
+          rejected: [],
+        },
+        cohort: { id: 'oncology.tumour-programme', patients: cohort.length, onPlan: onPlan.length },
+        // Enough for a reviewer to check the cohort definition without leaving the
+        // screen — the reason a patient is here is the recorded problem itself.
+        sample: withProblems.slice(0, 5),
+        emptyHint: cohort.length === 0
+          ? 'No patient in this deployment has a malignancy on their recorded problem list, so the oncology population is empty. That is an enrollment fact, not a clean bill of health.'
+          : onPlan.length === 0
+            ? `${cohort.length} patient(s) are in the oncology cohort and none has a treatment plan recorded, so there is no cycle, toxicity review or schedule to rank yet. This specialty has a population and no treatment data; the board fills when a plan is recorded.`
+            : `${onPlan.length} of ${cohort.length} patient(s) are on a treatment plan and every recorded cycle is on schedule, so nothing is being surfaced.`,
+      };
+    });
   },
 });

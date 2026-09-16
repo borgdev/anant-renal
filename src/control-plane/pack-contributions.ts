@@ -242,7 +242,52 @@ export type PackWithContributions = DomainPack & {
    * enumerates specialties.
    */
   readonly assurance?: readonly ProtocolPackDescriptor[];
+  /**
+   * This specialty's POPULATION, declared by the pack and resolved by the platform.
+   *
+   * A THIRD contribution surface, and the one whose absence was most visible: the
+   * platform had exactly one patient projection and handed it to every pack, so a
+   * non-renal specialty received a renal cohort it had no way to identify itself
+   * within. Oncology's board was empty for that reason — it could not say which
+   * patients were its own, so it could not say anything useful at all.
+   *
+   * `PackRouteDeps.patients` hands a pack ONLY its own cohort once this is
+   * declared. A pack that declares none receives the whole projection, which is
+   * what shipped before this existed, so arming the concept changes nothing for
+   * the packs that were already working.
+   */
+  readonly cohort?: PackCohort;
 };
+
+/**
+ * A specialty's population.
+ *
+ * `includes` is a DECLARATION OVER PLATFORM FACTS, not a second data source. The
+ * pack does not read the realm registry or query for patients; it answers "is this
+ * one mine?" about a patient the platform already projected. That restriction is
+ * the point: a pack that could enumerate its own patients could see one the
+ * platform never handed it, and `applied` would have nothing to withhold.
+ *
+ * It is also why the predicate is a function rather than a list of codes. A
+ * specialty's cohort is a clinical definition — "patients with a tumour on their
+ * problem list" is not the same claim as "patients whose problem list contains one
+ * of these four strings", and only the pack can decide which it means.
+ */
+export interface PackCohort {
+  /** Stable id, reported wherever the cohort is explained. */
+  readonly id: string;
+  /** Does this patient belong to this specialty's population? */
+  readonly includes: (patient: PackPatient) => boolean;
+  /**
+   * Why this cohort can legitimately be empty ON THIS DEPLOYMENT.
+   *
+   * Shown in place of a blank board, because "no patient is enrolled here" and
+   * "nothing needs doing" render identically and mean opposite things. The pack
+   * owns this string for the same reason it owns the predicate: only it knows which
+   * absence is ordinary and which is a defect.
+   */
+  readonly emptyReason: string;
+}
 
 export type ContributionIssueCode =
   | 'duplicate-contribution-id'

@@ -80,7 +80,7 @@ import { appliedPatients, registerSpecialtyApplyGate } from './specialty-apply.j
 import { registerCrossPackRoutes } from './cross-pack-routes.js';
 import { crossPackRouterFromManifests, setCrossPackRouter } from '../control-plane/cross-pack-workflows.js';
 import { loadPackManifests } from '../control-plane/pack-manifest.js';
-import { eventProjection } from './platform-projections.js';
+import { eventProjection, patientProjection } from './platform-projections.js';
 import { registerCohortRoutes } from './cohort-routes.js';
 import { registerAgentStudioRoutes } from './agent-studio-routes.js';
 import { registerAssuranceRoutes } from './assurance-routes.js';
@@ -402,21 +402,34 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // topic plan, releases, DLQ inspection, plus the public /api/context and
   // /api/work (My Work) experience APIs. Composes the same durable workspace,
   // coordinator and store the swarm routes already use — no second store.
-  // ONE patient source for every renal surface.
+  // ONE patient source for every specialty — and the SAME one the rest of the
+  // platform uses, rather than a second copy of `renalPatientInputs(RealmRegistry.list())`
+  // assembled here.
   //
   // This used to be an optional dep that only tests supplied, so at runtime the
   // cohort layer silently evaluated nothing and its suggestions never reached
   // the work queue — a whole capability missing with no error anywhere. Deriving
-  // the default from the realm registry means a surface cannot go quietly empty
-  // just because a caller forgot to pass patients.
-  const renalPatients: () => ReturnType<typeof renalPatientInputs> =
-    deps.renalPatients ?? (() => renalPatientInputs(RealmRegistry.list()));
+  // the default from the platform projection means a surface cannot go quietly
+  // empty just because a caller forgot to pass patients.
+  const platformPatients: () => ReturnType<typeof patientProjection> =
+    deps.renalPatients ?? patientProjection;
+
+  // Which pack owns which population. A pack that declares no cohort gets the
+  // whole projection, so this is additive.
+  const cohortByPack = new Map(
+    ((deps.packs ?? []) as readonly PackWithContributions[])
+      .filter((pack): pack is PackWithContributions & { cohort: NonNullable<PackWithContributions['cohort']> } => Boolean(pack.cohort))
+      .map((pack) => [pack.id, pack.cohort]),
+  );
 
   await registerPlatformRoutes(app, {
     users,
     sessions,
     packs: deps.packs,
-    patients: renalPatients,
+    // The WHOLE projection, not a pack's cohort: these are platform surfaces, and
+    // a platform view that saw only one specialty's patients would report a fleet
+    // smaller than the deployment.
+    patients: platformPatients,
     ...(deps.eventBroker ? { broker: deps.eventBroker } : {}),
     ...(deps.eventOutbox ? { eventOutbox: deps.eventOutbox } : {}),
     realms: () => RealmRegistry.list().map((r) => {
@@ -484,13 +497,21 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // knows which patients exist — and therefore the only thing that can withhold
     // them.
     //
-    // G6 — ENFORCED here, not merely reported. A pack that is installed but not
-    // applied for this caller gets an EMPTY population and its own surfaces say
-    // "no patients in scope", rather than computing against patients the
-    // configuration excluded. That is the failure a display-only switch cannot
-    // prevent, and `silent-mode`'s precedent is that computing and surfacing are
-    // separate claims.
-    patients: () => appliedPatients(packId, renalPatients()),
+    // TWO filters, in this order, and they answer different questions:
+    //
+    //   1. the pack's own COHORT — is this patient this specialty's? A specialty
+    //      used to receive every patient in the deployment, which left a non-renal
+    //      pack holding a renal population it could not identify itself within.
+    //      It now receives its own, and only its own.
+    //   2. G6's `applied` gate — is this specialty switched on for this caller?
+    //      Applied last, on the scoped set, so the two cannot disagree about
+    //      which patients are being withheld.
+    patients: () => {
+      const all = platformPatients();
+      const cohort = cohortByPack.get(packId);
+      const scoped = cohort ? all.filter((patient) => cohort.includes(patient)) : all;
+      return appliedPatients(packId, scoped);
+    },
     events: eventProjection,
     // Collected from every INSTALLED pack, so the cross-pack assurance track
     // reviews what is installed rather than a list hardcoded in a platform module
@@ -559,7 +580,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // their suggestions land in the one existing work queue rather than a second
   // inbox.
   await registerCohortRoutes(app, {
-    patients: renalPatients,
+    // Also the whole projection: a living cohort is a declaration an OPERATOR
+    // writes across the fleet, so it must be able to see every patient in it.
+    patients: platformPatients,
   });
 
   // Agent Studio (Phase D) — one unified surface for authoring, triggers, topics,

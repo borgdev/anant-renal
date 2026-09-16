@@ -39,6 +39,7 @@
 import type { DomainPack } from '../../src/control-plane/pack-registry.js';
 import type { PackWithContributions } from '../../src/control-plane/pack-contributions.js';
 import { oncologyRoutes } from './routes.js';
+import { oncologyCohort } from './cohort.js';
 
 export type OncologyTreatmentIntent = 'curative' | 'palliative' | 'adjuvant' | 'neoadjuvant' | 'maintenance';
 
@@ -77,4 +78,7 @@ export const oncologyProviderPack: PackWithContributions = Object.freeze({
   // The specialty's endpoints are part of the specialty. Without this the pack was
   // installed and had no surface at all, which is indistinguishable from absent.
   routes: [oncologyRoutes],
+  // And so is its POPULATION. Without this the pack received every patient in the
+  // deployment and could not name one of its own.
+  cohort: oncologyCohort,
 });

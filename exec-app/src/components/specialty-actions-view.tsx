@@ -20,17 +20,19 @@ export default function SpecialtyActionsView({ label, source }: { label: string;
   const [payload, setPayload] = useState<RankedActionsPayload | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [emptyHint, setEmptyHint] = useState<string | undefined>(undefined);
+  const [cohort, setCohort] = useState<{ id: string; patients: number; onPlan?: number } | undefined>(undefined);
 
   useEffect(() => {
     let active = true;
     setPayload(undefined);
     setError(undefined);
     setEmptyHint(undefined);
+    setCohort(undefined);
     (async () => {
       try {
         const response = await fetch(source, { headers: { accept: "application/json" } });
         if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-        const body = (await response.json()) as { actions?: unknown; emptyHint?: unknown };
+        const body = (await response.json()) as { actions?: unknown; emptyHint?: unknown; cohort?: unknown };
         const board = asActionsPayload(body.actions);
         // Not a board is reported as not a board. An absent payload rendered as
         // "nothing ranked" would read as "nothing to do" — the same conflation
@@ -41,6 +43,17 @@ export default function SpecialtyActionsView({ label, source }: { label: string;
         // panel and "no cohort is enrolled here" look identical to an operator
         // and mean opposite things.
         if (active && typeof body.emptyHint === "string") setEmptyHint(body.emptyHint);
+        // The population the pack says it is responsible for. Optional: a pack
+        // that declares no cohort publishes none, and then nothing renders here
+        // rather than a misleading zero.
+        const declared = body.cohort as { id?: unknown; patients?: unknown; onPlan?: unknown } | undefined;
+        if (active && declared && typeof declared.id === "string" && typeof declared.patients === "number") {
+          setCohort({
+            id: declared.id,
+            patients: declared.patients,
+            ...(typeof declared.onPlan === "number" ? { onPlan: declared.onPlan } : {}),
+          });
+        }
         if (active) setPayload(board);
       } catch (err) {
         if (active) setError(err instanceof Error ? err.message : "failed to load the board");
@@ -61,6 +74,12 @@ export default function SpecialtyActionsView({ label, source }: { label: string;
         </div>
       </header>
       {error ? <div className="error">{error}</div> : null}
+      {cohort ? (
+        <p className="cohort-strip muted" data-cohort={cohort.id}>
+          Cohort <code>{cohort.id}</code> · {cohort.patients} patient{cohort.patients === 1 ? "" : "s"}
+          {typeof cohort.onPlan === "number" ? ` · ${cohort.onPlan} on a plan` : null}
+        </p>
+      ) : null}
       {!error && !payload ? <p className="muted">Loading the board…</p> : null}
       {payload ? <RankedActionsPanel payload={payload} protocol={label} {...(emptyHint ? { emptyHint } : {})} /> : null}
     </section>
