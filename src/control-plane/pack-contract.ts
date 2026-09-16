@@ -123,6 +123,30 @@ export interface SpecialtyOntologySection {
 export interface SpecialtyLensView {
   readonly id: string;
   readonly label: string;
+  /**
+   * What KIND of screen this is — the field that lets a specialty add a screen
+   * without a shell edit (G5).
+   *
+   * A view used to be an ID, and an ID only means something because a `case` arm
+   * exists for it in `exec-app`, so `views: [{id: 'oncology-regimen'}]` was
+   * refused as a blocking issue. G1 was "a pack cannot contribute a route"; this
+   * was the same defect one layer up — "a pack cannot contribute a screen" — and
+   * harder to see, because the grouped submenu LOOKS data-driven right up to the
+   * point where the pack asks for a kind of screen the shell never heard of.
+   *
+   * Optional, and the ID check still applies when it is absent, so the eleven
+   * existing declarations keep working while they migrate.
+   */
+  readonly kind?: string;
+  /**
+   * Where the view's data comes from.
+   *
+   * Declared by the pack rather than derived from the id, because the id is the
+   * specialty's vocabulary and the route is the pack's: `vascular-access` is a
+   * view id whose route is `/admin/swarm/access`, and the shell could not guess
+   * that without being told the specialty exists — which is the whole problem.
+   */
+  readonly source?: string;
 }
 
 export interface SpecialtyLensSection {
@@ -158,6 +182,30 @@ export interface SpecialtyLensSection {
 export const PLATFORM_LENS_VIEWS: readonly string[] = Object.freeze([
   'protocols', 'anemia', 'adequacy', 'fluid', 'vascular-access', 'mbd',
   'nutrition', 'infection', 'protocol-assurance', 'next-session', 'round-digest',
+]);
+
+/**
+ * View KINDS the shell can actually draw — the open half of the same idea.
+ *
+ * `PLATFORM_LENS_VIEWS` above names eleven SPECIFIC screens, which is why a new
+ * specialty had to be added to it. This names generic RENDERERS, so a specialty
+ * composes a screen from one the shell already has and the platform does not need
+ * to know the specialty exists.
+ *
+ * It starts with ONE, and that is the discipline rather than an oversight: a kind
+ * is justified when a second specialty needs it, and kinds are promoted from real
+ * packs, never designed up front. Seven of the eleven renal views are candidates
+ * for `ranked-actions` — that is the strongest evidence the vocabulary is real,
+ * and it is evidence, not yet a declaration. A speculative list of six would be
+ * six names the shell cannot draw, which is exactly what this constant exists to
+ * prevent.
+ */
+export const PLATFORM_VIEW_KINDS: readonly string[] = Object.freeze([
+  // A ranked action board: an endpoint that publishes `{ actions: { nbas, ... } }`
+  // and a panel that renders it without computing a score. This is a NAMING of a
+  // pattern the code already has — the panel renders any endpoint's board — not a
+  // new component invented for the occasion.
+  'ranked-actions',
 ]);
 
 export interface SpecialtySections {

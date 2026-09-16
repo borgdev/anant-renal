@@ -98,7 +98,13 @@ export interface PackManifestSpecialty {
     readonly id: string;
     readonly label: string;
     readonly nav?: readonly string[];
-    readonly views?: readonly { readonly id: string; readonly label: string }[];
+    readonly views?: readonly {
+      readonly id: string;
+      readonly label: string;
+      /** G5 — the renderer the shell uses, and the route it reads. */
+      readonly kind?: string;
+      readonly source?: string;
+    }[];
     readonly terminology?: Readonly<Record<string, string>>;
   };
 }
@@ -259,7 +265,18 @@ function normaliseSpecialty(value: unknown): PackManifestSpecialty {
       const v = record(raw);
       const id = str(v['id']);
       if (!id) return [];
-      return [{ id, label: str(v['label']) ?? id }];
+      const kind = str(v['kind']);
+      const source = str(v['source']);
+      // `kind` and `source` travel together and are carried only when present, so
+      // an id-only view stays exactly what it was — that is the compatibility
+      // path, and a parser that invented a kind for it would be guessing which
+      // renderer the shell should use.
+      return [{
+        id,
+        label: str(v['label']) ?? id,
+        ...(kind ? { kind } : {}),
+        ...(source ? { source } : {}),
+      }];
     });
     const terminologyRaw = record(lens['terminology']);
     const terminology: Record<string, string> = {};

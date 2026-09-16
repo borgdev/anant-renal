@@ -62,10 +62,10 @@ works as a pack, not as a product-specific code branch".
 | Gap | In one line | Blocks | Size | Status |
 | --- | --- | --- | --- | --- |
 | **G1** | A pack cannot contribute routes | Phase 3 exit criterion, Phase 4, Phase 5 | M–L (11 modules) | phase 1 done (`payer`) |
-| **G2** | Only one pack can be active at a time | Phase 6 deliverable 1 | M | not started |
+| **G2** | Only one pack can be active at a time | Phase 6 deliverable 1 | M | **done** (the activation document was the last singular part) |
 | **G3** | Cross-pack workflows are dead code | Phase 4, Phase 6 | M | not started |
 | **G4** | "Cross-pack" assurance enumerates renal packs in code | Phase 6 | S | **done** (both halves) |
-| **G5** | A pack cannot contribute a screen | Phase 5, Phase 6 | M | not started |
+| **G5** | A pack cannot contribute a screen | Phase 5, Phase 6 | M | **contract + registry done**; renal views deliberately not migrated |
 | **G6** | A specialty applies everywhere it is installed | the "all customers want all specialities" requirement | M | **implemented** (slice 1) |
 
 Dependency order: **G1 → (G4, G5)**; **G2 ↔ G6** (they are the same subsystem seen twice — G2 is the symptom, G6 is the resolved model); **G2 → G3**. G1 is the only gap that must go first.
@@ -624,6 +624,47 @@ Steps:
 Kinds are promoted from real packs, never designed up front — the same rule as
 `undefined` (map gap) vs `null` (deliberate no-action) in the action map, and "a
 declared bound beats a percentile" in cohort calibration.
+
+#### G5 implementation — the contract and the registry SHIPPED (2026-09-16)
+
+`SpecialtyLensView` gained optional `kind` and `source`; `PLATFORM_VIEW_KINDS`
+names the renderers the shell actually has (it starts with ONE: `ranked-actions`);
+`pack-resources.ts` checks a kind-declaring view against the renderer set
+(`unknown-view-kind`) and refuses a kind with no source
+(`view-kind-without-source`); the shell has `VIEW_RENDERERS` consulted BEFORE the
+`case` switch, which stays as the fallback — so nothing had to migrate for this to
+land and both vocabularies are live at once.
+
+**THE FINDING, and it is the one the plan predicted.** The table above claims
+seven of the eleven renal views collapse onto `ranked-actions`, and that seven of
+eleven is "the strongest evidence the vocabulary is real". Attempting the
+migration says otherwise: those pages are **compositions**, not boards. The anemia
+page is a KPI header, a trajectory panel, a ranked board and a governance table;
+the ranked board is one panel inside it. A KIND describes a PANEL. A page is a
+composition of kinds, and there is no honest way to render a page as its own
+innermost panel.
+
+So the eleven renal declarations were **not** migrated, and that is a decision
+rather than an omission: migrating them would have deleted seven working pages to
+make a table look tidier — the same mistake as weakening a manifest to match a
+stale descriptor. The id vocabulary is still the live one for them, the
+compatibility path is exercised by them, and `tests/view-kinds.test.ts` asserts
+both vocabularies stay live so a future migration cannot quietly retire one.
+
+**What the exit criterion therefore needs**, restated now that the cheap version
+has been ruled out: a second specialty composes `kind`-declared views against its
+own endpoints. The contract accepts that today — the fixture in
+`tests/view-kinds.test.ts` is a non-renal pack declaring
+`{ kind: 'ranked-actions', source: '/admin/swarm/oncology/state' }` and it resolves
+with no issue — but proving it against a REAL second specialty needs a pack with
+an action board, which is Phase 5 product work rather than a platform gap.
+
+**And the guard that came out of it:** `PLATFORM_VIEW_KINDS` (platform) and
+`VIEW_RENDERER_KINDS` (shell) are two lists in two projects with nothing but a
+human reading both files to keep them equal. `tests/view-kinds.test.ts` compares
+them in both directions and checks the shipped manifests against them — the same
+guard `tests/workspace-kinds.test.ts` became necessary for after the same pair of
+lists diverged twice by hand.
 
 ### G6 — A specialty applies everywhere it is installed (the "all customers want all specialities" requirement)
 

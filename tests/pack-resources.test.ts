@@ -49,7 +49,7 @@ import {
   resourcesByKind,
   type ResourceIssueCode,
 } from '../src/control-plane/pack-resources.js';
-import { PLATFORM_NAV_IDS, PLATFORM_CONCEPTS, PLATFORM_LENS_VIEWS, validateSpecialtyPack } from '../src/control-plane/pack-contract.js';
+import { PLATFORM_NAV_IDS, PLATFORM_CONCEPTS, PLATFORM_LENS_VIEWS, PLATFORM_VIEW_KINDS, validateSpecialtyPack } from '../src/control-plane/pack-contract.js';
 import { manifestAsDomainPack, manifestAsSpecialtySections } from '../src/control-plane/pack-manifest.js';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -77,6 +77,7 @@ function resolve(manifests: readonly PackManifest[]) {
     platformNavIds: PLATFORM_NAV_IDS,
     platformConcepts: PLATFORM_CONCEPTS,
     renderableViews: PLATFORM_LENS_VIEWS,
+    renderableViewKinds: PLATFORM_VIEW_KINDS,
   });
 }
 

@@ -32,6 +32,7 @@
  ******************************************************************************/
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Activity,
   ArrowRight,
@@ -92,6 +93,7 @@ import NextSessionView from "./components/next-session-view";
 import RoundDigestView from "./components/round-digest-view";
 import AssuranceCenter from "./components/assurance-center";
 import PlatformReview from "./components/platform-review";
+import SpecialtyActionsView from "./components/specialty-actions-view";
 import WorkflowDetailDrawer from "./components/workflow-detail-drawer";
 import { Tag } from "./components/ui";
 import { demoContext, outcomeEpisodes } from "./lib/catalogs";
@@ -101,6 +103,8 @@ import { applyTheme, otherTheme, THEME_LABEL, readTheme, type ThemeName } from "
 import { fetchContext } from "./lib/work";
 import type { MeUser } from "./lib/auth";
 import type { NavigationId } from "./lib/types";
+import type { SpecialtyViewDecl } from "./lib/specialty-view";
+import type { ViewRendererKind } from "./lib/view-kinds";
 import type { WorkflowDetail } from "./lib/workflow-detail";
 
 type NavItem = {
@@ -133,6 +137,24 @@ const PROTOCOL_VIEWS: Array<{ id: NavigationId; label: string; stage: string }> 
 ];
 
 const protocolStage = (id: string): string => PROTOCOL_VIEWS.find((view) => view.id === id)?.stage ?? "";
+
+/**
+ * The renderer REGISTRY — G5's open half, alongside the switch below.
+ *
+ * Typed from `VIEW_RENDERER_KINDS`, which `tests/view-kinds.test.ts` asserts
+ * equals the platform's `PLATFORM_VIEW_KINDS`, so a kind the platform would
+ * accept and the shell cannot draw is a compile error rather than an empty tab
+ * in front of a clinician.
+ *
+ * The switch stays and stays reachable: a view that declares no kind renders
+ * exactly as it did before, which is what let this land without migrating the
+ * eleven renal declarations. Those turned out NOT to be board views — see
+ * `lib/view-kinds.ts` — so the id vocabulary is still the live one for them and
+ * this registry is what a NEW specialty composes from.
+ */
+const VIEW_RENDERERS: Record<ViewRendererKind, (view: { id: string; label: string; source: string }) => ReactNode> = {
+  "ranked-actions": (view) => <SpecialtyActionsView label={view.label} source={view.source} />,
+};
 
 const navGroups: { label: string; items: NavItem[] }[] = [
   {
@@ -283,8 +305,14 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
    * no views" is an answer, and it must not fall back to another specialty's.
    */
   const submenuGroups = useMemo(() => {
-    const map = (views: Array<{ id: string; label: string }>) =>
-      views.map((view) => ({ id: view.id as NavigationId, label: view.label, stage: protocolStage(view.id) }));
+    const map = (views: SpecialtyViewDecl[]) =>
+      views.map((view) => ({
+        id: view.id as NavigationId,
+        label: view.label,
+        stage: protocolStage(view.id),
+        ...(view.kind ? { kind: view.kind } : {}),
+        ...(view.source ? { source: view.source } : {}),
+      }));
 
     if (viewGroups && viewGroups.length) {
       return [...viewGroups]
@@ -297,7 +325,10 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
         }));
     }
     if (lensViews) return [{ packId: "lens", label: "", primary: true, views: map(lensViews) }];
-    return [{ packId: "shell", label: "", primary: true, views: PROTOCOL_VIEWS }];
+    // Mapped through the SAME function as the declared branches, not returned raw:
+    // two shapes for one field is how the registry below came to be unreachable —
+    // the fallback's entries had no `kind`, so the union type had none either.
+    return [{ packId: "shell", label: "", primary: true, views: map(PROTOCOL_VIEWS) }];
   }, [viewGroups, lensViews]);
   const protocolViews = useMemo(() => submenuGroups.flatMap((group) => group.views), [submenuGroups]);
   const activeLabel = useMemo(
@@ -401,6 +432,15 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
   }
 
   const module = (() => {
+    // G5 — the REGISTRY is consulted first, and the switch below is the fallback.
+    // Nothing had to migrate for this to be correct: an id-only view falls
+    // straight through to its own case arm, so both vocabularies are live at once
+    // and the renal pages render exactly as before.
+    const declared = submenuGroups.flatMap((group) => group.views).find((view) => view.id === activeNav);
+    const renderer = declared?.kind ? VIEW_RENDERERS[declared.kind as ViewRendererKind] : undefined;
+    if (renderer && declared?.source) {
+      return renderer({ id: declared.id, label: declared.label, source: declared.source });
+    }
     switch (activeNav) {
       case "my-work": return <MyWork onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "ecosystem": return <SwarmControl onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;

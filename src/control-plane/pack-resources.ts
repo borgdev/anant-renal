@@ -66,6 +66,8 @@ export type ResourceIssueCode =
   | 'unbacked-cms-measure'
   | 'lens-shadows-platform-nav'
   | 'unknown-lens-view'
+  | 'unknown-view-kind'
+  | 'view-kind-without-source'
   | 'duplicate-artifact-id';
 
 export interface ResourceIssue {
@@ -92,7 +94,12 @@ export interface PackResourceReport {
     readonly label: string;
     readonly nav: readonly string[];
     /** Platform views this lens surfaces, in display order. */
-    readonly views: readonly { readonly id: string; readonly label: string }[];
+    readonly views: readonly {
+      readonly id: string;
+      readonly label: string;
+      readonly kind?: string;
+      readonly source?: string;
+    }[];
   } | null;  readonly issues: readonly ResourceIssue[];
   /** No blocking issue → the pack's declared surface is real. */
   readonly resolved: boolean;
@@ -124,6 +131,13 @@ export interface ResourceRegistryInput {
    * worse answer than a refusal.
    */
   readonly renderableViews?: readonly string[];
+  /**
+   * View KINDS the shell can render. A view that declares a kind is checked
+   * against THIS set instead of the id set, which is what makes the vocabulary
+   * open: the pack supplies the id (its own vocabulary) and the platform supplies
+   * the kind (what it can draw).
+   */
+  readonly renderableViewKinds?: readonly string[];
 }
 
 function emptyReport(packId: string): PackResourceReport {
@@ -366,10 +380,40 @@ export function buildResourceRegistry(input: ResourceRegistryInput): ResourceReg
   // a specialty could declare a view no component renders, and the console would
   // show an empty tab — which reads as a broken product rather than a bad
   // declaration.
+  //
+  // Two vocabularies, one rule. A view that declares a KIND is checked against the
+  // renderer registry, because that is the open vocabulary and the one that lets a
+  // specialty arrive without a shell edit. A view that declares only an ID is
+  // checked against the closed list, which is why that list still exists — it is
+  // the compatibility path for declarations written before kinds, and it can be
+  // deleted when the last id-only view migrates (G5 step 4).
   const renderable = new Set(input.renderableViews ?? []);
-  if (input.renderableViews) {
+  const renderableKinds = new Set(input.renderableViewKinds ?? []);
+  if (input.renderableViews || input.renderableViewKinds) {
     for (const m of input.manifests) {
       for (const view of m.specialty.uiLens?.views ?? []) {
+        if (view.kind) {
+          if (!renderableKinds.has(view.kind)) {
+            add({
+              code: 'unknown-view-kind',
+              packId: m.id,
+              detail: `lens "${m.specialty.uiLens?.id}" surfaces view "${view.id}" as kind "${view.kind}", which the shell has no renderer for — a kind is only declarable when the platform can draw it`,
+              blocking: true,
+            });
+          }
+          // A kind without a source is a renderer with nothing to render. The id
+          // cannot stand in for it: the id is the specialty's word for the screen,
+          // and the route is the pack's.
+          if (!view.source) {
+            add({
+              code: 'view-kind-without-source',
+              packId: m.id,
+              detail: `view "${view.id}" declares kind "${view.kind}" with no source, so the shell would render an empty board under a heading that promises one`,
+              blocking: true,
+            });
+          }
+          continue;
+        }
         if (renderable.has(view.id)) continue;
         add({
           code: 'unknown-lens-view',

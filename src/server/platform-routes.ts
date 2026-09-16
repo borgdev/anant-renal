@@ -96,7 +96,7 @@ import type { IdentityRole } from '../identity/types.js';
 import type { DomainPack } from '../control-plane/pack-registry.js';
 // Platform Phase 0/1 — the written pack contract and the domain-blind
 // hardening report. Both are pure functions; the routes only gather state.
-import { validateSpecialtyPack, conformanceMatrix, platformBoundary, SPECIALTY_CONTRACT_VERSION, PLATFORM_NAV_IDS, PLATFORM_CONCEPTS, PLATFORM_LENS_VIEWS, type PackValidationContext, type SpecialtySections, type PackConformanceReport } from '../control-plane/pack-contract.js';
+import { validateSpecialtyPack, conformanceMatrix, platformBoundary, SPECIALTY_CONTRACT_VERSION, PLATFORM_NAV_IDS, PLATFORM_CONCEPTS, PLATFORM_LENS_VIEWS, PLATFORM_VIEW_KINDS, type PackValidationContext, type SpecialtySections, type PackConformanceReport } from '../control-plane/pack-contract.js';
 import { loadPackManifests, manifestAsDomainPack, manifestAsSpecialtySections, manifestDrift, type PackManifest } from '../control-plane/pack-manifest.js';
 import { buildResourceRegistry, resourceReportFor, resourcesByKind, type ResourceRegistry } from '../control-plane/pack-resources.js';
 import { buildHardeningReport, boundWriteKinds, type PlatformHardeningInput } from '../control-plane/platform-hardening.js';
@@ -162,6 +162,7 @@ export function packResolution(): PackResolutionSnapshot {
     platformNavIds: PLATFORM_NAV_IDS,
     platformConcepts: PLATFORM_CONCEPTS,
     renderableViews: PLATFORM_LENS_VIEWS,
+    renderableViewKinds: PLATFORM_VIEW_KINDS,
   });
   return {
     registry,

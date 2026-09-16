@@ -40,6 +40,7 @@
 // server says the current session may see and act on — it never decides
 // authorization.
 import { responseOrThrow } from "./session";
+import type { SpecialtyViewDecl } from "./specialty-view";
 export type PlatformWorkKind = "episode" | "review" | "release" | "dlq" | "cohort" | "action" | "identity";
 export type PlatformUrgency = "high" | "medium" | "low";
 export type ConsoleId = "exec" | "ops";
@@ -103,7 +104,7 @@ export interface PlatformContext {
     terminology?: Record<string, string>;
     /** Platform views this lens surfaces, in display order. An empty array is a
      *  real answer — a lens with no clinical views renders no specialty strip. */
-    views?: Array<{ id: string; label: string }>;
+    views?: SpecialtyViewDecl[];
   };
   /**
    * The specialty submenu: one group per INSTALLED pack that declares views.
@@ -119,7 +120,7 @@ export interface PlatformContext {
     packId: string;
     label: string;
     primary: boolean;
-    views: Array<{ id: string; label: string }>;
+    views: SpecialtyViewDecl[];
   }>;
   navigation: Array<{ id: string; label: string; console: ConsoleId; href: string }>;
   capabilities: string[];
