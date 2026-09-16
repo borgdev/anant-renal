@@ -12,6 +12,39 @@ deliverables but not on criteria is not complete.
 
 ---
 
+## 0. Acceptance — a deployment hosts several specialties at once
+
+`tests/multi-specialty.test.ts` introduces a THIRD specialty the platform has never
+heard of — a synthetic oncology pack — into a deployment that already has renal and
+payer, and asserts every surface the platform owes a specialty, with no edit to
+`src/`. The pack is deliberately not renal: half of these assertions would pass for
+a pack written against renal vocabulary, and the whole defect class below was
+platform-side vocabularies only renal could satisfy.
+
+| Surface | Asserted |
+| --- | --- |
+| routes | its own, under its own authority; an uninstalled specialty is 404, not 403 |
+| population | it reads the projection the platform handed it — 0 patients, not an invented cohort |
+| coverage | the assurance track reviews it as an eighth protocol, and WARNS rather than accusing it of missing renal rules |
+| application | one durable binding takes it dark without darkening the other two |
+| hand-off | the deployment has live cross-pack workflows, decided by the packs |
+| screen | asserted in `tests/view-kinds.test.ts` — see the coupling below |
+
+**Two couplings the test surfaced, stated rather than hidden.**
+
+1. **A lens is read from the pack's MANIFEST**, so an in-process pack contributes no
+   view group. Not a gap: Phase 3 made the manifest the source of a declared
+   surface, and the loader resolves every pack THROUGH its manifest, so a
+   deployment cannot contain a manifestless pack at all. Recorded because it is the
+   kind of thing a reader would otherwise discover by watching a screen not appear.
+2. **The gate's snapshot and the durable bindings are two different inputs.**
+   `specialty-apply`'s snapshot governs the PATIENT projection; `/api/context` reads
+   the durable rows. A test that set only one would pass while the two disagreed
+   about the same pack — which is why the acceptance test writes the binding through
+   the API.
+
+---
+
 ## 1. Where the plan actually stands
 
 | Phase | Plan status | Actual status | Blocking gap |
