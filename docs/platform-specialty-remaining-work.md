@@ -445,6 +445,34 @@ visible.
 
 ### G4 — "Cross-pack" assurance enumerates renal packs in code (same root as G1)
 
+> **SHIPPED 2026-09-16.** `ProtocolPackDescriptor` moved to
+> `src/swarm/assurance-packs.ts` as a CONTRACT; the seven declarations moved to
+> `packs/dialysis-provider/assurance-packs.ts`; the pack declares them via
+> `assurance:` on its descriptor; `app.ts` collects them from the installed set;
+> `AssuranceInputs.packs` is a REQUIRED parameter (a default was the defect).
+>
+> `normaliseArtifactStatus()` was preserved and moved to the contract module —
+> the artifact shapes genuinely differ and that difference is information.
+>
+> **The test asserts the property that changed**: a synthetic oncology pack IS
+> reviewed, and a pack that declares nothing does NOT drag the renal seven in.
+> Asserting the seven still appear would pass before and after.
+>
+> **A REAL FINDING, and the reason G4 is only half-achieved:**
+> `ProtocolPackDescriptor.protocol` is typed `ProtocolId`, a CLOSED union of the
+> seven renal protocols in `src/protocols/shared-state.ts`. So the platform no
+> longer names the specialties, but the CONTRACT still does — a genuinely new
+> specialty cannot declare an assurance contribution without editing that union.
+> The synthetic test in `tests/assurance-track.test.ts` only type-checks behind a
+> cast, and a sibling test asserts that limitation so it stays visible. **Same
+> defect class as G5**, and the next thing to fix here.
+>
+> **A second fix that came with it:** with no packs the track reduced to
+> `ship` — every check vacuously satisfied, so reviewing nothing announced that
+> nothing was wrong. An empty set now reports "nothing was reviewed, which is not
+> the same as nothing being wrong" and holds.
+
+
 **Evidence.** `src/swarm/assurance-track.ts` holds a **hand-written list of the
 seven renal packs** with their coverage defaults and artifact probes (ESA,
 adequacy, fluid, access, MBD, nutrition, infection), each wiring a specific

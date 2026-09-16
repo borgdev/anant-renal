@@ -48,11 +48,13 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { renalPatientFacts, type RenalPatientInput } from '../../src/swarm/renal-cohort.js';
 import type { PackPatient, PackRouteContribution } from '../../src/control-plane/pack-contributions.js';
+import type { ProtocolPackDescriptor } from '../../src/swarm/assurance-packs.js';
+import { DIALYSIS_ASSURANCE_PACKS } from './assurance-packs.js';
 import { RENAL_PROTOCOLS, evaluateProtocolForPatient } from '../../src/protocols/registry.js';
 import { getSwarmWorkspace } from '../../src/server/swarm-routes.js';
 import type { SwarmWorkspaceStore, WorkspaceDoc } from '../../src/swarm/workspace.js';
 import {
-  assuranceReleaseGate, crossPackAssurance, PROTOCOL_PACKS, packFor,
+  assuranceReleaseGate, crossPackAssurance, packFor,
   ASSURANCE_TRACK_REFERENCE, type AssuranceInputs,
 } from '../../src/swarm/assurance-track.js';
 import {
@@ -72,6 +74,12 @@ import type { ProtocolId } from '../../src/protocols/shared-state.js';
 export interface AssuranceRouteOptions {
   /** The platform's patient projection. */
   patients: () => readonly PackPatient[];
+  /**
+   * Every INSTALLED pack's assurance declaration, collected by the platform.
+   * Empty means no installed pack declared one — which the track reports, rather
+   * than falling back to a hardcoded list and calling the result clean (G4).
+   */
+  packs: () => readonly ProtocolPackDescriptor[];
 }
 
 /** Durable per-protocol surfacing mode, persisted as a `protocol-mode` document. */
@@ -173,7 +181,7 @@ export function cohortSignals(inputs: readonly RenalPatientInput[]): CohortSigna
 
 export async function registerAssuranceRoutes(app: FastifyInstance, opts: AssuranceRouteOptions): Promise<void> {
   const patients = opts.patients;
-
+  const installedPacks = opts.packs;
   const ws = (): SwarmWorkspaceStore => {
     const w = getSwarmWorkspace();
     if (!w) throw new Error('swarm-workspace-not-ready');
@@ -200,8 +208,21 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
     return cohortSignals(patients());
   }
 
+  /**
+   * The packs under review: everything INSTALLED that declared an assurance
+   * contribution, falling back to this pack's own declarations.
+   *
+   * Before G4 this list was a constant inside `src/swarm/assurance-track.ts`, so
+   * a second specialty was invisible to the track no matter what it declared.
+   */
+  function assurancePacks(): readonly ProtocolPackDescriptor[] {
+    const installed = installedPacks();
+    return installed.length > 0 ? installed : DIALYSIS_ASSURANCE_PACKS;
+  }
+
   function assuranceInputs(view: CohortSignalView, dimensions?: readonly SliceDimension[]): AssuranceInputs {
     return {
+      packs: assurancePacks(),
       fairnessRows: view.rows,
       alerts: view.alerts,
       patients: view.patients,
@@ -223,10 +244,10 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
       totals: assurance.totals,
       protocols: assurance.protocols.map((p) => ({
         protocol: p.protocol,
-        slice: packFor(p.protocol)?.slice ?? null,
+        slice: packFor(p.protocol, assurancePacks())?.slice ?? null,
         modelId: p.modelId,
-        routes: packFor(p.protocol)?.routes ?? null,
-        mdrKind: packFor(p.protocol)?.mdrKind ?? null,
+        routes: packFor(p.protocol, assurancePacks())?.routes ?? null,
+        mdrKind: packFor(p.protocol, assurancePacks())?.mdrKind ?? null,
         verdict: p.verdict,
         mode: p.mode.mode,
         rules: p.ruleCount,
@@ -273,7 +294,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
     ranBy: string,
   ): Promise<Array<{ protocol: string; path: string; status: number; ok: boolean; detail: string }>> {
     const triggered: Array<{ protocol: string; path: string; status: number; ok: boolean; detail: string }> = [];
-    for (const pack of PROTOCOL_PACKS) {
+    for (const pack of assurancePacks()) {
       const path = `${pack.routes}/${suffix}`;
       try {
         const response = await app.inject({
@@ -435,7 +456,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
       summary: silentModeSummary(),
       modes: allModeRecords().map((m) => ({
         ...m,
-        routes: packFor(m.protocol)?.routes ?? null,
+        routes: packFor(m.protocol, assurancePacks())?.routes ?? null,
       })),
     };
   });
@@ -522,7 +543,7 @@ export async function registerAssuranceRoutes(app: FastifyInstance, opts: Assura
       sources: [...new Set(RULE_PACKS.map((r) => r.reference.source))],
       bindings: RULE_PACKS.length,
       driftCheck: 'tests/rule-packs.test.ts resolves every binding against its pack constant',
-      packTable: PROTOCOL_PACKS.map((p) => ({ protocol: p.protocol, slice: p.slice, modelId: p.modelId, routes: p.routes, mdrKind: p.mdrKind })),
+      packTable: assurancePacks().map((p) => ({ protocol: p.protocol, slice: p.slice, modelId: p.modelId, routes: p.routes, mdrKind: p.mdrKind })),
     };
   });
 
@@ -546,7 +567,10 @@ export const assuranceTrackRoutes: readonly PackRouteContribution[] = Object.fre
     scope: 'exec',
     prefixes: ['/admin/swarm/assurance'],
     register(app, deps) {
-      return registerAssuranceRoutes(app, { patients: deps.patients });
+      return registerAssuranceRoutes(app, {
+        patients: deps.patients,
+        packs: deps.assurancePacks,
+      });
     },
   },
 ]);

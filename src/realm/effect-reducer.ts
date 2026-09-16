@@ -486,6 +486,12 @@ export class EffectReducer {
         // Close the SAME Procedure `start-session` opened. If the replay starts
         // at end-session (no prior start) we still record the session rather
         // than dropping it.
+        // Precedence stated, not positional. This was two spreads both setting
+        // `outcome`, relying on the later one winning — so reordering the lines
+        // would silently change what the chart records, with nothing to say which
+        // reading was intended. A complication outranks a short session.
+        const sessionOutcome: string | undefined =
+          effect.complication ?? (effect.stoppedEarly === true ? 'stopped-early' : undefined);
         const sessionUrn = g.urnFor('dialysis-session', session.sessionId);
         const sessionPatch: Record<string, unknown> = {
           ...session,
@@ -498,8 +504,7 @@ export class EffectReducer {
           ...(typeof (current as { telemetryDropped?: number }).telemetryDropped === 'number'
             ? { telemetryDropped: (current as { telemetryDropped: number }).telemetryDropped }
             : {}),
-          ...(effect.stoppedEarly === true ? { outcome: 'stopped-early' } : {}),
-          ...(effect.complication ? { outcome: effect.complication } : {}),
+          ...(sessionOutcome !== undefined ? { outcome: sessionOutcome } : {}),
         };
         if (g.get(sessionUrn)) g.patch(sessionUrn, sessionPatch, `effect:${effect.kind}`);
         else g.create('dialysis-session', session.sessionId, sessionPatch);

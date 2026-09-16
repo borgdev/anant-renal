@@ -91,6 +91,7 @@ const deps: PackRouteDeps = {
   coordinator: () => { throw new Error('not used'); },
   patients: () => [],
   events: () => [],
+  assurancePacks: () => [],
   extra: {},
 };
 
@@ -188,7 +189,7 @@ describe('registration', () => {
           register: () => { seen.push('a'); },
         })]),
       ],
-      () => ({ workspace: () => { throw new Error('x'); }, coordinator: () => { throw new Error('x'); }, patients: () => [], events: () => [], extra: {} }),
+      () => ({ workspace: () => { throw new Error('x'); }, coordinator: () => { throw new Error('x'); }, patients: () => [], events: () => [], assurancePacks: () => [], extra: {} }),
     );
     expect(seen).toEqual(['a']);
     expect(registry.contributingPacks).toEqual(['a-pack']);

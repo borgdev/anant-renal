@@ -61,28 +61,16 @@ import { modeRecord, silentModeSummary, type ProtocolModeRecord } from '../evide
 import { fairnessReport, FAIRNESS_DIMENSION_LABELS, type FairnessReport, type FairnessRow, type SliceDimension } from '../evidence/fairness.js';
 import { burdenReport, type AlertEvent, type BurdenReport } from '../evidence/alert-burden.js';
 import type { ReleaseDecision, ReleaseCheckStatus } from './release.js';
-import { ESA_MODEL_ID, ESA_RED_TEAM_IDS, ESA_COVERAGE_DEFAULTS, isEsaFinding } from './anemia-governance.js';
-import { ADEQUACY_MODEL_ID, ADEQUACY_RED_TEAM_IDS, ADEQUACY_COVERAGE_DEFAULTS } from './adequacy-governance.js';
-import { FLUID_MODEL_ID, FLUID_RED_TEAM_IDS, FLUID_COVERAGE_DEFAULTS } from './fluid-governance.js';
-import { ACCESS_MODEL_ID, ACCESS_RED_TEAM_IDS, ACCESS_COVERAGE_DEFAULTS } from './access-governance.js';
-import { MBD_MODEL_ID, MBD_RED_TEAM_IDS, MBD_COVERAGE_DEFAULTS } from './mbd-governance.js';
-import { NUTRITION_MODEL_ID, NUTRITION_RED_TEAM_IDS, NUTRITION_COVERAGE_DEFAULTS } from './nutrition-governance.js';
-import { INFECTION_MODEL_ID, INFECTION_RED_TEAM_IDS, INFECTION_COVERAGE_DEFAULTS } from './infection-governance.js';
-import { accessArtifactStatus } from './access-model.js';
-import { adequacyArtifactStatus } from './adequacy-model.js';
-import { fluidArtifactStatus } from './fluid-model.js';
-import { mbdArtifactStatus } from './mbd-model.js';
-import { nutritionArtifactStatus } from './nutrition-model.js';
-import { infectionArtifactStatus } from './infection-model.js';
-import { loadEsaArtifact } from './anemia-model.js';
+import { isEsaFinding } from './anemia-governance.js';
+// The descriptor is a CONTRACT; the declarations live in the packs that own them
+// and arrive as an argument. `src/swarm/` must not import `packs/`, and a platform
+// function cannot know which specialties exist anyway — which is the whole point
+// of G4: this table claimed to read the installed pack set while reading seven
+// names typed in here.
+import type { ArtifactStatusLike, ProtocolPackDescriptor } from './assurance-packs.js';
+export { packFor, normaliseArtifactStatus } from './assurance-packs.js';
+export type { ArtifactStatusLike, ProtocolPackDescriptor } from './assurance-packs.js';
 
-/** The narrow shape every pack's artefact probe is normalised into. */
-export interface ArtifactStatusLike {
-  present: boolean;
-  band: 'pass' | 'watch' | 'insufficient';
-  note: string;
-  metrics?: unknown;
-}
 
 export type LedgerState = 'present' | 'missing' | 'stale';
 
@@ -158,115 +146,6 @@ function daysBetween(a: string, b: string): number {
   return (new Date(b).getTime() - new Date(a).getTime()) / 86_400_000;
 }
 
-const BANDS: readonly ArtifactStatusLike['band'][] = ['pass', 'watch', 'insufficient'];
-
-/**
- * Packs report their artefact status in their own shape: some declare a `band`,
- * some expose their acceptance flags (`meetsTarget`, `beatsPriorDiscrimination`,
- * `improvesCalibration`) and a regression head has no AUROC at all. This is the
- * one place that normalises them, and it never invents a verdict: a declared
- * band wins, otherwise the band is derived from the pack's own flags.
- */
-function normaliseArtifactStatus(raw: object): ArtifactStatusLike {
-  const r = raw as Record<string, unknown>;
-  const present = r.present === true;
-  const rows = typeof r.rows === 'number' ? r.rows : undefined;
-  const note = typeof r.note === 'string'
-    ? r.note
-    : present
-      ? `artefact present${rows !== undefined ? ` (${rows} rows)` : ''}${typeof r.mapePct === 'number' ? `, MAPE ${r.mapePct}%` : ''}`
-      : 'no trained artefact';
-  if (!present) return { present: false, band: 'insufficient', note };
-  const declared = typeof r.band === 'string' && (BANDS as readonly string[]).includes(r.band)
-    ? r.band as ArtifactStatusLike['band']
-    : undefined;
-  const flags = Object.entries(r)
-    .filter(([k, v]) => typeof v === 'boolean' && /^(meets|beats|improves)/.test(k))
-    .map(([, v]) => v as boolean);
-  const band = declared
-    ?? (flags.length === 0 ? 'watch' : flags.every(Boolean) ? 'pass' : flags.some(Boolean) ? 'watch' : 'insufficient');
-  const metrics = r.metrics ?? r.classifier ?? r.regressor ?? r.mae;
-  return { present: true, band, note, ...(metrics !== undefined ? { metrics } : {}) };
-}
-
-/** Anemia's trained artefact is a regression head with different metrics. */
-function esaArtifactStatus(): ArtifactStatusLike {
-  const artifact = loadEsaArtifact();
-  if (!artifact) {
-    return { present: false, band: 'insufficient', note: 'no trained ESA artefact on disk' };
-  }
-  const { testMae, baselineMae, nTest } = artifact.metrics;
-  const beatsBaseline = testMae < baselineMae;
-  const band: ArtifactStatusLike['band'] = !beatsBaseline ? 'insufficient' : nTest < 30 ? 'watch' : 'pass';
-  return {
-    present: true,
-    band,
-    note: beatsBaseline
-      ? `test MAE ${testMae} beats the ${baselineMae} baseline over ${nTest} held-out windows`
-      : `test MAE ${testMae} does not beat the ${baselineMae} baseline`,
-    metrics: artifact.metrics,
-  };
-}
-
-/**
- * Every pack, in protocol order, with the durable handles the gate reads.
- *
- * The `routes` prefix and `mdrKind` exist so a reviewer can walk from this
- * table to the pack's own console page and boundary document.
- */
-export interface ProtocolPackDescriptor {
-  protocol: ProtocolId;
-  /** P-number from the implementation strategy. */
-  slice: string;
-  modelId: string;
-  redTeamIds: readonly string[];
-  coverageDefaults: unknown;
-  artifactProbe: () => ArtifactStatusLike;
-  routes: string;
-  mdrKind: string;
-}
-
-export const PROTOCOL_PACKS: readonly ProtocolPackDescriptor[] = [
-  {
-    protocol: 'anemia', slice: 'P1', modelId: ESA_MODEL_ID, redTeamIds: ESA_RED_TEAM_IDS,
-    coverageDefaults: ESA_COVERAGE_DEFAULTS, artifactProbe: esaArtifactStatus,
-    routes: '/admin/swarm/anemia', mdrKind: 'esa-mdr-file',
-  },
-  {
-    protocol: 'adequacy', slice: 'P2', modelId: ADEQUACY_MODEL_ID, redTeamIds: ADEQUACY_RED_TEAM_IDS,
-    coverageDefaults: ADEQUACY_COVERAGE_DEFAULTS, artifactProbe: () => normaliseArtifactStatus(adequacyArtifactStatus()),
-    routes: '/admin/swarm/adequacy', mdrKind: 'adequacy-mdr-file',
-  },
-  {
-    protocol: 'fluid', slice: 'P3', modelId: FLUID_MODEL_ID, redTeamIds: FLUID_RED_TEAM_IDS,
-    coverageDefaults: FLUID_COVERAGE_DEFAULTS, artifactProbe: () => normaliseArtifactStatus(fluidArtifactStatus()),
-    routes: '/admin/swarm/fluid', mdrKind: 'fluid-mdr-file',
-  },
-  {
-    protocol: 'access', slice: 'P4', modelId: ACCESS_MODEL_ID, redTeamIds: ACCESS_RED_TEAM_IDS,
-    coverageDefaults: ACCESS_COVERAGE_DEFAULTS, artifactProbe: () => normaliseArtifactStatus(accessArtifactStatus()),
-    routes: '/admin/swarm/access', mdrKind: 'access-mdr-file',
-  },
-  {
-    protocol: 'ckd-mbd', slice: 'P4', modelId: MBD_MODEL_ID, redTeamIds: MBD_RED_TEAM_IDS,
-    coverageDefaults: MBD_COVERAGE_DEFAULTS, artifactProbe: () => normaliseArtifactStatus(mbdArtifactStatus()),
-    routes: '/admin/swarm/mbd', mdrKind: 'mbd-mdr-file',
-  },
-  {
-    protocol: 'nutrition-electrolytes', slice: 'P5', modelId: NUTRITION_MODEL_ID, redTeamIds: NUTRITION_RED_TEAM_IDS,
-    coverageDefaults: NUTRITION_COVERAGE_DEFAULTS, artifactProbe: () => normaliseArtifactStatus(nutritionArtifactStatus()),
-    routes: '/admin/swarm/nutrition', mdrKind: 'nutrition-mdr-file',
-  },
-  {
-    protocol: 'infection', slice: 'P6', modelId: INFECTION_MODEL_ID, redTeamIds: INFECTION_RED_TEAM_IDS,
-    coverageDefaults: INFECTION_COVERAGE_DEFAULTS, artifactProbe: () => normaliseArtifactStatus(infectionArtifactStatus()),
-    routes: '/admin/swarm/infection', mdrKind: 'infection-mdr-file',
-  },
-];
-
-export function packFor(protocol: ProtocolId): ProtocolPackDescriptor | undefined {
-  return PROTOCOL_PACKS.find((p) => p.protocol === protocol);
-}
 
 /**
  * Findings are attributed to a pack by SCENARIO ID, because that is the one
@@ -438,6 +317,13 @@ function ledgeDetail(ledger: ProtocolLedgerEvidence): string {
 /* ---------- cohort inputs ---------- */
 
 export interface AssuranceInputs {
+  /**
+   * The packs to review — REQUIRED, and collected from the installed set rather
+   * than defaulted. A default here is the defect G4 is about: a caller who forgot
+   * would silently review a hardcoded list and report a clean track. An empty
+   * array is a legitimate value and is reported as such, not as "nothing wrong".
+   */
+  packs: readonly ProtocolPackDescriptor[];
   /** per-patient protocol outcomes, already computed by the protocol registry */
   fairnessRows?: readonly FairnessRow[] | undefined;
   /** surfaced alerts in the measurement window */
@@ -457,11 +343,11 @@ function worstDecision(decisions: readonly ReleaseDecision[]): ReleaseDecision {
 
 export async function crossPackAssurance(
   ws: SwarmWorkspaceStore,
-  inputs: AssuranceInputs = {},
+  inputs: AssuranceInputs,
 ): Promise<CrossPackAssurance> {
   const generatedAt = nowIso();
   const protocols: ProtocolAssessment[] = [];
-  for (const pack of PROTOCOL_PACKS) {
+  for (const pack of inputs.packs) {
     const ledger = await protocolLedgerEvidence(ws, pack);
     protocols.push(assessProtocol(pack, ledger));
   }
@@ -487,6 +373,16 @@ export async function crossPackAssurance(
   const silentPacks = protocols.filter((p) => p.mode.mode === 'silent').length;
 
   const findings: string[] = [];
+  // An empty set is a REPORTED FACT, not a clean bill of health. Without this the
+  // reduce below starts at 'ship' and a track reviewing nothing would announce
+  // that everything is fine — the worst available reading of "no packs declared
+  // an assurance contribution".
+  if (inputs.packs.length === 0) {
+    findings.push(
+      'no installed pack declared an assurance contribution — nothing was reviewed, '
+      + 'which is not the same as nothing being wrong',
+    );
+  }
   for (const p of protocols) {
     if (p.verdict !== 'ship') findings.push(`${p.protocol}: ${p.verdict} — ${[...p.blockers, ...p.warnings].join('; ')}`);
   }
@@ -516,10 +412,14 @@ export async function crossPackAssurance(
   };
 
   // Cross-cutting findings gate the decision alongside the per-pack verdicts.
+  // A track that reviewed NOTHING holds rather than ships: with no packs the
+  // per-pack verdicts are absent, and every check below is vacuously satisfied, so
+  // the honest answer is "cannot be determined", which is a hold.
   const crossCutting: ReleaseDecision =
-    criticalOpen > 0 ? 'block'
-      : fairness.verdict === 'breach' ? 'block'
-        : totals.artifactMissing > 0 ? 'block'
+    inputs.packs.length === 0 ? 'hold'
+      : criticalOpen > 0 ? 'block'
+        : fairness.verdict === 'breach' ? 'block'
+          : totals.artifactMissing > 0 ? 'block'
           : fairness.verdict === 'watch' || burden.verdict === 'breach' ? 'hold'
             : burden.verdict === 'watch' || silentPacks > 0 ? 'hold'
               : 'ship';
@@ -601,7 +501,7 @@ function gateCheck(
  */
 export async function assuranceReleaseGate(
   ws: SwarmWorkspaceStore,
-  inputs: AssuranceInputs & { activeOnly?: boolean } = {},
+  inputs: AssuranceInputs & { activeOnly?: boolean },
 ): Promise<CrossPackReleaseGate> {
   const assurance = await crossPackAssurance(ws, inputs);
   const considered = inputs.activeOnly
@@ -682,7 +582,7 @@ export async function assuranceReleaseGate(
   });
 
   const mdrFiles: CrossPackReleaseGate['mdrFiles'] = [];
-  for (const pack of PROTOCOL_PACKS) {
+  for (const pack of inputs.packs) {
     if (inputs.activeOnly && modeRecord(pack.protocol).mode === 'silent') continue;
     const id = pack.mdrKind;
     const doc = await ws.get(pack.mdrKind as Parameters<typeof ws.get>[0], id);

@@ -69,6 +69,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { DomainPack } from './pack-registry.js';
 import type { SwarmWorkspaceStore } from '../swarm/workspace.js';
+// The descriptor is a shared contract, not platform knowledge — which is why it
+// lives in its own module rather than in the track that consumes it.
+import type { ProtocolPackDescriptor } from '../swarm/assurance-packs.js';
 import type { PersistentOutcomeCoordinator } from '../swarm/durable-coordinator.js';
 
 /** Which console's authority a contribution runs under. */
@@ -198,6 +201,14 @@ export interface PackRouteDeps {
    * what exists or what occurred.
    */
   readonly events: () => ProjectedEvent[];
+  /**
+   * Every installed pack's assurance declaration, collected by the platform.
+   *
+   * Handed over rather than discovered, so a track cannot quietly review a list
+   * it hardcodes. Empty is a real answer: no pack declared one, and the consumer
+   * reports that instead of an empty table that reads as "nothing is wrong".
+   */
+  readonly assurancePacks: () => readonly ProtocolPackDescriptor[];
   /** The pack's own dependency bag, declared by the pack and filled by the platform. */
   readonly extra: PackRouteExtra;
 }
@@ -220,6 +231,17 @@ export interface PackRouteContribution {
 /** A pack that contributes behaviour. */
 export type PackWithContributions = DomainPack & {
   readonly routes?: readonly PackRouteContribution[];
+  /**
+   * What this pack declares about its own assurance posture.
+   *
+   * A SECOND contribution surface, and the reason G1 alone did not finish the job:
+   * the cross-pack assurance track's whole claim is that it reads the installed
+   * pack set, and it read seven names typed into a platform module. A pack that
+   * could contribute routes but not this stayed invisible to it. Fixing one
+   * surface does not fix the others — sweep for every place the platform
+   * enumerates specialties.
+   */
+  readonly assurance?: readonly ProtocolPackDescriptor[];
 };
 
 export type ContributionIssueCode =

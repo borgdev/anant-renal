@@ -131,13 +131,18 @@ describe('realm lifecycle — stop() then start() restores the whole pipeline', 
     for (let i = 0; i < 3; i += 1) { realm.start(); realm.stop(); }
     realm.start();
     const atStart = ticks.started;
+    const startedAt = Date.now();
     await sleep(100);
+    // Measure what ACTUALLY elapsed, not what we asked for. One clock at ~10 ms
+    // over ~100 ms is roughly 10 ticks and three subscriptions would be ~30, but a
+    // stalled machine turns a 100 ms sleep into 300 ms — and an absolute bound
+    // then fails a correct implementation. Scaling the bound with elapsed time
+    // keeps the tripled-rate signal without turning this into a clock measurement.
+    const elapsedMs = Date.now() - startedAt;
     const gained = ticks.started - atStart;
     realm.stop();
-    // One clock at ~10 ms over ~100 ms is roughly 10 ticks; three subscriptions
-    // would be ~30. Generous bound so a slow CI cannot flake, tight enough to catch
-    // a tripled rate.
-    expect(gained).toBeLessThan(25);
+    expect(gained, 'the clock produced nothing, so the bound below proves nothing').toBeGreaterThan(0);
+    expect(gained, `gained ${gained} ticks over ${elapsedMs}ms`).toBeLessThan((elapsedMs / 10) * 2);
   });
 
   it('effect → rules stays wired across a stop/start (the same Experience is produced)', async () => {

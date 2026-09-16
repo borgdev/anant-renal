@@ -33,6 +33,7 @@
 
 import type { PackWithContributions } from '../../src/control-plane/pack-contributions.js';
 import { dialysisProviderRoutes } from './routes.js';
+import { DIALYSIS_ASSURANCE_PACKS } from './assurance-packs.js';
 
 export * from './ontology.js';
 export * from './cycles.js';
@@ -89,4 +90,5 @@ export const dialysisProviderPack: PackWithContributions = Object.freeze({
     'break-glass-ledger',
   ],
   routes: dialysisProviderRoutes,
+  assurance: DIALYSIS_ASSURANCE_PACKS,
 });

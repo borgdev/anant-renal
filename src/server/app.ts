@@ -480,6 +480,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // platform is the only thing that knows which patients exist.
     patients: renalPatients,
     events: eventProjection,
+    // Collected from every INSTALLED pack, so the cross-pack assurance track
+    // reviews what is installed rather than a list hardcoded in a platform module
+    // (G4). An empty result is meaningful and is reported as such.
+    assurancePacks: () =>
+      ((deps.packs ?? []) as readonly PackWithContributions[]).flatMap((p) => p.assurance ?? []),
     extra: packFixtures[contribution.id] ?? {},
   });
   await registerPackRoutes(

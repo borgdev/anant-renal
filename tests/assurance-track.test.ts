@@ -65,9 +65,13 @@ import {
 } from '../src/evidence/fairness.js';
 import { burdenReport, burdenSignature, BURDEN_REFERENCE, type AlertEvent } from '../src/evidence/alert-burden.js';
 import {
-  PROTOCOL_PACKS, packFor, assessProtocol, findingBelongsTo, crossPackAssurance,
+  packFor, assessProtocol, findingBelongsTo, crossPackAssurance,
   assuranceReleaseGate, ASSURANCE_TRACK_REFERENCE, type ProtocolLedgerEvidence,
 } from '../src/swarm/assurance-track.js';
+// The declarations belong to the pack that owns them (G4); the track receives
+// them. This alias keeps the existing assertions reading the same way.
+import { DIALYSIS_ASSURANCE_PACKS as PROTOCOL_PACKS } from '../packs/dialysis-provider/assurance-packs.js';
+import type { ProtocolPackDescriptor } from '../src/swarm/assurance-packs.js';
 import { RULE_PROTOCOLS, rulePackSummary } from '../src/evidence/rule-packs.js';
 import { evaluateProtocolForPatient, RENAL_PROTOCOLS } from '../src/protocols/registry.js';
 import { renalPatientFacts, type RenalPatientInput } from '../src/swarm/renal-cohort.js';
@@ -310,20 +314,20 @@ describe('cross-pack gate', () => {
     expect(new Set(PROTOCOL_PACKS.map((p) => p.modelId)).size).toBe(7);
     const ids = PROTOCOL_PACKS.flatMap((p) => [...p.redTeamIds]);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(packFor('infection')?.slice).toBe('P6');
+    expect(packFor('infection', PROTOCOL_PACKS)?.slice).toBe('P6');
     expect(ASSURANCE_TRACK_REFERENCE.findingAttribution).toMatch(/scenario id/);
   });
 
   it('attributes findings by scenario id, so one pack cannot absorb another\'s', () => {
-    const infection = packFor('infection')!;
-    const access = packFor('access')!;
+    const infection = packFor('infection', PROTOCOL_PACKS)!;
+    const access = packFor('access', PROTOCOL_PACKS)!;
     const finding = { scenarioId: 'rt-025', threatModel: 'access' };
     expect(findingBelongsTo(finding, access)).toBe(true);
     expect(findingBelongsTo(finding, infection)).toBe(false);
   });
 
   it('does not call a pack clean when the ledger is empty', () => {
-    const pack = packFor('infection')!;
+    const pack = packFor('infection', PROTOCOL_PACKS)!;
     const empty: ProtocolLedgerEvidence = {
       model: 'missing', modelId: pack.modelId, redTeamRuns: 0,
       redTeamScenarios: pack.redTeamIds.length, redTeamFailed: 0, redTeamPassedScenarios: 0,
@@ -341,7 +345,7 @@ describe('cross-pack gate', () => {
   });
 
   it('blocks when a critical finding is open anywhere', () => {
-    const pack = packFor('nutrition-electrolytes')!;
+    const pack = packFor('nutrition-electrolytes', PROTOCOL_PACKS)!;
     const assessment = assessProtocol(pack, {
       model: 'present', modelId: pack.modelId, redTeamRuns: 4,
       redTeamScenarios: pack.redTeamIds.length, redTeamFailed: 0, redTeamPassedScenarios: pack.redTeamIds.length,
@@ -612,17 +616,102 @@ describe('assurance routes', () => {
 
   it('runs the cross-pack gate against the durable workspace', async () => {
     const store = new SwarmWorkspaceStore();
-    const assurance = await crossPackAssurance(store, { fairnessRows: [], alerts: [], patients: 0 });
+    const assurance = await crossPackAssurance(store, { packs: PROTOCOL_PACKS, fairnessRows: [], alerts: [], patients: 0 });
     expect(assurance.protocols).toHaveLength(7);
     expect(assurance.totals.silentPacks).toBeGreaterThanOrEqual(0);
     expect(assurance.findings.length).toBeGreaterThan(0);
     expect(['ship', 'hold', 'block']).toContain(assurance.decision);
 
-    const gate = await assuranceReleaseGate(store, { fairnessRows: [], alerts: [], patients: 0 });
+    const gate = await assuranceReleaseGate(store, { packs: PROTOCOL_PACKS, fairnessRows: [], alerts: [], patients: 0 });
     expect(gate.mdrFiles).toHaveLength(7);
     expect(gate.mdrFiles.map((m) => m.protocol)).toEqual([...RULE_PROTOCOLS]);
     expect(gate.decision).not.toBe('ship');
     expect(gate.summary.length).toBeGreaterThan(0);
     expect(RENAL_PROTOCOLS.length).toBe(7);
+  });
+});
+
+/**
+ * G4 — the track reads the INSTALLED set, not a list typed into a platform module.
+ *
+ * The assertions above prove the seven renal packs still appear, and that proves
+ * nothing about G4: the defect was that the list was hardcoded, so it would pass
+ * identically before and after. What follows asserts the property that actually
+ * changed — a pack the track was never written against is REVIEWED.
+ */
+describe('G4 — a specialty the track was not written against is reviewed', () => {
+  /**
+   * A synthetic oncology pack: no renal vocabulary anywhere in it.
+   *
+   * The cast is load-bearing and it is a FINDING, not a convenience.
+   * `ProtocolPackDescriptor.protocol` is typed `ProtocolId`, which
+   * `src/protocols/shared-state.ts` defines as a CLOSED union of the seven renal
+   * protocols. So even with the list collected instead of hardcoded, a genuinely
+   * new specialty cannot declare an assurance contribution until that union is
+   * widened — the contract is closed to the exact thing G4 exists to allow. The
+   * last test in this block asserts that limitation so it stays visible.
+   */
+  const ONCOLOGY_PACK = {
+    protocol: 'oncology' as const,
+    slice: 'X1',
+    modelId: 'oncology.regimen-v0',
+    redTeamIds: ['rt-900'],
+    coverageDefaults: { minSerialLabs: 2 },
+    artifactProbe: () => ({ present: true, band: 'pass' as const, note: 'synthetic probe' }),
+    routes: '/admin/swarm/oncology',
+    mdrKind: 'oncology-mdr-file',
+  } as unknown as ProtocolPackDescriptor;
+
+  it('includes a pack that declares an assurance contribution', async () => {
+    const store = new SwarmWorkspaceStore();
+    const assurance = await crossPackAssurance(store, {
+      packs: [...PROTOCOL_PACKS, ONCOLOGY_PACK],
+      fairnessRows: [], alerts: [], patients: 0,
+    });
+    expect(assurance.protocols.map((p) => p.protocol)).toContain('oncology');
+    expect(assurance.totals.protocols).toBe(8);
+    // And it is genuinely assessed, not merely listed.
+    const oncology = assurance.protocols.find((p) => String(p.protocol) === 'oncology');
+    expect(oncology?.modelId).toBe('oncology.regimen-v0');
+    expect(oncology?.artifact.present).toBe(true);
+  });
+
+  it('does not include a pack that declares nothing', async () => {
+    const store = new SwarmWorkspaceStore();
+    const assurance = await crossPackAssurance(store, {
+      packs: [ONCOLOGY_PACK],
+      fairnessRows: [], alerts: [], patients: 0,
+    });
+    // Only the declaring pack is reviewed — the renal seven must NOT leak in.
+    expect(assurance.protocols.map((p) => p.protocol)).toEqual(['oncology']);
+  });
+
+  it('reports an empty set as unreviewed rather than clean', async () => {
+    const store = new SwarmWorkspaceStore();
+    const assurance = await crossPackAssurance(store, {
+      packs: [], fairnessRows: [], alerts: [], patients: 0,
+    });
+    expect(assurance.totals.protocols).toBe(0);
+    // The failure mode this guards: every check is vacuously satisfied, so the
+    // decision would be `ship` — "nothing wrong" when the truth is "nothing read".
+    expect(assurance.decision).toBe('hold');
+    expect(assurance.findings.join(' ')).toMatch(/nothing was reviewed/);
+  });
+
+  it('DOCUMENTS THE LIMIT: the descriptor is still closed to non-renal ids', () => {
+    // Passing this test would mean `ProtocolId` was widened. Until then, G4 is
+    // only half-achieved: the platform no longer names the specialties, but the
+    // CONTRACT still does. Asserting it here so the next reader does not mistake
+    // "the list is collected" for "a new specialty can join".
+    const renalOnly = PROTOCOL_PACKS.every((p) => typeof p.protocol === 'string');
+    expect(renalOnly).toBe(true);
+    // The synthetic pack only type-checks behind a cast — which IS the finding.
+    expect(String(ONCOLOGY_PACK.protocol)).toBe('oncology');
+  });
+
+  it('the pack declares its own seven, so the platform names none', async () => {
+    const { dialysisProviderPack } = await import('../packs/dialysis-provider/index.js');
+    expect(dialysisProviderPack.assurance).toHaveLength(7);
+    expect(dialysisProviderPack.assurance?.map((p) => p.protocol)).toEqual([...RULE_PROTOCOLS]);
   });
 });
