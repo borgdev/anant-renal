@@ -873,8 +873,8 @@ function normaliseKeyPart(value: string): string {
   return value.trim().toLowerCase().replace(/[\s-]+/g, '');
 }
 
-/** Durable Pack Studio activation — which installed domain pack drives the
- *  exec lens (`/api/context`). Single-doc kind (`pack-activation`).
+/** Durable Pack Studio activation — which installed domain packs are active, and
+ *  which one leads the exec lens (`/api/context`). List kind (`pack-activation`).
  *
  *  Superseded by `specialty-binding` below as the deployment grows past one
  *  specialty; it survives as the FALLBACK for any pack no binding mentions, so
@@ -883,6 +883,15 @@ export interface PackActivation extends WorkspaceDoc {
   packId: string;
   at: string;
   by: string;
+  /**
+   * Which activation leads the console lens.
+   *
+   * An explicit flag, NOT "the first row". The store's row order is not a
+   * contract — the same reason `SpecialtyBindingLike.primary` exists — and
+   * electing the leader by position means a re-ordered read silently changes
+   * whose terminology the console renders.
+   */
+  primary?: boolean;
 }
 
 /**
@@ -2454,23 +2463,93 @@ export class SwarmWorkspaceStore {
 
   /* ---------- Pack Studio — durable pack activation (lens switch) ---------- */
 
-  async activePack(): Promise<PackActivation | undefined> {
-    return (await this.list<PackActivation>('pack-activation'))[0];
+  /**
+   * G2 — the active pack SET.
+   *
+   * `pack-activation` was one document, so activating a second specialty
+   * silently deactivated the first: a dialysis organisation with a CKD
+   * programme and a payer contract had to choose one. No customer faces that
+   * choice, so the store must not force it.
+   *
+   * Deduped on the document's own `packId` rather than on the row id, so a
+   * deployment already holding the single legacy row (id `pack-activation`)
+   * keeps working — the row id is an implementation detail, and the document
+   * names its own pack.
+   */
+  async activePacks(): Promise<PackActivation[]> {
+    const rows = await this.list<PackActivation>('pack-activation');
+    const byPack = new Map<string, PackActivation>();
+    for (const row of rows) {
+      if (!row?.packId) continue;
+      const held = byPack.get(row.packId);
+      // A primacy flag is an explicit operator intent, so it wins over an earlier
+      // row that merely lacks one.
+      if (!held || (held.primary !== true && row.primary === true)) byPack.set(row.packId, row);
+    }
+    return [...byPack.values()].sort((a, b) =>
+      Number(b.primary === true) - Number(a.primary === true)
+      || a.at.localeCompare(b.at)
+      || a.packId.localeCompare(b.packId));
   }
 
-  async activatePack(input: { packId: string; by: string }): Promise<PackActivation> {
-    const existing = (await this.list<PackActivation>('pack-activation'))[0];
-    const doc: Omit<PackActivation, 'id' | 'createdAt' | 'updatedAt'> = { packId: input.packId, at: this.now(), by: input.by?.trim() || 'platform-admin' };
+  /** The pack that leads the console lens. Never "the first row". */
+  async activePack(): Promise<PackActivation | undefined> {
+    return (await this.activePacks())[0];
+  }
+
+  /**
+   * Activate one pack. `primary` defaults to true, which makes it the leading
+   * lens and clears the flag on every other activation — exactly one lens leads,
+   * and the others stay ACTIVE, contributing routes, measures and events.
+   *
+   * Pass `primary: false` to add a specialty alongside the current leader.
+   */
+  async activatePack(input: { packId: string; by: string; primary?: boolean }): Promise<PackActivation> {
+    const wantsPrimary = input.primary !== false;
+    const rows = await this.list<PackActivation>('pack-activation');
+    if (wantsPrimary) {
+      // Full documents, not partial patches: `update` takes the same shape
+      // `create` does, so building the row explicitly keeps both paths identical.
+      for (const row of rows) {
+        if (row.primary === true && row.packId !== input.packId) {
+          await this.update<PackActivation>('pack-activation', row.id, {
+            packId: row.packId, at: row.at, by: row.by, primary: false,
+          });
+        }
+      }
+    }
+    const existing = rows.find((r) => r.packId === input.packId);
+    const doc: Omit<PackActivation, 'id' | 'createdAt' | 'updatedAt'> = {
+      packId: input.packId,
+      at: this.now(),
+      by: input.by?.trim() || 'platform-admin',
+      primary: wantsPrimary,
+    };
     if (existing) {
       await this.update<PackActivation>('pack-activation', existing.id, doc);
       return { ...existing, ...doc };
     }
-    return this.create<PackActivation>('pack-activation', 'pack-activation', doc);
+    return this.create<PackActivation>('pack-activation', `pack-activation:${input.packId}`, doc);
   }
 
-  async deactivatePack(): Promise<void> {
-    const existing = (await this.list<PackActivation>('pack-activation'))[0];
-    if (existing) await this.remove('pack-activation', existing.id);
+  /**
+   * Deactivate one pack, or every pack when no id is given (the platform
+   * default). Removing the leading pack PROMOTES the next activation rather than
+   * leaving a deployment with activations and no leader — a state the console
+   * would render as the organization default without saying why.
+   */
+  async deactivatePack(packId?: string): Promise<void> {
+    const rows = await this.activePacks();
+    const targets = packId ? rows.filter((r) => r.packId === packId) : rows;
+    for (const row of targets) await this.remove('pack-activation', row.id);
+    if (!packId) return;
+    const remaining = await this.activePacks();
+    const next = remaining[0];
+    if (next && !remaining.some((r) => r.primary === true)) {
+      await this.update<PackActivation>('pack-activation', next.id, {
+        packId: next.packId, at: next.at, by: next.by, primary: true,
+      });
+    }
   }
 
   /* ---------- G6 — specialty bindings (applied / shown / entitled, per scope) ---------- */

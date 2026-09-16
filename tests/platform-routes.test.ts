@@ -513,6 +513,47 @@ describe('Pack Studio (/admin/platform/packs — real catalog + durable lens swi
     expect(payer.active).toBe(true);
   });
 
+  it('G2 — activating a second specialty does NOT deactivate the first', async () => {
+    // The defect: `pack-activation` was ONE document, so `activatePack` overwrote
+    // it. A dialysis organisation with a CKD programme and a payer contract had to
+    // choose one, and no customer faces that choice.
+    const first = await app.inject({
+      method: 'POST', url: '/admin/platform/packs/payer/activate', headers: { cookie: cookie(admin) }, payload: { by: 'test' },
+    });
+    expect(first.statusCode).toBe(200);
+    const second = await app.inject({
+      method: 'POST', url: '/admin/platform/packs/healthcare-core/activate', headers: { cookie: cookie(admin) }, payload: { by: 'test' },
+    });
+    expect(second.statusCode).toBe(200);
+
+    const active = second.json().active as Array<{ packId: string; primary: boolean }>;
+    expect(active.map((a) => a.packId).sort()).toEqual(['healthcare-core', 'payer']);
+    // Exactly one lens leads, and it is the one just activated.
+    expect(active.filter((a) => a.primary)).toHaveLength(1);
+    expect(active.find((a) => a.primary)?.packId).toBe('healthcare-core');
+
+    // The set is visible on the registry, and "active" is no longer conflated
+    // with "leads" — a studio that conflated them would badge two lenses.
+    const listed = (await app.inject({ method: 'GET', url: '/admin/platform/packs', headers: { cookie: cookie(admin) } })).json() as {
+      activePack: string | null;
+      packs: Array<{ id: string; active: boolean; primary: boolean }>;
+    };
+    const payer = listed.packs.find((p) => p.id === 'payer');
+    expect(payer?.active).toBe(true);
+    expect(payer?.primary).toBe(false);
+    expect(listed.activePack).toBe('healthcare-core');
+
+    // Deactivating one pack leaves the other AND promotes it. A deployment with
+    // activations and no leader would silently fall back to the organization
+    // default without saying why.
+    const off = await app.inject({
+      method: 'POST', url: '/admin/platform/packs/deactivate', headers: { cookie: cookie(admin) }, payload: { packId: 'healthcare-core' },
+    });
+    expect(off.statusCode).toBe(200);
+    expect(off.json().activePack).toBe('payer');
+    expect(off.json().active).toEqual([{ packId: 'payer', primary: true }]);
+  });
+
   it('rejects activating a pack that is not installed', async () => {
     const res = await app.inject({
       method: 'POST', url: '/admin/platform/packs/not-a-real-pack/activate', headers: { cookie: cookie(admin) }, payload: { by: 'test' },

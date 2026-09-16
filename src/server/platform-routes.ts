@@ -1512,10 +1512,15 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
   // Studio "Pack registry" renders — no more cosmetic/empty catalog.
   app.get('/admin/platform/packs', async () => {
     const w = ws();
-    const active = await w.activePack();
+    const active = await w.activePacks();
     const snapshot = packResolution();
     return {
-      activePack: active?.packId ?? null,
+      activePack: active.find((a) => a.primary === true)?.packId ?? active[0]?.packId ?? null,
+      // G2 — the whole set, not just the leader. A deployment with renal, a CKD
+      // programme and a payer contract has three, and the studio has to be able
+      // to say which are active without the operator reading one field and
+      // guessing about the rest.
+      activePacks: active.map((a) => ({ packId: a.packId, primary: a.primary === true, at: a.at, by: a.by })),
       manifestIssues: snapshot.manifestIssues,
       packs: (opts.packs ?? []).map((p) => {
         const resource = resourceReportFor(snapshot.registry, p.id);
@@ -1532,7 +1537,10 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
           cmsUniverse: effective.cmsUniverse,
           requiredControls: effective.requiredControls,
           lens: lensForPack(effective),
-          active: active?.packId === p.id,
+          // G2 — "active" and "leads" are now different questions, and a studio
+          // that conflated them would mark three specialties as the lens.
+          active: active.some((a) => a.packId === p.id),
+          primary: active.find((a) => a.packId === p.id)?.primary === true,
           // Phase 3 — what the pack's OWN manifest says it contributes, and
           // whether that declaration resolved.
           manifest: manifest
@@ -1561,7 +1569,7 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
   // refused here rather than activated and discovered to be a problem later. A
   // pack that is merely `partial` (undeclared clinical sections) activates, and
   // the conformance report says exactly what is missing.
-  app.post<{ Params: { id: string }; Body: { by?: string } }>(
+  app.post<{ Params: { id: string }; Body: { by?: string; primary?: boolean } }>(
     '/admin/platform/packs/:id/activate',
     async (req, reply) => {
       const w = ws();
@@ -1582,21 +1590,31 @@ export async function registerPlatformRoutes(app: FastifyInstance, opts: Platfor
           detail: 'This pack does not satisfy the specialty contract, so activating it would put an unknown shape on the platform.',
         });
       }
-      const activation = await w.activatePack({ packId: id, by: req.body?.by?.trim() || 'platform-admin' });
+      const activation = await w.activatePack({ packId: id, by: req.body?.by?.trim() || 'platform-admin', ...(req.body?.primary === false ? { primary: false } : {}) });
       const effective = packUnderContract(packResolution(), pack);
       return {
         ok: true,
         pack: { id: effective.id, version: effective.version, lens: lensForPack(effective) },
         activation,
+        // G2 — activating a second specialty no longer deactivates the first, so
+        // the caller is told the resulting set instead of assuming it is one.
+        active: (await w.activePacks()).map((a) => ({ packId: a.packId, primary: a.primary === true })),
         conformance: { level: conformance.level, missingSections: conformance.missingSections },
       };
     },
   );
 
   // POST /admin/platform/packs/deactivate — restore the operating-model default.
-  app.post<{ Body: { by?: string } }>('/admin/platform/packs/deactivate', async () => {
-    await ws().deactivatePack();
-    return { ok: true };
+  // With a `packId`, deactivate that one pack and promote the next activation.
+  app.post<{ Body: { by?: string; packId?: string } }>('/admin/platform/packs/deactivate', async (req) => {
+    const w = ws();
+    await w.deactivatePack(req.body?.packId?.trim() || undefined);
+    const remaining = await w.activePacks();
+    return {
+      ok: true,
+      active: remaining.map((a) => ({ packId: a.packId, primary: a.primary === true })),
+      activePack: remaining.find((a) => a.primary === true)?.packId ?? null,
+    };
   });
 
   /* ---------- G6 — specialty bindings (applied / shown / entitled, per scope) ----------
