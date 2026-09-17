@@ -1185,6 +1185,13 @@ export const SEED_COHORT_DEFINITIONS: readonly CohortDefinition[] = [
     // and the cohort then required a session — the two criteria were mutually
     // exclusive by construction. Composing the advisor's severity was wrong here:
     // absence of a measurement is coverage, not inadequate clearance.
+    //
+    // That ENGINE cause is now fixed — `registry.ts` reports `unknown` at severity 0
+    // when a protocol has nothing to measure, so the old conjunction is no longer
+    // unsatisfiable. These explicit urr/ktv criteria are RETAINED on their own merit:
+    // they name the measurement and the pack constant, and a criterion an operator can
+    // read beats one composed through a severity number. `criterionVersion` is
+    // deliberately NOT bumped, so the engine fix re-opens no recorded decline.
     criterionVersion: '1.1.0',
     owner: 'nephrology',
     enabled: true,
