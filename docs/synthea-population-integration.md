@@ -803,13 +803,28 @@ S4's training is what makes a trajectory hold. Recorded here because the phase e
 criterion as written would have been satisfied by a seeding whose effect evaporated
 overnight.
 
-**Deferred, with the fix named.** `result-lab` creates an orphaned `result` entity —
-no `patientId`, and no `order` to link through, because a bare `Observation` never
-produces one — so S3 summarises patients from the bundle rather than from the graph.
-And `result-lab` stamps `this.clock.realmAt` rather than the observation's
-`effectiveDateTime`, so ingested laboratory results all carry the ingest instant; the
-fix is an `observedAt?: string` on the effect honoured by the reducer, for which
-`record-immunisation` already carries the precedent.
+**Closed, with the root cause found by tsc rather than by reading.** Both deferred items
+are fixed (`9958690`).
+
+`result-lab` created an orphaned `result` entity — no `patientId`, and no `order` to link
+through, because a bare `Observation` never produces one — so S3 summarises patients from
+the bundle rather than the graph. `record-vitals` has always passed its patient; this
+case did not, and the reducer now writes `effect.patientId ?? order.patientId`.
+
+`result-lab` also stamped `this.clock.realmAt` rather than the observation's own instant,
+so every ingested laboratory carried the ingest time. `record-immunisation.administeredAt`
+was the named precedent and the reducer now honours `observedAt` the same way.
+
+**The interesting part is where the value had gone.** The instant was on the wire the
+whole time: the `Observation` cast in `canonical.ts` enumerated the fields it kept, and
+`effectiveDateTime` was not among them, so the sample's own time was discarded at the
+boundary before the reducer could ever see it. A projection that lists fields has to list
+the ones a consumer needs. `result-lab` was also the one laboratory-ish effect whose
+outbound mapping did not read its own instant — `record-assessment` and
+`record-immunisation` already did — so `effect-map.ts` now reads `effect.observedAt`
+first, matching them. A five-test file (`lab-result-provenance.test.ts`) pins the patient
+being written AND findable by the walk, the instant winning, the realm clock as the
+documented fallback, the surviving orphan, and the wire round trip.
 
 ### S4 — Replace the round-robin, and retire `longitudinal.ts` as the source of truth
 
@@ -1044,8 +1059,26 @@ finding that motivated the decision below; the axes have since been widened.)
 language are **not declared dimensions**, even though §8 #5 wired all four onto the
 patient. So the S6-prep ingest work has no consumer in the fairness screen.
 
-**Level 2 — the population's disparity.** The half §1.2 and §9.2 were about, and now
-the third barrier rather than the first.
+**Level 2 — the population's disparity. Measured (2026-09-17): the barrier is no longer
+the axes, it is outcome VARIANCE.** With `synthea-seeds/sim:ent-midtn-a` committed and a
+realm seeded from it, the screen bands real groups above the floor for the first time:
+`race` `2106-3` n=151 · `2054-5` n=22 · `2028-9` n=18 · `2076-8` n=5 (plus `1002-5` 2,
+`UNK` 2), `ethnicity` `2186-5` n=174 / `2135-2` n=26, `language` `en-US` n=181 / `es` n=14
+/ `zh` n=4, and `age` across **78 distinct values** against the static fixture's 10.
+
+**But no demographic disparity is reported, and the reason matters more than the
+result.** Every demographic band shows a flag rate of **0**, because the anemia protocol
+flags none of the 200 population patients: the population's haemoglobin saturates above
+the engine's ceiling (§5 S3), so "covered but not flagged" is uniform across race. There
+is no outcome variance to detect. That is a finding about the protocol's reach on a real
+population rather than about the screen — and it is the honest form of §1.2's argument
+inverted: the fixture is no longer arithmetically incapable, and the screen still reports
+no disparity, now for a measurable reason.
+
+**And `insurance` is absent on all 200** — the payer axis resolves to `unknown` for every
+patient because `projection.ts` has no `Coverage` rule at all, so the resource is
+discarded before ingest ever sees it. Measured rather than assumed; the fix is named (a
+`Coverage` rule keeping `beneficiary` and `payor`) and is the next step for that axis.
 
 **§7's risk row was recorded as measured true, and that record is also withdrawn.**
 Its text was: *"The equity screen still cannot fire after S5 — would mean the
@@ -1135,11 +1168,26 @@ that stays gitignored (~4.2 MB per patient), and the **projected** form under
 projected form directly, so a fresh clone needs no JVM — the non-goal about a runtime
 dependency holds, and the clone size for a 10-realm demo is ~10 MB rather than 820 MB.
 
-#### Outcome (2026-09-17) — the MECHANISM is proven, the ARTIFACT is not committed
+#### Outcome (2026-09-17) — the ARTIFACT is committed and the exit criterion is met
 
-**`synthea-seeds/` is empty.** No manifest, no bundles. So S6's exit criterion — *"a
-fresh clone can reproduce the exact population a demo used, from the manifest alone"* —
-**is not met**, and it is important to be precise about which half is missing.
+**`synthea-seeds/sim:ent-midtn-a/` is now committed**: a 200-patient population, 13 MB
+projected (12.9 MB `bundles.json` plus the manifest). A fresh clone can seed a realm from
+it with no JVM, which is exactly S6's exit criterion.
+
+**The checkout was already on the machine.** `.harness/synthea` holds a full clone *and* a
+built tree (79 MB of `build/classes`), so the earlier record's premise — that running the
+generator needed a checkout nobody had — was wrong. What was missing was running the
+command, which took one invocation and about three minutes, after which the raw pool
+(1.1 GB for 200 patients) was deleted, since the projected form is the artifact and the
+raw pool is a gitignored intermediate.
+
+**Why ONE realm at 200, against §8 #3's 20 × 10.** Two measured reasons. First, a fleet
+generated from a single seed would be ten copies of the same people under different ids —
+precisely what §9.5 exists to prevent — so a fleet needs a per-realm seed, and that is a
+follow-up rather than a detail to paper over. Second, 20 patients cannot make a fairness
+slice evaluable: `minSliceN` is 5 and the census split gives roughly 13 White / 2 Black /
+2 Asian in 20 people, so every demographic band lands in `insufficient`. At 200 the bands
+clear the floor (measured below), which is what makes S5 Level 2 reachable at all.
 
 What IS proven:
 
@@ -1210,7 +1258,7 @@ one control.
 | **Building a renal-only population layer** | §9.1: `src/liquid/` names dialysis throughout, and `populateFacility` gives every patient renal attributes. A population component written against that shape is a fourth place renal is hardcoded, and ten specialties cannot share it | Keep the Synthea → event-vector mapping OUT of `src/liquid/`, and treat the first new renal constant needed inside it as the trip-wire to declare the state model (§9.7). The seam itself is deferred deliberately, not forgotten |
 | **A population that cannot satisfy a declared measure** | §9.6: a measure screen reads as "nothing to do" when the fixture has no denominator-qualifying patient | Validate at deployment level — every declared measure has ≥1 qualifying patient — and report it as a population issue, not a blank screen |
 | **Two realms, one human** | §9.5: ids are minted per facility, so one patient treated at two facilities is two unrelated patients | **Decided** — population is per realm and cross-realm patient identity is out of scope (§6). Generation therefore takes a realm as a parameter; a single artifact must never seed two realms |
-| **The equity screen still cannot fire after S5** | Would mean the population was never the limiting factor | **Re-assessed 2026-09-17, and the earlier "MEASURED TRUE" record is WITHDRAWN** (`4c69ea0`). The screen IS fed, reached and run — `cohortSignals` builds the rows and the dialysis-provider pack serves them (§5 S5). Asked of the shipped route on the static fixture: `age=insufficient sex=ok vintage=ok access=ok`, overall `insufficient`. So the population is still not the limiting factor, but for a different reason than recorded: **the screen measures four renal dimensions and no demographic one** (§5 S5 Level 1). The original "cannot fire" claim came from `grep src/`, which cannot see `packs/` |
+| **The equity screen still cannot fire after S5** | Would mean the population was never the limiting factor | **Re-assessed 2026-09-17, and the earlier "MEASURED TRUE" record is WITHDRAWN** (`4c69ea0`). The screen IS fed, reached and run — `cohortSignals` builds the rows and the dialysis-provider pack serves them (§5 S5). Asked of the shipped route on the static fixture: `age=insufficient sex=ok vintage=ok access=ok`, overall `insufficient`. So the population is still not the limiting factor, but for a different reason than recorded: **the screen measures four renal dimensions and no demographic one** (§5 S5 Level 1). The original "cannot fire" claim came from `grep src/`, which cannot see `packs/`. **Superseded 2026-09-17**: eight dimensions now, and on the pinned population the demographic bands clear `minSliceN` — the remaining limit is outcome variance, not axes (§5 S5 Level 2) |
 
 ---
 

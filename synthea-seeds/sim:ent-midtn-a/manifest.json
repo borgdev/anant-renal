@@ -1,0 +1,38 @@
+{
+  "manifestVersion": 2,
+  "realmId": "sim:ent-midtn-a",
+  "generator": "synthea-reference",
+  "config": {
+    "generatorVersion": "jdk-17",
+    "population": 200,
+    "seed": 20260917
+  },
+  "configHash": "9a3df58fa8c4eae8",
+  "outputDigest": "b8a0cdaf31fd500f",
+  "patientDigest": "2a61514cf1bdaeb4",
+  "patientCount": 247,
+  "nonReproducible": [
+    "practitioner-roster",
+    "provider-display-names"
+  ],
+  "generatedAt": "2026-09-17T21:11:02.986Z",
+  "fileCount": 249,
+  "argv": [
+    "-p",
+    "200",
+    "-s",
+    "20260917",
+    "--exporter.baseDirectory=/home/amansingh/dev/ai/chua/healthcare-harness/synthea-population/sim:ent-midtn-a"
+  ],
+  "records": {
+    "total": 247,
+    "alive": 200,
+    "dead": 47
+  },
+  "projected": {
+    "bundles": 247,
+    "inputEntries": 362693,
+    "outputEntries": 12849
+  },
+  "artifactForm": "projected"
+}
