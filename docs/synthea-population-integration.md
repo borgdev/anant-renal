@@ -886,16 +886,43 @@ outcomes look healthy, so nothing would ever have reported the divergence.
 date from *real* time beside an `age` that had not moved — one resource, two facts
 disagreeing (§4.4). It now uses the record's own timestamp.
 
-**Still open in this phase**, each with its size measured rather than guessed:
+**Closed and still open in this phase — 2026-09-17, second pass**
 
-- **§8 #7** — `problemList` projected from the graph's `condition` entities. S3 wrote
-the same clinical fact twice (211 `condition` entities *and* the same terms as
-strings); the projection gives one source and makes onset dates reachable. Deferred
-because it is the one remaining S4 item that can silently empty every cohort if it is
-got wrong, and the current duplication is redundant rather than incorrect.
-- **`generateLongitudinalHistory`** — retained, on the reasoning in §4.7.
-- **The S4 exit criterion is measured, and it is VACUOUS for 22 of 23 packs.** See
-  the measurement below.
+| Item | Status |
+|---|---|
+| §9.7 step 2, the async seam, §8 #6 | **closed** — `d6c1718`, `5e6470b`, `c20e976` |
+| **§8 #7 — `problemList` from the graph's `condition` entities** | **closed** — `f66a687` |
+| `generateLongitudinalHistory` | retained, on the reasoning in §4.7 |
+| The S4 exit criterion | measured, and **vacuous for 22 of 23 packs** — see below |
+
+**§8 #7 landed, and the comment that deferred it was wrong on a detail that
+mattered.** `enrich.ts`'s header said the graph route "does not work" and gave a real
+reason: `result-lab` creates a `result` entity with **no `patientId`** (a bare
+`Observation` never produces an `order` to link through), so labs cannot be walked back
+from the graph. True of `result` — and **not** true of `condition`, where
+`canonical.ts:532` writes `patientId: refId(c.subject)`. A labs limitation had been
+generalised to conditions, and the item sat deferred on it.
+
+The design is deliberately **not** a fallback:
+
+- `problemListFromGraph(realm, patientId)` filters `listKind('condition')` by
+  `state.patientId` and maps `display` through the same `PROBLEM_VOCABULARY`;
+- `EnrichOutcome.problemsReconciled` reports whether it agreed with the bundle parse;
+- `SeedPopulationReport.enrich.problemReconcileMisses` counts disagreements.
+
+A fallback would have looked safer and been wrong: it makes "the graph projection is
+broken" indistinguishable from "these patients have no conditions", because **both
+produce a correct-looking output**. That is precisely the S3 lesson — the report and
+the written state are two independent facts — and `seed.ts` now counts
+`outcome.problems` rather than `summary.problems` for the same reason.
+
+The guard is `problemReconcileMisses === 0` asserted beside the expected term list
+`['CKD','DM2','ESRD','HTN']`: the terms prove the projection produced the right answer,
+the zero proves it produced it *from the graph*.
+
+**Not done: onset dates.** The entity carries `onset`, which the flat `string[]` still
+discards. That is the second half of §8 #7's stated payoff — what makes "newly
+diagnosed" expressible — and the projection is now the place to read it from.
 
 #### The S4 exit measurement (2026-09-17) — the criterion is 1-fold, not 23-fold
 
@@ -1033,29 +1060,48 @@ factor, but for the reason the row did **not** anticipate: the screen is fed, re
 and run — and measures four renal dimensions, none of them demographic (Level 1
 below). §7 has been corrected to say that instead.
 
-**Decision — half 2 is Level 1, and only Level 1.**
+**Decision — half 2 is Level 1, and only Level 1. — DONE (`f1ab713`).**
 
-The earlier revision of this subsection concluded that the pieces existed "and only
-the join is missing", and proposed building `fairnessRowsFromRealms(realms)` plus a
-route. **That was building a second copy of `cohortSignals`**, which is the join. What
-half 2 actually needs is the axis widening:
+The earlier revision of this subsection proposed building `fairnessRowsFromRealms`
+plus a route. **That was building a second copy of `cohortSignals`**, which is the
+join. What half 2 needed was the axis widening, and that is what shipped:
 
-- `SliceDimension = 'age' | 'sex' | 'vintage' | 'access'` — four renal dimensions.
-  Race, ethnicity, birth sex and language are **declared nowhere in the screen**.
-- All four demographic fields reach the patient (S6-prep, §8 #5), so the data is
-  already there and nothing reads it. The gap is three union members, a label map, a
-  `sliceOf` case and a `sliceOrder` entry.
+    SliceDimension = age | sex | vintage | access | race | ethnicity | language
 
-That is the whole of half 2, and it is worth doing for a specific reason: the four
-declared dimensions cannot express the thing healthcare equity is mostly measured by,
-so a `noEquityRegression` signal built on them is checking the wrong fields. The
-measurement on the static fixture above (`vintage=ok`, overall `insufficient`) does not
-tell us the platform is equitable — it tells us these four axes see nothing here.
+All four demographic fields reached the patient (S6-prep, §8 #5) and **nothing read
+them**; the gap was three union members, a label map, a `sliceOf` case and a
+`sliceOrder` entry. Three decisions inside it are recorded in the code:
 
-What the whole exercise bought, in the end: `cohortSignals` had a latent
-`covered`-is-always-true property that nothing had noticed (Level 0's probe), the
-demographic axes were unreachable from a screen that appears to be about equity, and
-the cost of finding both was one wrong route and one duplicate implementation.
+- **`birthSex` is deliberately NOT a fourth addition.** `sex` already bands that axis
+  and `fairnessReport` takes the WORST verdict across dimensions, so two dimensions
+  over one axis would double-count one disparity in the headline verdict while reading
+  as two independent findings.
+- **`codeSlice` does not case-fold**, unlike `sexSlice`/`accessSlice`. Those normalise
+  free-text clinical fields (`Female`, `AV Fistula`); a race or language code is a
+  controlled vocabulary, and folding `en-US` toward a hypothetical `en-us` would invent
+  an equivalence no standard makes.
+- **`DEMOGRAPHIC_LABELS` uses the codes the real artifact carries**, measured not
+  guessed: race `2106-3` 151 / `2054-5` 22 / `2028-9` 18 / `2076-8` 5, ethnicity
+  `2186-5` 174 / `2135-2` 26, language `en-US` 181 / `es` 14 / `zh` 4 / `fr-FR` 1. A
+  report banding by `2106-3` is correct and unreadable; an operator reading a disparity
+  finding has to be able to name the group. An UNLISTED code falls back to the code
+  itself rather than to `unknown` — an unseen code is still a real subgroup.
+
+`sliceOrder` needed a fix rather than an addition: its ternary chain ended in
+`[...ACCESS_SLICES]` for every unmatched dimension, so the new axes would have
+inherited the access ordering. They now declare nothing and sort their keys, which is
+what keeps `fairnessSignature` stable — an order depending on Map insertion would make
+the signature depend on patient order.
+
+Two assertions moved with the boundary rather than being deleted: `?dimension=race`
+was a 400 and is now served, and the 400 case is replaced by `?dimension=insurance` —
+a real equity axis (§9.2) that is **still** undeclared, so the remaining gap is
+asserted rather than latent.
+
+**What the whole exercise bought.** `cohortSignals` had a latent
+`covered`-is-always-true property that nothing had noticed, the demographic axes were
+unreachable from a screen that appears to be about equity, and the cost of finding both
+was one wrong route and one duplicate implementation.
 
 ### S6 — Lifecycle
 
@@ -1071,6 +1117,38 @@ that stays gitignored (~4.2 MB per patient), and the **projected** form under
 `synthea-seeds/` that is committed (~50 KB per patient). The seeder reads the
 projected form directly, so a fresh clone needs no JVM — the non-goal about a runtime
 dependency holds, and the clone size for a 10-realm demo is ~10 MB rather than 820 MB.
+
+#### Outcome (2026-09-17) — the MECHANISM is proven, the ARTIFACT is not committed
+
+**`synthea-seeds/` is empty.** No manifest, no bundles. So S6's exit criterion — *"a
+fresh clone can reproduce the exact population a demo used, from the manifest alone"* —
+**is not met**, and it is important to be precise about which half is missing.
+
+What IS proven:
+
+- the mechanism is tested end-to-end (`population-artifact.test.ts`, 17 tests): the
+  projected form is written, read back, preferred over raw when both exist, refused
+  when labelled for another realm, and a projected artifact is never re-projected;
+- the manifest records what a reproduction needs — generator version, seed, config
+  hash, `outputDigest`, `patientDigest`, `artifactForm`, and the `nonReproducible`
+  layers as data (§5 S2);
+- `isReusable(existing, requested, fhirDir)` answers *has this directory been touched
+  since we made it* from those two digests.
+
+What is missing is the **pinned instance**: a generated population committed under
+`synthea-seeds/<realmId>/`. The command exists —
+`scripts/generate-population.ts --realm <id> --project` — but running it needs a JDK
+and a Synthea checkout, so it is a build step someone runs, not something this pass
+could produce. Until it is run, a fresh clone cannot seed a population realm, and
+`loadPopulation` says so explicitly rather than reporting an empty world.
+
+**Decision — the admin surface is NONE.** `POST /admin/realms` already takes
+`population` *or* `seed` (§8 #4), and the artifact root is resolved from
+`SYNTHEA_POPULATION_ROOT` then the default directory. Adding a button that generates a
+population would put a JVM requirement behind an endpoint — the non-goal §6 rules out.
+The pin is a build-time act: **a demo pins `synthea-seeds/` by committing it; an
+on-demand regenerate is a developer running the script.** Two acts, deliberately not
+one control.
 
 ---
 
