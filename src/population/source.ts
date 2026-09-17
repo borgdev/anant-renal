@@ -57,6 +57,17 @@
 // explicitly written to avoid, and the population work does not need it.
 
 /**
+ * A facility's kind: an OPEN vocabulary, not a closed union.
+ *
+ * Named here so the several places that used to re-state
+ * `'dialysis' | 'primary-care' | 'urgent-care' | 'hospital'` have one declaration
+ * to point at. `string` is the honest type — the reasoning is on
+ * `FacilitySeed.kind`, and §9.7 step 2 of `docs/synthea-population-integration.md`
+ * is why the union had to go at the same time as `problemsFor`.
+ */
+export type FacilityKind = string;
+
+/**
  * A facility to seed, and how many patients to put in it.
  *
  * Declared here rather than in `sim-populator.ts` so a source can describe a
@@ -66,7 +77,28 @@
  */
 export interface FacilitySeed {
   facilityId: string;
-  kind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital';
+  /**
+   * The facility's kind — an OPEN string, deliberately.
+   *
+   * This was the closed union `'dialysis' | 'primary-care' | 'urgent-care' |
+   * 'hospital'`, and a population keyed off it: `problemsFor(kind, …)` asserted
+   * that `kind === 'dialysis'` means ESRD. That made the union load-bearing — it
+   * was the platform's case-mix claim wearing a type. S4 deletes the function, and
+   * §9.7 step 2 requires the union to go in the same commit, so the closed type
+   * never exists without a consumer.
+   *
+   * It was also already wrong. The packs declare their own vocabularies and they do
+   * not intersect this union: `packs/dialysis-provider` says
+   * `['outpatient-dialysis', 'home-dialysis']`; `packs/oncology-deep` says
+   * `['oncology', 'infusion', 'hospital']`. A value of `'dialysis'` could never have
+   * matched a pack's `appliesTo.facilityKinds`, so the closed union was a constraint
+   * with no enforcer.
+   *
+   * The values the hand-written fixture uses are `dialysis`, `primary-care`,
+   * `urgent-care`, `hospital`. A real deployment's vocabulary is its own, and
+   * nothing in the population layer reads this field to decide clinical content.
+   */
+  kind: FacilityKind;
   name: string;
   units: string[]; // e.g. ['ICH-A','ICH-B','ICH-C'] for dialysis
   patientCount: number;

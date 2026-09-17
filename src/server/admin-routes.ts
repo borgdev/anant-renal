@@ -110,6 +110,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as pathJoin } from 'node:path';
 import { seedRealmFromPopulation, type SeedPopulationReport } from '../population/synthea/seed.js';
+import type { FacilityKind } from '../population/source.js';
 
 /**
  * A realm born from a generated population rather than from the synthetic facility seed.
@@ -123,7 +124,7 @@ import { seedRealmFromPopulation, type SeedPopulationReport } from '../populatio
  */
 export interface PopulationSeedRequest {
   readonly facilityId: string;
-  readonly facilityKind?: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital';
+  readonly facilityKind?: FacilityKind;
   readonly facilityName?: string;
   /** Units to create and distribute patients across, in declaration order. */
   readonly units: readonly string[];

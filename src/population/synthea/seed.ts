@@ -81,11 +81,12 @@ import { projectBundle, type ProjectionOptions, type ProjectionResult } from './
 import { loadPopulation } from './population.js';
 import { NON_REPRODUCIBLE_LAYERS } from './digest.js';
 import type { ArtifactForm } from './manifest.js';
+import type { FacilityKind } from '../source.js';
 
 export interface SeedPopulationOptions {
   readonly realmId: string;
   readonly facilityId: string;
-  readonly facilityKind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital';
+  readonly facilityKind: FacilityKind;
   readonly facilityName: string;
   /** Unit ids to create and place patients into, in declaration order. */
   readonly units: readonly string[];

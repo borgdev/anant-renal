@@ -155,3 +155,56 @@ describe('S1 — the seeded population is pinned, because the seam must change n
     }
   });
 });
+
+describe('S4 — a facility kind no longer decides clinical content', () => {
+  /**
+   * Seed one facility of `kind` and return its patients' problem lists, in
+   * `listKind` order so two facilities are comparable position by position.
+   */
+  function problemLists(facilityId: string, kind: string): string[][] {
+    const realm = RealmRegistry.create({
+      id: `kind-${facilityId}`,
+      mode: 'sim',
+      clock: new AcceleratedClock({ startAt: FIXED_START }),
+    });
+    populateFacility(realm, { ...SEED, facilityId, kind });
+    return realm.graph
+      .listKind('patient')
+      .map((p) => [...((p.state as { problemList?: readonly string[] }).problemList ?? [])].sort());
+  }
+
+  // `problemsFor(kind, trajectory)` used to read:
+  //   dialysis → ESRD/HTN/DM2      primary-care → HTN/DM2/Hyperlipidemia
+  //   urgent-care → []             hospital → CAD/CHF
+  // so the same patient index got a different chart depending only on the label on
+  // the building. That is the platform asserting case mix from a facility kind, and
+  // §9.4 names it as one of the two places the round-robin decided case mix.
+  //
+  // Two kinds that used to disagree must now agree exactly. The last assertion is
+  // what makes this non-vacuous: "identical" must not be able to pass as "both empty",
+  // which is exactly how urgent-care used to behave.
+  it('gives the same patients the same problems whatever the kind is', () => {
+    const dialysis = problemLists('k-dialysis', 'dialysis');
+    const urgent = problemLists('k-urgent', 'urgent-care');
+    const hospital = problemLists('k-hospital', 'hospital');
+
+    expect(urgent).toEqual(dialysis);
+    expect(hospital).toEqual(dialysis);
+    expect(dialysis).toHaveLength(SEED.patientCount);
+    expect(dialysis.every((list) => list.length > 0)).toBe(true);
+  });
+
+  // `FacilitySeed.kind` was the closed union `'dialysis' | 'primary-care' |
+  // 'urgent-care' | 'hospital'`, and every pack declares a vocabulary that does not
+  // intersect it — `packs/dialysis-provider` says `['outpatient-dialysis',
+  // 'home-dialysis']`, `packs/oncology-deep` says `['oncology', 'infusion',
+  // 'hospital']`. So the union could never have matched a pack's
+  // `appliesTo.facilityKinds`: a constraint with no enforcer.
+  //
+  // Seeding with a real pack value is the check that it is genuinely gone — this was
+  // a compile error before §9.7 step 2 deleted `problemsFor` and the union together.
+  it('accepts a pack vocabulary the closed union forbade', () => {
+    const lists = problemLists('k-pack', 'outpatient-dialysis');
+    expect(lists).toHaveLength(SEED.patientCount);
+  });
+});

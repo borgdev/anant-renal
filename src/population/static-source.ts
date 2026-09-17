@@ -66,21 +66,46 @@ const SEXES: Array<'F' | 'M'> = ['F', 'M'];
 /** F1 — vascular access modalities, cycled deterministically per patient index. */
 const ACCESS_TYPES = ['avf', 'avf', 'avg', 'catheter'] as const;
 
-function problemsFor(kind: PatientSeedContext['facilityKind'], trajectory: string): string[] {
-  const base: Record<PatientSeedContext['facilityKind'], string[]> = {
-    'dialysis': ['ESRD', 'HTN', 'DM2'],
-    'primary-care': ['HTN', 'DM2', 'Hyperlipidemia'],
-    'urgent-care': [],
-    'hospital': ['CAD', 'CHF'],
-  };
-  const extra: Record<string, string[]> = {
-    'anemic-worsening': ['CKD-anemia'],
-    'anemic-recovering': ['CKD-anemia'],
-    'underdialyzed': ['Underdialysis'],
-    'hyperphosphatemia': ['Hyperphosphatemia', 'CKD-MBD'],
-    'decompensating': ['Sepsis-risk'],
-  };
-  return [...base[kind], ...(extra[trajectory] ?? [])];
+/**
+ * The problems this fixture's patients carry — a FIXTURE fact, not a function of
+ * the facility's `kind`.
+ *
+ * This was `problemsFor(kind, trajectory)`, and it read
+ *
+ *     'dialysis':     ['ESRD', 'HTN', 'DM2'],
+ *     'primary-care': ['HTN', 'DM2', 'Hyperlipidemia'],
+ *     'urgent-care':  [],
+ *     'hospital':     ['CAD', 'CHF'],
+ *
+ * That map is the platform asserting clinical content from a facility label —
+ * `kind === 'dialysis'` ⇒ ESRD — and §9.4 names it as the first of the two places
+ * the round-robin decided case mix. It has been deleted rather than reworded,
+ * because a reworded map is the same claim.
+ *
+ * What replaced it is the same list with the pretence removed. The fixture is a
+ * dialysis fixture — that is a fact about this file, stated once, instead of being
+ * inferred at runtime from a string the platform does not own.
+ *
+ * The trajectory extras are kept and are a different kind of fact: a trajectory is
+ * an attribute the fair-comparison design genuinely uses, and 'hyperphosphatemia'
+ * carrying Hyperphosphatemia is a statement about the trajectory, not about the
+ * building the patient sits in.
+ *
+ * A deployment that wants a non-renal fixture wants its own source. Keying this
+ * table on `kind` again would restore exactly the bug that was just removed.
+ */
+const FIXTURE_PROBLEMS = ['ESRD', 'HTN', 'DM2'] as const;
+
+const TRAJECTORY_PROBLEMS: Record<string, readonly string[]> = Object.freeze({
+  'anemic-worsening': ['CKD-anemia'],
+  'anemic-recovering': ['CKD-anemia'],
+  'underdialyzed': ['Underdialysis'],
+  'hyperphosphatemia': ['Hyperphosphatemia', 'CKD-MBD'],
+  'decompensating': ['Sepsis-risk'],
+});
+
+function fixtureProblemList(trajectory: string): string[] {
+  return [...FIXTURE_PROBLEMS, ...(TRAJECTORY_PROBLEMS[trajectory] ?? [])];
 }
 
 /**
@@ -161,7 +186,7 @@ export const StaticPatientSource: PatientSource = {
           // the infection triage's vintage driver
           dialysisVintageYears: Math.round((0.5 + ((i * 1.7) % 13)) * 10) / 10,
           admittedAt: realmAtIso,
-          problemList: [...problemsFor(ctx.facilityKind, trajectory), ...comorbidityFor(i)],
+          problemList: [...fixtureProblemList(trajectory), ...comorbidityFor(i)],
           lastVitals: { hr: 72 + (i % 10), bp: '128/78', spo2: 97, at: realmAtIso },
           // ---- F1 renal protocol foundations ----
           access: {
