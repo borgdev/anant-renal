@@ -220,9 +220,11 @@ by copying a directory. PySynthea additionally asks for a citation in academic w
 
 **A note on the section title.** These three are seams where we *reuse* something
 already built. §9.1 identifies a fourth that is not a reuse — the **`state_model`
-declaration**, which makes the trajectory engine's vocabulary a specialty's rather
-than the platform's. It is absent from this section because it is absent from the
-original plan, which is the finding §9 is about. It is scheduled in S1 (§9.7).
+declaration**, which would make the trajectory engine's vocabulary a specialty's
+rather than the platform's. It is absent from this section because it is absent from
+the original plan, which is the finding §9 is about — but §9.7 then concludes it
+should **not** be built yet, and S1 carries two guards to keep that deferral honest
+rather than an omission.
 
 ```mermaid
 flowchart TD
@@ -502,26 +504,24 @@ how much is dialysis-adjacent.
 **Exit:** a written comparison of real output, and a decision on generator. Nothing
 is built on documentation alone.
 
-### S1 — The seams, with no new data
+### S1 — The seam, with no new data
 
-Two seams, both zero-behaviour-change:
+Add `PatientSource`. Move the round-robin behind `StaticPatientSource` **unchanged**.
+`populateFacility` consumes a source.
 
-1. **`PatientSource`.** Move the round-robin behind `StaticPatientSource`
-   **unchanged**; `populateFacility` consumes a source.
-2. **The `state_model` declaration** (§9.1, §9.7). Add a `state_model` section to the
-   specialty contract beside `ontology`/`events`/`workflows`/`measures`/`ui_lens`, and
-   express `dialysis` as its first declaration — `DIALYSIS_DIMENSIONS`, `EVENT_ORDER`,
-   `projectDialysisState` and the renal thresholds move behind it. A specialty that
-   declares none gets patient state as-is, the same compatibility default `cohort`
-   and view kinds use.
+**The `state_model` seam is deliberately NOT in this phase** — §9.7 reverses the
+earlier recommendation and explains why: a declaration with one implementation is
+what `PLATFORM_VIEW_KINDS` was explicitly written to avoid. Instead S1 carries two
+small guards that keep the deferral honest:
 
-Both are seams rather than migrations, and doing them together is deliberate: §9.1
-shows the population seam and the state-model seam are the same defect in two places,
-and separating them would mean touching the population layer twice.
+- the Synthea → event-vector mapping lives in `src/population/synthea/`, never in
+  `src/liquid/` (§9.7 constraint 1)
+- the first new renal constant needed *inside* `src/liquid/` is the trip-wire to stop
+  and declare the state model (§9.7 constraint 2)
 
 **Exit:** full suite green, and a golden comparison showing the seeded realm is
 byte-for-byte what it was. This phase must change no behaviour; if the golden
-differs, a seam is wrong.
+differs, the seam is wrong.
 
 ### S2 — Runner, manifest, fixtures
 
@@ -641,7 +641,7 @@ manifest alone.
 | **Inventing a Kt/V from what Synthea has** | Synthea has no Kt/V (§4.6). An eGFR-based proxy would look like data, pass a review, and quietly become a clinical claim the platform makes | Declare the gap: seed `ktv_adequacy` from the renal domain, never from a proxy; assert in `S3` that no dimension is derived from a non-analogous observation |
 | **Warm-up replay cost** | One model step per patient per observation; a lifetime at observation granularity is thousands of steps × patients | Subsample (monthly over a bounded window), bound the window in config, and measure it in `S2` |
 | **Seeded state silently overwritten** | `labs` and `lastVitals` are engine outputs after tick 1 — a Synthea history that lands only there disappears immediately | Put the durable contribution in `problemList` (never overwritten) and assert the priming survived the first tick |
-| **Building a renal-only population layer** | §9.1: `src/liquid/` names dialysis throughout, and `populateFacility` gives every patient renal attributes. A population component written against that shape is a fourth place renal is hardcoded, and ten specialties cannot share it | Introduce the `state_model` declaration in S1 while only dialysis implements it, so `dialysis` is the first *implementation* of the platform's state model rather than its shape |
+| **Building a renal-only population layer** | §9.1: `src/liquid/` names dialysis throughout, and `populateFacility` gives every patient renal attributes. A population component written against that shape is a fourth place renal is hardcoded, and ten specialties cannot share it | Keep the Synthea → event-vector mapping OUT of `src/liquid/`, and treat the first new renal constant needed inside it as the trip-wire to declare the state model (§9.7). The seam itself is deferred deliberately, not forgotten |
 | **A population that cannot satisfy a declared measure** | §9.6: a measure screen reads as "nothing to do" when the fixture has no denominator-qualifying patient | Validate at deployment level — every declared measure has ≥1 qualifying patient — and report it as a population issue, not a blank screen |
 | **Two realms, one human** | §9.5: ids are minted per facility, so one patient treated at two facilities is two unrelated patients | **Decided** — population is per realm and cross-realm patient identity is out of scope (§6). Generation therefore takes a realm as a parameter; a single artifact must never seed two realms |
 | **The equity screen still cannot fire after S5** | Would mean the population was never the limiting factor | `S5`'s exit criterion is that it *does* fire — a negative result here is a real finding, not a failure to be hidden |
@@ -679,9 +679,9 @@ manifest alone.
    Cross-realm patient identity is therefore out of scope; `Federation`'s aggregate
    rollups already reflect that boundary. Consequence: the population artifact is
    per-realm and generation takes a realm as a parameter.
-10. **How many care settings must the platform express?** (§9.3). `FacilitySeed.kind`
-    is four values restated in five places. Generalising it is cheap; agreeing the
-    vocabulary is a product decision.
+10. **How many care settings must the platform express?** — **DECIDED** (§9.7):
+    deduplicate to one exported type now; widen to `string` at S4 in the same commit
+    that deletes `problemsFor`, so the closed union never exists without a consumer.
 
 ---
 
@@ -721,11 +721,13 @@ in `src/`**, and every consumer of the engine is written against dialysis dimens
 Ten specialties cannot share this.
 
 **What this means for the plan:** the population component is not "better data for
-the existing engine". It is the point at which the **state model must become a
-declaration**, in exactly the way protocols (`G4b`) and views (`G5a/G5b`) did. A
-specialty should declare its state model the way it already declares its ontology,
-events, workflows, measures and lens — and `dialysis` becomes the first
-implementation of that declaration rather than the shape of the platform.
+the existing engine". It is the point at which the **state model becomes visible as a
+coupling** — the same coupling protocols (`G4b`) and views (`G5a/G5b`) were built to
+remove. Where protocols and views were declared immediately, however, §9.7 concludes
+this one should **not** be: the population work does not need it, and a declaration
+with one implementation is what `PLATFORM_VIEW_KINDS` was written to avoid. It is
+deferred to its trigger, with two guards so the coupling cannot grow silently in the
+meantime.
 
 ### 9.2 The population has no equity dimensions at all
 
@@ -831,23 +833,71 @@ A deployment-level check belongs here, next to the conformance matrix: **every d
 measure has at least one qualifying patient in the configured population**, reported
 as a population issue rather than discovered on a screen.
 
-### 9.7 Sequencing — the recommendation
+### 9.7 Sequencing — the recommendation, **revised**
 
-§9.1 is large, and bundling it would double the plan. The recommendation is the one
-this codebase has used at every other generalization:
+§9.7 originally said: introduce the `state_model` declaration seam in S1, with
+dialysis as its only implementation. **That was wrong, and the reversal is worth
+recording because the reason is the codebase's own rule rather than a preference.**
 
-1. **Introduce the declaration seam now, implement only dialysis.** Add a `state_model`
-   section to the specialty contract alongside `ontology`/`events`/`workflows`/`measures`/
-   `ui_lens`. `dialysis` is its first declaration; `src/liquid/` keeps working unchanged
-   against a pack-supplied vocabulary. **No behaviour change**, and the platform stops
-   growing renal by default.
-2. **Keep the compatibility default**, as `cohort` and view kinds do: a specialty that
-   declares no state model gets the patient state as-is.
-3. **Migrate when a second specialty needs it** — which is the same trigger the view
-   kinds used intentionally, and the reason `PLATFORM_VIEW_KINDS` still has one entry.
+**Does the Synthea work actually need the seam?** Tested rather than assumed — no:
 
-That puts §9.1 in scope as a *seam*, not as a migration, and leaves the renal-first
-implementation honestly labelled as such.
+| Synthea contribution | Needs a `state_model` seam? |
+|---|---|
+| → `problemList` (the durable half) | **No.** `#eventVector` already reads `problemList`; the enricher writes it from the population layer |
+| → initial `labs` / `lastVitals` | **No.** Already read by `#eventVector` |
+| → warm-up replay of observation history | **No generalisation.** Needs one *additive* entry point — the engine takes an event vector and steps — not a change of vocabulary |
+
+So the seam is **not a prerequisite**, and introducing a declaration with exactly one
+implementation is precisely what this codebase decided against elsewhere, in writing:
+
+> *"It starts with ONE, and that is the discipline rather than an oversight: a kind is
+> justified when a second specialty needs it, and kinds are promoted from real packs,
+> never designed up front."* — `PLATFORM_VIEW_KINDS`, `src/control-plane/pack-contract.ts`
+
+`PLATFORM_VIEW_KINDS` still has one entry for exactly this reason. A `state_model`
+declaration with one implementation would violate the rule the platform wrote for
+itself, and would be unvalidated by any real consumer — the failure mode this
+codebase has repeatedly found produces the wrong shape.
+
+**Recommendation for §9.1: do NOT introduce the seam now.** Instead:
+
+1. **A constraint that keeps it honest:** the Synthea → event-vector mapping lives in
+   the population layer (`src/population/synthea/`), never in `src/liquid/`. The engine
+   gains one additive warm-up entry point and nothing else. If the mapping were put
+   inside `#eventVector`, the population work would *deepen* the coupling rather than
+   avoid it.
+2. **A trip-wire:** the first new renal constant the population work needs *inside*
+   `src/liquid/` is the signal to stop and declare the state model. That is a small,
+   checkable rule in the spirit of `tests/navigation-ids.test.ts`, and it means the
+   coupling cannot grow silently while the seam is deferred.
+3. **The trigger for the seam is a second specialty that needs a non-dialysis state
+   model.** At that point `dialysis` becomes the first *declaration* rather than the
+   shape of the platform — and there will be two implementations to validate the shape
+   against.
+
+**Recommendation for §9.3, in two steps** — the closed care-setting union has exactly
+one functional consumer today, and **the Synthea work deletes it**, so the two
+changes must not be separated:
+
+1. **Now, no behaviour change:** replace the five restatements of
+   `'dialysis' | 'primary-care' | 'urgent-care' | 'hospital'` (declared in
+   `sim-populator.ts`, restated four times in `admin-routes.ts`, re-exported as
+   `FacilityKind` in `onboarding/bootstrap.ts`) with **one exported type**.
+2. **At S4, when `problemsFor` is deleted: widen it to `string`.** Everything checked
+   supports this and nothing opposes it:
+   - **Nothing branches on it.** Grepped for conditionals: the only matches are
+     construction sites. It is a label on the entity.
+   - **The database already treats it as free text** — `kind TEXT`, unconstrained. A
+     closed union here is enforced only in TypeScript, so openness matches what is
+     already persisted.
+   - **Its one functional consumer is `problemsFor(seed.kind, trajectory)`** — the
+     platform dictating a specialty's case mix (§9.4), which S4 removes.
+   - Nothing reads a facility's `kind` at all; the readers take `.id`.
+
+   Widening it *before* `problemsFor` dies would only move the closed union into
+   `problemsFor` and leave a half-migrated consumer. Doing the two in one commit means
+   the closed union never exists without a consumer — which is also why, unlike §9.1,
+   this is a change with a real justification today rather than a speculative one.
 
 ## Appendix — proposed file layout
 
