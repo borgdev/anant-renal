@@ -49,7 +49,7 @@ import {
   resourcesByKind,
   type ResourceIssueCode,
 } from '../src/control-plane/pack-resources.js';
-import { PLATFORM_NAV_IDS, PLATFORM_CONCEPTS, PLATFORM_LENS_VIEWS, PLATFORM_VIEW_KINDS, validateSpecialtyPack } from '../src/control-plane/pack-contract.js';
+import { PLATFORM_NAV_IDS, PLATFORM_CONCEPTS, PLATFORM_LENS_VIEWS, PLATFORM_VIEW_COMPONENTS, PLATFORM_VIEW_KINDS, validateSpecialtyPack } from '../src/control-plane/pack-contract.js';
 import { manifestAsDomainPack, manifestAsSpecialtySections } from '../src/control-plane/pack-manifest.js';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -77,7 +77,7 @@ function resolve(manifests: readonly PackManifest[]) {
     manifests,
     platformNavIds: PLATFORM_NAV_IDS,
     platformConcepts: PLATFORM_CONCEPTS,
-    renderableViews: PLATFORM_LENS_VIEWS,
+    viewComponents: PLATFORM_VIEW_COMPONENTS,
     renderableViewKinds: PLATFORM_VIEW_KINDS,
   });
 }
@@ -357,6 +357,49 @@ describe('the specialty lens', () => {
       manifest('a-pack', { uiLens: { id: 'a', label: 'A', views: [{ id: 'protocols', label: 'Cockpit' }] } }),
     ]);
     expect(registry.issues).toEqual([]);
+  });
+
+  it('refuses a lens that surfaces a page belonging to another specialty', () => {
+    // The hole this closes: `viewComponents` alone answers "can the shell draw
+    // it?", which is true for `mbd` no matter who asks. So a payer lens could
+    // declare the renal CKD-MBD page and the console would draw it — a payer
+    // console with a mineral-bone screen on it. In a ten-specialty deployment
+    // that is the failure mode that multiplies, and it is a question about
+    // entitlement rather than rendering, so it is refused at validation.
+    const registry = resolve([
+      manifest('payer-ish', {
+        uiLens: { id: 'payer', label: 'Payer', views: [{ id: 'mbd', label: 'Bone health' }] },
+      }),
+    ]);
+    expect(codes(registry)).toEqual(['view-not-owned-by-lens']);
+    expect(registry.issues[0]?.detail).toContain('belongs to lens "renal"');
+    expect(registry.issues[0]?.blocking).toBe(true);
+  });
+
+  it('lets the owner surface its own pages, and anyone surface the shell hub', () => {
+    // Both halves of the rule in one fixture, because either alone is satisfied
+    // by a bug. The renal lens gets its page; a lens that owns nothing still gets
+    // the hub, which is the shell's and is the entry point every specialty needs.
+    const registry = resolve([
+      manifest('renal-ish', { uiLens: { id: 'renal', label: 'Renal', views: [{ id: 'mbd', label: 'CKD-MBD' }] } }),
+      manifest('other-ish', { uiLens: { id: 'other', label: 'Other', views: [{ id: 'protocols', label: 'Cockpit' }] } }),
+    ]);
+    expect(registry.issues).toEqual([]);
+  });
+
+  it('names only owners that some installed lens actually declares', () => {
+    // A component attributed to a lens that does not exist is unclaimable: the
+    // owning pack could never declare it and no one else may, so the shell ships
+    // a page nothing can reach. This is the drift a static list invites, and it is
+    // invisible without asking the installed set.
+    const { manifests } = loadPackManifests(REPO_ROOT);
+    const declaredLensIds = new Set(
+      manifests.map((m) => m.specialty.uiLens?.id).filter((id): id is string => Boolean(id)),
+    );
+    const orphaned = PLATFORM_VIEW_COMPONENTS
+      .filter((c) => c.owner !== null && !declaredLensIds.has(c.owner))
+      .map((c) => `${c.id}→${c.owner}`);
+    expect(orphaned).toEqual([]);
   });
 });
 

@@ -54,6 +54,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { PackManifest, PackResourceDeclaration, PackResourceKind } from './pack-manifest.js';
+import type { PlatformViewComponent } from './pack-contract.js';
 import { declaredEventTypes, resourceDeclarations } from './pack-manifest.js';
 
 export type ResourceIssueCode =
@@ -66,6 +67,7 @@ export type ResourceIssueCode =
   | 'unbacked-cms-measure'
   | 'lens-shadows-platform-nav'
   | 'unknown-lens-view'
+  | 'view-not-owned-by-lens'
   | 'unknown-view-kind'
   | 'view-kind-without-source'
   | 'duplicate-artifact-id';
@@ -126,11 +128,14 @@ export interface ResourceRegistryInput {
   /** Concepts the platform owns and no pack may redefine. */
   readonly platformConcepts?: readonly string[];
   /**
-   * Views the shell can render. A lens may surface only these; a view id outside
-   * the set is a declaration the console cannot draw, and an empty tab is a
-   * worse answer than a refusal.
+   * Page components the shell ships, each attributed to the lens that owns it.
+   *
+   * Two questions, one registry: whether the component exists at all ("can this
+   * be drawn?") and whether THIS lens is entitled to it ("is this page
+   * yours?"). The second is why the flat id list was not enough — a set of ids
+   * the shell can render says nothing about who may claim them.
    */
-  readonly renderableViews?: readonly string[];
+  readonly viewComponents?: readonly PlatformViewComponent[];
   /**
    * View KINDS the shell can render. A view that declares a kind is checked
    * against THIS set instead of the id set, which is what makes the vocabulary
@@ -376,28 +381,33 @@ export function buildResourceRegistry(input: ResourceRegistryInput): ResourceReg
     }
   }
 
-  // ---- pass 7: a lens may only surface a view the shell can draw. Without this
-  // a specialty could declare a view no component renders, and the console would
-  // show an empty tab — which reads as a broken product rather than a bad
-  // declaration.
+  // ---- pass 7: a lens may only surface a view the shell can draw, and only a
+  // page that lens owns. Without the first half a specialty could declare a view
+  // no component renders and the console would show an empty tab — which reads as
+  // a broken product rather than a bad declaration. Without the second, a
+  // specialty could declare ANOTHER specialty's page and the shell would happily
+  // draw it, so the entitlement half is the one a multi-specialty deployment
+  // needs: it is not enough that the platform can draw `mbd`, the renal lens owns
+  // it.
   //
   // Two vocabularies, one rule. A view that declares a KIND is checked against the
   // renderer registry, because that is the open vocabulary and the one that lets a
   // specialty arrive without a shell edit. A view that declares only an ID is
-  // checked against the closed list, which is why that list still exists — it is
-  // the compatibility path for declarations written before kinds, and it can be
-  // deleted when the last id-only view migrates (G5 step 4).
-  const renderable = new Set(input.renderableViews ?? []);
+  // checked against the component registry, which is the compatibility path for
+  // declarations written before kinds — and stays, because a page is a COMPOSITION
+  // of panels while a kind describes a panel.
+  const components = new Map((input.viewComponents ?? []).map((c) => [c.id, c]));
   const renderableKinds = new Set(input.renderableViewKinds ?? []);
-  if (input.renderableViews || input.renderableViewKinds) {
+  if (input.viewComponents || input.renderableViewKinds) {
     for (const m of input.manifests) {
+      const lensId = m.specialty.uiLens?.id;
       for (const view of m.specialty.uiLens?.views ?? []) {
         if (view.kind) {
           if (!renderableKinds.has(view.kind)) {
             add({
               code: 'unknown-view-kind',
               packId: m.id,
-              detail: `lens "${m.specialty.uiLens?.id}" surfaces view "${view.id}" as kind "${view.kind}", which the shell has no renderer for — a kind is only declarable when the platform can draw it`,
+              detail: `lens "${lensId}" surfaces view "${view.id}" as kind "${view.kind}", which the shell has no renderer for — a kind is only declarable when the platform can draw it`,
               blocking: true,
             });
           }
@@ -414,13 +424,26 @@ export function buildResourceRegistry(input: ResourceRegistryInput): ResourceReg
           }
           continue;
         }
-        if (renderable.has(view.id)) continue;
-        add({
-          code: 'unknown-lens-view',
-          packId: m.id,
-          detail: `lens "${m.specialty.uiLens?.id}" surfaces view "${view.id}", which the shell has no component for — a declared view must be renderable`,
-          blocking: true,
-        });
+        const component = components.get(view.id);
+        if (!component) {
+          add({
+            code: 'unknown-lens-view',
+            packId: m.id,
+            detail: `lens "${lensId}" surfaces view "${view.id}", which the shell has no component for — a declared view must be renderable`,
+            blocking: true,
+          });
+          continue;
+        }
+        // The shell's own page is surfaceable by anyone; a specialty's page is
+        // surfaceable only by the lens that owns it.
+        if (component.owner !== null && component.owner !== lensId) {
+          add({
+            code: 'view-not-owned-by-lens',
+            packId: m.id,
+            detail: `lens "${lensId}" surfaces view "${view.id}", which belongs to lens "${component.owner}" — a specialty may not surface another specialty's page`,
+            blocking: true,
+          });
+        }
       }
     }
   }

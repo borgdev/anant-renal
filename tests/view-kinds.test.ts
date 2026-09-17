@@ -75,7 +75,7 @@ function manifest(id: string, specialty: PackManifestSpecialty): PackManifest {
 function resolve(manifests: readonly PackManifest[]) {
   return buildResourceRegistry({
     manifests,
-    renderableViews: ['protocols'],
+    viewComponents: [{ id: 'protocols', owner: null }],
     renderableViewKinds: PLATFORM_VIEW_KINDS,
   });
 }

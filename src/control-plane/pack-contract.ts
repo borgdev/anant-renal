@@ -170,19 +170,71 @@ export interface SpecialtyLensSection {
 }
 
 /**
- * Views the shell can actually draw. A lens may only surface one of these — a
- * view id outside the set would be a declaration the console cannot render, and
- * the honest failure is to refuse it rather than render an empty tab.
+ * One page component the shell ships, and the lens whose declaration owns it.
  *
- * This is the renal protocol strip plus the two round-level lenses, because
- * those are what the shell has components for today. A second specialty adds its
- * own components and then extends this list; the list names what EXISTS, never
- * what is hoped for.
+ * The id-only half of the view vocabulary — the compatibility path for
+ * declarations written before `kind` existed, and the one that will still be
+ * here afterwards, because a page is a COMPOSITION of panels and a kind
+ * describes a panel. Eleven renal screens are compositions, so they are named
+ * by id and drawn by a shell component, and this is the registry of those.
+ *
+ * `owner` is what stops one specialty from claiming another's page. Without it
+ * the set below is just "ids the shell can render", so ANY pack may declare
+ * `mbd` and the console will draw the renal CKD-MBD component under that
+ * specialty's lens — a payer console with a mineral-bone page on it. In a
+ * ten-specialty deployment that is the failure mode that multiplies, and it is
+ * a contract question rather than a rendering one, so it is refused at pack
+ * validation instead of being discovered in a screenshot.
+ *
+ * `owner: null` means the SHELL owns the page, not a specialty. Exactly one id
+ * is in that category: the Clinical protocols hub, which is generic (it is
+ * driven by the protocol registry) and which any specialty may legitimately
+ * surface as its entry point.
  */
-export const PLATFORM_LENS_VIEWS: readonly string[] = Object.freeze([
-  'protocols', 'anemia', 'adequacy', 'fluid', 'vascular-access', 'mbd',
-  'nutrition', 'infection', 'protocol-assurance', 'next-session', 'round-digest',
+export interface PlatformViewComponent {
+  readonly id: string;
+  /** The `ui_lens.id` whose declaration owns this page; `null` if the shell does. */
+  readonly owner: string | null;
+}
+
+/**
+ * The page components the shell can actually draw.
+ *
+ * A lens may only surface one of these — a view id outside the set would be a
+ * declaration the console cannot render, and the honest failure is to refuse it
+ * rather than render an empty tab. This names what EXISTS, never what is hoped
+ * for: a second specialty adds a shell component and then an entry here, and
+ * `tests/navigation-ids.test.ts` checks the other end by asserting every `case`
+ * arm in `exec-app` is either one of these or a platform nav destination.
+ */
+export const PLATFORM_VIEW_COMPONENTS: readonly PlatformViewComponent[] = Object.freeze([
+  // The shell's own page, surfaced by whichever specialty needs an entry point.
+  { id: 'protocols', owner: null },
+  { id: 'anemia', owner: 'renal' },
+  { id: 'adequacy', owner: 'renal' },
+  { id: 'fluid', owner: 'renal' },
+  { id: 'vascular-access', owner: 'renal' },
+  { id: 'mbd', owner: 'renal' },
+  { id: 'nutrition', owner: 'renal' },
+  { id: 'infection', owner: 'renal' },
+  { id: 'protocol-assurance', owner: 'renal' },
+  { id: 'next-session', owner: 'renal' },
+  { id: 'round-digest', owner: 'renal' },
 ]);
+
+/**
+ * The ids above, derived rather than written down again.
+ *
+ * Kept as a separate export because two readers want the flat list — the
+ * conformance check's "is this drawable at all" question, and the shell guard
+ * that compares `exec-app`'s `case` arms against the platform's vocabulary. The
+ * ids are not restated here: a second copy of a list is how the two ends of a
+ * mirror drift apart.
+ */
+export const PLATFORM_LENS_VIEWS: readonly string[] = Object.freeze(
+  PLATFORM_VIEW_COMPONENTS.map((component) => component.id),
+);
+
 
 /**
  * View KINDS the shell can actually draw — the open half of the same idea.
