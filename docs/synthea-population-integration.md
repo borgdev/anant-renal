@@ -688,6 +688,87 @@ re-running generation produces no duplicates; every specialty's cohort is
 than from zero** — asserted by checking that a patient seeded with an abnormal
 Synthea haemoglobin starts in a non-zero `anemia_severity` and moves.
 
+#### What building it changed
+
+S3 is implemented and verified against a real 150-patient population: `POST
+/admin/realms` now accepts a `population` source alongside `seed`, and a real run
+ingests **130,119 bundle entries down to 7,056** in 8.2 s, admitting 150 patients
+across 4 units with 211 problem-list conditions and zero leaked presences.
+
+**The ingest ceiling was not a tuning problem.** `MAX_BUNDLE_ENTRIES` is 500 and a
+measured Synthea patient file reaches 17,272 entries — 34× over, so every bundle in a
+real population is refused outright. S3 therefore *projects* each bundle down
+(`projection.ts`, a per-resource-type rule with a stated reason for every exclusion)
+and chunks the result. Conditions survive in full because a problem list is
+cumulative; observations are retained per `(patient, analyte)`.
+
+Retention is per analyte rather than by time window, and that choice is measured. A
+90-day age bound keeps only **24 of 174** patients with any laboratory result and 12
+with a haemoglobin; capping the newest value per analyte keeps **150 of 150** with a
+haemoglobin for 6,244 observations instead of 36,289. Coverage is what a seeding
+population needs, and history is what the engine's own dynamics are for.
+
+**Six defects surfaced only by running it on real data.** Four are in shared platform
+code, not in S3, and all six were silent:
+
+| Defect | Found by | Effect if shipped |
+|---|---|---|
+| Recognised `Condition`s were counted as *kept* and never pushed into any chunk | asserting on chunk contents, not on the report | `problemList` empty for every patient — the one piece of state the engine never overwrites — while the report claimed thousands kept |
+| The vocabulary matched only the **first** rule, so `Disorder of kidney due to diabetes mellitus` produced `CKD` but not `DM2` | diffing the matcher against an independent match-all over all 215 measured displays | 17 patients (11% of the sample) silently lost their type 2 diabetes flag; `DM2` reads 18 instead of 28 |
+| `Suspected …` displays were read as diagnoses | the same diff | `Suspected disease caused by SARS-CoV-2` — 17 patients — was the single largest contributor to `Sepsis-risk` |
+| `record-vitals` rebuilt `lastVitals` from scratch, and `EntityGraph.patch` replaces a nested object rather than merging into it | a seeded patient whose heart rate vanished when a blood-pressure panel followed it | the platform could not read back the blood pressure **it had just written** (`effect-map.ts` emits the panel code `55284-4` with `component[]`, the reader only looked at `valueQuantity`), and a weight observation cleared every vital. The event vector then fell back to `hr = 72, spo2 = 97` — a reading that looks *stable* |
+| `order-lab` / `order-med` derived ids from `clock.seq`, which does **not** advance during an ingest | a live seed that threw `entity-exists` at patient 136 of 150 | two orders of the same drug in one bundle abort the entry, and a `transaction` bundle rolls back wholesale |
+| `ingestFhirBundle` leaks one presence per call and never retires it | reading its spawn site | 150 stale presences per population seed, counted and displayed by the console |
+
+The lesson worth carrying: the projection's `kept` counts and the chunk contents are
+two independent facts, and a test that reads only the report cannot tell a working
+filter from one that discards everything. `tests/population-projection.test.ts` now
+reconciles them.
+
+**What the population is actually made of**, measured over the 150 living patients
+(24 of 174 are deceased and excluded — Synthea's `-p N` means N *living*):
+
+| | count |
+|---|---|
+| Problem-list terms | Anemia 48, Hyperlipidemia 23, HTN 22, CAD 21, Sepsis-risk 20, DM2 18, CKD 7, Breast cancer 5, Colorectal 1, **ESRD 1** |
+| No problem term at all | **67 of 150** — most Synthea conditions are administrative or social (`Medication review due` alone appears on all 150) |
+| Haemoglobin | 150 of 150, with **20+ saturating above the engine's ceiling of 13 g/dL** |
+| Potassium | 18 of 150 — so adequacy is `no-source` for 132 |
+| Phosphate | 4 of 150 |
+| Age range | **1 to 103** |
+
+Two of those are S5's inputs rather than S3's problems. **Only 1 of 150 living
+patients has ESRD**, which is the dialysis-realm mismatch §4.6 predicted: Synthea
+generates a general population, not a dialysis population, and the engine's ranges
+are dialysis ranges — hence the haemoglobin saturation, which the seeder reports
+rather than hides. The age range says the same thing in a different way.
+
+**The engine's initial condition does not persist, and that is the most important
+finding here.** Measuring the untrained engine directly (`setResidualAlpha(0)`, no
+promoted weights), a patient seeded at `anemia_severity = 0.9` follows
+`0.88 → 0.71 → 0.55 → 0.21 → 0.03` over 1 h → 12 h → 24 h → 72 h → 168 h, and the
+attractor is **0** for every starting point. So:
+
+- the exit criterion is met — the engine starts from the patient, not from zero, and
+  two patients seeded at different haemoglobins are distinguishable for ~48 h;
+- but a seeded population's clinical distinctiveness is a **~2–3 day transient**, and
+  after that every patient converges to the same healthy dialysis state.
+
+That is a property of the *baseline* model, not of the seeding: with no trained
+weights the ODE is a convergence operator. S3 therefore delivers the durable half
+(real problem lists, real comorbidity denominators, a real initial condition) and
+S4's training is what makes a trajectory hold. Recorded here because the phase exit
+criterion as written would have been satisfied by a seeding whose effect evaporated
+overnight.
+
+**Deferred, with the fix named.** `result-lab` creates an orphaned `result` entity —
+no `patientId`, and no `order` to link through, because a bare `Observation` never
+produces one — so S3 summarises patients from the bundle rather than from the graph.
+And `result-lab` stamps `this.clock.realmAt` rather than the observation's
+`effectiveDateTime`, so ingested laboratory results all carry the ingest instant; the
+fix is an `observedAt?: string` on the effect honoured by the reducer, for which
+`record-immunisation` already carries the precedent.
+
 ### S4 — Replace the round-robin, and retire `longitudinal.ts`
 
 `sim-populator` enriches from the configured source rather than generating.
@@ -1043,10 +1124,23 @@ src/population/
   state-model.ts                     # the declared state model (§9.1, S1 seam)
   synthea/
     runner.ts                        # spawns the CLI — injectable, mirrors LiquidTrainer
+    manifest.ts                      # per-realm pins, config hash, the two digests
+    digest.ts                        # patient-layer normalisation for `patientDigest`
     identity.ts                      # Synthea id → realmId-pt-NNNN, realm-scoped
+    conditions.ts                    # Synthea condition displays → the problem vocabulary
+    projection.ts                    # bundle → ≤500-entry chunks (S3, §"What building it changed")
+    prime.ts                         # measured observation → the engine's initial condition
     enrich.ts                        # ingested patient → renal shape (+ age from birthDate)
-    conditions.ts                    # ingested condition entities → cohort vocabulary
-  # NO bespoke FHIR parser: ingestFhirBundle is the front half (§4.3)
+    population.ts                    # artifact loader: manifest + fhir/ → bundles
+    seed.ts                          # the orchestrator: ingest → enrich → prime
+tests/
+  population-conditions.test.ts      # the 215 measured displays, pinned verbatim
+  population-identity.test.ts
+  population-projection.test.ts
+  population-prime.test.ts
+  population-seed.test.ts            # the S3 exit criteria, end to end
+  population-route.test.ts           # POST /admin/realms with a `population` source
+# NO bespoke FHIR parser: ingestFhirBundle is the front half (§4.3)
 tests/fixtures/synthea/              # tiny committed golden bundle
 tests/population-*.test.ts
 docs/synthea-population-integration.md   # this document

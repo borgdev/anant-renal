@@ -429,3 +429,132 @@ describe('Phase C — public endpoint, idempotency, message, size guard, dry-run
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// S3 — vitals ingest must not lose values.
+//
+// Found while wiring S3, and it is a defect in this repository's own round-trip
+// rather than an artefact of a foreign feed: `effect-map.ts` emits blood pressure as
+// the panel code `55284-4` carrying systolic/diastolic COMPONENTS (pinned by
+// `tests/fhir-terminology.test.ts`), and this reader only ever looked at
+// `valueQuantity`. Meanwhile `effect-reducer.ts` rebuilt `lastVitals` from scratch on
+// every `record-vitals`, and `EntityGraph.patch` replaces a nested object rather than
+// merging into it — so whichever vitals effect arrived last erased the others.
+//
+// Together those two made a normal bundle lose data: a heart-rate observation
+// followed by a blood-pressure panel left the patient with no heart rate, and the
+// trajectory engine's event vector then fell back to `hr = 72, spo2 = 97` — the
+// reading of a STABLE patient. The loss was silent.
+describe('S3 — vitals ingest keeps every measured value', () => {
+  const vital = (id: string, code: string, value: number, at: string): Record<string, unknown> => ({
+    resourceType: 'Observation',
+    id,
+    subject: { reference: 'Patient/vm' },
+    status: 'final',
+    category: [{ coding: [{ code: 'vital-signs' }] }],
+    code: { coding: [{ code }] },
+    effectiveDateTime: at,
+    valueQuantity: { value, unit: 'x' },
+  });
+
+  const panel = (id: string, code: string, systolic: number, diastolic: number, at: string): Record<string, unknown> => ({
+    resourceType: 'Observation',
+    id,
+    subject: { reference: 'Patient/vm' },
+    status: 'final',
+    category: [{ coding: [{ code: 'vital-signs' }] }],
+    code: { coding: [{ code }] },
+    effectiveDateTime: at,
+    component: [
+      { code: { coding: [{ code: '8480-6' }] }, valueQuantity: { value: systolic } },
+      { code: { coding: [{ code: '8462-4' }] }, valueQuantity: { value: diastolic } },
+    ],
+  });
+
+  async function ingestVitals(realmId: string, entries: Array<Record<string, unknown>>): Promise<Record<string, unknown>> {
+    const { realm } = makeRealm(realmId);
+    try {
+      const bundle = {
+        resourceType: 'Bundle',
+        type: 'collection',
+        entry: [{ resource: { resourceType: 'Patient', id: 'vm', name: [{ family: 'V' }], gender: 'male' } }, ...entries.map((resource) => ({ resource }))],
+      } as unknown as Bundle;
+      const result = await ingestFhirBundle(realm, ctx(realmId), bundle, {});
+      expect(result.rolledBack).toBe(false);
+      const rec = realm.graph.get(realm.graph.urnFor('patient', 'vm'));
+      return ((rec?.state as { lastVitals?: Record<string, unknown> } | undefined)?.lastVitals) ?? {};
+    } finally {
+      cleanup(realmId);
+    }
+  }
+
+  it('keeps the heart rate when a blood-pressure PANEL follows it', async () => {
+    const lastVitals = await ingestVitals('realm:vm-1', [
+      vital('vm-hr', '8867-4', 88, '2026-05-20T09:10:00Z'),
+      panel('vm-bp', '55284-4', 148, 88, '2026-05-20T09:11:00Z'),
+    ]);
+    expect(lastVitals).toMatchObject({ hr: 88, bp: '148/88' });
+  });
+
+  it('reads the panel code our OWN serializer emits', async () => {
+    // The exact counterpart of `tests/fhir-terminology.test.ts` "blood pressure carries
+    // systolic and diastolic COMPONENTS under the panel code": that test pins what we
+    // WRITE, this one pins that we can read it back.
+    const lastVitals = await ingestVitals('realm:vm-2', [panel('vm-bp', '55284-4', 128, 78, '2026-05-20T09:11:00Z')]);
+    expect(lastVitals['bp']).toBe('128/78');
+  });
+
+  it("reads Synthea's equivalent panel code", async () => {
+    const lastVitals = await ingestVitals('realm:vm-3', [panel('vm-bp', '85354-9', 148, 88, '2026-05-20T09:11:00Z')]);
+    expect(lastVitals['bp']).toBe('148/88');
+  });
+
+  it('does not clear existing vitals when an observation has nothing for `lastVitals`', async () => {
+    // A body weight is a real, well-formed vital-signs observation with no home in
+    // `lastVitals`. Synthea emits 29463-7 on essentially every patient, and
+    // `end-session` emits a dry weight (8341-0) — so this path is ordinary, not exotic.
+    const lastVitals = await ingestVitals('realm:vm-4', [
+      vital('vm-hr', '8867-4', 88, '2026-05-20T09:10:00Z'),
+      vital('vm-temp', '8310-5', 37.1, '2026-05-20T09:10:30Z'),
+      vital('vm-weight', '29463-7', 82.4, '2026-05-20T09:11:00Z'),
+    ]);
+    expect(lastVitals).toMatchObject({ hr: 88, temp: 37.1 });
+  });
+
+  it('accumulates every vital across several single-value observations', async () => {
+    const lastVitals = await ingestVitals('realm:vm-5', [
+      vital('vm-hr', '8867-4', 92, '2026-05-20T09:10:00Z'),
+      vital('vm-spo2', '2708-6', 95, '2026-05-20T09:10:10Z'),
+      vital('vm-temp', '8310-5', 36.8, '2026-05-20T09:10:20Z'),
+      vital('vm-rr', '9279-1', 18, '2026-05-20T09:10:30Z'),
+      panel('vm-bp', '55284-4', 132, 80, '2026-05-20T09:10:40Z'),
+    ]);
+    expect(lastVitals).toMatchObject({ hr: 92, spo2: 95, temp: 36.8, rr: 18, bp: '132/80' });
+  });
+
+  it('takes the newest value when an observation repeats', async () => {
+    const lastVitals = await ingestVitals('realm:vm-6', [
+      vital('vm-hr-a', '8867-4', 70, '2026-05-20T09:10:00Z'),
+      vital('vm-hr-b', '8867-4', 104, '2026-05-20T11:10:00Z'),
+    ]);
+    expect(lastVitals['hr']).toBe(104);
+  });
+
+  it('still creates the patient when vitals arrive for an unknown id', async () => {
+    // Preserved deliberately — this is why `population/projection.ts` forces the Patient
+    // into the first chunk of every bundle, and it is load-bearing for the ingest.
+    const { realm } = makeRealm('realm:vm-7');
+    try {
+      const bundle = {
+        resourceType: 'Bundle',
+        type: 'collection',
+        entry: [{ resource: { resourceType: 'Observation', id: 'orphan-hr', subject: { reference: 'Patient/phantom' }, status: 'final', category: [{ coding: [{ code: 'vital-signs' }] }], code: { coding: [{ code: '8867-4' }] }, effectiveDateTime: '2026-05-20T09:10:00Z', valueQuantity: { value: 77, unit: 'bpm' } } }],
+      } as unknown as Bundle;
+      await ingestFhirBundle(realm, ctx('realm:vm-7'), bundle, {});
+      const st = realm.graph.get(realm.graph.urnFor('patient', 'phantom'))?.state as { lastVitals?: Record<string, unknown> } | undefined;
+      expect(st?.lastVitals).toMatchObject({ hr: 77 });
+    } finally {
+      cleanup('realm:vm-7');
+    }
+  });
+});

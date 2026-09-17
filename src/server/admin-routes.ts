@@ -109,6 +109,33 @@ import type { StoredMeasure } from '../measures/types.js';
 import { existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as pathJoin } from 'node:path';
+import { seedRealmFromPopulation, type SeedPopulationReport } from '../population/synthea/seed.js';
+
+/**
+ * A realm born from a generated population rather than from the synthetic facility seed.
+ *
+ * S3. `POST /admin/realms` accepts either `seed` (the static source) or `population`
+ * (a Synthea artifact), never both. Population seeding happens INSIDE realm creation,
+ * before the hypergraph is attached, for the same measured reason the static seed does:
+ * an attached hypergraph syncs every mutation, and a population emits one effect per
+ * retained observation and per condition, so seeding an already-attached realm pays that
+ * sync cost per resource.
+ */
+export interface PopulationSeedRequest {
+  readonly facilityId: string;
+  readonly facilityKind?: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital';
+  readonly facilityName?: string;
+  /** Units to create and distribute patients across, in declaration order. */
+  readonly units: readonly string[];
+  /** Population root; defaults to `SYNTHEA_POPULATION_ROOT`, then `./synthea-population`. */
+  readonly root?: string;
+  /** Keep patients Synthea recorded a death for. Default false. */
+  readonly includeDeceased?: boolean;
+  /** Read only the first N bundle files — a smoke run, not a smaller population. */
+  readonly limit?: number;
+  /** Write the measured `labs`/`lastVitals` onto the patient. Default true. */
+  readonly seedObservationState?: boolean;
+}
 
 /** Title-token overlap matcher — suggests a synced eCQM measure for a catalog measure. */
 function titleTokens(s: string): Set<string> {
@@ -484,10 +511,13 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
     return { patients: r.graph.listKind('patient').map((p) => ({ id: p.id, urn: p.urn, state: p.state })) };
   });
 
-  app.post<{ Body: { id: string; mode: RealmMode; trajectoryEngine?: 'legacy' | 'liquid'; historyDays?: number; seed?: { facilityId: string; kind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital'; name: string; units: string[]; patientCount: number } } }>('/admin/realms', async (req, reply) => {
+  app.post<{ Body: { id: string; mode: RealmMode; trajectoryEngine?: 'legacy' | 'liquid'; historyDays?: number; seed?: { facilityId: string; kind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital'; name: string; units: string[]; patientCount: number }; population?: PopulationSeedRequest } }>('/admin/realms', async (req, reply) => {
     try {
-      const { id, mode, seed, trajectoryEngine, historyDays } = req.body ?? {} as { id: string; mode: RealmMode; trajectoryEngine?: 'legacy' | 'liquid'; historyDays?: number; seed?: Parameters<typeof populateFacility>[1] };
+      const { id, mode, seed, population, trajectoryEngine, historyDays } = req.body ?? {} as { id: string; mode: RealmMode; trajectoryEngine?: 'legacy' | 'liquid'; historyDays?: number; seed?: Parameters<typeof populateFacility>[1]; population?: PopulationSeedRequest };
       if (!id || !mode) return reply.code(400).send({ error: 'id-and-mode-required' });
+      // Two sources of patients, and the choice between them is the caller's to make
+      // explicitly rather than something resolved by precedence order.
+      if (seed && population) return reply.code(400).send({ error: 'seed-and-population-are-mutually-exclusive' });
       // R1 — a realm is BORN with a monitoring history. The clock is anchored
       // `historyDays` in the past, the longitudinal record is replayed through
       // the real clock into the ledger, and the clock then lands back on now.
@@ -501,9 +531,38 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
         ...(trajectoryEngine ? { trajectoryEngine } : {}),
       });
       let backfill: BackfillResult | undefined;
+      let populationReport: SeedPopulationReport | undefined;
       if (seed) {
         populateFacility(realm, seed, { seed: 1, days: backfillDays });
         backfill = backfillRealmHistory(realm, { days: backfillDays, seed: 1 });
+      }
+      // S3 — the population source. Runs BEFORE `attachHypergraph` below, deliberately.
+      //
+      // No backfill here: a generated population IS the history, five years of it, and
+      // replaying the synthetic backfill on top would add a second, contradictory
+      // clinical record for the same patients.
+      if (population) {
+        try {
+          populationReport = await seedRealmFromPopulation(realm, {
+            realmId: id,
+            facilityId: population.facilityId,
+            facilityKind: population.facilityKind ?? 'dialysis',
+            facilityName: population.facilityName ?? population.facilityId,
+            units: population.units,
+            ...(population.root !== undefined ? { root: population.root } : {}),
+            ...(population.limit !== undefined ? { limit: population.limit } : {}),
+            ...(population.includeDeceased !== undefined ? { includeDeceased: population.includeDeceased } : {}),
+            ...(population.seedObservationState !== undefined ? { seedObservationState: population.seedObservationState } : {}),
+          });
+        } catch (e) {
+          // Remove the realm rather than return a world that is unseeded or half-seeded.
+          // A half-seeded realm is the one outcome the seeder itself refuses to produce
+          // (`partial-population`), and leaving one live behind the HTTP error would put
+          // exactly that on the console — with cohorts, denominators and chair counts all
+          // quietly wrong, and nothing to say so.
+          RealmRegistry.remove(id);
+          return reply.code(422).send({ error: (e as Error).message });
+        }
       }
       // Phase 1b — attach the typed hypergraph now and sync the graph once.
       // The projection is a materialised view of state, so this is equivalent to
@@ -516,29 +575,35 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
       try {
         const sql = await getSqlStore();
         await sql.saveRealmSnapshot({ realmId: id, mode, createdAt: new Date().toISOString(), snapshotJson: JSON.stringify(captureSnapshot(realm)) });
-        // Creation spec → restored on boot (see realm-restore.ts).
+        // Creation spec → restored on boot (see realm-restore.ts). A population-born realm
+        // records its SOURCE and its non-default options, so losing the snapshot does not
+        // leave it restorable only as an empty world.
         await sql.saveRealmSpec({
           realmId: id, mode, createdAt: new Date().toISOString(),
           ...(trajectoryEngine ? { trajectoryEngine } : {}),
           specJson: JSON.stringify({
             ...(seed ? { seed } : {}),
+            ...(population ? { population: population as unknown as Record<string, unknown> } : {}),
             ...(trajectoryEngine ? { trajectoryEngine } : {}),
           }),
         });
         // Seed master data (Settings admin): facility → units → patients from the graph.
-        if (seed) {
+        if (seed || population) {
+          const fallbackName = seed ? seed.name : (population!.facilityName ?? population!.facilityId);
+          const fallbackKind = seed ? seed.kind : (population!.facilityKind ?? 'dialysis');
+          const fallbackFacilityId = seed ? seed.facilityId : population!.facilityId;
           for (const f of realm.graph.listKind('facility')) {
             const st = f.state ?? {};
-            await sql.saveFacility({ id: f.id, realmId: id, name: typeof st.name === 'string' ? st.name : seed.name, kind: typeof st.kind === 'string' ? st.kind : seed.kind });
+            await sql.saveFacility({ id: f.id, realmId: id, name: typeof st.name === 'string' ? st.name : fallbackName, kind: typeof st.kind === 'string' ? st.kind : fallbackKind });
           }
           for (const u of realm.graph.listKind('unit')) {
             const st = u.state ?? {};
-            await sql.saveUnit({ id: u.id, facilityId: typeof st.facilityId === 'string' ? st.facilityId : seed.facilityId, realmId: id, code: typeof st.code === 'string' ? st.code : u.id });
+            await sql.saveUnit({ id: u.id, facilityId: typeof st.facilityId === 'string' ? st.facilityId : fallbackFacilityId, realmId: id, code: typeof st.code === 'string' ? st.code : u.id });
           }
           for (const p of realm.graph.listKind('patient')) {
             const st = p.state ?? {};
             await sql.savePatient({
-              id: p.id, facilityId: typeof st.facilityId === 'string' ? st.facilityId : seed.facilityId,
+              id: p.id, facilityId: typeof st.facilityId === 'string' ? st.facilityId : fallbackFacilityId,
               unitId: typeof st.unitId === 'string' ? st.unitId : '', realmId: id,
               age: typeof st.age === 'number' ? st.age : null,
               sex: typeof st.sex === 'string' ? st.sex : null,
@@ -549,7 +614,14 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
           }
         }
       } catch { /* storage is best-effort; the realm still runs */ }
-      return { ...realm.snapshot(), ...(backfill ? { history: backfill } : {}) };
+      return {
+        ...realm.snapshot(),
+        ...(backfill ? { history: backfill } : {}),
+        // What the seeder actually did, so a caller can see which patients were admitted,
+        // which conditions became problem-list terms, and which engine dimensions were
+        // primed from a measurement rather than from a covariate or the default.
+        ...(populationReport ? { population: populationReport } : {}),
+      };
     } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
 

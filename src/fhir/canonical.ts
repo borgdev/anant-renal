@@ -286,6 +286,34 @@ function category(resource: { category?: Array<{ coding?: Array<{ code?: string 
   return c ?? resource.category?.[0]?.text;
 }
 
+/**
+ * Panel codes that denote "blood pressure, systolic and diastolic".
+ *
+ * Sourced, not invented: `55284-4` is the registry's `vital/bp` (the code our own
+ * serializer emits, pinned by `tests/fhir-terminology.test.ts`), and `85354-9` is the
+ * equivalent code Synthea emits — the most frequent vital-signs observation in a
+ * generated population, confirmed against real output rather than assumed.
+ */
+const BP_PANEL_CODES: readonly string[] = ['55284-4', '85354-9'];
+
+/** `systolic/diastolic` from a panel's `component[]`, when both halves are present. */
+function bloodPressurePanel(obs: { component?: unknown }): string | undefined {
+  const components = obs.component as
+    | Array<{ code?: { coding?: Array<{ code?: string }> }; valueQuantity?: { value?: number } }>
+    | undefined;
+  if (!components) return undefined;
+  let systolic: number | undefined;
+  let diastolic: number | undefined;
+  for (const c of components) {
+    const code = c.code?.coding?.[0]?.code;
+    const value = c.valueQuantity?.value;
+    if (typeof value !== 'number') continue;
+    if (code === '8480-6') systolic = value;
+    if (code === '8462-4') diastolic = value;
+  }
+  return systolic !== undefined && diastolic !== undefined ? `${Math.round(systolic)}/${Math.round(diastolic)}` : undefined;
+}
+
 /** Map a canonical event carrying a FHIR resource to WorldEffects the realm applies. */
 function eventToEffects(evt: CanonicalEvent, opts: FhirIngestOptions): { effects?: Parameters<Realm['emit']>[1][]; skipped?: string } {
   const resource = (evt.payload as { fhir?: FhirResource }).fhir;
@@ -336,16 +364,41 @@ function eventToEffects(evt: CanonicalEvent, opts: FhirIngestOptions): { effects
       return { effects: [{ kind: 'order-med', patientId: patientRef, code, dose: dose ?? '', route: route ?? '', frequency: frequency ?? '' }] };
     }
     case 'Observation': {
-      const obs = resource as { status?: string; category?: unknown; code?: unknown; valueQuantity?: { value?: number; unit?: string }; interpretation?: Array<{ coding?: Array<{ code?: string }> }>; basedOn?: Array<{ reference?: string }> };
+      const obs = resource as { status?: string; category?: unknown; code?: unknown; valueQuantity?: { value?: number; unit?: string }; component?: unknown; interpretation?: Array<{ coding?: Array<{ code?: string }> }>; basedOn?: Array<{ reference?: string }> };
       const cat = category(obs as { category?: Array<{ coding?: Array<{ code?: string }> }> });
       const code = coding(obs as { code?: { coding?: Array<{ code?: string }> } }) ?? 'unknown';
       if (cat === 'vital-signs') {
         if (!patientRef) return { skipped: 'vitals-without-subject' };
-        const vitals: Record<string, number | undefined> = {};
+        const vitals: Record<string, number | string | undefined> = {};
         const loincToKey: Record<string, 'hr' | 'spo2' | 'temp' | 'rr'> = { '8867-4': 'hr', '2708-6': 'spo2', '8310-5': 'temp', '9279-1': 'rr' };
         const key = loincToKey[code];
         if (key && obs.valueQuantity?.value !== undefined) vitals[key] = obs.valueQuantity.value;
-        if (code === '55284-4' && obs.valueQuantity?.value !== undefined) vitals['bp'] = obs.valueQuantity.value;
+
+        // Blood pressure is a PANEL, and both producers we have write its reading in
+        // `component[]` rather than `valueQuantity`. Our OWN serializer uses the panel
+        // code `55284-4` carrying systolic `8480-6` / diastolic `8462-4` components — see
+        // `effect-map.ts` `record-vitals`, and `tests/fhir-terminology.test.ts` pins that
+        // encoding explicitly. Synthea uses the equivalent panel `85354-9`, which is the
+        // most frequent vital-signs observation in a generated population (2,301 in a
+        // 150-patient sample).
+        //
+        // Reading only `valueQuantity` meant the platform could not read back the blood
+        // pressure it had just written: a round-trip failure entirely inside this
+        // repository, found while wiring S3.
+        if (BP_PANEL_CODES.includes(code)) {
+          const panel = bloodPressurePanel(obs);
+          if (panel) vitals['bp'] = panel;
+          else if (obs.valueQuantity?.value !== undefined) vitals['bp'] = String(obs.valueQuantity.value);
+        }
+
+        // An EMPTY effect is returned deliberately, rather than reported as a skip like
+        // the branches around it. `bundle-ingest` treats an Observation that maps to no
+        // effect as a failed entry, and a failed entry rolls back a `transaction` bundle
+        // — so a skip here would break the platform's own session bundle, which carries a
+        // dry-weight observation that has no home in `lastVitals`. The empty effect is
+        // harmless because the reducer MERGES `lastVitals` rather than replacing it (see
+        // the `record-vitals` case in `effect-reducer.ts`, and the measurement recorded
+        // there).
         return { effects: [{ kind: 'record-vitals', patientId: patientRef, ...vitals }] };
       }
       // laboratory → result-lab

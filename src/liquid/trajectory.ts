@@ -125,6 +125,12 @@ export class TrajectoryAmbientProcess implements AmbientProcess {
   private readonly sims = new Map<string, LiquidSimulation>();
   private readonly pulses = new Map<string, PatientPulse>();
   private readonly biases = new Map<string, Record<string, number>>();
+  /**
+   * S3 — initial conditions supplied from measured data, applied when a patient's
+   * model is first constructed. Kept separately from `sims` because a seed can
+   * arrive before the wasm module has loaded, when no model exists to fork.
+   */
+  private readonly seeds = new Map<string, DialysisState>();
   /** Per-vertex adaptive time constant (realm-hours) from the previous tick, for dt feedback. */
   private readonly lastTau = new Map<string, { state: DialysisState; tau: number }>();
   private prevRealmAtMs: number | undefined;
@@ -168,6 +174,39 @@ export class TrajectoryAmbientProcess implements AmbientProcess {
       cur[k] = (cur[k] ?? 0) + v;
     }
     this.biases.set(patientId, cur);
+  }
+
+  /**
+   * Set a patient's engine state from measured data, so its trajectory starts from
+   * the PATIENT rather than from the model's default initial condition.
+   *
+   * This is the S3 exit criterion ("the trajectory engine advances from the seeded
+   * state rather than from zero"), and the plan offers two routes to it (§4.5(3)):
+   * a warm-up replay of the observation history, or this — setting the dimensions
+   * directly.
+   *
+   * This route is chosen, and the reason is worth recording because the replay is the
+   * one the plan calls preferred. `stepWithEvents` consumes a five-element event
+   * vector in which an abnormal haemoglobin is ONE BINARY FEATURE
+   * (`lab_marker_elevated`, set when `HGB < 10` — see `#eventVector`). Replaying a
+   * haemoglobin history therefore cannot reproduce a measured haemoglobin: the
+   * dimension converges to whatever the baseline ODE drives it to, which is the same
+   * value for HGB 8.9 and HGB 7.1. Setting the dimension from the measurement is the
+   * only route that makes `anemia_severity` mean what the chart says, and the
+   * inverse is derived from the engine's own declared projection rather than
+   * restating its constants — see `DIALYSIS_PROJECTION` in `project.ts`.
+   *
+   * Applied immediately when the patient's model already exists (a realm that has
+   * ticked), otherwise held until construction.
+   */
+  seedState(patientId: string, state: DialysisState): void {
+    this.seeds.set(patientId, state);
+    this.sims.get(patientId)?.forkFrom(JSON.stringify(state), 0);
+  }
+
+  /** Whether a patient's engine state has been seeded from measured data. */
+  seededPatientIds(): readonly string[] {
+    return [...this.seeds.keys()];
   }
 
   onTick(ctx: AmbientContext): void {
@@ -225,6 +264,11 @@ export class TrajectoryAmbientProcess implements AmbientProcess {
       // Until trained weights are promoted, run the deterministic baseline ODE (α = 0) so
       // trajectories converge instead of being dominated by a random untrained residual.
       if (!this.weights) sim.setResidualAlpha(0);
+      // S3 — fork from the seeded initial condition. Done HERE rather than at seed
+      // time so a seed that arrives before the wasm module loads still lands: the
+      // order of "realm created" and "seed ingested" is not fixed.
+      const seed = this.seeds.get(patientId);
+      if (seed) sim.forkFrom(JSON.stringify(seed), 0);
       this.sims.set(patientId, sim);
     }
     return sim;

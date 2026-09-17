@@ -95,6 +95,33 @@ function systolicOf(bp: string | undefined): number | undefined {
   return Number.isFinite(first) ? first : undefined;
 }
 
+/**
+ * A created entity's id, made unique against what the graph already holds.
+ *
+ * `base` is normally `${patientId}-${code}-${clock.seq}`, and **`clock.seq` alone is not
+ * unique**: the clock does not advance during an ingest, so every effect derived from one
+ * bundle shares a seq. Two medication orders for the same patient and the same code
+ * therefore produced the SAME id, and `EntityGraph.create` throws `entity-exists` — which
+ * `bundle-ingest` surfaces as a failed entry, and a failed entry rolls back a whole
+ * `transaction` bundle.
+ *
+ * Found by S3 against a real generated population: 135 of 150 patients ingested and the
+ * 136th threw on a duplicate medication order. It is not an S3-only path — any EMR feed
+ * carrying two orders of the same drug in one bundle reaches it.
+ *
+ * The disambiguator is read from the GRAPH rather than taken from a counter or a random
+ * suffix, because an effect's id has to be a deterministic function of the effect and the
+ * state it is applied to: replay and counterfactual runs re-emit effects and must land on
+ * the ids the original run produced. Existing ids are unchanged for the common case, so
+ * nothing persisted or asserted moves.
+ */
+function uniqueEntityId(g: EntityGraph, kind: 'order' | 'medication', base: string): string {
+  if (!g.get(g.urnFor(kind, base))) return base;
+  let n = 2;
+  while (g.get(g.urnFor(kind, `${base}-${n}`))) n += 1;
+  return `${base}-${n}`;
+}
+
 export interface EmitOpts {
   /**
    * The effect has ALREADY been approved by a human — the outcome episode's
@@ -283,7 +310,7 @@ export class EffectReducer {
         return results;
       }
       case 'order-lab': {
-        const orderId = `${effect.patientId}-${effect.code}-${this.clock.seq}`;
+        const orderId = uniqueEntityId(g, 'order', `${effect.patientId}-${effect.code}-${this.clock.seq}`);
         const rec = g.create('order', orderId, { kind: 'lab', code: effect.code, priority: effect.priority, patientId: effect.patientId, encounterId: effect.encounterId, status: 'ordered', orderedAt: at });
         results.push({ urn: rec.urn, kind: 'order', id: orderId, patch: rec.state });
         return results;
@@ -299,7 +326,7 @@ export class EffectReducer {
         return results;
       }
       case 'order-med': {
-        const medOrderId = `${effect.patientId}-${effect.code}-${this.clock.seq}`;
+        const medOrderId = uniqueEntityId(g, 'medication', `${effect.patientId}-${effect.code}-${this.clock.seq}`);
         const rec = g.create('medication', medOrderId, { kind: 'order', code: effect.code, dose: effect.dose, route: effect.route, frequency: effect.frequency, indication: effect.indication, patientId: effect.patientId, status: 'active', orderedAt: at });
         results.push({ urn: rec.urn, kind: 'medication', id: medOrderId, patch: rec.state });
         return results;
@@ -330,10 +357,50 @@ export class EffectReducer {
       }
       case 'record-vitals': {
         const patientUrn = g.urnFor('patient', effect.patientId);
-        const patch = { lastVitals: { hr: effect.hr, bp: effect.bp, spo2: effect.spo2, temp: effect.temp, rr: effect.rr, at } };
-        if (g.get(patientUrn)) g.patch(patientUrn, patch, `effect:${effect.kind}`);
-        else g.create('patient', effect.patientId, patch);
-        results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
+        // MERGE the measured fields over what the patient already has; do not rebuild
+        // the object.
+        //
+        // The previous form was `{ hr: effect.hr, bp: effect.bp, spo2: effect.spo2,
+        // temp: effect.temp, rr: effect.rr, at }` — every key always present, the
+        // unmeasured ones explicitly `undefined`. Combined with `EntityGraph.patch`
+        // being a SHALLOW merge (`rec.state = { ...rec.state, ...patch }`, so assigning
+        // `lastVitals` replaces the whole nested object), that meant a `record-vitals`
+        // carrying no values WIPED every vital the patient held, and one carrying a
+        // single value discarded the rest.
+        //
+        // Both are reached from ordinary data, not from a malformed feed: a
+        // blood-pressure panel carries its reading in `component[]`, and a dry-weight
+        // observation has no home in `lastVitals` at all — a panel arriving after a
+        // heart-rate observation erased the heart rate. The lose was silent, and it
+        // biased the trajectory engine, whose event vector falls back to `hr = 72,
+        // spo2 = 97` when vitals are absent — a reading that looks STABLE.
+        //
+        // The shallow-merge behaviour of `patch` is why `prior` has to be read and
+        // spread here rather than assumed: the reducer is the only place that knows
+        // `lastVitals` is a partial record of per-field measurements.
+        const measured: Record<string, number | string> = {};
+        if (effect.hr !== undefined) measured['hr'] = effect.hr;
+        if (effect.bp !== undefined) measured['bp'] = effect.bp;
+        if (effect.spo2 !== undefined) measured['spo2'] = effect.spo2;
+        if (effect.temp !== undefined) measured['temp'] = effect.temp;
+        if (effect.rr !== undefined) measured['rr'] = effect.rr;
+
+        const existing = g.get(patientUrn);
+        const prior = (((existing?.state as { lastVitals?: Record<string, unknown> } | undefined)?.lastVitals) ?? {}) as Record<string, unknown>;
+        const patch: Record<string, unknown> = { lastVitals: { ...prior, ...measured, at } };
+
+        if (!existing) {
+          // Preserved deliberately: a `record-vitals` for an unknown patient CREATES it.
+          // That behaviour is why `population/projection.ts` forces the Patient into the
+          // first chunk of every bundle, and it is not this fix's business to change.
+          g.create('patient', effect.patientId, patch);
+          results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
+        } else if (Object.keys(measured).length > 0) {
+          // Only when something was actually measured. An empty effect must not refresh
+          // `at` either: `at` answers "when were these vitals taken", and none were.
+          g.patch(patientUrn, patch, `effect:${effect.kind}`);
+          results.push({ urn: patientUrn, kind: 'patient', id: effect.patientId, patch });
+        }
         return results;
       }
       case 'start-session': {

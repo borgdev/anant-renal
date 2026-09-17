@@ -44,9 +44,20 @@ import type { RealmMode } from '../realm/types.js';
 import { RealmRegistry, populateFacility, restoreSnapshot, type RealmSnapshotV1 } from '../realm/index.js';
 import { buildHealthcareHypergraphSchema } from '../../packs/healthcare-core/hypergraph.js';
 import { RealmHypergraph } from '../realm/hypergraph-bridge.js';
+import { seedRealmFromPopulation } from '../population/synthea/seed.js';
+import type { PopulationSeedRequest } from './admin-routes.js';
 
 export interface RealmCreationSpec {
   seed?: Parameters<typeof populateFacility>[1];
+  /**
+   * S3 — a realm born from a generated population rather than the static seed.
+   *
+   * Recorded so the fallback below can rebuild it. Without this a population-born realm
+   * whose snapshot was lost would restore as an EMPTY world that still looks healthy:
+   * no patients, so every cohort, denominator and protocol gate reads zero, and nothing
+   * in the console would say the population was missing rather than empty.
+   */
+  population?: PopulationSeedRequest;
   trajectoryEngine?: 'legacy' | 'liquid';
 }
 
@@ -84,7 +95,31 @@ export async function restoreRealmsFromSpecs(store: Pick<SqlStore, 'listRealmSpe
       let parsed: RealmCreationSpec = {};
       try { parsed = JSON.parse(row.specJson) as RealmCreationSpec; } catch { parsed = {}; }
       const realm = build();
-      if (parsed.seed) populateFacility(realm, parsed.seed);
+      if (parsed.population) {
+        // Before `start()`, matching `POST /admin/realms`.
+        try {
+          const p = parsed.population;
+          await seedRealmFromPopulation(realm, {
+            realmId: row.realmId,
+            facilityId: p.facilityId,
+            facilityKind: p.facilityKind ?? 'dialysis',
+            facilityName: p.facilityName ?? p.facilityId,
+            units: p.units,
+            ...(p.root !== undefined ? { root: p.root } : {}),
+            ...(p.limit !== undefined ? { limit: p.limit } : {}),
+            ...(p.includeDeceased !== undefined ? { includeDeceased: p.includeDeceased } : {}),
+            ...(p.seedObservationState !== undefined ? { seedObservationState: p.seedObservationState } : {}),
+          });
+        } catch {
+          // The artifact is gone or damaged. A realm with no patients is worse than no
+          // realm, because it looks like a healthy empty world — drop it and let the
+          // caller recreate it from the population it names.
+          RealmRegistry.remove(row.realmId);
+          continue;
+        }
+      } else if (parsed.seed) {
+        populateFacility(realm, parsed.seed);
+      }
       realm.start();
       restored.push(row.realmId);
     }

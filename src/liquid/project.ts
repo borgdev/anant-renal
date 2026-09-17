@@ -35,7 +35,7 @@
 // the harness understands (labs, vitals, risk, trajectory label). Used by both the realm
 // trajectory process and the What-If forecast service so they can't drift apart.
 
-import type { DialysisLabs, DialysisState } from './types.js';
+import type { DialysisDim, DialysisLabs, DialysisState } from './types.js';
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 const round1 = (v: number): number => Math.round(v * 10) / 10;
@@ -49,24 +49,61 @@ export interface ProjectedState {
   trajectory: string;
 }
 
-export function projectDialysisState(state: DialysisState): ProjectedState {
-  const ktv = state.ktv_adequacy;
-  const anemia = state.anemia_severity;
-  const phos = state.phosphate;
-  const vitals = state.vitals_instability;
-  const risk = state.deterioration_risk;
+/**
+ * The declared state → observation projection.
+ *
+ * Exported as DATA rather than left inline because S3 needs the INVERSE. Seeding a
+ * realm from a generated population means turning a measured haemoglobin into the
+ * engine's initial condition, and that inversion has to use THESE numbers. A second
+ * copy of `13.0 - 5.0 * anemia` living in `src/population/` is the classic drift
+ * bug: the two agree until one is tuned, and the failure surfaces as the engine
+ * quietly disagreeing with the chart it was seeded from. `prime.ts` derives its
+ * inverse from this table for that reason.
+ *
+ * This is a naming of the constants the engine already had — not a new renal claim
+ * placed inside `src/liquid/`. See the constraint at the top of
+ * `src/population/source.ts`: the population→engine mapping belongs on the
+ * population side, and this table is what lets it be written without restating a
+ * single number.
+ */
+export interface DimensionProjection {
+  /** The engine dimension this observation reads. */
+  readonly dim: DialysisDim;
+  /** Value attained when the dimension is 0. */
+  readonly atZero: number;
+  /** Value attained when the dimension is 1. May be BELOW `atZero` — see `HGB`. */
+  readonly atOne: number;
+  /** Applied on output, so the inverse knows the quantisation it must land on. */
+  readonly round: (v: number) => number;
+  readonly unit: string;
+}
 
+export const DIALYSIS_PROJECTION = Object.freeze({
+  K: { dim: 'ktv_adequacy', atZero: 6.5, atOne: 3.5, round: round1, unit: 'mmol/L' },
+  HGB: { dim: 'anemia_severity', atZero: 13.0, atOne: 8.0, round: round1, unit: 'g/dL' },
+  URR: { dim: 'ktv_adequacy', atZero: 55, atOne: 85, round: Math.round, unit: '%' },
+  PHOS: { dim: 'phosphate', atZero: 3.5, atOne: 7.5, round: round1, unit: 'mg/dL' },
+  hr: { dim: 'vitals_instability', atZero: 70, atOne: 100, round: Math.round, unit: 'bpm' },
+  spo2: { dim: 'vitals_instability', atZero: 98, atOne: 90, round: Math.round, unit: '%' },
+} satisfies Record<string, DimensionProjection>);
+
+/** The observation value for a dimension position. Exact affine interpolation. */
+export function lerpProjection(p: DimensionProjection, x: number): number {
+  return p.round(p.atZero + (p.atOne - p.atZero) * x);
+}
+
+export function projectDialysisState(state: DialysisState): ProjectedState {
   const labs: DialysisLabs = {
-    K: round1(6.5 - 3.0 * ktv), // 3.5 (ktv=1) .. 6.5 (ktv=0)
-    HGB: round1(13.0 - 5.0 * anemia), // 13 (anemia=0) .. 8 (anemia=1)
-    URR: Math.round(55 + 30 * ktv), // 55% .. 85%
-    PHOS: round1(3.5 + 4.0 * phos), // 3.5 .. 7.5
+    K: lerpProjection(DIALYSIS_PROJECTION.K, state.ktv_adequacy),
+    HGB: lerpProjection(DIALYSIS_PROJECTION.HGB, state.anemia_severity),
+    URR: lerpProjection(DIALYSIS_PROJECTION.URR, state.ktv_adequacy),
+    PHOS: lerpProjection(DIALYSIS_PROJECTION.PHOS, state.phosphate),
   };
   return {
     labs,
-    hr: Math.round(70 + 30 * vitals),
-    spo2: Math.round(clamp(98 - 8 * vitals, 80, 100)),
-    risk: round3(risk),
+    hr: lerpProjection(DIALYSIS_PROJECTION.hr, state.vitals_instability),
+    spo2: Math.round(clamp(lerpProjection(DIALYSIS_PROJECTION.spo2, state.vitals_instability), 80, 100)),
+    risk: round3(state.deterioration_risk),
     trajectory: trajectoryLabel(state),
   };
 }

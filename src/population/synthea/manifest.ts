@@ -164,6 +164,17 @@ export function outputDigestOf(dir: string): { digest: string; fileCount: number
 }
 
 /**
+ * Where generated populations live, by default.
+ *
+ * Shared by the generator (`scripts/generate-population.ts`) and the seeder
+ * (`population.ts`) so a realm cannot be generated into one directory and read from
+ * another. `SYNTHEA_POPULATION_ROOT` overrides it — the generator's root is a
+ * build-time choice, but the seeder may run in a deployment where the artifacts were
+ * shipped separately.
+ */
+export const DEFAULT_POPULATION_ROOT = process.env.SYNTHEA_POPULATION_ROOT ?? join(process.cwd(), 'synthea-population');
+
+/**
  * `synthea-population/<realmId>/` — per realm, per §9.5.
  *
  * This is the BASE passed to Synthea, so the layout on disk is:
