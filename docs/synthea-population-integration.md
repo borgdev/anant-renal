@@ -276,6 +276,112 @@ badge becomes true rather than decorative.
 
 ---
 
+### 4.3 Why the existing FHIR ingestor is the front half — and not the whole answer
+
+We already own a real FHIR ingest, so the obvious question is whether the
+population work collapses into "point the batch ingestor at Synthea's output".
+**Half of it does, and the other half would quietly empty every specialty's
+cohort.** The division is measurable.
+
+`renalPatientInputs` (`src/swarm/renal-cohort.ts`) hands the entity's state bag
+straight to the packs:
+
+```ts
+state: patient.state as Record<string, unknown>,
+```
+
+So what a pack can see is exactly what the patient entity carries. The two writers
+of that bag disagree almost completely:
+
+| | Written by the FHIR ingestor<br/>`structuralState`, `src/fhir/canonical.ts` | Written by the seeder<br/>`populateFacility` |
+|---|---|---|
+| `sex`, `facilityId` | ✅ | ✅ |
+| `name`, `mrn` | ✅ | — |
+| **`birthDate`** | ✅ | — |
+| **`age`** | — | ✅ |
+| `problemList` | — | ✅ |
+| `trajectory`, `dialysisVintageYears` | — | ✅ |
+| `access`, `sessions`, `accessObservations` | — | ✅ |
+| `lastVitals`, labs, `admitted` | — | ✅ |
+
+**The overlap is two fields: `sex` and `facilityId`.** Three consequences, each of
+which is a regression rather than a gap:
+
+1. **Every specialty's cohort empties.** `problemList` is how a cohort names its
+   patients — `packs/oncology-provider/cohort.ts` reads `state.problemList`. Nothing
+   in the ingest path writes it. Ingesting alone would take the oncology board back
+   to empty, undoing the cohort work.
+2. **The renal protocols break on age.** They read `state.age`; the ingestor writes
+   `birthDate`. Nothing in the *simulation* reads `birthDate` — see §4.4, where the
+   one existing relationship between the two turns out to be the wrong way round. A
+   realm of ingested patients would therefore have no age at all as far as every
+   protocol is concerned.
+3. **There is nothing to simulate.** No `access`, `sessions` or `trajectory` means
+   the renal simulator has no state to advance.
+
+Also worth stating plainly: **ingested `Condition` resources do not reach the
+cohorts either.** `RESOURCE_TO_KIND` maps `Condition` to its own `condition` entity
+kind, not into `state.problemList`, so a patient can carry a perfectly good Synthea
+malignancy and remain invisible to the oncology cohort.
+
+And a terminology point, because "batch" means two different things here:
+**there is no bulk ingestor.** `bulkExport` appears only as a *vendor capability
+flag* in the integration profiles (`fhir-integration-routes.ts`) — a description of
+what Epic or Cerner supports, not an endpoint we implement. What exists is
+`POST /fhir` → `ingestFhirBundle` with `MAX_BUNDLE_ENTRIES = 500` per bundle. A
+231-module, multi-hundred-patient population therefore arrives as **many bundles**,
+which is fine, but it is not a single bulk load.
+
+### 4.4 What the ingestor nonetheless removes
+
+The reframing is **ingest → enrich**, not *seed → maybe ingest*:
+
+- `populateFacility` stops **creating** patients and starts **completing** them —
+  assign unit, access type, vintage, trajectory, and derive `age`.
+- The bespoke `parse.ts` this plan originally proposed is **deleted from it**. We
+  inherit idempotency, dry-run/rollback, `Patient.link` merge handling, and identity
+  resolution — built and tested — instead of writing a parallel parser that would
+  have to grow all of it again.
+
+That is strictly less new code, and it removes the phase's largest risk (a
+hand-rolled FHIR reader drifting from the real one). The trade is that the
+enrichment step must be explicit and tested, because it is now the only place the
+renal shape is applied.
+
+Two decisions this surfaces, both recorded in §8:
+
+- **`age` vs `birthDate`.** The platform snapshots `age` — a derived,
+  time-dependent value that rots as the realm clock advances. Synthea supplies
+  `birthDate`, which does not. Synthea makes fixing this possible, and the fix is to
+  derive `age` from `birthDate` at read time rather than freeze it at seed time.
+
+  Checked, because the honest version is more specific than "nothing reads it": the
+  two are already related, in the **wrong direction**. The outbound FHIR serializer
+  prefers a stored `birthDate` and otherwise **falls back to deriving one from the
+  stored age** (`src/fhir/mapping.ts`):
+
+  ```ts
+  ...(birthDate ? { birthDate } : age !== undefined
+    ? { birthDate: `${new Date().getFullYear() - age}-01-01` }
+    : {}),
+  ```
+
+  So the wire direction is already correct — `birthDate` wins when it exists, which is
+  what the ingest path writes. The gap is that the **simulation** reads `age` and
+  nothing keeps the two in step, so the fallback is doing real work today: `age` is
+  frozen at seed time while the realm clock runs accelerated, and the derived birth
+  date is computed against the **wall clock**. A patient in a realm that has simulated
+  three years goes out to an EMR with a birth date from real time and an age that has
+  not moved. Ingesting a real `birthDate` inverts the relationship properly —
+  `birthDate` becomes the stored fact, `age` the derived read — and `identity.ts`
+  already consumes `birthDate` for patient matching, so it is a fact the platform
+  half-uses already.
+- **Conditions → `problemList`.** Either project ingested `condition` entities into
+  `state.problemList` (keeps today's cohort contract, smaller step), or change the
+  cohorts to read `condition` entities (the right destination, but it touches every
+  pack's cohort). The first is the smaller step; the second is where this should
+  end up, because "a recorded problem" is precisely a `Condition`.
+
 ## 5. Phases
 
 ### S0 — Prove the tool, and decide (§3)
@@ -308,22 +414,33 @@ golden bundle** under `tests/fixtures/synthea/` — the precedent is
 **Exit:** generation is reproducible from the manifest; `S2`'s tests pass with no
 JDK and no Python installed.
 
-### S3 — FHIR onto the platform
+### S3 — Ingest onto the platform, then enrich
 
-Parse Synthea FHIR → `PopulatedPatient[]`, and seed a realm through
-`ingestFhirBundle`. The critical sub-problem is **identity**: the ingest path
-already warns that an EMR feed must supply `identity` or *"a patient whose MRN the
-harness has not seen before silently becomes a second chart."* Synthea patient ids
-need a deterministic mapping onto our `facilityId-pt-NNNN` ids so regeneration does
-not duplicate charts.
+Two steps, in this order, and the order is the design:
 
-**Exit:** a realm seeded entirely from Synthea output renders in both consoles, and
-re-running generation produces no duplicates.
+1. **Ingest.** Feed Synthea's FHIR through `ingestFhirBundle` — the existing path,
+   with its idempotency ledger, dry-run and merge handling. One or more bundles per
+   population (§4.3).
+2. **Enrich.** Complete the ingested patients with the renal shape: unit, access
+   type, vintage, trajectory, derived `age`, and the conditions projected into the
+   cohort vocabulary. This is new code and the only place the renal shape is applied.
+
+The critical sub-problem is **identity**: `ingestFhirBundle` warns that an EMR feed
+must supply `identity` or *"a patient whose MRN the harness has not seen before
+silently becomes a second chart."* Synthea patient ids need a deterministic mapping
+onto our `facilityId-pt-NNNN` ids so regeneration does not duplicate charts.
+
+**Exit:** a realm seeded entirely from Synthea output renders in both consoles;
+re-running generation produces no duplicates; and every specialty's cohort is
+**non-empty**, which is the assertion that catches "we ingested but the packs cannot
+see anything".
 
 ### S4 — Replace the round-robin
 
-`sim-populator` seeds from the configured source. `AGES` / `SEXES` /
-`COMORBIDITIES` / `ACCESS_TYPES` stop being the population's source of truth.
+`sim-populator` enriches from the configured source rather than generating.
+`AGES` / `SEXES` / `COMORBIDITIES` / `ACCESS_TYPES` stop being the population's
+source of truth — though `StaticPatientSource` keeps them for the test path, which
+is what lets the unit suite stay dependency-free.
 
 **Exit:** every installed specialty's cohort is non-empty and clinically coherent,
 and patients are distinct. Measurably: the oncology cohort is no longer drawn from
@@ -404,6 +521,11 @@ manifest alone.
 5. **Scope of `S5`.** Should the equity work be part of this, or is it a follow-on?
    It is the strongest justification for the work, and it is also where a negative
    result would be most informative — so I would keep it in scope.
+6. **`age` vs `birthDate` as the source of truth** (§4.4). Deriving age at read time
+   is the more correct model and Synthea makes it possible; it also touches every
+   reader of `state.age`.
+7. **Conditions → `problemList` by projection, or cohorts reading `condition`
+   entities directly** (§4.4). The first is smaller; the second is the destination.
 
 ---
 
@@ -419,8 +541,10 @@ src/population/
   static-source.ts                   # today's round-robin, unchanged, default for tests
   synthea/
     runner.ts                        # spawns the CLI — injectable, mirrors LiquidTrainer
-    parse.ts                         # FHIR → PopulatedPatient[] (as-of projection)
     identity.ts                      # deterministic Synthea id → platform id
+    enrich.ts                        # ingested patient → renal shape (+ age from birthDate)
+    conditions.ts                    # ingested condition entities → cohort vocabulary
+  # NO bespoke FHIR parser: ingestFhirBundle is the front half (§4.3)
 tests/fixtures/synthea/              # tiny committed golden bundle
 tests/population-*.test.ts
 docs/synthea-population-integration.md   # this document
