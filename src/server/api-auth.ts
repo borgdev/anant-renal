@@ -115,6 +115,35 @@ export function isSetupWrite(url: string, method: string): boolean {
   return SETUP_WRITE_PREFIXES.some((p) => url === p || url.startsWith(`${p}/`) || url.startsWith(p));
 }
 
+/**
+ * Exec-scoped surfaces a READ-ONLY role may READ.
+ *
+ * Deliberately one prefix. A read-only role is refused the whole executive
+ * namespace by default, which is right — that namespace is where the executive
+ * console's decision surfaces live, and a compliance role has no business
+ * changing any of them.
+ *
+ * But an auditor who cannot read the cross-pack hand-off queue cannot audit it,
+ * and "this hand-off has been pending for six hours and no pack claimed it" is
+ * exactly the kind of fact compliance exists to find. That fact is not visible
+ * from any other surface, so refusing it outright means refusing the audit.
+ */
+export const READ_ONLY_EXEC_READ_PREFIXES: ReadonlyArray<string> = [
+  '/admin/swarm/cross-pack',
+];
+
+/**
+ * Boundary-aware on purpose.
+ *
+ * `startsWith(prefix)` alone also matches `/admin/swarm/cross-pack-fake`, so a
+ * future sibling route could inherit an auditor read grant by doing nothing more
+ * than sharing a word with this one. The grant is written with its own fence
+ * rather than borrowing the looser matching the helpers around it use.
+ */
+export function isReadOnlyExecRead(url: string): boolean {
+  return READ_ONLY_EXEC_READ_PREFIXES.some((p) => url === p || url.startsWith(`${p}/`));
+}
+
 /** Read-only for the executive console: it may GET, never write. */
 export function isExecReadableConfig(url: string): boolean {
   return EXEC_READABLE_PLATFORM_PREFIXES.some((p) => url === p || url.startsWith(`${p}/`) || url.startsWith(p));
@@ -147,6 +176,17 @@ export async function registerAdminApiGuard(app: FastifyInstance, deps: AdminApi
 
     if (url.startsWith('/admin/swarm/')) {
       if (!roleAllowsConsole(role, 'exec')) {
+        // The one read-only exception, and it is checked HERE rather than with
+        // the setup-write rule above so it cannot reach any other exec surface.
+        //
+        // GET only, and that is not caution — it is the point. In this namespace
+        // `claim` means "the target pack picked this hand-off up". An auditor can
+        // legitimately see which hand-offs nobody has picked up; an auditor
+        // ASSERTING that a pack picked one up would corrupt the single signal the
+        // queue exists to carry.
+        if (READ_ONLY_ROLES.includes(role) && SAFE_METHODS.has((req.method ?? 'GET').toUpperCase()) && isReadOnlyExecRead(url)) {
+          return;
+        }
         return reply.code(403).send({ error: 'role-not-permitted-for-console', console: 'exec', role, allowed: CONSOLE_ROLES.exec });
       }
       return;

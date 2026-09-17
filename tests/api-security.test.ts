@@ -286,6 +286,58 @@ describe('ops-scoped setup surface (/admin/platform/*)', () => {
     expect(dlq.statusCode).toBe(200);
   });
 
+  it('a read-only role may READ the cross-pack queue, and may not claim from it', async () => {
+    const app = await build();
+    const cookie = await login(app, 'auditor', 'audit123');
+
+    // Reading is the exception, and it exists because an auditor who cannot see the
+    // queue cannot audit it. "Pending for six hours and no pack claimed it" is a
+    // compliance finding, and it is not visible from any other surface.
+    for (const url of ['/admin/swarm/cross-pack', '/admin/swarm/cross-pack/queue', '/admin/swarm/cross-pack/cases']) {
+      const res = await app.inject({ method: 'GET', url, headers: { cookie } });
+      expect(res.statusCode, url).toBe(200);
+    }
+
+    // Writing stays refused, and not out of caution: `claim` means "the target
+    // pack picked this hand-off up". An auditor asserting that would corrupt the
+    // one signal the queue carries — it would report that the payer took work the
+    // payer never took. So the grant is GET-only rather than read-write.
+    const claim = await app.inject({ method: 'POST', url: '/admin/swarm/cross-pack/queue/some-id/claim', headers: { cookie } });
+    expect(claim.statusCode).toBe(403);
+    expect(claim.json().console).toBe('exec');
+
+    const close = await app.inject({ method: 'POST', url: '/admin/swarm/cross-pack/cases/some-id/close', headers: { cookie } });
+    expect(close.statusCode).toBe(403);
+    expect(close.json().console).toBe('exec');
+  });
+
+  it('the read-only exception does not leak past its own fence', async () => {
+    // The grant is checked inside the /admin/swarm branch precisely so it cannot
+    // reach the rest of the exec namespace. A prefix-wide or boundary-blind grant
+    // would have handed the compliance role every executive decision surface, or
+    // would let a future `cross-pack-*` sibling inherit access by sharing a word.
+    const app = await build();
+    const cookie = await login(app, 'auditor', 'audit123');
+
+    for (const url of [
+      '/admin/swarm/access/state',
+      '/admin/swarm/cross-pack-fake',
+      '/admin/swarm/cross-pack-fake/queue',
+      '/admin/swarm/',
+    ]) {
+      const res = await app.inject({ method: 'GET', url, headers: { cookie } });
+      expect(res.statusCode, url).toBe(403);
+      expect(res.json().error, url).toBe('role-not-permitted-for-console');
+    }
+
+    // And a role that is NOT read-only gains nothing from this: a nurse is in the
+    // ops console, not the exec one, and the exception is for the role whose job
+    // is looking rather than for everyone outside exec.
+    const nurse = await login(app, 'nurse', 'nurse123');
+    const nurseRead = await app.inject({ method: 'GET', url: '/admin/swarm/cross-pack/queue', headers: { cookie: nurse } });
+    expect(nurseRead.statusCode).toBe(403);
+  });
+
   it('release gate serves the real verdict, not a hardcoded gate strip', async () => {
     const app = await build();
     const cookie = await login(app, 'nurse', 'nurse123');
