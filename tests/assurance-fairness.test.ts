@@ -118,46 +118,63 @@ beforeEach(() => {
 });
 
 describe('assurance — the probe finding, against the real producer', () => {
-  // A patient with NO data at all. Three of seven protocols assign a non-zero
-  // severity, and `adequacy` sits at 0.5 — one notch below the `red` threshold of
-  // 0.6. This is a finding about the PROTOCOLS: a patient nobody measured is 0.1 away
-  // from being flagged for inadequate dialysis.
-  it('documents that protocols score a no-data patient as non-zero', () => {
+  // The probe finding, now fixed at its source.
+  //
+  // Three of seven protocols used to answer anyway for a patient with no chart at all:
+  // `adequacy` 0.5, `ckd-mbd` 0.3, `access` 0.25. Each encoded missingness as a
+  // positive severity, which both defeated the engine's own `unknown` branch (it only
+  // fired at severity 0) and put a patient nobody had measured 0.1 below the `red`
+  // threshold for inadequate dialysis. `registry.ts` no longer does that.
+  it('declines to judge a no-data patient, on every protocol', () => {
     const facts = renalPatientFacts({ id: 'bare', realmId: 'r', state: {} });
-    const decided = RENAL_PROTOCOLS
-      .map((p) => ({ id: p.id, ...evaluateProtocolForPatient(p.id, facts) }))
-      .filter((s) => s.severity > 0);
+    const decided = RENAL_PROTOCOLS.map((p) => ({ id: p.id, ...evaluateProtocolForPatient(p.id, facts) }));
 
-    expect(decided.map((s) => s.id).sort()).toEqual(['access', 'adequacy', 'ckd-mbd']);
-    expect(decided.find((s) => s.id === 'adequacy')?.severity).toBe(0.5);
-    expect(decided.find((s) => s.id === 'adequacy')?.status).toBe('amber');
-    expect(decided.every((s) => s.status !== 'red')).toBe(true);
+    expect(decided.every((s) => s.status === 'unknown')).toBe(true);
+    expect(decided.every((s) => s.severity === 0)).toBe(true);
+
+    // Named individually: these three carried the terms, and an aggregate assertion
+    // would let one of them creep back if another stopped scoring.
+    for (const id of ['adequacy', 'ckd-mbd', 'access'] as const) {
+      const row = decided.find((s) => s.id === id);
+      expect(row?.severity, `${id} scores a patient with no data`).toBe(0);
+      expect(row?.status, `${id} judges a patient with no data`).toBe('unknown');
+    }
+  });
+
+  // Non-vacuity: the engine still judges a patient it CAN measure, so the assertion
+  // above is about missing data rather than about a protocol that never speaks.
+  it('still judges a patient who has been measured', () => {
+    const charted = renalPatientFacts({ id: 'charted', realmId: 'r', state: { labs: { URR: 55 } } });
+    const adequacy = evaluateProtocolForPatient('adequacy', charted);
+    expect(adequacy.status).toBe('red');
+    expect(adequacy.severity).toBeGreaterThan(0.6);
   });
 
   // The consequence for the shipped producer, and the defect the probe uncovered.
   //
-  // `cohortSignals` used to derive `covered` as "at least one protocol could evaluate
-  // this patient" — which the probe above shows is TRUE for a patient with no chart,
-  // because `access` returns `green` at severity 0.25 rather than `unknown`. Every row
-  // was covered, so the coverage comparison `fairness.ts` performs BEFORE the flag
+  // `cohortSignals` derived `covered` as "at least one protocol could evaluate this
+  // patient" — which the probe showed was TRUE for a patient with no chart, because
+  // `access` returned `green` at severity 0.25 rather than `unknown`. Every row was
+  // covered, so the coverage comparison `fairness.ts` performs BEFORE the flag
   // comparison was a constant, and `disparityReport` reads a coverage gap as `breach`:
   // the one gate that could have caught a data-capture disparity was measuring nothing.
   //
-  // Now derived from the same sufficiency rule `registry.ts` uses for `unknown`.
-  it('reports a no-data patient as UNCOVERED, which is what the coverage gate means', () => {
+  // The interim fix restated the engine's `unknown` condition inside `covered`. That
+  // restatement is now retired — the engine makes `unknown` reachable, so `covered`
+  // reads the engine rather than duplicating it.
+  it('reports a no-data patient as uncovered AND unflagged', () => {
     const view = cohortSignals([{ id: 'bare', realmId: 'r', state: {} }]);
     expect(view.rows).toHaveLength(1);
 
     const row = view.rows[0]!;
-    // The fix. Sessions 0 and a 0% panel is not enough data to judge anyone.
+    // No protocol reached a verdict, so there is nothing to be covered by…
     expect(row.covered).toBe(false);
-    // Still flagged, and that is the OTHER half of the finding rather than a
-    // contradiction: `adequacy` reports amber 0.5 against a `red` threshold of 0.6, so
-    // a patient nobody measured is 0.1 away from being flagged for inadequate dialysis.
-    expect(row.flagged).toBe(true);
-    expect(row.score).toBe(3);
-    // And the two dimensions that exist on an empty state are absent, so the patient
-    // bands into `unknown` for them rather than being dropped.
+    expect(row.score).toBe(0);
+    // …and nothing was flagged either. This is the half that CHANGED: the patient used
+    // to read `flagged: true` off `adequacy`'s 0.5 against a 0.6 threshold.
+    expect(row.flagged).toBe(false);
+    // The two dimensions that exist on an empty state are absent, so the patient bands
+    // into `unknown` for them rather than being dropped.
     expect(row.age).toBeUndefined();
     expect(row.sex).toBeUndefined();
   });
@@ -204,11 +221,11 @@ describe('assurance — the shipped fairness route', () => {
 
       expect(body.cohort.patients).toBe(12);
       expect(body.report.cohortN).toBe(12);
-      // Seven since S5 L1: the renal four plus race, ethnicity and language. The
-      // order is asserted because it is observable — the renal four keep their
-      // positions so a pre-L1 report and a post-L1 one are comparable side by side.
+      // Eight: the renal four, then race/ethnicity/language (S5 L1), then insurance.
+      // The order is asserted because it is observable — the renal four keep their
+      // positions, so a pre-L1 report and a post-L1 one are comparable side by side.
       expect(body.report.dimensions.map((d) => d.dimension)).toEqual([
-        'age', 'sex', 'vintage', 'access', 'race', 'ethnicity', 'language',
+        'age', 'sex', 'vintage', 'access', 'race', 'ethnicity', 'language', 'insurance',
       ]);
       expect(typeof body.signature).toBe('string');
 
@@ -245,18 +262,44 @@ describe('assurance — the shipped fairness route', () => {
     }
   });
 
-  // `insurance` is a real equity axis (§9.2 names it alongside race, ethnicity and
-  // language) and is still NOT declared. It stays a 400 so the gap is asserted rather
-  // than latent — and an unlisted dimension must never come back as an empty report,
-  // because "no disparity in insurance" and "we do not record insurance" are opposite
-  // conclusions that would render identically.
-  it('refuses a dimension that is still undeclared, and an unknown protocol', async () => {
+  // The payer axis. `enrich.ts` resolves the patient's `Coverage` ENTITY onto
+  // `state.insurance` (a coverage fact lives on its own resource, so it needs that
+  // step), and on the STATIC fixture no patient has coverage — every one bands into
+  // `unknown` and is counted there rather than dropped. That is the honest state of the
+  // world until `synthea-seeds/` is committed (§5 S6); what this asserts is that the
+  // axis exists and counts its patients, which is the difference between a gap that is
+  // visible and one that is not.
+  it('serves the payer axis, counting unrecorded coverage rather than dropping it', async () => {
     seedRealm();
     const app = await build();
     try {
-      const badDim = await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness?dimension=insurance' });
+      const res = await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness?dimension=insurance' });
+      expect(res.statusCode).toBe(200);
+
+      const body = res.json() as { dimension: { dimension: string; slices: Array<{ slice: string; n: number }> } };
+      expect(body.dimension.dimension).toBe('insurance');
+      expect(body.dimension.slices.map((s) => [s.slice, s.n])).toEqual([['unknown', 12]]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  // `insurance` WAS this test's 400 case and is now declared, so the 400 moved to
+  // `birthSex` — the one axis deliberately left out, because `sex` already bands it and
+  // `fairnessReport` takes the WORST verdict across dimensions, so two dimensions over
+  // one axis would double-count a single disparity in the headline while reading as two
+  // independent findings.
+  //
+  // It must stay a 400 rather than becoming an empty report: "no disparity in birth
+  // sex" and "we do not band birth sex" are opposite conclusions that would otherwise
+  // render identically.
+  it('refuses a dimension that is not declared, and an unknown protocol', async () => {
+    seedRealm();
+    const app = await build();
+    try {
+      const badDim = await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness?dimension=birthSex' });
       expect(badDim.statusCode).toBe(400);
-      expect((badDim.json() as { error: string }).error).toContain('insurance');
+      expect((badDim.json() as { error: string }).error).toContain('birthSex');
 
       const badProtocol = await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness?protocol=mbd' });
       expect(badProtocol.statusCode).toBe(400);

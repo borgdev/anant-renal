@@ -619,16 +619,6 @@ wrong — the reference simply writes to its default `output/`.
 
 Plus diabetes in 45.1% and cardiac in 32.8% of patients.
 
-**The sizing answer, which the plan needed and did not have.** Reference Synthea, seed
-`4242`:
-
-| Population | renal patients | oncology patients |
-|---|---|---|
-| 25 | **0** | **0** |
-| 200 (235 records) | **28** (11.9%) | **15** (6.4%) |
-
-Plus diabetes in 45.1% and cardiac in 32.8% of patients.
-
 So **at 25 patients every renal and oncology cohort is empty**, and at 200 both
 populate. That is a measured answer to §9.6's question, and it changes the plan's
 assumed scale: the current scenarios deploy **58 patients**, and the population has to
@@ -823,11 +813,12 @@ fix is an `observedAt?: string` on the effect honoured by the reducer, for which
 
 ### S4 — Replace the round-robin, and retire `longitudinal.ts` as the source of truth
 
-> **Outcome (2026-09-17):** the seam and the `age`/`birthDate` inversion landed
-> (`d6c1718`, `5e6470b`, `c20e976`); the §8 #7 `condition`-entity projection and the
-> S4 exit measurement did not. `longitudinal.ts` is retained, with the reasoning in
-> §4.7 — "retire" here means retire as the population's source of truth, which S3
-> achieved, not delete the function. Details below the exit criterion.
+> **Outcome (2026-09-17):** the seam, the `age`/`birthDate` inversion and the §8 #7
+> `condition`-entity projection all landed (`d6c1718`, `5e6470b`, `c20e976`,
+> `f66a687`); the S4 exit measurement was taken, and it is vacuous for 22 of 23 packs.
+> `longitudinal.ts` is retained, with the reasoning in §4.7 — "retire" here means
+> retire as the population's source of truth, which S3 achieved, not delete the
+> function. Details below the exit criterion.
 
 `sim-populator` enriches from the configured source rather than generating.
 `AGES` / `SEXES` / `COMORBIDITIES` / `ACCESS_TYPES` stop being the population's
@@ -920,9 +911,11 @@ The guard is `problemReconcileMisses === 0` asserted beside the expected term li
 `['CKD','DM2','ESRD','HTN']`: the terms prove the projection produced the right answer,
 the zero proves it produced it *from the graph*.
 
-**Not done: onset dates.** The entity carries `onset`, which the flat `string[]` still
-discards. That is the second half of §8 #7's stated payoff — what makes "newly
-diagnosed" expressible — and the projection is now the place to read it from.
+**Onset dates — closed as a derivation, not left as a gap.** The entity carries
+`onset`, which the flat `string[]` still discards, and that reads like the second half
+of §8 #7's payoff. It is not a gap: the projection now *walks the graph*, so onsets are
+reachable through the same walk that produces the terms. A `problemOnset` map would
+re-introduce the second representation §8 #7 removed. Reasoning in §9.6.
 
 #### The S4 exit measurement (2026-09-17) — the criterion is 1-fold, not 23-fold
 
@@ -1045,7 +1038,8 @@ threshold of 0.6**:
 Both are asserted in `tests/assurance-fairness.test.ts` rather than changed: altering
 the shipped producer's semantics is its own change, with its own doc update.
 
-**Level 1 — the axes are renal, not demographic.** This one stands.
+**Level 1 — the axes are renal, not demographic.** This one stands. (Written as the
+finding that motivated the decision below; the axes have since been widened.)
 `SliceDimension = 'age' | 'sex' | 'vintage' | 'access'`. Race, ethnicity, birth sex and
 language are **not declared dimensions**, even though §8 #5 wired all four onto the
 patient. So the S6-prep ingest work has no consumer in the fairness screen.
@@ -1066,7 +1060,7 @@ The earlier revision of this subsection proposed building `fairnessRowsFromRealm
 plus a route. **That was building a second copy of `cohortSignals`**, which is the
 join. What half 2 needed was the axis widening, and that is what shipped:
 
-    SliceDimension = age | sex | vintage | access | race | ethnicity | language
+    SliceDimension = age | sex | vintage | access | race | ethnicity | language | insurance
 
 All four demographic fields reached the patient (S6-prep, §8 #5) and **nothing read
 them**; the gap was three union members, a label map, a `sliceOf` case and a
@@ -1094,14 +1088,37 @@ what keeps `fairnessSignature` stable — an order depending on Map insertion wo
 the signature depend on patient order.
 
 Two assertions moved with the boundary rather than being deleted: `?dimension=race`
-was a 400 and is now served, and the 400 case is replaced by `?dimension=insurance` —
-a real equity axis (§9.2) that is **still** undeclared, so the remaining gap is
-asserted rather than latent.
+was a 400 and is now served, and the 400 case moved on to the axis that is *still*
+undeclared. It has since moved twice: `?dimension=insurance` was that case and is now
+declared (the payer axis, below), so the refusal is asserted against `birthSex` — the
+one axis deliberately excluded, because `sex` already bands it and the report takes the
+worst verdict, so two dimensions over one axis would double-count a single disparity in
+the headline while reading as two independent findings.
+
+**The payer axis — a fourth addition, and a different KIND of fact.** Declaring
+`insurance` needed one measurement first: it is **not** a patient field. FHIR `Coverage`
+is its own resource and `canonical.ts` upserts it as an `insurance` **entity** carrying
+`patientId` and `payerId`, so it is walkable back from the patient the way `condition`
+is (§8 #7) and the way `result` is not. `payerFromGraph` in `enrich.ts` resolves it onto
+`state.insurance` and `cohortSignals` bands it — the same shape S6-prep used for the
+census demographics, and for the same reason: the report reads the patient, not the
+graph.
+
+Two things it deliberately does NOT do. It adds no label table (`DEMOGRAPHIC_LABELS` is
+untouched) — payer identifiers come from the covered party's payor, and inventing labels
+for values no artifact has been generated to produce is the failure this document keeps
+naming. And it states plainly that on the static fixture **every patient bands into
+`unknown`**, because the static seeder writes no coverage at all; the assertion is that
+the axis exists and *counts* those patients rather than dropping them, which is the
+difference between a visible gap and an invisible one. Confirming a real payer band is
+blocked on the same artifact as Level 2 (§5 S6).
 
 **What the whole exercise bought.** `cohortSignals` had a latent
-`covered`-is-always-true property that nothing had noticed, the demographic axes were
-unreachable from a screen that appears to be about equity, and the cost of finding both
-was one wrong route and one duplicate implementation.
+`covered`-is-always-true property that nothing had noticed, and the demographic axes
+were unreachable from a screen that appears to be about equity. Following the first
+finding to its cause turned up something larger than either: three protocols scored a
+patient nobody had measured, with `adequacy` 0.1 below its `red` threshold (§9.6). The
+cost of finding all three was one wrong route and one duplicate implementation.
 
 ### S6 — Lifecycle
 
@@ -1451,15 +1468,36 @@ are correct. That is the failure this document already catalogues twice — the
 fixed by S4; the second by §5's correction. Adding a third of the same kind to close a
 checkbox would be the wrong trade.
 
-There is, however, a **decidable half** worth having, and naming it is more useful than
-a note saying "deferred". Every declared `cmsUniverse` id is a reference into the
-measure catalog. Whether a declared id *resolves* is set membership — no evaluation, no
-heuristic, no ambiguity — and a pack that declares an id the catalog does not carry is
-broken for **every** population, not just an unlucky one. That check is real, it is
-cheap, and it is the precondition the population check would need anyway: there is no
-point asking whether patients can reach a measure that doesn't exist. It is recorded
-here as the correct first step rather than built, so that whoever picks this up builds
-the part that cannot lie first.
+There is, however, a **decidable half** that looked worth having, and naming it was more
+useful than a note saying "deferred". Every declared `cmsUniverse` id would be a
+reference into the measure catalog; whether a declared id *resolves* is set membership —
+no evaluation, no heuristic — and a pack declaring an id the catalog does not carry
+would be broken for **every** population.
+
+**That premise is wrong, and measuring it is what closed the item rather than building
+on it.** The seven declared ids are regulatory *universes*, not measure references:
+
+| declared | what the catalog has |
+|---|---|
+| `cms:esrd:qip` | family `cms:esrd-qip:*` (14 measures) — **different separator** |
+| `cms:mips` | `cms:mips:*` (5 measures) — prefix matches |
+| `cms:0057-f` | `cms:0057-f:*` (2 measures) — prefix matches |
+| `cms:esrd:cfc:494` | a *regulation* (Conditions for Coverage); not a measure family |
+| `cms:esrd:pps` | a *payment system*; not a measure family |
+| `cms:nhsn-linkage` | a CDC **linkage**; the catalog's NHSN measure is `cms:esrd-qip:nhsn-bsi` |
+| `cms:enhancing-oncology-model` | no oncology family in the catalog at all |
+
+**Zero of the seven is a catalog measure id**, and five name things the catalog does not
+model because they are not measures. A check written to the stated premise would report
+**five false defects** — the packs are correct and the premise was not. Under a
+namespace reading two of seven still fail, and the two that pass are the two that happen
+to share the catalog's separator, which is a coincidence rather than a rule.
+
+So there is no decidable half here, and the item stands as originally written: the
+population check is deferred in full, because everything cheaper than a measure
+evaluation is a heuristic that reports success while measuring nothing. This is the same
+lesson as §5's correction, one layer down — a premise about a surface, asserted instead
+of asked of the data.
 
 #### Onset dates — the other half of §8 #7, closed without code
 
@@ -1477,22 +1515,46 @@ a cohort that wants onsets adds a few lines to it. Deliberately not built: a mec
 with no consumer is the shape this codebase rejects by rule (§9.7), and it would be
 built against a guess at what the first real consumer wants.
 
-#### The `covered` defect — found by the trip-wire work, fixed
+#### The `covered` defect — found by the trip-wire work, and fixed at its source
 
-Recorded here because it is a correction to a *shipped* surface rather than to this
-plan. `cohortSignals` derived a row's `covered` as "at least one protocol could
-evaluate this patient". A probe against an empty patient state showed that is always
-true: `access` returns `green` at severity 0.25 rather than `unknown`, so a patient
-nobody has measured still produces a verdict. Every row was covered — which made the
-coverage comparison `fairness.ts` performs **before** it compares flag rates a
-constant, and `disparityReport` reads a coverage gap as `breach`. The one gate that
-could have caught a data-capture disparity was measuring nothing.
+Two corrections to *shipped* surfaces rather than to this plan, in one arc. The second
+is the one that matters, because the first was only ever a workaround.
 
-It now uses `registry.ts`'s own `unknown` condition negated
-(`sessions.count > 0 || panel.completenessPct >= 50`). Both halves of the probe are
-pinned as tests: the bare patient is uncovered *and* flagged — not a contradiction,
-since `adequacy` reports amber 0.5 against a `red` threshold of 0.6, so a patient
-nobody measured is 0.1 from being flagged for inadequate dialysis.
+**What the probe found.** `cohortSignals` derived a row's `covered` as "at least one
+protocol could evaluate this patient". A probe against an empty patient state showed
+that is always true: `access` returned `green` at severity 0.25 rather than `unknown`,
+so a patient nobody had measured still produced a verdict. Every row was covered —
+which made the coverage comparison `fairness.ts` performs **before** it compares flag
+rates a constant, and `disparityReport` reads a coverage gap as `breach`. The one gate
+that could have caught a data-capture disparity was measuring nothing.
+
+**The interim fix restated the engine's condition** (`covered = sessions.count > 0 ||
+panel.completenessPct >= 50`). That removed the constant, and it left the cause in
+place: the engine could not say `unknown` for the three protocols that mattered.
+
+**The cause.** Three branches encoded missingness as a positive severity — `adequacy`
+0.5 with no sessions on the ledger, `ckd-mbd` 0.3 with an incomplete panel, `access`
+0.25 with no observations. Each lands in the `amber`/`green` bands, so the trailing
+`unknown` rule (which only fired at severity 0) was occupied by exactly the terms that
+would have produced it. A patient nobody had measured sat **0.1 below the `red`
+threshold for inadequate dialysis**.
+
+None of that judgement was new to the codebase — `src/swarm/cohort.ts` had already
+written it down against the `inadequate-clearance` cohort (*"absence of a measurement
+is coverage, not inadequate clearance"*) and moved that cohort onto explicit
+`urr`/`ktv` criteria to route around it. The engine cause is now fixed where it lives:
+severity means "how bad is this patient", each protocol declares whether it had
+anything to measure, and `unknown` always travels with severity 0. The rule is
+`alert-burden.ts`'s — zero alerts is `not-measurable`, never `ok`.
+
+**The interim restatement is therefore RETIRED.** `covered` reads
+`coveredProtocols.length > 0` again, which is now the same fact as the engine's own
+status rather than a second definition of "enough data" left to drift out of step.
+
+Both halves are pinned as tests, with a non-vacuity guard: the no-data patient is
+uncovered **and unflagged** (it used to read `flagged: true` off `adequacy`'s 0.5), and
+a patient with a measured URR still comes back `red` — so the assertion is about
+missing data, not about a protocol that never speaks.
 
 #### §9.1's trip-wire — now enforced rather than described
 

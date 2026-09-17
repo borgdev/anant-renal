@@ -235,7 +235,7 @@ describe('fairness slices', () => {
     const b = fairnessReport(rows, { protocol: 'adequacy' });
     expect(fairnessSignature(a)).toBe(fairnessSignature(b));
     expect(a.reference.minSliceN).toBe(FAIRNESS_REFERENCE.minSliceN);
-    expect(a.dimensions.map((d) => d.dimension)).toEqual(['age', 'sex', 'vintage', 'access', 'race', 'ethnicity', 'language']);
+    expect(a.dimensions.map((d) => d.dimension)).toEqual(['age', 'sex', 'vintage', 'access', 'race', 'ethnicity', 'language', 'insurance']);
   });
 
   it('flags a cohort smaller than one slice as structurally insufficient', () => {
@@ -505,14 +505,14 @@ describe('assurance routes', () => {
     const fairness = (await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness' })).json() as {
       report: { dimensions: Array<{ dimension: string; slices: unknown[] }> }; signature: string;
     };
-    expect(fairness.report.dimensions.map((d) => d.dimension)).toEqual(['age', 'sex', 'vintage', 'access', 'race', 'ethnicity', 'language']);
+    expect(fairness.report.dimensions.map((d) => d.dimension)).toEqual(['age', 'sex', 'vintage', 'access', 'race', 'ethnicity', 'language', 'insurance']);
     expect(fairness.signature.length).toBeGreaterThan(0);
 
     // REGRESSION — the overview must carry the FULL fairness and burden reports.
     // A partial payload type-checked fine through a cast and then crashed the
     // console on `reference.minSliceN`; the contract is now tested at the wire.
     expect(overviewPayload.fairness.reference.minSliceN).toBe(FAIRNESS_REFERENCE.minSliceN);
-    expect(overviewPayload.fairness.dimensions).toHaveLength(7);
+    expect(overviewPayload.fairness.dimensions).toHaveLength(8);
     expect(overviewPayload.burden.reference.minutesPerAlert).toBe(BURDEN_REFERENCE.minutesPerAlert);
     expect(overviewPayload.burden.window.weeks).toBeGreaterThan(0);
     expect(overviewPayload.burden.byProtocol).toHaveLength(7);

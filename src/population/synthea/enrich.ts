@@ -346,6 +346,28 @@ export function problemListFromGraph(realm: Realm, patientId: string): readonly 
   return problemListFromConditions(displays).problems;
 }
 
+/**
+ * The patient's payer, read from the graph's `insurance` entities.
+ *
+ * FHIR `Coverage` is its own resource, and `structuralState` upserts it as an
+ * `insurance` entity carrying `patientId` and `payerId` — so unlike `result`, this is
+ * walkable back from the patient. `cohortSignals` needs the payer ON THE PATIENT to band
+ * the fairness report's insurance axis, which is the same reason S6-prep copies the
+ * census demographics onto the state rather than reading `Patient.extension` at report
+ * time.
+ *
+ * Returns undefined when no coverage is on record; the fairness row reports that as
+ * `unknown` rather than dropping the patient.
+ */
+export function payerFromGraph(realm: Realm, patientId: string): string | undefined {
+  for (const rec of realm.graph.listKind('insurance')) {
+    const st = rec.state as { patientId?: unknown; payerId?: unknown };
+    if (st.patientId !== patientId) continue;
+    if (typeof st.payerId === 'string' && st.payerId.length > 0) return st.payerId;
+  }
+  return undefined;
+}
+
 /** Set equality, order-insensitive. The two sources do not share an insertion order. */
 function sameProblemSet(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;
@@ -407,6 +429,7 @@ export function enrichPatient(
   const fromBundle = summary.problems;
   const problems = fromGraph;
   const problemsReconciled = sameProblemSet(fromGraph, fromBundle);
+  const payer = payerFromGraph(realm, summary.localPatientId);
 
   const patch: Record<string, unknown> = {
     admitted: true,
@@ -426,6 +449,10 @@ export function enrichPatient(
     // ONE thing: confirming the two agree. It is not a fallback.
     problemList: problems,
     trajectory: trajectoryLabel(state),
+    // The payer, projected from the patient's `Coverage` entity when one exists. A
+    // coverage fact lives on its own entity rather than on the patient, so the
+    // fairness report cannot reach it without this step.
+    ...(payer !== undefined ? { insurance: payer } : {}),
   };
   if (age !== undefined) patch['age'] = age;
   if (opts.seedObservationState !== false) {

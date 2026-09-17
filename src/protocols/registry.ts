@@ -288,6 +288,30 @@ export function evaluateProtocolForPatient(protocol: ProtocolId, facts: RenalPat
   const drivers: string[] = [];
   let severity = 0;
 
+  // `severity` answers "how bad is this patient". Two things it must never answer:
+  // "we have nothing to measure" — that is `status: 'unknown'` — and "unmeasured"
+  // laundered into a LOW severity, which reads as `green` ("fine").
+  //
+  // Three branches below used to encode missingness as a positive severity:
+  // `adequacy` 0.5 with no sessions on the ledger, `ckd-mbd` 0.3 with an incomplete
+  // panel, `access` 0.25 with no observations. Each lands in the `amber`/`green`
+  // bands, so a patient with no chart at all read `amber` on adequacy and `green` on
+  // access — and because the trailing `unknown` rule only fired at severity 0, those
+  // terms occupied the one condition that could have produced `unknown`. The result
+  // was a patient nobody had measured sitting 0.1 below the `red` threshold for
+  // inadequate dialysis.
+  //
+  // This is not a new judgement, only a new location for it: `src/swarm/cohort.ts`
+  // already records the same defect against the `inadequate-clearance` cohort —
+  // "absence of a measurement is coverage, not inadequate clearance" — and moved
+  // that cohort onto explicit urr/ktv criteria to work around it. The engine cause
+  // is fixed here; the cohort keeps its explicit criteria, which are the better
+  // expression either way.
+  //
+  // The rule is `alert-burden.ts`'s: zero alerts is `not-measurable`, never `ok`.
+  // `noData` is therefore per-protocol, defaulting to "this patient has no chart".
+  let noData = facts.sessions.count === 0 && facts.panel.completenessPct < 50;
+
   switch (protocol) {
     case 'fluid': {
       const prior = fluidPrior({
@@ -318,8 +342,11 @@ export function evaluateProtocolForPatient(protocol: ProtocolId, facts: RenalPat
         (facts.labs.URR ?? 70) < URR_FLOOR_PCT ? 0.75 : 0,
         (prior.spKtV ?? KTV_TARGET) < KTV_TARGET ? 0.6 : 0,
         facts.signals.shortSessions > 0 ? 0.4 : 0,
-        facts.sessions.count === 0 ? 0.5 : 0,
       );
+      // No sessions AND no clearance measurement is the absence of a fact, not a
+      // finding. `adequacyPrior` needs a URR (or an spKtV) to predict from, so with
+      // neither there is nothing this protocol is entitled to say.
+      noData = facts.sessions.count === 0 && facts.labs.URR === undefined;
       signals.push({ label: 'URR', value: facts.labs.URR !== undefined ? `${facts.labs.URR}%` : 'no data', severity: (facts.labs.URR ?? 70) < URR_FLOOR_PCT ? 'alert' : 'info' });
       signals.push({ label: 'spKt/V', value: prior.spKtV !== undefined ? `${prior.spKtV}` : 'no data', severity: (prior.spKtV ?? KTV_TARGET) < KTV_TARGET ? 'watch' : 'info' });
       signals.push({ label: 'Time adherence', value: prior.timeAdherencePct !== undefined ? `${prior.timeAdherencePct}%` : 'no data', severity: (prior.timeAdherencePct ?? 100) < 90 ? 'watch' : 'info' });
@@ -359,8 +386,12 @@ export function evaluateProtocolForPatient(protocol: ProtocolId, facts: RenalPat
         (facts.labs.PHOS ?? 4.5) > PHOS_TARGET_MAX_MG_DL ? 0.65 : 0,
         facts.signals.hyperparathyroidism ? 0.6 : 0,
         facts.signals.hypercalcemia ? 0.5 : 0,
-        facts.panel.missing.length ? 0.3 : 0,
       );
+      // The COUPLED panel is the point — one analyte in isolation is not a
+      // cross-analyte conclusion. With none of P/Ca/PTH measured there is nothing to
+      // reason from, and the per-analyte signals still name which are missing.
+      noData =
+        facts.labs.PHOS === undefined && facts.labs.pth === undefined && facts.labs.calcium === undefined;
       signals.push({ label: 'Phosphate', value: facts.labs.PHOS !== undefined ? `${facts.labs.PHOS} mg/dL` : 'no data', severity: (facts.labs.PHOS ?? 4.5) > PHOS_TARGET_MAX_MG_DL ? 'alert' : 'info' });
       signals.push({ label: 'PTH', value: facts.labs.pth !== undefined ? `${facts.labs.pth} pg/mL` : 'no data', severity: facts.signals.hyperparathyroidism ? 'alert' : 'info' });
       signals.push({ label: 'Binder bound', value: `${prior.boundMgPerDay} mg PO4/d`, severity: prior.boundMgPerDay === 0 ? 'watch' : 'info' });
@@ -389,8 +420,10 @@ export function evaluateProtocolForPatient(protocol: ProtocolId, facts: RenalPat
         facts.access.dysfunction ? 0.7 : 0,
         (recirc ?? 0) >= 10 ? 0.6 : 0,
         (facts.access.ageDays ?? 999) < 90 && facts.access.type === 'catheter' ? 0.5 : 0,
-        facts.access.observations === 0 ? 0.25 : 0,
       );
+      // No surveillance observations AND no recorded access at all: there is no
+      // access to surveil, which is a data gap rather than a finding.
+      noData = facts.access.observations === 0 && !facts.access.type;
       signals.push({ label: 'Access', value: facts.access.type ? `${facts.access.type} (${facts.access.ageDays ?? '?'} d)` : 'unknown', severity: facts.access.type === 'catheter' ? 'watch' : 'info' });
       signals.push({ label: 'Recirculation', value: recirc !== undefined ? `${recirc}%` : 'no data', severity: (recirc ?? 0) >= 10 ? 'alert' : 'info' });
       signals.push({ label: 'Observations', value: `${facts.access.observations}`, severity: facts.access.observations === 0 ? 'watch' : 'info' });
@@ -417,7 +450,16 @@ export function evaluateProtocolForPatient(protocol: ProtocolId, facts: RenalPat
   }
 
   const uniqueDrivers = [...new Set(drivers)];
-  const status: ProtocolStatus = severity >= 0.6 ? 'red' : severity >= 0.3 ? 'amber' : severity > 0 ? 'green' : (facts.sessions.count === 0 && facts.panel.completenessPct < 50 ? 'unknown' : 'green');
+  // Keep the pair coherent: `unknown` always travels with severity 0, so nothing
+  // downstream can read a severity for a patient the engine declined to judge.
+  if (noData) severity = 0;
+  const status: ProtocolStatus = noData
+    ? 'unknown'
+    : severity >= 0.6
+      ? 'red'
+      : severity >= 0.3
+        ? 'amber'
+        : 'green';
   return { patientId: facts.patientId, realmId: facts.realmId, status, severity: Math.round(severity * 100) / 100, signals, drivers: uniqueDrivers };
 }
 

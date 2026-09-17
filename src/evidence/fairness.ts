@@ -74,7 +74,23 @@ export type SliceDimension =
   // looking like two independent findings.
   | 'race'
   | 'ethnicity'
-  | 'language';
+  | 'language'
+  // ---- The payer axis ----
+  //
+  // A separate addition from the three above because it is a different KIND of fact:
+  // race/ethnicity/language are CENSUS demographics the record carries on the patient,
+  // while payer is a COVERAGE fact — FHIR `Coverage` is its own resource and
+  // `canonical.ts` upserts it as an `insurance` ENTITY carrying a `patientId`, not as a
+  // patient field. `enrich.ts` resolves the patient's coverage onto `state.insurance`
+  // so a row can read it, which is the same shape S6-prep used for the demographics.
+  //
+  // Deliberately NOT labelled in `DEMOGRAPHIC_LABELS`: payer identifiers come from the
+  // covered party's payor, and inventing a label table for values no artifact has been
+  // generated to produce is the exact failure this codebase rejects. An unlisted value
+  // falls back to the code itself, and on a realm seeded from the STATIC fixture the
+  // axis reports `unknown` for every patient — honest, and the state of the world until
+  // `synthea-seeds/` is committed (§5 S6).
+  | 'insurance';
 
 /** Band id within a dimension; `unknown` when the input is absent. */
 export type SliceKey = string;
@@ -84,6 +100,9 @@ export const SLICE_DIMENSIONS: readonly SliceDimension[] = [
   // Appended rather than interleaved: a reader comparing a pre-L1 report against a
   // post-L1 one should see the renal four in the same positions.
   'race', 'ethnicity', 'language',
+  // Appended again for the same reason. The screen declines to fire on an undeclared
+  // axis, so declaring this one is what makes payer bandable at all.
+  'insurance',
 ];
 
 export interface FairnessRow {
@@ -98,6 +117,11 @@ export interface FairnessRow {
   ethnicity?: string | undefined;
   /** BCP-47 language tag as FHIR `Patient.communication` carries it, e.g. `en-US`. */
   language?: string | undefined;
+  /**
+   * Payer identifier, resolved by the enricher from the patient's `Coverage`
+   * (`insurance`) entity. Absent means no coverage is on record — see `codeSlice`.
+   */
+  insurance?: string | undefined;
   /** the protocol's coverage gate accepted this patient's data */
   covered: boolean;
   /** the protocol surfaced at least one finding for this patient */
@@ -286,6 +310,7 @@ export function sliceOf(dimension: SliceDimension, row: FairnessRow): { id: Slic
     case 'race': return codeSlice(row.race);
     case 'ethnicity': return codeSlice(row.ethnicity);
     case 'language': return codeSlice(row.language);
+    case 'insurance': return codeSlice(row.insurance);
   }
 }
 
@@ -530,4 +555,5 @@ export const FAIRNESS_DIMENSION_LABELS: Record<SliceDimension, string> = {
   race: 'Race',
   ethnicity: 'Ethnicity',
   language: 'Language',
+  insurance: 'Insurance',
 };

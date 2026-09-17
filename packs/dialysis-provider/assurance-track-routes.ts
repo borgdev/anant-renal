@@ -175,21 +175,26 @@ export function cohortSignals(inputs: readonly RenalPatientInput[]): CohortSigna
       ...(stringOf(state.race) !== undefined ? { race: stringOf(state.race) } : {}),
       ...(stringOf(state.ethnicity) !== undefined ? { ethnicity: stringOf(state.ethnicity) } : {}),
       ...(stringOf(state.language) !== undefined ? { language: stringOf(state.language) } : {}),
+      // The payer axis. Read from the entity state for the same reason as the
+      // demographics above — `RenalPatientFacts` is the clinical projection and has no
+      // business knowing who pays. `enrich.ts` resolves it from the patient's
+      // `Coverage` (insurance) entity onto this field.
+      ...(stringOf(state.insurance) !== undefined ? { insurance: stringOf(state.insurance) } : {}),
       // Sufficiency, NOT "some protocol reached a verdict".
       //
-      // This was `coveredProtocols.length > 0` and a probe showed that is always true:
-      // a patient with an EMPTY state scores `access` at `green` (severity 0.25), so
-      // "some protocol decided" holds for a patient nobody has measured. Every row was
-      // then `covered: true`, which made the coverage comparison `fairness.ts` performs
-      // BEFORE it compares flag rates a constant — and `disparityReport` reads a
-      // coverage gap as `breach`, so the one gate that could have caught a
-      // data-capture disparity was the one measuring nothing.
+      // This was `coveredProtocols.length > 0`, and it was always true: a patient with
+      // an EMPTY state scored `access` at `green` (severity 0.25) rather than
+      // `unknown`, so "some protocol decided" held for a patient nobody had measured.
+      // Every row was then `covered: true`, which made the coverage comparison
+      // `fairness.ts` performs BEFORE it compares flag rates a constant — and
+      // `disparityReport` reads a coverage gap as `breach`, so the one gate that could
+      // have caught a data-capture disparity was the one measuring nothing.
       //
-      // The rule below is `registry.ts`'s own `unknown` condition negated — a protocol
-      // reports `unknown` when `sessions.count === 0 && panel.completenessPct < 50`.
-      // Reusing the stated rule rather than inventing a second threshold is the point:
-      // two definitions of "enough data" is how they drift apart.
-      covered: facts.sessions.count > 0 || facts.panel.completenessPct >= 50,
+      // The interim fix restated the engine's own `unknown` condition here. That
+      // restatement is now RETIRED: `registry.ts` no longer launders missing data into
+      // a severity, so `unknown` is reachable and `coveredProtocols` says the same
+      // thing without a second definition of "enough data" left to drift out of step.
+      covered: coveredProtocols.length > 0,
       flagged: alerts.some((a) => a.patientId === facts.patientId),
       score: coveredProtocols.length,
     });
