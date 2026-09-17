@@ -67,8 +67,23 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Bundle } from '../../fhir/types.js';
 
 export const POPULATION_MANIFEST_VERSION = 2;
+
+/**
+ * The two forms a population artifact can take.
+ *
+ * `raw-fhir` is Synthea's own output — one bundle per patient, measured at 4,196 KB
+ * per patient because each bundle is a lifetime record carrying base64 clinical notes
+ * and billing. It is a gitignored build-time intermediate.
+ *
+ * `projected` is the same population after `projectBundle` — measured at 49.6 KB per
+ * patient, an 84.5x reduction — and it is the form that gets COMMITTED. The seeder
+ * reads either; see the header of `population.ts` for why the projected form is what
+ * makes a fresh clone reproducible without a JVM.
+ */
+export type ArtifactForm = 'raw-fhir' | 'projected';
 
 /**
  * The inputs a population's identity depends on.
@@ -115,6 +130,26 @@ export interface PopulationManifest {
   readonly patientCount: number;
   /** Layers this generator does not reproduce, recorded rather than assumed. */
   readonly nonReproducible: readonly string[];
+  /**
+   * Which form this artifact holds.
+   *
+   * ABSENT means `raw-fhir`: S2's manifests predate this field and describe raw
+   * output, so the default is the historical one rather than a new requirement
+   * retroactively placed on artifacts that were already correct.
+   */
+  readonly artifactForm?: ArtifactForm;
+  /**
+   * Present only for the projected form: what the projection did.
+   *
+   * Recorded because a regeneration of the same population under a changed projection
+   * rule produces a different artifact, and this is what tells a reader whether the two
+   * are comparable rather than making them diff 10 MB of JSON to find out.
+   */
+  readonly projected?: {
+    readonly bundles: number;
+    readonly inputEntries: number;
+    readonly outputEntries: number;
+  };
   readonly generatedAt: string;
   readonly fileCount: number;
   /** The argv used, so the run can be replayed by hand. */
@@ -209,6 +244,95 @@ export function readManifest(root: string, realmId: string): PopulationManifest 
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Hash the projected artifact's bundle file.
+ *
+ * NOT `outputDigestOf` over the directory: the projected directory also holds this
+ * manifest, so a directory hash would change the instant the digest was written and
+ * could never verify — the exact "a reuse gate that can never hit while looking careful"
+ * failure S2 documented. The question for the projected form is narrower anyway (has the
+ * POPULATION changed), and the bundle file answers it.
+ */
+export function projectedDigestOf(bundlesPath: string): string {
+  if (!existsSync(bundlesPath)) return 'empty';
+  return createHash('sha256').update(readFileSync(bundlesPath)).digest('hex').slice(0, 16);
+}
+
+/**
+ * Where COMMITTED, projected populations live, by default.
+ *
+ * A separate root from the raw pool, because the two have different lifetimes and
+ * different sizes: the raw pool is a build-time intermediate measured in gigabytes and
+ * is gitignored, while the projected artifact is measured at ~50 KB per patient and is
+ * committed so a clone can seed a realm with no JVM present.
+ */
+export const DEFAULT_SEED_ROOT = process.env.SYNTHEA_SEED_ROOT ?? join(process.cwd(), 'synthea-seeds');
+
+/** `synthea-seeds/<realmId>/` — the projected form. Per realm, for the same reason. */
+export function seedDir(root: string, realmId: string): string {
+  return join(root, realmId);
+}
+
+export function seedManifestPath(root: string, realmId: string): string {
+  return join(seedDir(root, realmId), 'manifest.json');
+}
+
+export function seedBundlesPath(root: string, realmId: string): string {
+  return join(seedDir(root, realmId), 'bundles.json');
+}
+
+/**
+ * Write the projected form's manifest.
+ *
+ * The caller carries `configHash`/`patientDigest`/`records` over from the RAW
+ * manifest deliberately: those describe the generation, which projecting does not
+ * change, so the two forms of one population share an identity and a debuggable
+ * provenance. `outputDigest` is recomputed over the projected directory, because that
+ * is the question it answers — has THIS directory been touched since we wrote it.
+ */
+export function writeProjectedManifest(root: string, manifest: PopulationManifest): string {
+  const dir = seedDir(root, manifest.realmId);
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, 'manifest.json');
+  writeFileSync(path, `${JSON.stringify({ ...manifest, artifactForm: 'projected' }, null, 2)}\n`, 'utf8');
+  return path;
+}
+
+export function readSeedManifest(root: string, realmId: string): PopulationManifest | undefined {
+  const path = seedManifestPath(root, realmId);
+  if (!existsSync(path)) return undefined;
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as PopulationManifest;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The projected artifact's bundles, or `undefined` when the file is absent.
+ *
+ * One array rather than one file per patient, because a patient's chunks must stay
+ * GROUPED: a chunk that is not the first carries no `Patient` resource, so a per-file
+ * layout would make a continuation chunk indistinguishable from a damaged file. The
+ * grouping is also what lets `limit` and the deceased filter stop at a patient
+ * boundary instead of mid-patient.
+ */
+export function readSeedBundles(root: string, realmId: string): Bundle[] | undefined {
+  const path = seedBundlesPath(root, realmId);
+  if (!existsSync(path)) return undefined;
+  const parsed = JSON.parse(readFileSync(path, 'utf8')) as { bundles?: Bundle[] };
+  return parsed.bundles ?? [];
+}
+
+/** Write the projected artifact's bundles. Returns the path written. */
+export function writeSeedBundles(root: string, realmId: string, bundles: readonly Bundle[]): string {
+  const dir = seedDir(root, realmId);
+  mkdirSync(dir, { recursive: true });
+  const path = seedBundlesPath(root, realmId);
+  writeFileSync(path, `${JSON.stringify({ bundles })}\n`, 'utf8');
+  return path;
 }
 
 /**

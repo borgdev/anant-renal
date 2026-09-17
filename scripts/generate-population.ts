@@ -68,6 +68,7 @@ import {
   POPULATION_MANIFEST_VERSION,
   type PopulationConfig,
 } from '../src/population/synthea/manifest.js';
+import { projectPopulation } from '../src/population/synthea/project-population.js';
 
 const ROOT = join(process.cwd(), 'synthea-population');
 
@@ -81,10 +82,11 @@ interface Args {
   city?: string;
   force: boolean;
   dryRun: boolean;
+  project: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Args {
-  const out: Args = { population: 200, seed: 20260917, force: false, dryRun: false };
+  const out: Args = { population: 200, seed: 20260917, force: false, dryRun: false, project: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     const next = (): string => argv[++i] ?? '';
@@ -97,6 +99,7 @@ function parseArgs(argv: readonly string[]): Args {
     else if (a === '--city') out.city = next();
     else if (a === '--force') out.force = true;
     else if (a === '--dry-run') out.dryRun = true;
+    else if (a === '--project') out.project = true;
     else if (a === '--help' || a === '-h') {
       console.log(
         [
@@ -110,6 +113,8 @@ function parseArgs(argv: readonly string[]): Args {
           '  --state <name> --city <name>',
           '  --force                 regenerate even if the manifest matches',
           '  --dry-run               report what would happen, generate nothing',
+          '  --project               also write the COMMITTED projected artifact',
+          '                          (synthea-seeds/<realm>/, ~50 KB/patient vs ~4.2 MB)',
           '',
           `Synthea checkout: ${DEFAULT_SYNTHEA_ROOT} (override with SYNTHEA_ROOT)`,
         ].join('\n'),
@@ -118,6 +123,15 @@ function parseArgs(argv: readonly string[]): Args {
     }
   }
   return out;
+}
+
+/** Project the raw artifact into the COMMITTED form, and report what it produced. */
+function projectAndReport(realmId: string): void {
+  const projected = projectPopulation({ realmId });
+  const perPatient = projected.patients > 0 ? `${(projected.bytes / projected.patients / 1024).toFixed(1)} KB/patient` : 'n/a';
+  console.log(`projected  ${projected.seedDirectory}`);
+  console.log(`bundles    ${projected.bundles} chunks from ${projected.patients} patients, ${projected.inputEntries} → ${projected.outputEntries} entries`);
+  console.log(`size       ${(projected.bytes / 1024).toFixed(1)} KB (${perPatient}), digest ${projected.outputDigest}`);
 }
 
 async function main(): Promise<void> {
@@ -171,6 +185,9 @@ async function main(): Promise<void> {
   }
   if (reuse.reusable && !args.force) {
     console.log(`kept       ${fhirDir} (${existing?.fileCount ?? 0} files, digest ${existing?.outputDigest})`);
+    // Still project: the raw artifact being reusable says nothing about whether the
+    // committed form exists, and re-projecting is idempotent for an unchanged pool.
+    if (args.project) projectAndReport(args.realm);
     return;
   }
 
@@ -226,6 +243,7 @@ async function main(): Promise<void> {
   console.log(`patients   ${patients.patientCount} bundles, patient digest ${patients.digest}`);
   console.log(`output     ${fhirDir} (${fileCount} files, output digest ${digest})`);
   console.log(`manifest   ${path}`);
+  if (args.project) projectAndReport(args.realm);
 }
 
 main().catch((err: unknown) => {

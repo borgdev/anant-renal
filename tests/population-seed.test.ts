@@ -49,13 +49,13 @@
 // three codes were each confirmed present in real generated output.
 
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { tmpdir } from 'node:os';import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { Realm } from '../src/realm/realm.js';
 import { TrajectoryAmbientProcess } from '../src/liquid/trajectory.js';
 import { configHashOf, POPULATION_MANIFEST_VERSION, writeManifest } from '../src/population/synthea/manifest.js';
+import { projectPopulation } from '../src/population/synthea/project-population.js';
 import { seedRealmFromPopulation } from '../src/population/synthea/seed.js';
 import type { PopulationManifest } from '../src/population/synthea/manifest.js';
 import type { DialysisState } from '../src/liquid/types.js';
@@ -504,6 +504,50 @@ describe('seedRealmFromPopulation — guards and options (S3)', () => {
     } finally {
       one.realm.stop();
       two.realm.stop();
+    }
+  });
+
+  it('seeds the SAME charts from the projected form as from the raw form', async () => {
+    // The two forms must be interchangeable, because the committed one has to be able to
+    // stand in for the raw one. Anything less and committing the projected artifact would
+    // change what a demo realm looks like — which is the kind of difference nobody would
+    // notice until a screen disagreed with a screenshot.
+    const seedRoot = mkdtempSync(join(tmpdir(), 'hh-proj-seed-'));
+    roots.push(seedRoot);
+
+    const fromRaw = await harness('realm:seed-proj');
+    const fromProjected = await harness('realm:seed-proj');
+    try {
+      const rawRoot = writePopulation('realm:seed-proj');
+      const projected = projectPopulation({ realmId: 'realm:seed-proj', rawRoot, seedRoot });
+      expect(projected.patients).toBe(2);
+
+      const rawReport = await seedRealmFromPopulation(fromRaw.realm, { realmId: 'realm:seed-proj', root: rawRoot, form: 'raw-fhir', ...SEED_OPTS });
+      const projectedReport = await seedRealmFromPopulation(fromProjected.realm, { realmId: 'realm:seed-proj', seedRoot, form: 'projected', ...SEED_OPTS });
+
+      // The form is reported, so a caller can tell which bytes were read.
+      expect(rawReport.provenance.artifactForm).toBe('raw-fhir');
+      expect(projectedReport.provenance.artifactForm).toBe('projected');
+      expect(projectedReport.patients.seeded).toBe(rawReport.patients.seeded);
+
+      // The same charts: ids, problems, unit, labs, vitals, trajectory, access.
+      const snapshot = (realm: Realm) =>
+        realm.graph
+          .listKind('patient')
+          .map((p) => {
+            const s = p.state as Obj;
+            const lv = { ...((s['lastVitals'] as Obj | undefined) ?? {}) };
+            delete lv['at'];
+            return { id: p.id, problemList: s['problemList'], labs: s['labs'], lastVitals: lv, unitId: s['unitId'], trajectory: s['trajectory'], access: s['access'] };
+          })
+          .sort((a, b) => a.id.localeCompare(b.id));
+
+      const rawSnapshot = snapshot(fromRaw.realm);
+      expect(rawSnapshot).toHaveLength(2);
+      expect(snapshot(fromProjected.realm)).toEqual(rawSnapshot);
+    } finally {
+      fromRaw.realm.stop();
+      fromProjected.realm.stop();
     }
   });
 });

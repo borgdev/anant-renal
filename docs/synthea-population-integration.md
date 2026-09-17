@@ -95,6 +95,15 @@ A multi-specialty platform validated against a population with four
 single-comorbidity patients per specialty is validated against a fixture that
 cannot fail in the ways that matter.
 
+**And the cohort mechanism itself has one implementation.** `PackCohort` is declared
+by exactly one pack — `packs/oncology-provider/cohort.ts`, gating on
+`ONCOLOGY_PROBLEMS = [NSCLC, Breast cancer, Colorectal cancer, RCC]`. Every other
+`cohort:` in the tree is a *response field* on an assurance or route payload, not a
+declaration. So "every specialty's cohort is non-empty" — S3's exit criterion and
+S5's — is today a criterion about a mechanism that nine of ten specialties do not use.
+Populating it is still the right thing to do; assuming it has been validated ten times
+over is not, and the difference matters when S5 reports success.
+
 ### 1.2 The population cannot exhibit the disparities our equity reporting looks for
 
 This is the stronger argument and it is the one to weigh.
@@ -331,6 +340,7 @@ of that bag disagree almost completely:
 | `sex`, `facilityId` | ✅ | ✅ |
 | `name`, `mrn` | ✅ | — |
 | **`birthDate`** | ✅ | — |
+| **`race`, `ethnicity`, `birthSex`, `language`** | ✅ | ❌ — absent entirely (§9.2) |
 | **`age`** | — | ✅ |
 | `problemList` | — | ✅ |
 | `trajectory`, `dialysisVintageYears` | — | ✅ |
@@ -454,12 +464,24 @@ Three mechanics that decide the design:
    durable contribution.**
 2. **The engine state is seeded, not derived.** `forkFrom(stateJson, t)` sets the 5
    dimensions directly; there is no "derive dims from a lab record" path.
-3. **`stepWithEvents(eventJson, dt)` is the only way in.** A warm-up replay is
-   therefore possible: feed Synthea's observation history as a sequence of steps with
-   `dt` between observations, so the engine's own dynamics produce the state rather
-   than us hand-setting dimensions. Cost is one model step per patient per observation,
-   so subsample — monthly over five years is 60 steps, a full lifetime at observation
-   granularity is not.
+3. **`stepWithEvents(eventJson, dt)` is the only way in — and the warm-up replay this
+   section originally preferred does not work.** It was specified as: feed Synthea's
+   observation history as a sequence of steps with `dt` between observations, so the
+   engine's own dynamics produce the state instead of us hand-setting dimensions. S3
+   rejected it on **measurement**, not on cost. `stepWithEvents` does not take
+   observations; it takes a FIVE-ELEMENT EVENT VECTOR, and `#eventVector` reduces a
+   haemoglobin to ONE BINARY FEATURE (`lab_marker_elevated`, set when HGB < 10). HGB
+   8.9 and HGB 7.1 therefore produce the *same* input, and a replay converges to
+   whatever the baseline ODE drives it to — a state uncorrelated with the chart it came
+   from. It would have satisfied the letter of "seeded, not zero" while making
+   `anemia_severity` mean nothing, which is worse than not seeding at all.
+
+   The route taken instead is to **invert the engine's own declared projection**, which
+   is why `DIALYSIS_PROJECTION` was exported from `src/liquid/project.ts` as data rather
+   than the inverse being written inside it: seeding
+   `anemia_severity = (13 − HGB) / 5` makes the engine's next projected haemoglobin the
+   haemoglobin that was measured. The numbers stay in the engine; the mapping stays in
+   the population layer (§9.7 constraint 1).
 
 ### 4.6 The honest dimension mapping — Synthea supplies two of five
 
@@ -811,6 +833,13 @@ decide the admin surface (if any).
 **Exit:** a fresh clone can reproduce the exact population a demo used, from the
 manifest alone.
 
+**The artifact form is decided (§8 #2), and it is what makes this criterion
+reachable.** The generator writes TWO forms: a raw pool under `synthea-population/`
+that stays gitignored (~4.2 MB per patient), and the **projected** form under
+`synthea-seeds/` that is committed (~50 KB per patient). The seeder reads the
+projected form directly, so a fresh clone needs no JVM — the non-goal about a runtime
+dependency holds, and the clone size for a 10-realm demo is ~10 MB rather than 820 MB.
+
 ---
 
 ## 6. Non-goals
@@ -828,9 +857,12 @@ manifest alone.
 - **Making the platform depend on a JVM or Python at runtime.** Generation is a
   build-time activity with committed artifacts; `S2`'s injectable runner is what
   guarantees this.
-- **A population large enough to be a research dataset.** We need enough
-  heterogeneity for cohorts and equity screens — likely 50–500 patients — not a
-  census.
+- **A population large enough to be a research dataset.** The decided deployment is
+  **20 patients x 10 realms = 200 platform-wide**, which is enough for the oncology
+  cohort (~8) and the common comorbidities, and *not* enough to look like a dialysis
+  unit (ESRD is ~0.7% of a general population, so ~1 patient). Making a renal realm
+  look like a dialysis unit is a generator-module question, not a population-size one.
+  See §8 #3.
 
 ---
 
@@ -845,7 +877,8 @@ manifest alone.
 | **Synthea resources vendored into our tree** | 231 module JSONs + 394 resources, against a strict copyright regime | Consume as an external artifact + `NOTICE` entry; never copy resources in without attribution |
 | **Over-reliance on generated fixtures** | Tests that need a 200-patient artifact become slow and opaque | Commit a tiny golden bundle; keep `StaticPatientSource` as the unit-test default |
 | **Inventing a Kt/V from what Synthea has** | Synthea has no Kt/V (§4.6). An eGFR-based proxy would look like data, pass a review, and quietly become a clinical claim the platform makes | Declare the gap: seed `ktv_adequacy` from the renal domain, never from a proxy; assert in `S3` that no dimension is derived from a non-analogous observation |
-| **Warm-up replay cost** | One model step per patient per observation; a lifetime at observation granularity is thousands of steps × patients | Subsample (monthly over a bounded window), bound the window in config, and measure it in `S2` |
+| **Warm-up replay cost** — **CLOSED, not mitigated** | The plan bounded replay's cost; S3 showed the approach cannot work at all, so there is no cost to bound. `stepWithEvents` takes a five-element event vector in which a haemoglobin is ONE BINARY FEATURE, so a replayed HGB 8.9 and HGB 7.1 are the same input | **Ruled out by measurement** (§4.5(3), §8 #8). Priming inverts the engine's own declared projection (`DIALYSIS_PROJECTION`), so no dimension is derived from a non-analogous observation |
+| **The primed state does not persist** | Measured on the untrained engine (`setResidualAlpha(0)`, no promoted weights): `anemia_severity` decays `0.88 → 0.71 → 0.55 → 0.21 → 0.03` over 1 h → 12 h → 24 h → 72 h → 168 h, and the attractor is **0** from every starting point. A seeded population's clinical distinctiveness is therefore a ~2–3 day transient | Recorded rather than discovered later (§5, S3). S3 delivers the durable half (`problemList`, comorbidity denominators) plus a real initial condition; **S4's training is what makes a trajectory hold**, so S4 is not optional polish |
 | **Seeded state silently overwritten** | `labs` and `lastVitals` are engine outputs after tick 1 — a Synthea history that lands only there disappears immediately | Put the durable contribution in `problemList` (never overwritten) and assert the priming survived the first tick |
 | **Building a renal-only population layer** | §9.1: `src/liquid/` names dialysis throughout, and `populateFacility` gives every patient renal attributes. A population component written against that shape is a fourth place renal is hardcoded, and ten specialties cannot share it | Keep the Synthea → event-vector mapping OUT of `src/liquid/`, and treat the first new renal constant needed inside it as the trip-wire to declare the state model (§9.7). The seam itself is deferred deliberately, not forgotten |
 | **A population that cannot satisfy a declared measure** | §9.6: a measure screen reads as "nothing to do" when the fixture has no denominator-qualifying patient | Validate at deployment level — every declared measure has ≥1 qualifying patient — and report it as a population issue, not a blank screen |
@@ -860,28 +893,59 @@ manifest alone.
    demographics are broken in the field our integration reads (`name`, `birthDate`),
    so it is not a supported alternative for this purpose. See the S0 result for the
    side-by-side and for the corrections to my own first-pass findings.
-2. **Artifact policy.** Commit a generated population (the `cms-data/` precedent
-   commits 7 MB CSVs), or commit only the manifest and generate on demand? This
-   affects reproducibility guarantees and clone size.
-3. **Population size and module set.** 50–200 for cohorts and equity screens, or
-   larger for load? Any condition modules you want guaranteed present?
-4. **Default or opt-in.** Does Synthea become the default `PatientSource`, with
-   static as the test fallback — or opt-in via config, with static remaining the
-   default?
-5. **Scope of `S5`.** Should the equity work be part of this, or is it a follow-on?
-   It is the strongest justification for the work, and it is also where a negative
-   result would be most informative — so I would keep it in scope.
-6. **`age` vs `birthDate` as the source of truth** (§4.4). Deriving age at read time
-   is the more correct model and Synthea makes it possible; it also touches every
-   reader of `state.age`.
-7. **Conditions → `problemList` by projection, or cohorts reading `condition`
-   entities directly** (§4.4). The first is smaller; the second is the destination.
-8. **Warm-up replay vs direct dimension seeding** (§4.5(3)). Replay is more faithful —
-   the engine's own dynamics produce the state instead of us asserting it — but costs
-   one model step per patient per observation. Direct `forkFrom` is cheap but means we
-   invented the mapping from observations to dimensions, which is the same class of
-   mistake as a Kt/V proxy. I would start with replay on a bounded window and fall
-   back to `forkFrom` only for the dimensions §4.6 shows Synthea cannot inform.
+2. **Artifact policy.** — **DECIDED: commit the PROJECTED artifact, never the raw
+   FHIR.** Measured over a real 174-patient population: raw output is **4,196 KB per
+   patient** (713 MB) because each bundle is a lifetime record carrying base64
+   clinical notes and billing; after `projectBundle` it is **49.6 KB per patient**
+   (8.44 MB) — an **84.5x** reduction. So 10 realms x 20 patients is **9.7 MB**
+   committed, against **820 MB** raw. The raw pool stays a gitignored build-time
+   intermediate. This is what makes S6's exit criterion true: a fresh clone reproduces
+   the demo population with no JVM, because the artifact is already in the form the
+   seeder reads. The trade is that changing a projection rule needs a regeneration, so
+   the manifest records the form it holds.
+3. **Population size and module set.** — **DECIDED: 20 patients per realm, at most 10
+   realms (200 platform-wide).** The size works **because cohorts are platform-scoped**
+   (§9.5 point 3), so the number that matters for a board is 200, not 20. Measured rates
+   from a 150-patient sample, applied to 200: Anemia ~64, HTN ~29, DM2 ~24, CKD ~9,
+   oncology ~8, **ESRD ~1**. Consequences to hold onto: a per-realm view will show an
+   empty specialty board in most realms even though the platform board is populated, and
+   **a renal realm cannot be made to look like a dialysis unit at this scale** — ESRD is
+   ~0.7% of a general population and more patients only scale that linearly. If the demo
+   needs a dialysis unit, the lever is the generator's **module set**, which needs an
+   experiment (S0 established the reference CLI has no `-m` flag, so it is a
+   `synthea.properties` / modules-directory question) and belongs to S5.
+4. **Default or opt-in.** — **DECIDED: opt-in, per realm.** S3 already implements it
+   this way: `POST /admin/realms` takes `population` *or* `seed`, and the choice is the
+   caller's. Static stays the default, which keeps the non-goal ("no runtime JVM") and
+   keeps the unit suite dependency-free; with 10 realms, some should stay on the static
+   source so tests never depend on an artifact.
+5. **Scope of `S5`.** — **DECIDED: in scope**, both halves. It is the strongest
+   justification for the work and the place a negative result is most informative. One
+   prerequisite was found while checking: `structuralState`'s patient branch writes only
+   `name`/`sex`/`birthDate`/`mrn`/`facilityId` and never reads `Patient.extension[]` or
+   `Patient.communication`, so Synthea's `us-core-race` / `us-core-ethnicity` /
+   `us-core-birthsex` / language are **dropped at ingest** even though S0 verified they
+   are present on 100% of patients. That is a small ingestion change and it gates the
+   equity half.
+6. **`age` vs `birthDate` as the source of truth** (§4.4). **DECIDED: `birthDate` is
+   the stored fact — the ingest already writes it — and `age` becomes a derived read,
+   landing at S4 with a `patientAge(state, at)` helper.** Deliberately low priority:
+   a demo realm advances hours-to-days of realm time, so the drift is ~0. It is
+   correctness hygiene, not a blocker, and S4 already rewrites `populateFacility`.
+7. **Conditions → `problemList`** (§4.4). **DECIDED: keep `problemList` as the read
+   contract; remove the duplication at S4.** S3 currently writes the same clinical
+   fact twice — 211 `condition` entities *and* the same terms as `problemList`
+   strings — and two representations of one fact will rot. At S4 `problemList`
+   becomes a projection *of the graph's condition entities* rather than a second parse
+   of the bundle, which gives one source **and** makes onset dates reachable (the flat
+   array discards them, and "newly diagnosed" is what a cohort needs them for).
+   Cohorts reading `Condition` entities directly is the destination, post-S5, because
+   it touches every pack.
+8. **Warm-up replay vs direct dimension seeding** (§4.5(3)). — **DECIDED BY
+   MEASUREMENT: direct seeding, with the inverse derived from the engine's own
+   projection.** Replay is not merely more expensive; it cannot work, because the
+   event vector collapses a haemoglobin to one binary feature (§4.5(3)). The plan's
+   stated preference for replay is withdrawn, and §4.5(3) and §7 are updated to say so.
 9. **Is the population per-realm or per-platform?** — **DECIDED: per realm** (§9.5).
    Cross-realm patient identity is therefore out of scope; `Federation`'s aggregate
    rollups already reflect that boundary. Consequence: the population artifact is
@@ -1111,28 +1175,34 @@ changes must not be separated:
 ## Appendix — proposed file layout
 
 ```
-synthea-population/                  # generated (gitignored) + manifest.json committed
-  manifest.json                      # generator, version, config hash, counts
+synthea-population/                  # RAW pool — gitignored build-time intermediate
   <realmId>/                         # PER REALM (§9.5) — one artifact must not seed two
-    fhir/*.ndjson
-    manifest.json                    # the realm's own pins: seed, patient count, modules
+    fhir/*.json                      # Synthea's own output, unmodified (~4.2 MB/patient)
+    manifest.json                    # generator, version, config hash, the two digests
+synthea-seeds/                       # COMMITTED and projected (§8 #2, ~50 KB/patient)
+  <realmId>/
+    manifest.json                    # the same manifest + the form it records
+    bundles.json                     # the <=500-entry chunks the seeder ingests as-is
 scripts/generate-population.ts       # tsx, mirrors scripts/generate-pack-manifests.ts
                                      #   takes a realm + population spec as parameters
+                                     #   `--project` writes the committed form too
 src/population/
   source.ts                          # PatientSource, PopulatedPatient, provenance
   static-source.ts                   # today's round-robin, unchanged, default for tests
   state-model.ts                     # the declared state model (§9.1, S1 seam)
   synthea/
     runner.ts                        # spawns the CLI — injectable, mirrors LiquidTrainer
-    manifest.ts                      # per-realm pins, config hash, the two digests
+    manifest.ts                      # per-realm pins, config hash, the two digests,
+                                     #   and the artifact form (raw | projected)
     digest.ts                        # patient-layer normalisation for `patientDigest`
     identity.ts                      # Synthea id → realmId-pt-NNNN, realm-scoped
     conditions.ts                    # Synthea condition displays → the problem vocabulary
-    projection.ts                    # bundle → ≤500-entry chunks (S3, §"What building it changed")
+    projection.ts                    # bundle → ≤500-entry chunks, for either form
     prime.ts                         # measured observation → the engine's initial condition
     enrich.ts                        # ingested patient → renal shape (+ age from birthDate)
-    population.ts                    # artifact loader: manifest + fhir/ → bundles
+    population.ts                    # artifact loader: manifest + EITHER form → bundles
     seed.ts                          # the orchestrator: ingest → enrich → prime
+    project-population.ts            # writes the projected form from the raw pool
 tests/
   population-conditions.test.ts      # the 215 measured displays, pinned verbatim
   population-identity.test.ts

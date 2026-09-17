@@ -558,3 +558,95 @@ describe('S3 — vitals ingest keeps every measured value', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// S3 — patient demographics survive the ingest.
+//
+// §9.2 established that the synthetic population carries no race, ethnicity, language
+// or insurance — age and sex are its only demographic axes, and healthcare equity is
+// predominantly measured on the other four. So the platform's own fairness screens had
+// no fields to slice on, and could not have reported a disparity however hard they
+// looked. Synthea emits all four on 100% of patients; the ingest was dropping them.
+describe('S3 — the four US Core equity axes reach the patient entity', () => {
+  const US_CORE = 'http://hl7.org/fhir/us/core/StructureDefinition/';
+
+  async function ingestPatient(realmId: string, patient: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { realm } = makeRealm(realmId);
+    try {
+      const bundle = { resourceType: 'Bundle', type: 'collection', entry: [{ resource: patient }] } as unknown as Bundle;
+      await ingestFhirBundle(realm, ctx(realmId), bundle, {});
+      const rec = realm.graph.get(realm.graph.urnFor('patient', 'demo-1'));
+      expect(rec, 'the patient should have been created').toBeDefined();
+      return rec!.state as Record<string, unknown>;
+    } finally {
+      cleanup(realmId);
+    }
+  }
+
+  it('reads the COMPLEX extensions real Synthea emits', async () => {
+    // Real Synthea carries race and ethnicity as nested `ombCategory` codings plus a
+    // `text` variant; the code is the authoritative and the groupable one.
+    const st = await ingestPatient('realm:demo-1', {
+      resourceType: 'Patient',
+      id: 'demo-1',
+      name: [{ family: 'Armstrong', given: ['Abbey'] }],
+      gender: 'female',
+      birthDate: '1956-12-21',
+      extension: [
+        {
+          url: `${US_CORE}us-core-race`,
+          extension: [
+            { url: 'ombCategory', valueCoding: { system: 'urn:oid:2.16.840.1.113883.6.238', code: '2106-3', display: 'White' } },
+            { url: 'text', valueString: 'White' },
+          ],
+        },
+        {
+          url: `${US_CORE}us-core-ethnicity`,
+          extension: [
+            { url: 'ombCategory', valueCoding: { code: '2186-5', display: 'Not Hispanic or Latino' } },
+            { url: 'text', valueString: 'Not Hispanic or Latino' },
+          ],
+        },
+        { url: `${US_CORE}us-core-birthsex`, valueCode: 'F' },
+      ],
+      communication: [{ language: { coding: [{ system: 'urn:ietf:bcp:47', code: 'en-US', display: 'English' }] } }],
+    });
+
+    expect(st['race']).toBe('2106-3');
+    expect(st['ethnicity']).toBe('2186-5');
+    expect(st['birthSex']).toBe('F');
+    expect(st['language']).toBe('en-US');
+  });
+
+  it('falls back to the `text` variant when there is no OMB category', async () => {
+    // The shape the S2 golden fixture carries (written from a normalised bundle), and
+    // the shape a non-US sender is likely to produce. Both must read, or the axes are
+    // present for one generator and absent for another.
+    const st = await ingestPatient('realm:demo-2', {
+      resourceType: 'Patient',
+      id: 'demo-1',
+      name: [{ family: 'Olivo', given: ['Andrés'] }],
+      gender: 'male',
+      birthDate: '1969-12-13',
+      extension: [
+        { url: `${US_CORE}us-core-race`, extension: [{ url: 'text', valueString: 'White' }] },
+        { url: `${US_CORE}us-core-ethnicity`, extension: [{ url: 'text', valueString: 'Non Hispanic or Latino' }] },
+      ],
+      communication: [{ language: { coding: [{ code: 'es' }] } }],
+    });
+
+    expect(st['race']).toBe('White');
+    expect(st['ethnicity']).toBe('Non Hispanic or Latino');
+    // Absent rather than defaulted: a birth sex nobody recorded is not a value, and
+    // inventing one would put an unmeasured demographic into an equity denominator.
+    expect(st['birthSex']).toBeUndefined();
+    expect(st['language']).toBe('es');
+  });
+
+  it('leaves the axes absent for a patient that carries none', async () => {
+    const st = await ingestPatient('realm:demo-3', { resourceType: 'Patient', id: 'demo-1', gender: 'female' });
+    for (const axis of ['race', 'ethnicity', 'birthSex', 'language']) {
+      expect(st[axis], axis).toBeUndefined();
+    }
+  });
+});

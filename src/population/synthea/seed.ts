@@ -77,9 +77,10 @@ import type { Realm } from '../../realm/realm.js';
 import { primeDialysisState, primeEngine, type DimensionSource, type PrimedDimension } from './prime.js';
 import { enrichPatient, summarisePatient, type PatientClinicalSummary } from './enrich.js';
 import { applyPatientIdMap, patientIdsIn, planPatientIds } from './identity.js';
-import { projectBundle, type ProjectionOptions } from './projection.js';
+import { projectBundle, type ProjectionOptions, type ProjectionResult } from './projection.js';
 import { loadPopulation } from './population.js';
 import { NON_REPRODUCIBLE_LAYERS } from './digest.js';
+import type { ArtifactForm } from './manifest.js';
 
 export interface SeedPopulationOptions {
   readonly realmId: string;
@@ -88,8 +89,12 @@ export interface SeedPopulationOptions {
   readonly facilityName: string;
   /** Unit ids to create and place patients into, in declaration order. */
   readonly units: readonly string[];
-  /** Population root; defaults to the generator's directory. */
+  /** Root of the RAW artifact; defaults to the generator's directory. */
   readonly root?: string;
+  /** Root of the PROJECTED artifact; defaults to the committed seed directory. */
+  readonly seedRoot?: string;
+  /** Read `raw-fhir` or `projected` explicitly. Default: whichever exists, projected first. */
+  readonly form?: ArtifactForm | 'auto';
   readonly includeDeceased?: boolean;
   /** Cap the number of patient bundles read, for a smoke run. */
   readonly limit?: number;
@@ -113,6 +118,12 @@ export interface SeedPopulationReport {
     readonly patientCount: number;
     readonly referenceAt: string;
     readonly nonReproducible: readonly string[];
+    /**
+     * Which artifact form was read. `projected` means the bundles arrived already
+     * renamed and already reduced, so the seeder ingested them as-is; `raw-fhir` means
+     * it projected them here.
+     */
+    readonly artifactForm: ArtifactForm;
   };
   readonly guard: {
     readonly verdict: SeedVerdict;
@@ -212,13 +223,22 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
   const startedAt = Date.now();
   const loaded = loadPopulation(opts.realmId, {
     ...(opts.root !== undefined ? { root: opts.root } : {}),
+    ...(opts.seedRoot !== undefined ? { seedRoot: opts.seedRoot } : {}),
+    ...(opts.form !== undefined ? { form: opts.form } : {}),
     ...(opts.includeDeceased !== undefined ? { includeDeceased: opts.includeDeceased } : {}),
     ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
   });
 
   // ---- identity: assign realm-scoped ids BEFORE anything is written -----------
-  const planned = planPatientIds(patientIdsIn(loaded.bundles), opts.realmId);
-  const plannedIds = [...planned.values()];
+  //
+  // A `projected` artifact was already renamed when it was written, so re-planning here
+  // would be a no-op that silently depends on the local ordinal sort order matching the
+  // order the ordinals were assigned in. It happens to hold (zero-padded ids up to
+  // `MAX_LOCAL_PATIENTS`), but relying on it would make a correctness property of the
+  // ingest rest on a string-sort coincidence, so the two forms take different paths.
+  const alreadyRenamed = loaded.form === 'projected';
+  const planned = alreadyRenamed ? new Map<string, string>() : planPatientIds(patientIdsIn(loaded.bundles), opts.realmId);
+  const plannedIds = alreadyRenamed ? patientIdsIn(loaded.bundles) : [...planned.values()];
   const present = plannedIds.filter((id) => realm.graph.get(realm.graph.urnFor('patient', id)));
 
   const verdict: SeedVerdict = plannedIds.length === 0
@@ -236,6 +256,7 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
     patientCount: loaded.manifest.patientCount,
     referenceAt: loaded.referenceAt.toISOString(),
     nonReproducible: NON_REPRODUCIBLE_LAYERS,
+    artifactForm: loaded.form,
   };
 
   if (verdict === 'partial-population') {
@@ -252,7 +273,7 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
       directory: loaded.directory,
       provenance,
       guard: { verdict, planned: plannedIds.length, alreadyPresent: present.length, detail: 'every planned patient id is already present — nothing ingested' },
-      patients: { seeded: 0, excludedDeceased: loaded.deceasedExcluded.length, bundlesRead: loaded.filesRead },
+      patients: { seeded: 0, excludedDeceased: loaded.deceasedExcluded.length, bundlesRead: loaded.patientsRead },
       ingest: { chunks: 0, applied: 0, skipped: 0, structuralUpserts: 0, effectsApplied: 0, effectsRejected: 0, skipReasons: [] },
       projection: { inputEntries: 0, outputEntries: 0, kept: [], dropped: [], filteredOut: [], retainedAway: [] },
       enrich: { unitCounts: [], problemTerms: [], unmatchedConditions: [], ageRange: null, withoutProblems: 0 },
@@ -287,7 +308,26 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
 
   for (const bundle of loaded.bundles) {
     applyPatientIdMap(bundle, planned);
-    const projected = projectBundle(bundle, opts.projection ?? {});
+    // A `projected` artifact is ALREADY the output of this step — renamed and reduced —
+    // so projecting it again would apply retention a second time and report the residue
+    // as if it were a fresh measurement of the population. The form is recorded in the
+    // manifest and resolved by the loader, so this is a read rather than a guess.
+    const projected: ProjectionResult = loaded.form === 'projected'
+      ? {
+          chunks: [bundle],
+          report: {
+            kept: [],
+            dropped: [],
+            filteredOut: [],
+            retainedAway: [],
+            inputEntries: (bundle.entry ?? []).length,
+            outputEntries: (bundle.entry ?? []).length,
+            chunks: 1,
+            perAnalyteHistory: 0,
+            maxAgeDays: null,
+          },
+        }
+      : projectBundle(bundle, opts.projection ?? {});
     inputEntries += projected.report.inputEntries;
     outputEntries += projected.report.outputEntries;
     for (const row of projected.report.kept) keptTotals.set(row.resourceType, (keptTotals.get(row.resourceType) ?? 0) + row.count);
@@ -405,7 +445,7 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
     directory: loaded.directory,
     provenance,
     guard: { verdict, planned: plannedIds.length, alreadyPresent: 0, detail: 'no planned patient id was present — ingested' },
-    patients: { seeded: summaries.length, excludedDeceased: loaded.deceasedExcluded.length, bundlesRead: loaded.filesRead },
+      patients: { seeded: summaries.length, excludedDeceased: loaded.deceasedExcluded.length, bundlesRead: loaded.patientsRead },
     ingest: {
       ...ingestTotals,
       skipReasons: toRows(skipReasons, 'reason', 'count', 25) as Array<{ reason: string; count: number }>,

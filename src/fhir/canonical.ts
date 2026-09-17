@@ -417,11 +417,67 @@ function eventToEffects(evt: CanonicalEvent, opts: FhirIngestOptions): { effects
   }
 }
 
+/**
+ * US Core demographic extension URLs.
+ *
+ * These are the axes the platform's equity and fairness screens slice on, and — before
+ * this — the four fields §9.2 found entirely absent from the synthetic population.
+ * Synthea emits all four on 100% of patients (S0 verified across 233), so ingesting a
+ * real population is what makes an equity screen able to find a disparity at all.
+ */
+const US_CORE_RACE = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-race';
+const US_CORE_ETHNICITY = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-ethnicity';
+const US_CORE_BIRTHSEX = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-birthsex';
+
+interface FhirExtensionLike {
+  url?: string;
+  valueCode?: string;
+  valueString?: string;
+  valueCoding?: { code?: string };
+  extension?: FhirExtensionLike[];
+}
+
+/**
+ * The coded value of a US Core demographic extension, preferring the OMB category.
+ *
+ * `us-core-race` and `us-core-ethnicity` are COMPLEX extensions: the authoritative
+ * answer is the nested `ombCategory` coding and `text` is the human-readable variant.
+ * Real Synthea output carries both; the S2 golden fixture, written from a normalised
+ * bundle, carries only `text`. Reading `ombCategory` first and falling back to `text`
+ * handles either, and preferring the code keeps the value joinable across patients
+ * instead of free text that a screen cannot group.
+ *
+ * `us-core-birthsex` is a simple extension carrying `valueCode`.
+ */
+function usCoreDemographic(extensions: readonly FhirExtensionLike[] | undefined, url: string): string | undefined {
+  const ext = extensions?.find((e) => e.url === url);
+  if (!ext) return undefined;
+  if (ext.valueCode) return ext.valueCode;
+  if (ext.valueCoding?.code) return ext.valueCoding.code;
+  const omb = ext.extension?.find((e) => e.url === 'ombCategory');
+  if (omb?.valueCoding?.code) return omb.valueCoding.code;
+  return ext.extension?.find((e) => e.url === 'text')?.valueString ?? ext.valueString ?? undefined;
+}
+
+/** The first preferred language in `Patient.communication`, as a code when it has one. */
+function languageOf(communication: readonly { language?: { coding?: Array<{ code?: string }>; text?: string } }[] | undefined): string | undefined {
+  const first = communication?.[0]?.language;
+  return first?.coding?.find((c) => c.code)?.code ?? first?.text ?? undefined;
+}
+
 /** Structural kind → state shape for direct graph upsert (patient, org, unit, staff, equipment, insurance). */
 function structuralState(kind: EntityKind, resource: FhirResource): Record<string, unknown> {
   switch (kind) {
     case 'patient': {
-      const p = resource as { name?: Array<{ family?: string; given?: string[] }>; gender?: string; birthDate?: string; identifier?: Array<{ value?: string }>; managingOrganization?: { reference?: string } };
+      const p = resource as {
+        name?: Array<{ family?: string; given?: string[] }>;
+        gender?: string;
+        birthDate?: string;
+        identifier?: Array<{ value?: string }>;
+        managingOrganization?: { reference?: string };
+        extension?: FhirExtensionLike[];
+        communication?: Array<{ language?: { coding?: Array<{ code?: string }>; text?: string } }>;
+      };
       return {
         // `name` is ONE denormalised string and every reader parses it as
         // "given family" — the outbound Patient serializer and the identity
@@ -435,6 +491,14 @@ function structuralState(kind: EntityKind, resource: FhirResource): Record<strin
         birthDate: p.birthDate,
         mrn: p.identifier?.[0]?.value ?? resource.id,
         facilityId: refId(p.managingOrganization) ?? undefined,
+        // The equity axes (§9.2). Absent from the seeder entirely, so these are the
+        // one demographic contribution only the record can make — and they are the
+        // reason an ingested population can exercise a fairness screen that a
+        // round-robin population structurally cannot.
+        race: usCoreDemographic(p.extension, US_CORE_RACE),
+        ethnicity: usCoreDemographic(p.extension, US_CORE_ETHNICITY),
+        birthSex: usCoreDemographic(p.extension, US_CORE_BIRTHSEX),
+        language: languageOf(p.communication),
       };
     }
     case 'org-node': {
