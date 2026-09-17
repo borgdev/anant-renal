@@ -16,9 +16,9 @@ and the decisions that are yours rather than mine.
 **Section 9 is a review of §1–8 through a different lens** — *does this work for
 **every** specialty, or only for renal?* It found that the plan was renal-centric in
 ways the plan itself did not confront, including a fourth place one specialty's
-medicine is hardcoded in the platform layer, and a deeper question about whether the
-population is per-realm or per-platform. **Read §9 before treating §4–5 as the
-design.**
+medicine is hardcoded in the platform layer. **Read §9 before treating §4–5 as the
+design.** §9.5 also records the one decision made so far — the population is
+**per realm** — and what follows from it.
 
 Phase IDs are `S0`…`S6` (`S` is unused; the repo already uses `G` for gaps, `F` for
 FHIR, `M` for milestones).
@@ -550,10 +550,12 @@ Three steps, in this order, and the order is the design (§4.5):
    engine's 5 dimensions either by warm-up replay (preferred, §4.5(3)) or by
    `forkFrom(stateJson, t)` where Synthea has no source (§4.6).
 
-The critical sub-problem is **identity**: `ingestFhirBundle` warns that an EMR feed
-must supply `identity` or *"a patient whose MRN the harness has not seen before
-silently becomes a second chart."* Synthea patient ids need a deterministic mapping
-onto our `facilityId-pt-NNNN` ids so regeneration does not duplicate charts.
+The critical sub-problem is **identity**, and the decision in §9.5 makes it smaller:
+an `ingestFhirBundle` call must supply `identity` or *"a patient whose MRN the harness
+has not seen before silently becomes a second chart."* Because the population is
+**per realm**, that mapping is scoped to one realm — `syntheaPatientId →
+realmId-pt-NNNN` — with **no global reconciliation** and no cross-realm merge. The
+requirement is only that regeneration within a realm is stable.
 
 **Exit:** a realm seeded entirely from Synthea output renders in both consoles;
 re-running generation produces no duplicates; every specialty's cohort is
@@ -611,6 +613,10 @@ manifest alone.
   dosing, or access surveillance comes from Synthea (§2.2).
 - **Real data of any kind.** Synthea output is synthetic; this does not change the
   platform's PHI posture and must not appear to.
+- **Cross-facility patient continuity** (§9.5). Decided: the population is per realm,
+  so one human treated at two facilities is two patients, and `Federation`'s
+  cross-realm analytics remain aggregate. A patient belongs to several *cohorts*,
+  not to several *facilities*.
 - **HL7 v2 or C-CDA ingestion.** Synthea can emit C-CDA; our ingest speaks FHIR and
   Bulk FHIR. Stay on FHIR.
 - **Making the platform depend on a JVM or Python at runtime.** Generation is a
@@ -637,7 +643,7 @@ manifest alone.
 | **Seeded state silently overwritten** | `labs` and `lastVitals` are engine outputs after tick 1 — a Synthea history that lands only there disappears immediately | Put the durable contribution in `problemList` (never overwritten) and assert the priming survived the first tick |
 | **Building a renal-only population layer** | §9.1: `src/liquid/` names dialysis throughout, and `populateFacility` gives every patient renal attributes. A population component written against that shape is a fourth place renal is hardcoded, and ten specialties cannot share it | Introduce the `state_model` declaration in S1 while only dialysis implements it, so `dialysis` is the first *implementation* of the platform's state model rather than its shape |
 | **A population that cannot satisfy a declared measure** | §9.6: a measure screen reads as "nothing to do" when the fixture has no denominator-qualifying patient | Validate at deployment level — every declared measure has ≥1 qualifying patient — and report it as a population issue, not a blank screen |
-| **Two realms, one human** | §9.5: ids are minted per facility, so one patient treated at two facilities is two unrelated patients and overlapping cohorts cannot mean what they claim | Decide per-realm vs per-platform population before S3's identity mapping is designed, because the mapping's shape depends on the answer |
+| **Two realms, one human** | §9.5: ids are minted per facility, so one patient treated at two facilities is two unrelated patients | **Decided** — population is per realm and cross-realm patient identity is out of scope (§6). Generation therefore takes a realm as a parameter; a single artifact must never seed two realms |
 | **The equity screen still cannot fire after S5** | Would mean the population was never the limiting factor | `S5`'s exit criterion is that it *does* fire — a negative result here is a real finding, not a failure to be hidden |
 
 ---
@@ -669,10 +675,10 @@ manifest alone.
    invented the mapping from observations to dimensions, which is the same class of
    mistake as a Kt/V proxy. I would start with replay on a bounded window and fall
    back to `forkFrom` only for the dimensions §4.6 shows Synthea cannot inform.
-9. **Is the population per-realm or per-platform?** (§9.5). Today it is per-realm and
-   patient ids are minted per facility, so one human treated at two facilities is two
-   unrelated patients — which is incompatible with the overlapping-cohort premise.
-   This is the decision §9 calls the deepest gap, and it is yours rather than mine.
+9. **Is the population per-realm or per-platform?** — **DECIDED: per realm** (§9.5).
+   Cross-realm patient identity is therefore out of scope; `Federation`'s aggregate
+   rollups already reflect that boundary. Consequence: the population artifact is
+   per-realm and generation takes a realm as a parameter.
 10. **How many care settings must the platform express?** (§9.3). `FacilitySeed.kind`
     is four values restated in five places. Generalising it is cheap; agreeing the
     vocabulary is a product decision.
@@ -766,22 +772,52 @@ not be telling specialties who their patients are.
 
 ### 9.5 One patient, several specialties — and today they cannot be one patient
 
-This is the deepest gap, and it follows from multi-specialty rather than from Synthea.
+**Status: DECIDED — the population is PER REALM.** Recorded here with the evidence,
+because the decision simplifies several later phases.
 
-The multi-specialty premise is a patient who belongs to **several** cohorts at once —
-that is what made the cohort work worth doing. But `populateFacility` mints patient
-ids as `${facilityId}-pt-0001`, so **a patient treated at two facilities is two
-patients**, generated independently by two realms. `renalPatientInputs` then emits one
-input per patient entity per realm, so the same human surfaces twice with different
-ids and different conditions.
+This section originally called the gap "the deepest" in the plan. Having gone and
+checked what actually depends on cross-realm identity, that framing was too strong,
+and the correction matters:
 
-A real Synthea patient has encounters at multiple facilities over one lifetime — which
-is exactly the overlapping-cohort case. So the population component has to answer a
-question the plan never asks: **is the population per-realm or per-platform?**
+`populateFacility` mints patient ids as `${facilityId}-pt-0001`, so **a patient
+treated at two facilities is two patients**, generated independently by two realms.
+`renalPatientInputs` then emits one input per patient entity per realm, so the same
+human surfaces twice with different ids and different conditions.
 
-This needs a decision, and it interacts with §4.3's identity mapping: the mapping is
-not merely "Synthea id → our id" but "one Synthea patient → one platform patient,
-visible to every realm that treats them".
+But `src/realm/federation.ts` shows the platform never tries to join them. Its
+cross-realm surface is entirely **aggregate**:
+
+- `ProviderOrg { orgId, displayName, realmIds }` — an org is a *set of realms*
+- `costRollup(orgId)` — "Roll up cost/outcome ledger across all realms in the org",
+  summing `dollars`, `clinicianMin`, `safetyRisk` and returning `perRealm` breakdowns
+- `hitlLoad(orgId)` — pending/approved/rejected **counts per realm**
+- cross-realm plan throughput — intents and plans **per realm**
+
+**No patient identity appears anywhere in it.** So cross-realm patient continuity is
+not a capability this plan is failing to preserve; it is a boundary the architecture
+already draws, and the useful thing is to make it a decision rather than an accident.
+
+**What "per realm" means, precisely:**
+
+1. Each realm is seeded with its own population, and patient ids stay realm-scoped —
+   exactly as today.
+2. **Cohort overlap happens WITHIN a realm.** That is the case the cohort work
+   enabled, and it is fully preserved: one realm's population is multi-morbid, so a
+   patient can be in the renal, oncology and care-management cohorts at once. This is
+   what the multi-specialty goal actually requires, and per-realm delivers it.
+3. Specialties remain **platform-scoped**: `patientProjection()` spans realms, so
+   oncology sees its cohort across every facility, and the equity screens slice across
+   the whole projected population.
+4. **Cross-realm analytics stay aggregate** — `Federation`, unchanged.
+5. **Cross-facility patient continuity is out of scope by decision.** One human
+   treated at two facilities is two patients. That is a real limitation of the
+   synthetic population, and it is now a stated one (§6) rather than a latent surprise.
+
+**The consequence the plan must absorb:** the population artifact becomes **per
+realm**, not per platform. A single generated population cannot seed two realms —
+they would mint the same ids for different people, or reconcile into the same chart.
+So generation takes a realm (or a realm's cohort spec) as a parameter, and S3's
+identity mapping is scoped to one realm with no global reconciliation.
 
 ### 9.6 Nothing checks that a population can satisfy the declared measures
 
@@ -817,15 +853,19 @@ implementation honestly labelled as such.
 
 ```
 synthea-population/                  # generated (gitignored) + manifest.json committed
-  manifest.json                      # generator, version, seed, config hash, counts
-  fhir/*.ndjson                      # output
+  manifest.json                      # generator, version, config hash, counts
+  <realmId>/                         # PER REALM (§9.5) — one artifact must not seed two
+    fhir/*.ndjson
+    manifest.json                    # the realm's own pins: seed, patient count, modules
 scripts/generate-population.ts       # tsx, mirrors scripts/generate-pack-manifests.ts
+                                     #   takes a realm + population spec as parameters
 src/population/
   source.ts                          # PatientSource, PopulatedPatient, provenance
   static-source.ts                   # today's round-robin, unchanged, default for tests
+  state-model.ts                     # the declared state model (§9.1, S1 seam)
   synthea/
     runner.ts                        # spawns the CLI — injectable, mirrors LiquidTrainer
-    identity.ts                      # deterministic Synthea id → platform id
+    identity.ts                      # Synthea id → realmId-pt-NNNN, realm-scoped
     enrich.ts                        # ingested patient → renal shape (+ age from birthDate)
     conditions.ts                    # ingested condition entities → cohort vocabulary
   # NO bespoke FHIR parser: ingestFhirBundle is the front half (§4.3)
