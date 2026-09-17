@@ -44,7 +44,7 @@ import type { RealmMode } from '../realm/types.js';
 import { RealmRegistry, populateFacility, restoreSnapshot, type RealmSnapshotV1 } from '../realm/index.js';
 import { buildHealthcareHypergraphSchema } from '../../packs/healthcare-core/hypergraph.js';
 import { RealmHypergraph } from '../realm/hypergraph-bridge.js';
-import { seedRealmFromPopulation } from '../population/synthea/seed.js';
+import { StaticPopulationSeeder, SyntheaPopulationSeeder, seederRequestFrom } from '../population/seeder.js';
 import type { PopulationSeedRequest } from './admin-routes.js';
 
 export interface RealmCreationSpec {
@@ -96,20 +96,11 @@ export async function restoreRealmsFromSpecs(store: Pick<SqlStore, 'listRealmSpe
       try { parsed = JSON.parse(row.specJson) as RealmCreationSpec; } catch { parsed = {}; }
       const realm = build();
       if (parsed.population) {
-        // Before `start()`, matching `POST /admin/realms`.
+        // Before `start()`, matching `POST /admin/realms`. Both now go through the same
+        // seeder and the same payload mapper, so a restored realm and a freshly created
+        // one cannot seed differently — which the two hand-written option bags could.
         try {
-          const p = parsed.population;
-          await seedRealmFromPopulation(realm, {
-            realmId: row.realmId,
-            facilityId: p.facilityId,
-            facilityKind: p.facilityKind ?? 'dialysis',
-            facilityName: p.facilityName ?? p.facilityId,
-            units: p.units,
-            ...(p.root !== undefined ? { root: p.root } : {}),
-            ...(p.limit !== undefined ? { limit: p.limit } : {}),
-            ...(p.includeDeceased !== undefined ? { includeDeceased: p.includeDeceased } : {}),
-            ...(p.seedObservationState !== undefined ? { seedObservationState: p.seedObservationState } : {}),
-          });
+          await SyntheaPopulationSeeder.seed(realm, seederRequestFrom(parsed.population));
         } catch {
           // The artifact is gone or damaged. A realm with no patients is worse than no
           // realm, because it looks like a healthy empty world — drop it and let the
@@ -118,7 +109,16 @@ export async function restoreRealmsFromSpecs(store: Pick<SqlStore, 'listRealmSpe
           continue;
         }
       } else if (parsed.seed) {
-        populateFacility(realm, parsed.seed);
+        // The static path goes through the seam as well rather than calling
+        // `populateFacility` directly, so there is one seeding path and not two that
+        // happen to agree.
+        await StaticPopulationSeeder.seed(realm, {
+          facilityId: parsed.seed.facilityId,
+          facilityKind: parsed.seed.kind,
+          facilityName: parsed.seed.name,
+          units: parsed.seed.units,
+          patientCount: parsed.seed.patientCount,
+        });
       }
       realm.start();
       restored.push(row.realmId);

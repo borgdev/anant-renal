@@ -109,7 +109,8 @@ import type { StoredMeasure } from '../measures/types.js';
 import { existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as pathJoin } from 'node:path';
-import { seedRealmFromPopulation, type SeedPopulationReport } from '../population/synthea/seed.js';
+import type { SeedPopulationReport } from '../population/synthea/seed.js';
+import { SyntheaPopulationSeeder, seederRequestFrom } from '../population/seeder.js';
 import type { FacilityKind } from '../population/source.js';
 
 /**
@@ -544,17 +545,11 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
       // clinical record for the same patients.
       if (population) {
         try {
-          populationReport = await seedRealmFromPopulation(realm, {
-            realmId: id,
-            facilityId: population.facilityId,
-            facilityKind: population.facilityKind ?? 'dialysis',
-            facilityName: population.facilityName ?? population.facilityId,
-            units: population.units,
-            ...(population.root !== undefined ? { root: population.root } : {}),
-            ...(population.limit !== undefined ? { limit: population.limit } : {}),
-            ...(population.includeDeceased !== undefined ? { includeDeceased: population.includeDeceased } : {}),
-            ...(population.seedObservationState !== undefined ? { seedObservationState: population.seedObservationState } : {}),
-          });
+          // Through the seam rather than straight into `seedRealmFromPopulation`, so this
+          // route and `realm-restore.ts` map the same payload the same way. They used to
+          // each build the options bag inline (§4 `seederRequestFrom`).
+          const outcome = await SyntheaPopulationSeeder.seed(realm, seederRequestFrom(population));
+          populationReport = outcome.report;
         } catch (e) {
           // Remove the realm rather than return a world that is unseeded or half-seeded.
           // A half-seeded realm is the one outcome the seeder itself refuses to produce
