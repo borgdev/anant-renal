@@ -175,7 +175,21 @@ export function cohortSignals(inputs: readonly RenalPatientInput[]): CohortSigna
       ...(stringOf(state.race) !== undefined ? { race: stringOf(state.race) } : {}),
       ...(stringOf(state.ethnicity) !== undefined ? { ethnicity: stringOf(state.ethnicity) } : {}),
       ...(stringOf(state.language) !== undefined ? { language: stringOf(state.language) } : {}),
-      covered: coveredProtocols.length > 0,
+      // Sufficiency, NOT "some protocol reached a verdict".
+      //
+      // This was `coveredProtocols.length > 0` and a probe showed that is always true:
+      // a patient with an EMPTY state scores `access` at `green` (severity 0.25), so
+      // "some protocol decided" holds for a patient nobody has measured. Every row was
+      // then `covered: true`, which made the coverage comparison `fairness.ts` performs
+      // BEFORE it compares flag rates a constant — and `disparityReport` reads a
+      // coverage gap as `breach`, so the one gate that could have caught a
+      // data-capture disparity was the one measuring nothing.
+      //
+      // The rule below is `registry.ts`'s own `unknown` condition negated — a protocol
+      // reports `unknown` when `sessions.count === 0 && panel.completenessPct < 50`.
+      // Reusing the stated rule rather than inventing a second threshold is the point:
+      // two definitions of "enough data" is how they drift apart.
+      covered: facts.sessions.count > 0 || facts.panel.completenessPct >= 50,
       flagged: alerts.some((a) => a.patientId === facts.patientId),
       score: coveredProtocols.length,
     });

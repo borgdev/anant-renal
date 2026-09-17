@@ -134,29 +134,42 @@ describe('assurance — the probe finding, against the real producer', () => {
     expect(decided.every((s) => s.status !== 'red')).toBe(true);
   });
 
-  // The consequence for the shipped producer. `cohortSignals` derives `covered` as
-  // "at least one protocol could evaluate this patient", and the probe above shows
-  // that is TRUE for a patient with no chart — because `access` returns `green`
-  // (severity 0.25, so not `unknown`). So `covered` is not a coverage signal for this
-  // cohort, and `fairness.ts` reads coverage BEFORE it compares flag rates.
+  // The consequence for the shipped producer, and the defect the probe uncovered.
   //
-  // Asserted, not fixed: changing `cohortSignals` is a behaviour change to the
-  // shipped assurance track, and it belongs in its own change with the docs updated.
-  // What this test guarantees is that the behaviour is visible rather than latent.
-  it('shows that a no-data patient reads as covered and flagged in cohortSignals', () => {
+  // `cohortSignals` used to derive `covered` as "at least one protocol could evaluate
+  // this patient" — which the probe above shows is TRUE for a patient with no chart,
+  // because `access` returns `green` at severity 0.25 rather than `unknown`. Every row
+  // was covered, so the coverage comparison `fairness.ts` performs BEFORE the flag
+  // comparison was a constant, and `disparityReport` reads a coverage gap as `breach`:
+  // the one gate that could have caught a data-capture disparity was measuring nothing.
+  //
+  // Now derived from the same sufficiency rule `registry.ts` uses for `unknown`.
+  it('reports a no-data patient as UNCOVERED, which is what the coverage gate means', () => {
     const view = cohortSignals([{ id: 'bare', realmId: 'r', state: {} }]);
     expect(view.rows).toHaveLength(1);
 
     const row = view.rows[0]!;
-    expect(row.covered).toBe(true);
-    // `amber` counts as flagged here (`red || amber`), which is a different
-    // definition from a "problem was surfaced" reading of the same word.
+    // The fix. Sessions 0 and a 0% panel is not enough data to judge anyone.
+    expect(row.covered).toBe(false);
+    // Still flagged, and that is the OTHER half of the finding rather than a
+    // contradiction: `adequacy` reports amber 0.5 against a `red` threshold of 0.6, so
+    // a patient nobody measured is 0.1 away from being flagged for inadequate dialysis.
     expect(row.flagged).toBe(true);
     expect(row.score).toBe(3);
     // And the two dimensions that exist on an empty state are absent, so the patient
     // bands into `unknown` for them rather than being dropped.
     expect(row.age).toBeUndefined();
     expect(row.sex).toBeUndefined();
+  });
+
+  // A chart is what makes a row covered, so the assertion above is about a specific
+  // population rather than about the rule returning a constant — the failure the
+  // previous `covered` derivation had.
+  it('reports a charted patient as covered', () => {
+    seedRealm();
+    const view = cohortSignals(renalPatientInputs(RealmRegistry.list()));
+    expect(view.rows).toHaveLength(12);
+    expect(view.rows.filter((r) => r.covered)).toHaveLength(12);
   });
 
   // Non-vacuity: a patient WITH a chart is also covered and flagged, so the assertion
