@@ -1,0 +1,223 @@
+/******************************************************************************
+ *
+ * Copyright (c) 2026 AnantHQ Inc.
+ * All Rights Reserved.
+ *
+ * This software is licensed, not sold.
+ *
+ * The contents of this file constitute confidential and proprietary
+ * information belonging exclusively to AnantHQ Inc.
+ *
+ * This source code incorporates proprietary algorithms, software architecture,
+ * business logic, computational methods, optimization techniques,
+ * workflows, data structures, APIs, and implementation details that are
+ * protected by copyright law, patent law, trade secret law, and
+ * international intellectual property treaties.
+ *
+ * Except as expressly permitted by a written license agreement,
+ * no person or organization may:
+ *
+ *   • Copy or reproduce this software.
+ *   • Modify or create derivative works.
+ *   • Reverse engineer, decompile, or disassemble.
+ *   • Benchmark or publicly disclose performance.
+ *   • Redistribute, sublicense, lease, rent, or sell.
+ *   • Use this software for competitive analysis.
+ *   • Disclose any implementation details.
+ *
+ * Any unauthorized use is strictly prohibited and may result in
+ * civil damages, injunctive relief, criminal prosecution,
+ * and all other remedies available under applicable law.
+ *
+ ******************************************************************************/
+
+// The assurance track's fairness path, as it actually exists.
+//
+// This file replaces two files that were written against a WRONG PREMISE and then
+// deleted (`src/swarm/fairness-rows.ts`, `tests/fairness-rows.test.ts`,
+// `tests/fairness-route.test.ts`). The premise was "there is no route and no row
+// producer". Both claims came from `grep -rn ... src/`, and the assurance surface
+// lives in `packs/dialysis-provider/assurance-track-routes.ts` — registered through
+// `registerPackRoutes`. The searches could not have found it.
+//
+// What survives the correction is the probe, because it is a fact about the code
+// that WAS there all along: a patient with an empty state scores non-zero on three of
+// seven protocols. That is asserted below against `cohortSignals`, the real producer.
+//
+// The second half measures the real route. `cohortSignals` is reached by
+// `GET /admin/swarm/assurance/fairness` from the dialysis-provider pack, so the
+// question "does the screen fire?" is asked of the shipped route rather than of a
+// reimplementation of it.
+
+import { describe, expect, it, beforeEach } from 'vitest';
+import { buildApp } from '../src/server/app.js';
+import { Telemetry, InMemorySink } from '../src/server/telemetry.js';
+import type { PostgresEventStore } from '../src/server/postgres-event-store.js';
+import type { CanonicalEvent } from '../src/healthcare-core/events.js';
+import type { LedgerEntry } from '../src/hypergraph/ledger.js';
+import { healthcareCorePack } from '../packs/healthcare-core/index.js';
+import { dialysisProviderPack } from '../packs/dialysis-provider/index.js';
+import { cohortSignals } from '../packs/dialysis-provider/assurance-track-routes.js';
+import type { ActorContext } from '../src/server/scoped-persistence.js';
+import { AcceleratedClock } from '../src/realm/clock.js';
+import { RealmRegistry } from '../src/realm/index.js';
+import { populateFacility } from '../src/realm/sim-populator.js';
+import { renalPatientFacts, renalPatientInputs } from '../src/swarm/renal-cohort.js';
+import { RENAL_PROTOCOLS, evaluateProtocolForPatient } from '../src/protocols/registry.js';
+
+const FIXED_START = new Date('2026-01-01T00:00:00.000Z');
+
+function inMemoryStore(): PostgresEventStore {
+  const events: CanonicalEvent[] = [];
+  const ledger: LedgerEntry[] = [];
+  const audit: unknown[] = [];
+  return {
+    async applyMigrations() { /* noop */ },
+    async appendEvent(_scope: { scopeId: string; actorRef: string }, ev: CanonicalEvent) { events.push(ev); },
+    async queryEvents() { return events; },
+    async ledgerAppend(_scope: { scopeId: string; actorRef: string }, e: LedgerEntry) { ledger.push(e); },
+    async ledgerQuery() { return ledger; },
+    async appendAudit(_scope: { scopeId: string; actorRef: string }, row: unknown) { audit.push(row); },
+    async queryAudit() { return audit; },
+    async recordFhirResource() { /* noop */ },
+    async listFhirResources() { return []; },
+  } as unknown as PostgresEventStore;
+}
+
+const actor: ActorContext = { actorRef: 'user:test', scopeIds: ['scope:*'], clearance: 'restricted-phi', purposeOfUse: 'operations' } as ActorContext;
+
+async function build() {
+  return buildApp({
+    store: inMemoryStore(),
+    telemetry: new Telemetry('test', new InMemorySink()),
+    // The assurance routes come from the dialysis-provider pack, so it has to be
+    // installed for the route to exist at all — which is itself the correction.
+    packs: [healthcareCorePack, dialysisProviderPack],
+    authenticate: async () => actor,
+    checkHealth: async () => ({ db: true, redis: true }),
+  });
+}
+
+function seedRealm(): void {
+  const realm = RealmRegistry.create({
+    id: 'assurance-fair',
+    mode: 'sim',
+    clock: new AcceleratedClock({ startAt: FIXED_START }),
+  });
+  populateFacility(realm, {
+    facilityId: 'assurance-fac',
+    kind: 'dialysis',
+    name: 'Assurance Dialysis',
+    units: ['A', 'B'],
+    patientCount: 12,
+  }, { seed: 1, days: 90 });
+}
+
+beforeEach(() => {
+  for (const realm of RealmRegistry.list()) RealmRegistry.remove(realm.id);
+});
+
+describe('assurance — the probe finding, against the real producer', () => {
+  // A patient with NO data at all. Three of seven protocols assign a non-zero
+  // severity, and `adequacy` sits at 0.5 — one notch below the `red` threshold of
+  // 0.6. This is a finding about the PROTOCOLS: a patient nobody measured is 0.1 away
+  // from being flagged for inadequate dialysis.
+  it('documents that protocols score a no-data patient as non-zero', () => {
+    const facts = renalPatientFacts({ id: 'bare', realmId: 'r', state: {} });
+    const decided = RENAL_PROTOCOLS
+      .map((p) => ({ id: p.id, ...evaluateProtocolForPatient(p.id, facts) }))
+      .filter((s) => s.severity > 0);
+
+    expect(decided.map((s) => s.id).sort()).toEqual(['access', 'adequacy', 'ckd-mbd']);
+    expect(decided.find((s) => s.id === 'adequacy')?.severity).toBe(0.5);
+    expect(decided.find((s) => s.id === 'adequacy')?.status).toBe('amber');
+    expect(decided.every((s) => s.status !== 'red')).toBe(true);
+  });
+
+  // The consequence for the shipped producer. `cohortSignals` derives `covered` as
+  // "at least one protocol could evaluate this patient", and the probe above shows
+  // that is TRUE for a patient with no chart — because `access` returns `green`
+  // (severity 0.25, so not `unknown`). So `covered` is not a coverage signal for this
+  // cohort, and `fairness.ts` reads coverage BEFORE it compares flag rates.
+  //
+  // Asserted, not fixed: changing `cohortSignals` is a behaviour change to the
+  // shipped assurance track, and it belongs in its own change with the docs updated.
+  // What this test guarantees is that the behaviour is visible rather than latent.
+  it('shows that a no-data patient reads as covered and flagged in cohortSignals', () => {
+    const view = cohortSignals([{ id: 'bare', realmId: 'r', state: {} }]);
+    expect(view.rows).toHaveLength(1);
+
+    const row = view.rows[0]!;
+    expect(row.covered).toBe(true);
+    // `amber` counts as flagged here (`red || amber`), which is a different
+    // definition from a "problem was surfaced" reading of the same word.
+    expect(row.flagged).toBe(true);
+    expect(row.score).toBe(3);
+    // And the two dimensions that exist on an empty state are absent, so the patient
+    // bands into `unknown` for them rather than being dropped.
+    expect(row.age).toBeUndefined();
+    expect(row.sex).toBeUndefined();
+  });
+
+  // Non-vacuity: a patient WITH a chart is also covered and flagged, so the assertion
+  // above is about a specific population rather than about the function returning a
+  // constant.
+  it('produces real rows for a seeded cohort', () => {
+    seedRealm();
+    const view = cohortSignals(renalPatientInputs(RealmRegistry.list()));
+
+    expect(view.rows).toHaveLength(12);
+    expect(view.patients).toBe(12);
+    expect(view.protocols).toBe(RENAL_PROTOCOLS.length);
+    expect(view.rows.every((r) => r.age !== undefined && r.sex !== undefined)).toBe(true);
+    expect(view.rows.every((r) => r.vintageYears !== undefined && r.accessType !== undefined)).toBe(true);
+  });
+});
+
+describe('assurance — the shipped fairness route', () => {
+  it('is served by the dialysis-provider pack and reports over the live cohort', async () => {
+    seedRealm();
+    const app = await build();
+    try {
+      const res = await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness' });
+      expect(res.statusCode).toBe(200);
+
+      const body = res.json() as {
+        report: { cohortN: number; dimensions: Array<{ dimension: string; verdict: string }>; verdict: string; findings: string[] };
+        signature: string;
+        protocol: string;
+        cohort: { patients: number };
+      };
+
+      expect(body.cohort.patients).toBe(12);
+      expect(body.report.cohortN).toBe(12);
+      expect(body.report.dimensions.map((d) => d.dimension)).toEqual(['age', 'sex', 'vintage', 'access']);
+      expect(typeof body.signature).toBe('string');
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `[assurance] verdict=${body.report.verdict} :: ` +
+        body.report.dimensions.map((d) => `${d.dimension}=${d.verdict}`).join(' '),
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  // A supplied-but-unrecognised protocol is REFUSED rather than answered about a
+  // different one — the route's own comment records that `?protocol=mbd` used to
+  // return ANEMIA's report, "a wrong answer shaped like a right one".
+  it('refuses an unknown dimension and an unknown protocol', async () => {
+    seedRealm();
+    const app = await build();
+    try {
+      const badDim = await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness?dimension=race' });
+      expect(badDim.statusCode).toBe(400);
+
+      const badProtocol = await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness?protocol=mbd' });
+      expect(badProtocol.statusCode).toBe(400);
+    } finally {
+      await app.close();
+    }
+  });
+});

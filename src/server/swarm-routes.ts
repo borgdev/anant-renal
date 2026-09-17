@@ -63,15 +63,6 @@ import { sqlWorkspacePersistence, SwarmWorkspaceStore, projectRealmEvents, type 
 import type { ApprovalClass, WorldEffectKind } from '../swarm/types.js';
 import type { Realm } from '../realm/realm.js';
 import { RealmRegistry } from '../realm/registry.js';
-import { renalPatientInputs, type RenalPatientInput } from '../swarm/renal-cohort.js';
-import { fairnessRowsFromPatients } from '../swarm/fairness-rows.js';
-import {
-  fairnessReport,
-  fairnessSignature,
-  FAIRNESS_DIMENSION_LABELS,
-  SLICE_DIMENSIONS,
-  type SliceDimension,
-} from '../evidence/fairness.js';
 import { dispatchApprovedEpisode, DispatchError, commandFromEpisode, type DispatchApprovedResult } from '../swarm/command-dispatch.js';
 import { asRankedDecision, decideRankedAction, validateRankedDecision, type RankedDecisionInput } from '../swarm/nba-decision.js';
 import { analyseRankedAdoption } from '../swarm/adoption.js';
@@ -96,14 +87,6 @@ export interface SwarmRouteOptions {
   /** Resolve a live realm by id for an approved-order dispatch. Defaults to the
    *  process registry; injectable so tests can supply their own realm. */
   realmOf?: (realmId: string) => Realm | undefined;
-  /**
-   * The patients the swarm reasons about, as the platform projects them.
-   *
-   * Defaults to `renalPatientInputs(RealmRegistry.list())`; injectable for the same
-   * reason `realmOf` is — a test should be able to state its population rather than
-   * stand one up. Only the fairness report consumes it today.
-   */
-  patients?: () => readonly RenalPatientInput[];
 }
 
 /**
@@ -739,64 +722,6 @@ export async function registerSwarmRoutes(app: FastifyInstance, opts: SwarmRoute
   );
 
   // --- knowledge notes (intelligence workspace) ---
-  // ── Assurance: the fairness report ────────────────────────────────────────
-  //
-  // S5 L0's second half. `src/evidence/fairness.ts` has banded, sliced and compared
-  // `FairnessRow`s since it was written, and `fairnessRowsFromPatients` builds them
-  // from the platform's own projection — but nothing SERVED the result, so
-  // `exec-app/src/lib/assurance.ts` was a client for an endpoint that did not exist
-  // and the screen had never been reachable. That is what this route fixes.
-  //
-  // One route, two shapes, because that is how the frontend already calls it:
-  // `fairness()` for the whole report and `fairnessDimension(d)` for one slice. Two
-  // routes would be two places for the banding to drift.
-  const patientsForFairness = (): readonly RenalPatientInput[] =>
-    opts.patients ? opts.patients() : renalPatientInputs(RealmRegistry.list());
-
-  /**
-   * Ages are derived at a realm instant, not a wall-clock one (§8 #6).
-   *
-   * A report spans every realm, so there is no single instant to use — the newest
-   * live realm clock is the closest honest answer, and the wall clock is used only
-   * when there are no realms at all (an injected population in a test). Reading
-   * `new Date()` unconditionally would reintroduce exactly the drift `patientAge`
-   * exists to remove, in the one place that would never be noticed.
-   */
-  const fairnessInstant = (): Date => {
-    const realms = RealmRegistry.list();
-    if (realms.length === 0) return new Date();
-    return new Date(Math.max(...realms.map((r) => r.clock.realmAt.getTime())));
-  };
-
-  app.get<{ Querystring: { dimension?: string } }>(
-    '/admin/swarm/assurance/fairness',
-    async (req, reply) => {
-      const rows = fairnessRowsFromPatients(patientsForFairness(), { at: fairnessInstant() });
-      const report = fairnessReport(rows);
-
-      const requested = req.query.dimension;
-      if (requested === undefined) {
-        return { report, signature: fairnessSignature(report), reference: report.reference };
-      }
-
-      // A dimension that is not declared is a 400, not an empty slice. Returning an
-      // empty `DisparityReport` would read as "no disparity in that dimension", which
-      // is the one answer a typo must never be able to produce.
-      if (!(SLICE_DIMENSIONS as readonly string[]).includes(requested)) {
-        return reply.code(400).send({
-          error: `unknown dimension '${requested}': declared are ${Object.keys(FAIRNESS_DIMENSION_LABELS).join(', ')}`,
-        });
-      }
-
-      const dimension = requested as SliceDimension;
-      const found = report.dimensions.find((d) => d.dimension === dimension);
-      if (!found) {
-        return reply.code(500).send({ error: `dimension '${dimension}' is declared but was not reported` });
-      }
-      return { dimension: found };
-    },
-  );
-
   app.get<{ Querystring: { nodeId?: string } }>('/admin/swarm/notes', async (req) => ({ notes: await ws().listNotes(req.query.nodeId) }));
   app.post<{ Body: { nodeId: string; title: string; content?: string; createdBy?: string } }>(
     '/admin/swarm/notes',
