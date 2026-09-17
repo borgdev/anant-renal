@@ -364,7 +364,11 @@ function eventToEffects(evt: CanonicalEvent, opts: FhirIngestOptions): { effects
       return { effects: [{ kind: 'order-med', patientId: patientRef, code, dose: dose ?? '', route: route ?? '', frequency: frequency ?? '' }] };
     }
     case 'Observation': {
-      const obs = resource as { status?: string; category?: unknown; code?: unknown; valueQuantity?: { value?: number; unit?: string }; component?: unknown; interpretation?: Array<{ coding?: Array<{ code?: string }> }>; basedOn?: Array<{ reference?: string }> };
+      // `effectiveDateTime` is on the wire and was NOT in this cast, so the sample's own
+      // instant was discarded at the boundary and every ingested result fell back to the
+      // ingest instant (§5 S3). A projection that enumerates the fields it keeps has to
+      // enumerate the ones the reducer needs.
+      const obs = resource as { status?: string; category?: unknown; code?: unknown; valueQuantity?: { value?: number; unit?: string }; component?: unknown; interpretation?: Array<{ coding?: Array<{ code?: string }> }>; basedOn?: Array<{ reference?: string }>; effectiveDateTime?: string };
       const cat = category(obs as { category?: Array<{ coding?: Array<{ code?: string }> }> });
       const code = coding(obs as { code?: { coding?: Array<{ code?: string }> } }) ?? 'unknown';
       if (cat === 'vital-signs') {
@@ -405,7 +409,12 @@ function eventToEffects(evt: CanonicalEvent, opts: FhirIngestOptions): { effects
       if (!patientRef) return { skipped: 'lab-without-subject' };
       const orderRef = obs.basedOn?.[0]?.reference ? refId(obs.basedOn[0].reference) : undefined;
       const abnormal = obs.interpretation?.[0]?.coding?.[0]?.code;
-      return { effects: [{ kind: 'result-lab', orderId: orderRef ?? `result:${resource.id ?? code}`, code, value: obs.valueQuantity?.value ?? '', unit: obs.valueQuantity?.unit ?? '', ...(abnormal ? { abnormal: abnormal as 'H' } : {}) }] };
+      // `patientId` and `observedAt` travel WITH the effect, because the reducer cannot
+      // recover either: `patientRef` is already required above (a lab without a subject
+      // is skipped), and `effectiveDateTime` is the only place the sample's own instant
+      // survives the projection. Omitting both is what orphaned every ingested result and
+      // stamped it with the ingest instant (§5 S3).
+      return { effects: [{ kind: 'result-lab', orderId: orderRef ?? `result:${resource.id ?? code}`, code, value: obs.valueQuantity?.value ?? '', unit: obs.valueQuantity?.unit ?? '', ...(abnormal ? { abnormal: abnormal as 'H' } : {}), patientId: patientRef, ...(obs.effectiveDateTime ? { observedAt: obs.effectiveDateTime } : {}) }] };
     }
     case 'CarePlan': {
       const cp = resource as { subject?: unknown; title?: string };

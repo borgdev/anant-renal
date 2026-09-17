@@ -318,9 +318,28 @@ export class EffectReducer {
       case 'result-lab': {
         const orderUrn = g.urnFor('order', effect.orderId);
         const order = g.get(orderUrn);
-        if (order) g.patch(orderUrn, { status: 'resulted', resultedAt: at }, `effect:${effect.kind}`);
+        // The observation's OWN instant, not the realm's. An ingested or backfilled
+        // result used to carry the instant the ingest ran, so a realm seeded from a
+        // 90-day history showed every laboratory drawn on the same day.
+        const observedAt = effect.observedAt ?? at;
+        if (order) g.patch(orderUrn, { status: 'resulted', resultedAt: observedAt }, `effect:${effect.kind}`);
         const resultId = `${effect.orderId}-result`;
-        const rec = g.create('result', resultId, { code: effect.code, value: effect.value, unit: effect.unit, abnormal: effect.abnormal, orderId: effect.orderId, at });
+        // The patient must be written HERE rather than inferred from the order. A bare
+        // `Observation` produces no `ServiceRequest`, so there was no order to answer and
+        // no `patientId` on the result — a graph walk for a patient's labs found nothing,
+        // which is why S3 summarises patients from the bundle instead (§5 S3).
+        // `record-vitals` has always passed the patient; this case did not.
+        //
+        // An orphan is still possible when an effect names no patient AND answers no
+        // order. The difference is that it is now a fact a reader can test
+        // (`state.patientId === undefined`) rather than a silent absence.
+        const patientId = effect.patientId ?? (order?.state as { patientId?: string } | undefined)?.patientId;
+        const rec = g.create('result', resultId, {
+          code: effect.code, value: effect.value, unit: effect.unit, abnormal: effect.abnormal,
+          orderId: effect.orderId,
+          ...(patientId ? { patientId } : {}),
+          at: observedAt,
+        });
         if (order) g.addRelation(rec.urn, 'of-order', orderUrn);
         results.push({ urn: rec.urn, kind: 'result', id: resultId, patch: rec.state });
         return results;

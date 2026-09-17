@@ -172,7 +172,15 @@ export type WorldEffect =
   | { kind: 'transfer-patient'; patientId: string; fromUnitId: string; toUnitId: string; reason?: string }
   | { kind: 'discharge-patient'; patientId: string; disposition: 'home' | 'home-health' | 'snf' | 'hospice' | 'transfer' | 'ama' | 'expired'; reason?: string }
   | { kind: 'order-lab'; patientId: string; code: string; priority: 'stat' | 'routine' | 'send-out'; encounterId?: string }
-  | { kind: 'result-lab'; orderId: string; code: string; value: number | string; unit: string; abnormal?: 'H' | 'L' | 'HH' | 'LL' | 'A' }
+  // `patientId` and `observedAt` are optional but load-bearing, and both were missing.
+  // Without `patientId` the created `result` entity is ORPHANED: it stores `orderId` and
+  // answers it through an `of-order` relation, so a bare `Observation` with no
+  // `ServiceRequest` behind it left a result no patient could be walked to. Without
+  // `observedAt` the result carries the instant the ingest happened rather than the
+  // instant the sample was measured, which for a backfilled or Synthea-seeded realm are
+  // very different days. `record-immunisation.administeredAt` is the precedent for the
+  // second; for the first, `record-vitals` has always passed `patientId`.
+  | { kind: 'result-lab'; orderId: string; code: string; value: number | string; unit: string; abnormal?: 'H' | 'L' | 'HH' | 'LL' | 'A'; patientId?: string; observedAt?: string }
   | { kind: 'order-med'; patientId: string; code: string; dose: string; route: string; frequency: string; indication?: string }
   | { kind: 'administer-med'; patientId: string; medOrderId: string; dose: string; givenAt: string }
   | { kind: 'hold-med'; patientId: string; medOrderId: string; reason: string }

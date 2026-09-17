@@ -167,7 +167,11 @@ export function effectToFhirResource(effect: WorldEffect, opts: EffectFhirOption
         code: conceptFor('lab', effect.code),
         subject: subject() ? { reference: subject() } : undefined,
         ...(encountered() ? { encounter: { reference: encountered() } } : {}),
-        effectiveDateTime: opts.issued ?? ctx.ingestedAt,
+        // `effect.observedAt` first, matching `record-assessment` and
+        // `record-immunisation` below. The effect's own instant is the one that survives
+        // a round trip through the realm; `opts.issued` is the caller's, and
+        // `ctx.ingestedAt` is merely when we happened to read the resource.
+        effectiveDateTime: effect.observedAt ?? opts.issued ?? ctx.ingestedAt,
         issued: ctx.ingestedAt,
         valueQuantity: typeof effect.value === 'number'
           ? { value: effect.value, unit: effect.unit }
