@@ -36,31 +36,20 @@
 // evaluation and operator demos.
 
 import type { Realm } from './realm.js';
+import { StaticPatientSource } from '../population/static-source.js';
+import type { FacilitySeed, PatientSource, PopulateHistoryOptions } from '../population/source.js';
 
-export interface FacilitySeed {
-  facilityId: string;
-  kind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital';
-  name: string;
-  units: string[]; // e.g. ['ICH-A','ICH-B','ICH-C'] for dialysis
-  patientCount: number;
-}
+// The seed vocabulary lives in the population layer now, because a source has to
+// describe a population without importing the thing that consumes it. Re-exported
+// so every existing importer keeps working unchanged.
+export type { FacilitySeed, PopulateHistoryOptions } from '../population/source.js';
 
-import { generateLongitudinalHistory, baselinePanelFor } from '../simulator/longitudinal.js';
-
-const TRAJECTORIES = ['stable', 'decompensating', 'recovering', 'anemic-worsening', 'anemic-recovering', 'underdialyzed', 'hyperphosphatemia'] as const;
-const AGES = [45, 52, 58, 61, 64, 68, 71, 74, 77, 79];
-const SEXES: Array<'F' | 'M'> = ['F', 'M'];
-/** F1 — vascular access modalities, cycled deterministically per patient index. */
-const ACCESS_TYPES = ['avf', 'avf', 'avg', 'catheter'] as const;
-
-/** R1 — optional complete-data backfill: seed each patient's chart with a
- *  deterministic 90-day-consistent lab/vitals summary at creation. */
-export interface PopulateHistoryOptions {
-  seed?: number;
-  days?: number;
-}
-
-export function populateFacility(realm: Realm, seed: FacilitySeed, history?: PopulateHistoryOptions): { facilityId: string; unitIds: string[]; patientIds: string[] } {
+export function populateFacility(
+  realm: Realm,
+  seed: FacilitySeed,
+  history?: PopulateHistoryOptions,
+  source: PatientSource = StaticPatientSource,
+): { facilityId: string; unitIds: string[]; patientIds: string[]; sourceId: string } {
   const g = realm.graph;
   const facilityUrn = g.urnFor('facility', seed.facilityId);
   if (!g.get(facilityUrn)) g.create('facility', seed.facilityId, { kind: seed.kind, name: seed.name });
@@ -73,111 +62,31 @@ export function populateFacility(realm: Realm, seed: FacilitySeed, history?: Pop
     }
     unitIds.push(`${seed.facilityId}-${u}`);
   }
+  // The realm clock is read ONCE and handed to the source, rather than the source
+  // reaching for a wall clock. A source that read `new Date()` itself would seed a
+  // different population on every run, and the golden guarding this refactor would
+  // be measuring the clock instead of the seeder.
+  const patients = source.patients({
+    facilityId: seed.facilityId,
+    facilityKind: seed.kind,
+    unitIds,
+    patientCount: seed.patientCount,
+    realmAt: realm.clock.realmAt,
+    ...(history ? { history } : {}),
+  });
+
   const patientIds: string[] = [];
-  for (let i = 0; i < seed.patientCount; i++) {
-    const pid = `${seed.facilityId}-pt-${String(i + 1).padStart(4, '0')}`;
-    const unitId = unitIds[i % unitIds.length]!;
-    const trajectory = TRAJECTORIES[i % TRAJECTORIES.length]!;
-    const age = AGES[i % AGES.length]!;
-    const sex = SEXES[i % SEXES.length]!;
-    const rec = g.create('patient', pid, {
-      admitted: true,
-      facilityId: seed.facilityId,
-      unitId,
-      age,
-      sex,
-      trajectory,
-      // dialysis vintage — a real slice dimension for fairness reporting, and
-      // the infection triage's vintage driver
-      dialysisVintageYears: Math.round((0.5 + ((i * 1.7) % 13)) * 10) / 10,
-      admittedAt: realm.clock.realmAt.toISOString(),
-      problemList: [...problemsFor(seed.kind, trajectory), ...comorbidityFor(i)],
-      lastVitals: { hr: 72 + (i % 10), bp: '128/78', spo2: 97, at: realm.clock.realmAt.toISOString() },
-      // ---- F1 renal protocol foundations ----
-      access: {
-        type: ACCESS_TYPES[i % ACCESS_TYPES.length]!,
-        site: i % 3 === 0 ? 'left-forearm' : i % 3 === 1 ? 'right-forearm' : 'left-upper-arm',
-        ageDays: 120 + (i * 37) % 900,
-        events: [],
-      },
-      sessions: [],
-      accessObservations: [],
-      accessAcoustic: [],
-      ...(history
-        ? (() => {
-            const profile = generateLongitudinalHistory({ patientId: pid, facilityId: seed.facilityId, trajectory, days: history.days ?? 90, seed: history.seed ?? 1, asOf: new Date(realm.clock.realmAt) });
-            const esaPts = profile.history.filter((p) => p.esaDose !== undefined);
-            const latestEsa = esaPts.length ? esaPts[esaPts.length - 1]?.esaDose : undefined;
-            const esaDosingHistory = esaPts.map((p) => ({ at: `${p.date}T07:00:00.000Z`, dose: p.esaDose as number }));
-            return {
-              labs: { ...profile.latest.labs, ...baselinePanelFor(trajectory) },
-              lastVitals: { ...profile.latest.vitals, at: realm.clock.realmAt.toISOString() },
-              ...(latestEsa !== undefined ? { esaDose: latestEsa } : {}),
-              esaEscalationsLast90d: profile.latest.esaEscalationsLast90d,
-              ...(esaDosingHistory.length ? { esaDosingHistory } : {}),
-            };
-          })()
-        : {}),
-    });
-    g.addRelation(rec.urn, 'in-unit', g.urnFor('unit', unitId));
+  for (const patient of patients) {
+    const rec = g.create('patient', patient.id, patient.state);
+    g.addRelation(rec.urn, 'in-unit', g.urnFor('unit', patient.unitId));
     g.addRelation(rec.urn, 'in-facility', facilityUrn);
-    patientIds.push(pid);
+    patientIds.push(patient.id);
   }
-  return { facilityId: seed.facilityId, unitIds, patientIds };
+  return { facilityId: seed.facilityId, unitIds, patientIds, sourceId: source.id };
 }
 
-function problemsFor(kind: FacilitySeed['kind'], trajectory: string): string[] {
-  const base: Record<FacilitySeed['kind'], string[]> = {
-    'dialysis': ['ESRD', 'HTN', 'DM2'],
-    'primary-care': ['HTN', 'DM2', 'Hyperlipidemia'],
-    'urgent-care': [],
-    'hospital': ['CAD', 'CHF'],
-  };
-  const extra: Record<string, string[]> = {
-    'anemic-worsening': ['CKD-anemia'],
-    'anemic-recovering': ['CKD-anemia'],
-    'underdialyzed': ['Underdialysis'],
-    'hyperphosphatemia': ['Hyperphosphatemia', 'CKD-MBD'],
-    'decompensating': ['Sepsis-risk'],
-  };
-  return [...base[kind], ...(extra[trajectory] ?? [])];
-}
-
-/**
- * Chronic comorbidity carried by a share of the synthetic population.
- *
- * A multi-specialty deployment needs patients who belong to MORE THAN ONE
- * specialty, and this is where they come from. A patient with ESRD and a
- * malignancy is in two cohorts at once — which is the entire reason a platform
- * hosts several specialties instead of shipping several products — and it is
- * clinically ordinary rather than a contrivance: malignancy is common in dialysis
- * populations.
- *
- * A PLATFORM list, deliberately, and not any specialty's. The simulator generates
- * a population; which of these a specialty considers its own is that specialty's
- * business (each pack's own `cohort.ts`). A simulator that knew oncology's
- * vocabulary would be the same coupling in the other direction — a specialty named
- * in the platform, which is what G1 and G4 spent their whole time removing.
- *
- * The fraction is raised above real prevalence on purpose: a synthetic cohort of
- * three patients cannot show whether a second specialty's screen works, and the
- * number is a property of the fixture rather than a clinical claim. In a real
- * deployment these arrive as `condition.recorded` from the EMR, and this list is
- * the stand-in for that feed.
- */
-const COMORBIDITIES: readonly (readonly string[])[] = Object.freeze([
-  ['NSCLC'],
-  ['Breast cancer'],
-  ['Colorectal cancer'],
-  ['RCC'],
-  [],
-  [],
-  [],
-  [],
-  [],
-]);
-
-/** Deterministic on the patient index, so a seeded run is reproducible. */
-function comorbidityFor(i: number): string[] {
-  return [...(COMORBIDITIES[i % COMORBIDITIES.length] ?? [])];
-}
+// `problemsFor`, `COMORBIDITIES` and `comorbidityFor` used to live here. They are
+// the population, so they moved to `src/population/static-source.ts` with the
+// arithmetic unchanged. If you are looking for where a patient's problem list comes
+// from, it is there — and its limitations are documented at the top of that file
+// rather than only in a design document.
