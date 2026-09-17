@@ -95,18 +95,54 @@ A multi-specialty platform validated against a population with four
 single-comorbidity patients per specialty is validated against a fixture that
 cannot fail in the ways that matter.
 
-**And the cohort mechanism itself has one implementation — now measured.** `PackCohort`
-is declared by exactly one pack out of **23**: `packs/oncology-provider/cohort.ts`,
-gating on `ONCOLOGY_PROBLEMS = [NSCLC, Breast cancer, Colorectal cancer, RCC]`. Every
-other `cohort:` in the tree is a *response field* on an assurance or route payload, not
-a declaration, and `src/server/app.ts:512` hands a pack with no cohort the **whole**
-projection (`cohort ? all.filter(...) : all`).
+**And the cohort mechanism itself has one implementation — now measured, and now
+guarded.** `PackCohort` is declared by exactly one installed pack:
+`packs/oncology-provider/cohort.ts`, gating on
+`ONCOLOGY_PROBLEMS = [NSCLC, Breast cancer, Colorectal cancer, RCC]`. Every other
+`cohort:` in the tree is a *response field* on an assurance or route payload, not a
+declaration, and `src/server/app.ts:512` hands a pack with no cohort the **whole**
+projection (`cohort ? all.filter(...) : all`) — silently.
+
+**The "23 packs" figure was wrong in the direction that mattered.** The tree has 23 pack
+*directories*, but only **16 are exported** from `packs/index.ts` and therefore
+installable; seven (`dialysis-deep`, `flagship-agents`, `mixed-sample-clinic`,
+`policy-templates`, `primary-care-deep`, `research-pharma`, `urgent-care-deep`) are not
+reachable from the pack surface at all, so counting them inflated the denominator. The
+honest statement is **one of sixteen**.
 
 So "every specialty's cohort is non-empty" — S3's exit criterion and S5's — is a
-criterion about a mechanism **22 of 23 packs do not use**: it is vacuous for them
+criterion about a mechanism **15 of 16 installed packs do not use**: vacuous for them
 rather than satisfied. Populating the one that exists is still the right thing to do
 (it does populate — see the S4 measurement in §5); assuming it has been validated
-twenty-three times over is not, and the difference matters when S5 reports success.
+sixteen times over is not.
+
+**That silence is now closed by a guard rather than by a paragraph.**
+`tests/pack-patient-scope.test.ts` enumerates the installed packs and requires each to
+appear in exactly one of three lists:
+
+- `declaresACohort` — the cohort is what the platform filters by, so this is the only list
+  whose members change behaviour. **One member.**
+- `notAPatientPopulation` — taking the whole deployment is the *correct* answer, and the
+  reason says why: `healthcare-core` is the substrate (a cohort there would scope the
+  platform, not a specialty) and `cms-universe` describes programs and never enrols a
+  patient.
+- `awaitingAScopingFact` — takes everyone because the fact that would scope it is absent,
+  each entry naming it. `payer` is the sharpest: no `Coverage` rule exists in
+  `projection.ts`, so benefit membership cannot be decided at all. `dialysis-provider` and
+  `ckd-navigation` are the most awkward, because their fact *is* recorded (ESRD and CKD on
+  the problem list) and only the predicate is unwritten.
+
+Adding a pack without deciding its scope now fails that test — "decide, do not default" —
+and the lists are cross-checked against what the descriptors actually carry, so they cannot
+drift into comfortable fiction. **The fifteen are therefore recorded decisions instead of
+an unknown**, which is the specific improvement: the criterion is no longer vacuous
+*silently*.
+
+Declaring the real cohorts remains per-specialty work this pass deliberately did not
+invent. A predicate a clinician would argue about is a clinical position, and a wrong one
+presented as code is worse than an empty board — the same reasoning
+`packs/oncology-provider/cohort.ts` records for keeping its own predicate "narrow and
+boring".
 
 ### 1.2 The population cannot exhibit the disparities our equity reporting looks for
 
