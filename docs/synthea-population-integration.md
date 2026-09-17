@@ -513,6 +513,32 @@ real target on the state side is `longitudinal.ts`**, not the scenario definitio
 and the warm-up replay in §4.5 is the direct replacement for what
 `generateLongitudinalHistory` fabricates.
 
+#### Outcome — the intent is met, and the function stays
+
+This section's target was *"the engine's starting state stops being authored and
+starts being measured"*. **S3 met it without deleting anything.** For a
+Synthea-seeded realm, `enrich.ts` writes `labs` and `lastVitals` from real
+observations in the bundle, and `prime.ts` inverts `DIALYSIS_PROJECTION` to set the
+five engine dimensions from those measurements. `generateLongitudinalHistory` is not
+in that path at all.
+
+So "retire" in §5's S4 heading means **retire as the population's source of truth**,
+which has happened — not "delete the function", which S4 deliberately did not do and
+should not. Two reasons, and the second is the load-bearing one:
+
+1. Its output is still the honest baseline for a realm seeded **without** Synthea.
+2. `StaticPatientSource` needs *a* history generator. It is the deliberately-kept
+dependency-free test path (§5 S4, §7), so removing this would either leave the
+fixture with no labs at all or force the unit suite onto a committed artifact —
+trading a hand-written 90-day history for a build-time dependency, to make a fixture
+worse at being a fixture.
+
+What is left of §4.7 is a *supersession* rather than a deletion, and the honest
+statement of it is: two history generators exist, one measured and one authored, the
+measured one is the default for a configured deployment, and the authored one is the
+fixture's. Nothing selects between them at runtime, because the selection is the same
+choice as §8 #4 (opt-in per realm).
+
 ## 5. Phases
 
 ### S0 — Prove the tool, and decide (§3)
@@ -791,7 +817,13 @@ And `result-lab` stamps `this.clock.realmAt` rather than the observation's
 fix is an `observedAt?: string` on the effect honoured by the reducer, for which
 `record-immunisation` already carries the precedent.
 
-### S4 — Replace the round-robin, and retire `longitudinal.ts`
+### S4 — Replace the round-robin, and retire `longitudinal.ts` as the source of truth
+
+> **Outcome (2026-09-17):** the seam and the `age`/`birthDate` inversion landed
+> (`d6c1718`, `5e6470b`, `c20e976`); the §8 #7 `condition`-entity projection and the
+> S4 exit measurement did not. `longitudinal.ts` is retained, with the reasoning in
+> §4.7 — "retire" here means retire as the population's source of truth, which S3
+> achieved, not delete the function. Details below the exit criterion.
 
 `sim-populator` enriches from the configured source rather than generating.
 `AGES` / `SEXES` / `COMORBIDITIES` / `ACCESS_TYPES` stop being the population's
@@ -806,6 +838,61 @@ is where the engine's starting state stops being authored and starts being measu
 **Exit:** every installed specialty's cohort is non-empty and clinically coherent,
 and patients are distinct. Measurably: the oncology cohort is no longer drawn from
 four presentations; comorbidity is not `i % 9`.
+
+#### What landed (2026-09-17)
+
+Three commits, all verified. This phase is **partly** complete; the remainder is named
+below rather than implied.
+
+| Commit | Change |
+|---|---|
+| `d6c1718` | §9.7 step 2 — `problemsFor` deleted, `FacilityKind` widened to `string` in the same commit, 2 regression guards |
+| `5e6470b` | The **async** seam — `PopulationSeeder`, `seederRequestFrom` |
+| `c20e976` | §8 #6 — `birthDate` stored, `age` derived via `patientAge(state, at)` |
+
+**Two §9.7 premises turned out to be measurable rather than arguable.** Widening
+`FacilityKind` produced exactly **two** type errors, both missing imports: the closed
+union had no enforcer anywhere. And deleting `problemsFor` moved **no** golden hash,
+because the only fixture in use is `kind: 'dialysis'`, whose problem list is
+unchanged — so it was a real behaviour change only for non-dialysis fixtures, which
+nothing exercises. It was also already wrong: `packs/dialysis-provider` declares
+`['outpatient-dialysis','home-dialysis']` and `packs/oncology-deep` declares
+`['oncology','infusion','hospital']`, neither of which intersects `'dialysis'`.
+
+**On the seam.** §4.1 originally had one `PatientSource`. The measurement that
+changed it: `PatientSource.patients()` is synchronous by design, and seeding a
+generated population is not "pick some patients" — it is ingest → enrich → prime,
+where ingest goes through `ingestFhirBundle` and prime forks the trajectory engine.
+There is no honest synchronous version. So there are two seams with different shapes:
+`PatientSource` (sync, static path, unchanged) and `PopulationSeeder` (async, realm
+path). Widening the sync one would have pushed `await` into `populateFacility` and
+therefore into every test that seeds a realm, to buy nothing for the static path.
+
+The seam's real payoff was **`seederRequestFrom`**, and it is worth recording because
+it was not the stated motivation. The payload → options mapping had been written
+**twice** — once in `POST /admin/realms`, once in `realm-restore.ts` — each
+re-deriving `facilityKind ?? 'dialysis'` and `facilityName ?? facilityId` inline. Both
+were correct, but by copying rather than by construction, so adding one artifact field
+would have made a *restored* realm seed differently from a *created* one. Both
+outcomes look healthy, so nothing would ever have reported the divergence.
+
+**`patientAge` also removed a wall-clock read that was not part of the plan.**
+`src/fhir/mapping.ts` reconstructed a birth date from `age` against
+`new Date().getFullYear()`, so a realm that had simulated three years emitted a birth
+date from *real* time beside an `age` that had not moved — one resource, two facts
+disagreeing (§4.4). It now uses the record's own timestamp.
+
+**Still open in this phase**, each with its size measured rather than guessed:
+
+- **§8 #7** — `problemList` projected from the graph's `condition` entities. S3 wrote
+the same clinical fact twice (211 `condition` entities *and* the same terms as
+strings); the projection gives one source and makes onset dates reachable. Deferred
+because it is the one remaining S4 item that can silently empty every cohort if it is
+got wrong, and the current duplication is redundant rather than incorrect.
+- **`generateLongitudinalHistory`** — retained, on the reasoning in §4.7.
+- **The S4 exit criterion is not yet evidenced.** "Every specialty's cohort is
+  non-empty" has not been measured on a 20-patient realm; §1.1 already warns that
+  `PackCohort` has one implementation, so the measurement is worth more than the claim.
 
 ### S5 — The payoff: specialty realism and equity that can fail
 
@@ -824,6 +911,69 @@ heterogeneity, check two things:
 difference, and a recorded run in which each specialty's cohort is populated. If (2)
 cannot be made to fire, the screens are measuring less than they claim — which is a
 finding worth more than the integration.
+
+#### What measuring it first found (2026-09-17) — and why half 2 was rescoped
+
+Before building anything, the fairness screen was traced to its inputs. **It has no
+inputs.** The finding has three levels, and the first is the one that matters:
+
+**Level 0 — the screen is not reachable.**
+
+- `grep -rn "swarm/assurance" src/` returns **one** hit, an unrelated type import.
+  **No backend route exists** for any of the 12+ endpoints that
+  `exec-app/src/lib/assurance.ts` calls — `/fairness`, `/gate`, `/overview`,
+  `/cohort-rows`, `/burden`, `/modes`, `/rules`, the red-team and drift actions. The
+  frontend is a client for a surface that was never implemented.
+- `grep -rn "assuranceTrack" src/` returns **nothing**. `crossPackAssurance(...)` in
+  `src/swarm/assurance-track.ts` is called only by `tests/assurance-track.test.ts`.
+- `fairnessRows` is supplied only by tests, at **7 of 7** call sites, always as `[]`.
+- Nothing anywhere builds a `FairnessRow` from a realm: the only `vintageYears` hits
+  outside this document are inside `src/evidence/fairness.ts` itself.
+
+So `fairnessReport([], …)` always returns `verdict: 'insufficient'` —
+`rows.length < FAIRNESS_REFERENCE.minSliceN` — by construction. It has never been
+*reachable*, let alone fired.
+
+**Level 1 — the axes are renal, not demographic.**
+`SliceDimension = 'age' | 'sex' | 'vintage' | 'access'`. Race, ethnicity, birth sex and
+language are **not declared dimensions**, even though §8 #5 wired all four onto the
+patient. So the S6-prep ingest work has no consumer in the fairness screen.
+
+**Level 2 — the population's disparity.** The half §1.2 and §9.2 were about, and now
+the third barrier rather than the first.
+
+**This makes §7's own risk row measured true.** It says: *"The equity screen still
+cannot fire after S5 — would mean the population was never the limiting factor."* That
+is now established: **the population was never the limiting factor for this half of
+S5.** Making the population more heterogeneous, which is what half 2 was scoped as,
+cannot make this screen fire, because there is no screen.
+
+**Decision — half 2 is available, and it is a sequence.**
+
+Tracing the inputs found the screen *is* buildable, and cheaply, because the pieces
+exist and only the join is missing:
+
+- **The row facts exist.** `RenalPatientFacts` (`src/swarm/renal-cohort.ts`) already
+  carries `age`, `sex`, `vintageYears`, `access` and `realmId` per patient, and
+  `renalPatientInputs(realms)` already walks every realm. `patientAge(state, at)` now
+  supplies `age` from the stored `birthDate` rather than a seeded snapshot.
+- **The two boolean columns exist.** `covered` is the protocol's coverage gate and
+  `flagged` is "this protocol surfaced a finding" — both already computed per patient
+  per protocol in the governance modules (`coverage.covered` in
+  `anemia-governance.ts`, `adequacy-governance.ts`, `access-governance.ts`).
+
+So the missing piece is a single function — **`fairnessRowsFromRealms(realms)`**
+producing `FairnessRow[]` — plus the route that serves it. **That is the next
+increment, and half 2 is therefore not withdrawn, it is rescheduled.** The order is
+deliberate: build rows over the **declared** dimensions first (age, sex, vintage,
+access), because those are the ones the screen can band today and the ones that answer
+"does this screen fire at all?". Widening `SliceDimension` to race / ethnicity /
+language is a separate, second step — worth doing, and worth doing *after* the screen
+has been seen to fire once, so that a failure to fire is attributable.
+
+What half 2 has already bought, before any code: the knowledge that this criterion
+was three barriers away rather than one, and that two of those barriers were not the
+population's fault.
 
 ### S6 — Lifecycle
 
@@ -883,7 +1033,7 @@ dependency holds, and the clone size for a 10-realm demo is ~10 MB rather than 8
 | **Building a renal-only population layer** | §9.1: `src/liquid/` names dialysis throughout, and `populateFacility` gives every patient renal attributes. A population component written against that shape is a fourth place renal is hardcoded, and ten specialties cannot share it | Keep the Synthea → event-vector mapping OUT of `src/liquid/`, and treat the first new renal constant needed inside it as the trip-wire to declare the state model (§9.7). The seam itself is deferred deliberately, not forgotten |
 | **A population that cannot satisfy a declared measure** | §9.6: a measure screen reads as "nothing to do" when the fixture has no denominator-qualifying patient | Validate at deployment level — every declared measure has ≥1 qualifying patient — and report it as a population issue, not a blank screen |
 | **Two realms, one human** | §9.5: ids are minted per facility, so one patient treated at two facilities is two unrelated patients | **Decided** — population is per realm and cross-realm patient identity is out of scope (§6). Generation therefore takes a realm as a parameter; a single artifact must never seed two realms |
-| **The equity screen still cannot fire after S5** | Would mean the population was never the limiting factor | `S5`'s exit criterion is that it *does* fire — a negative result here is a real finding, not a failure to be hidden |
+| **The equity screen still cannot fire after S5** | Would mean the population was never the limiting factor | **MEASURED TRUE (2026-09-17), and stronger than the row expected.** The population was never the limiting factor: the screen has no route and no row producer, so `fairnessReport([], …)` is `insufficient` by construction (§5 S5). The row is kept because the conclusion is real and the mitigation is now a *build* rather than a population change |
 
 ---
 
@@ -926,7 +1076,23 @@ dependency holds, and the clone size for a 10-realm demo is ~10 MB rather than 8
    `Patient.communication`, so Synthea's `us-core-race` / `us-core-ethnicity` /
    `us-core-birthsex` / language are **dropped at ingest** even though S0 verified they
    are present on 100% of patients. That is a small ingestion change and it gates the
-   equity half.
+   equity half — **and it has since landed** (S6-prep), so all four axes now reach the
+   patient.
+
+   **Half 2 rescheduled, not withdrawn (2026-09-17).** Tracing the screen's inputs
+   before building on it found it has none: there is **no route** for
+   `/admin/swarm/assurance/*`, nothing in `src/` calls `assuranceTrack`, and
+   `fairnessRows` is passed at 7 of 7 call sites as `[]` — by tests only. So the
+   screen reports `insufficient` by construction and has never been *reachable*.
+   §7's risk row for this is now measured true: the population was never the limiting
+   factor. That does not remove half 2 — it reorders it, because the join is missing
+   rather than the data. `RenalPatientFacts` already carries `age`, `sex`,
+   `vintageYears` and `access` per patient, and `covered` / `flagged` are already
+   computed per patient per protocol in the governance modules, so the missing piece
+   is one function — `fairnessRowsFromRealms(realms)` — plus the route that serves it.
+   Those land **before** widening `SliceDimension` to the demographic axes, so that a
+   failure to fire is attributable to the population rather than to the plumbing.
+   Full reasoning in §5 S5.
 6. **`age` vs `birthDate` as the source of truth** (§4.4). **DECIDED: `birthDate` is
    the stored fact — the ingest already writes it — and `age` becomes a derived read,
    landing at S4 with a `patientAge(state, at)` helper.** Deliberately low priority:
