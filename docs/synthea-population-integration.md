@@ -959,29 +959,66 @@ difference, and a recorded run in which each specialty's cohort is populated. If
 cannot be made to fire, the screens are measuring less than they claim — which is a
 finding worth more than the integration.
 
-#### What measuring it first found (2026-09-17) — and why half 2 was rescoped
+#### What measuring it found (2026-09-17) — CORRECTED, and the correction is the finding
 
-Before building anything, the fairness screen was traced to its inputs. **It has no
-inputs.** The finding has three levels, and the first is the one that matters:
+> **This subsection previously reported that the fairness screen "has no route and no
+> row producer", and that it fired (`vintage=watch`). Both claims were WRONG and are
+> withdrawn. The correction is recorded in full rather than quietly edited out,
+> because the way it went wrong is more instructive than the original claim.**
 
-**Level 0 — the screen is not reachable.**
+The screen was traced to its inputs with `grep -rn ... src/`. **The assurance surface
+lives in `packs/dialysis-provider/assurance-track-routes.ts`**, registered through
+`registerPackRoutes` (`src/control-plane/pack-contributions.ts:435`, called from
+`buildApp`). Those searches could not have found it.
 
-- `grep -rn "swarm/assurance" src/` returns **one** hit, an unrelated type import.
-  **No backend route exists** for any of the 12+ endpoints that
-  `exec-app/src/lib/assurance.ts` calls — `/fairness`, `/gate`, `/overview`,
-  `/cohort-rows`, `/burden`, `/modes`, `/rules`, the red-team and drift actions. The
-  frontend is a client for a surface that was never implemented.
-- `grep -rn "assuranceTrack" src/` returns **nothing**. `crossPackAssurance(...)` in
-  `src/swarm/assurance-track.ts` is called only by `tests/assurance-track.test.ts`.
-- `fairnessRows` is supplied only by tests, at **7 of 7** call sites, always as `[]`.
-- Nothing anywhere builds a `FairnessRow` from a realm: the only `vintageYears` hits
-  outside this document are inside `src/evidence/fairness.ts` itself.
+| claimed | reality |
+|---|---|
+| no backend route for `/admin/swarm/assurance/*` | **all 12+ exist**, in the pack: `overview`, `gate`, `fairness`, `burden`, `modes`, `rules`, `mode-probe`, `red-team/run-all`, `drift/snapshot-all`, `cohort-rows` |
+| `fairnessRows` passed at 7 of 7 call sites as `[]` | `assurance-track-routes.ts:226` passes `view.rows`, a real array |
+| nothing builds a `FairnessRow` from a realm | `cohortSignals` (line 123) does exactly that |
+| *"the frontend is a client for a surface that was never implemented"* | `exec-app` was always talking to a real endpoint |
 
-So `fairnessReport([], …)` always returns `verdict: 'insufficient'` —
-`rows.length < FAIRNESS_REFERENCE.minSliceN` — by construction. It has never been
-*reachable*, let alone fired.
+`cohortSignals` builds `FairnessRow[]` from `renalPatientFacts`,
+`evaluateProtocolForPatient`, `state.dialysisVintageYears` and `state.access.type` —
+which is what a new `src/swarm/fairness-rows.ts` then re-implemented, almost line for
+line, before both were deleted in `4c69ea0`.
 
-**Level 1 — the axes are renal, not demographic.**
+**And the `vintage=watch` measurement is withdrawn with it.** It was taken through
+that duplicate route, whose `covered`/`flagged` derivations differ from
+`cohortSignals`'s. Asked of the shipped route:
+
+```
+[assurance] verdict=insufficient :: age=insufficient sex=ok vintage=ok access=ok
+```
+
+So on the static fixture the screen does **not** fire on `vintage`, and the overall
+verdict is `insufficient` because `age` is. **That is §1.2's original claim, intact** —
+the fixture is arithmetically incapable of showing a disparity — and the attempt to
+correct it did not survive being asked of the real code.
+
+Two things this correction cost, both worth stating: a route was added that
+**shadowed the pack's** and failed 23 test files / 38 tests with
+`Method 'GET' already declared for route '/admin/swarm/assurance/fairness'`; and a
+second implementation of a fact that already had one was written, which is the exact
+defect this document spends its length arguing against.
+
+**What survives, and is the genuinely new result.** A probe, run against a patient
+with an EMPTY state, finds that three of seven protocols assign a **non-zero
+severity** — `access` 0.25, `ckd-mbd` 0.3, and **`adequacy` 0.5 against a `red`
+threshold of 0.6**:
+
+1. `adequacy` is **0.1 away** from flagging a patient nobody has measured. That is the
+   same family as the `hr = 72, spo2 = 97` fallback S3 found — a number that looks
+   like a reading and is not.
+2. `cohortSignals` derives `covered` as "at least one protocol could evaluate this
+   patient". Because `access` returns `green` for an empty state, that is **true for a
+   patient with no chart at all** — so `covered` is not a coverage signal for this
+   cohort, and `fairness.ts` reads coverage *before* it compares flag rates.
+
+Both are asserted in `tests/assurance-fairness.test.ts` rather than changed: altering
+the shipped producer's semantics is its own change, with its own doc update.
+
+**Level 1 — the axes are renal, not demographic.** This one stands.
 `SliceDimension = 'age' | 'sex' | 'vintage' | 'access'`. Race, ethnicity, birth sex and
 language are **not declared dimensions**, even though §8 #5 wired all four onto the
 patient. So the S6-prep ingest work has no consumer in the fairness screen.
@@ -989,38 +1026,36 @@ patient. So the S6-prep ingest work has no consumer in the fairness screen.
 **Level 2 — the population's disparity.** The half §1.2 and §9.2 were about, and now
 the third barrier rather than the first.
 
-**This makes §7's own risk row measured true.** It says: *"The equity screen still
-cannot fire after S5 — would mean the population was never the limiting factor."* That
-is now established: **the population was never the limiting factor for this half of
-S5.** Making the population more heterogeneous, which is what half 2 was scoped as,
-cannot make this screen fire, because there is no screen.
+**§7's risk row was recorded as measured true, and that record is also withdrawn.**
+Its text was: *"The equity screen still cannot fire after S5 — would mean the
+population was never the limiting factor."* The population is still not the limiting
+factor, but for the reason the row did **not** anticipate: the screen is fed, reached
+and run — and measures four renal dimensions, none of them demographic (Level 1
+below). §7 has been corrected to say that instead.
 
-**Decision — half 2 is available, and it is a sequence.**
+**Decision — half 2 is Level 1, and only Level 1.**
 
-Tracing the inputs found the screen *is* buildable, and cheaply, because the pieces
-exist and only the join is missing:
+The earlier revision of this subsection concluded that the pieces existed "and only
+the join is missing", and proposed building `fairnessRowsFromRealms(realms)` plus a
+route. **That was building a second copy of `cohortSignals`**, which is the join. What
+half 2 actually needs is the axis widening:
 
-- **The row facts exist.** `RenalPatientFacts` (`src/swarm/renal-cohort.ts`) already
-  carries `age`, `sex`, `vintageYears`, `access` and `realmId` per patient, and
-  `renalPatientInputs(realms)` already walks every realm. `patientAge(state, at)` now
-  supplies `age` from the stored `birthDate` rather than a seeded snapshot.
-- **The two boolean columns exist.** `covered` is the protocol's coverage gate and
-  `flagged` is "this protocol surfaced a finding" — both already computed per patient
-  per protocol in the governance modules (`coverage.covered` in
-  `anemia-governance.ts`, `adequacy-governance.ts`, `access-governance.ts`).
+- `SliceDimension = 'age' | 'sex' | 'vintage' | 'access'` — four renal dimensions.
+  Race, ethnicity, birth sex and language are **declared nowhere in the screen**.
+- All four demographic fields reach the patient (S6-prep, §8 #5), so the data is
+  already there and nothing reads it. The gap is three union members, a label map, a
+  `sliceOf` case and a `sliceOrder` entry.
 
-So the missing piece is a single function — **`fairnessRowsFromRealms(realms)`**
-producing `FairnessRow[]` — plus the route that serves it. **That is the next
-increment, and half 2 is therefore not withdrawn, it is rescheduled.** The order is
-deliberate: build rows over the **declared** dimensions first (age, sex, vintage,
-access), because those are the ones the screen can band today and the ones that answer
-"does this screen fire at all?". Widening `SliceDimension` to race / ethnicity /
-language is a separate, second step — worth doing, and worth doing *after* the screen
-has been seen to fire once, so that a failure to fire is attributable.
+That is the whole of half 2, and it is worth doing for a specific reason: the four
+declared dimensions cannot express the thing healthcare equity is mostly measured by,
+so a `noEquityRegression` signal built on them is checking the wrong fields. The
+measurement on the static fixture above (`vintage=ok`, overall `insufficient`) does not
+tell us the platform is equitable — it tells us these four axes see nothing here.
 
-What half 2 has already bought, before any code: the knowledge that this criterion
-was three barriers away rather than one, and that two of those barriers were not the
-population's fault.
+What the whole exercise bought, in the end: `cohortSignals` had a latent
+`covered`-is-always-true property that nothing had noticed (Level 0's probe), the
+demographic axes were unreachable from a screen that appears to be about equity, and
+the cost of finding both was one wrong route and one duplicate implementation.
 
 ### S6 — Lifecycle
 
@@ -1080,7 +1115,7 @@ dependency holds, and the clone size for a 10-realm demo is ~10 MB rather than 8
 | **Building a renal-only population layer** | §9.1: `src/liquid/` names dialysis throughout, and `populateFacility` gives every patient renal attributes. A population component written against that shape is a fourth place renal is hardcoded, and ten specialties cannot share it | Keep the Synthea → event-vector mapping OUT of `src/liquid/`, and treat the first new renal constant needed inside it as the trip-wire to declare the state model (§9.7). The seam itself is deferred deliberately, not forgotten |
 | **A population that cannot satisfy a declared measure** | §9.6: a measure screen reads as "nothing to do" when the fixture has no denominator-qualifying patient | Validate at deployment level — every declared measure has ≥1 qualifying patient — and report it as a population issue, not a blank screen |
 | **Two realms, one human** | §9.5: ids are minted per facility, so one patient treated at two facilities is two unrelated patients | **Decided** — population is per realm and cross-realm patient identity is out of scope (§6). Generation therefore takes a realm as a parameter; a single artifact must never seed two realms |
-| **The equity screen still cannot fire after S5** | Would mean the population was never the limiting factor | **MEASURED TRUE (2026-09-17), and stronger than the row expected.** The population was never the limiting factor: the screen has no route and no row producer, so `fairnessReport([], …)` is `insufficient` by construction (§5 S5). The row is kept because the conclusion is real and the mitigation is now a *build* rather than a population change |
+| **The equity screen still cannot fire after S5** | Would mean the population was never the limiting factor | **Re-assessed 2026-09-17, and the earlier "MEASURED TRUE" record is WITHDRAWN** (`4c69ea0`). The screen IS fed, reached and run — `cohortSignals` builds the rows and the dialysis-provider pack serves them (§5 S5). Asked of the shipped route on the static fixture: `age=insufficient sex=ok vintage=ok access=ok`, overall `insufficient`. So the population is still not the limiting factor, but for a different reason than recorded: **the screen measures four renal dimensions and no demographic one** (§5 S5 Level 1). The original "cannot fire" claim came from `grep src/`, which cannot see `packs/` |
 
 ---
 
@@ -1126,20 +1161,17 @@ dependency holds, and the clone size for a 10-realm demo is ~10 MB rather than 8
    equity half — **and it has since landed** (S6-prep), so all four axes now reach the
    patient.
 
-   **Half 2 rescheduled, not withdrawn (2026-09-17).** Tracing the screen's inputs
-   before building on it found it has none: there is **no route** for
-   `/admin/swarm/assurance/*`, nothing in `src/` calls `assuranceTrack`, and
-   `fairnessRows` is passed at 7 of 7 call sites as `[]` — by tests only. So the
-   screen reports `insufficient` by construction and has never been *reachable*.
-   §7's risk row for this is now measured true: the population was never the limiting
-   factor. That does not remove half 2 — it reorders it, because the join is missing
-   rather than the data. `RenalPatientFacts` already carries `age`, `sex`,
-   `vintageYears` and `access` per patient, and `covered` / `flagged` are already
-   computed per patient per protocol in the governance modules, so the missing piece
-   is one function — `fairnessRowsFromRealms(realms)` — plus the route that serves it.
-   Those land **before** widening `SliceDimension` to the demographic axes, so that a
-   failure to fire is attributable to the population rather than to the plumbing.
-   Full reasoning in §5 S5.
+   **Half 2 is smaller than the earlier record claimed (`4c69ea0`).** An earlier
+   revision of this entry said the screen had no route and no row producer. It has
+   both: `packs/dialysis-provider/assurance-track-routes.ts` registers the whole
+   `/admin/swarm/assurance/*` family, and `cohortSignals` (line 123) builds the
+   `FairnessRow`s. That claim came from `grep src/`, which cannot see `packs/`.
+
+   What half 2 actually needs is therefore **only** Level 1 — the axes. The four
+declared dimensions are `age`, `sex`, `vintage`, `access`, all renal; race,
+ethnicity, birth sex and language reach the patient (§8 #5, landed in S6-prep) and
+are **not declared dimensions**, so nothing slices on them. Widening `SliceDimension`
+and `FAIRNESS_DIMENSION_LABELS` is the work, and it is small. Full reasoning in §5 S5.
 6. **`age` vs `birthDate` as the source of truth** (§4.4). **DECIDED: `birthDate` is
    the stored fact — the ingest already writes it — and `age` becomes a derived read,
    landing at S4 with a `patientAge(state, at)` helper.** Deliberately low priority:
