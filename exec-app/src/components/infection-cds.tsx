@@ -80,10 +80,10 @@ import {
   type InfectionWhatIfResult,
   type PreventionTask,
 } from "../lib/infection";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget } from "../lib/types";
 import RankedActionsPanel from "./ranked-actions-panel";
 
-type Props = { onNavigate?: (id: NavigationId) => void };
+type Props = { onNavigate?: (id: NavTarget) => void };
 
 /** Tripwire colours for the culture contract. */
 function CultureBanner({ status, turnaroundHours }: { status: string; turnaroundHours: number }) {

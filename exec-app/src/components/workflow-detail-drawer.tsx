@@ -43,7 +43,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget } from "../lib/types";
 import type { WorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, Tag } from "./ui";
 
@@ -56,7 +56,7 @@ export default function WorkflowDetailDrawer({
 }: {
   detail: WorkflowDetail | null;
   onClose: () => void;
-  onNavigate: (target: NavigationId) => void;
+  onNavigate: (target: NavTarget) => void;
 }) {
   const [tab, setTab] = useState<DetailTab>("overview");
   const closeRef = useRef<HTMLButtonElement>(null);

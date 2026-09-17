@@ -47,7 +47,7 @@ import {
 } from "lucide-react";
 import { graphEdges, graphNodes, operatingModel } from "../lib/catalogs";
 import { startLiveRuntime, createKnowledgeComment, createKnowledgeNote, fetchKnowledgeNotes, type KnowledgeNote, type RuntimeSnapshot } from "../lib/harness";
-import type { GraphEdge, GraphNode, NavigationId } from "../lib/types";
+import type { GraphEdge, GraphNode, PlatformNavId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, LoadMore, PanelExpand, Tag, usePaged } from "./ui";
 
@@ -215,7 +215,7 @@ export default function IntelligenceWorkspace({ onOpenDetail }: { onOpenDetail: 
   }
 
   function openNodeDetail() {
-    const target: NavigationId = selectedNode.type === "patient" ? "patient" : selectedNode.type === "assessment" ? "assessments" : selectedNode.type === "facility" ? "facility" : selectedNode.type === "measure" || selectedNode.id === "cms-authority" ? "cms" : selectedNode.type === "cell" || selectedNode.type === "policy" ? "assurance" : selectedNode.type === "intervention" || selectedNode.type === "outcome" ? "command" : "ecosystem";
+    const target: PlatformNavId = selectedNode.type === "patient" ? "patient" : selectedNode.type === "assessment" ? "assessments" : selectedNode.type === "facility" ? "facility" : selectedNode.type === "measure" || selectedNode.id === "cms-authority" ? "cms" : selectedNode.type === "cell" || selectedNode.type === "policy" ? "assurance" : selectedNode.type === "intervention" || selectedNode.type === "outcome" ? "command" : "ecosystem";
     onOpenDetail({ id: selectedNode.id, kind: `${selectedNode.type} topology object`, title: detail.title, summary: `${detail.provenance}. This object has ${connected.length} visible typed relations in the ${mode} perspective.`, status: detail.valid, tone: nodeTone[selectedNode.type], owner: detail.source, scope: runtimeNode?.attributes.scopeId ? String(runtimeNode.attributes.scopeId) : derivedPerspectiveLabel[mode], metrics: [{ label: "Connected edges", value: String(connected.length) }, { label: "Perspective", value: mode }, { label: "Shared notes", value: String(notes.length) }], evidence: [{ label: "Authority / source", value: detail.source, source: detail.provenance }, { label: "Valid time", value: detail.valid, source: "Bitemporal topology projection" }, ...connected.slice(0, 8).map((edge) => ({ label: edge.relation, value: `${edge.source} → ${edge.target}`, source: "Typed relation" }))], activity: [{ time: detail.valid, title: "Object projected", detail: detail.provenance, state: "done" }, { time: "Current", title: `${connected.length} relations resolved`, detail: `${mode} perspective`, state: "current" }], steps: [{ label: "Source", detail: "Evidence authority retained", state: "done" }, { label: "Project", detail: "Node and typed edges materialized", state: "done" }, { label: "Interpret", detail: `${mode} perspective selected`, state: "current" }, { label: "Act", detail: `Continue in ${target}`, state: "pending" }], primary: { label: target === "patient" ? "Open Patient Intelligence" : target === "assessments" ? "Open Assessment Intelligence" : target === "facility" ? "Open Facility Operations" : target === "cms" ? "Open CMS Operations" : target === "assurance" ? "Open AI Assurance" : target === "command" ? "Open Outcome Command" : "Open Swarm Control", target } });
   }
 

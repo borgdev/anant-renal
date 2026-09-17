@@ -76,10 +76,10 @@ import {
   type AdequacyWhatIfResult,
   type QipTieInView,
 } from "../lib/adequacy";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget } from "../lib/types";
 import RankedActionsPanel from "./ranked-actions-panel";
 
-type Props = { onNavigate?: (id: NavigationId) => void };
+type Props = { onNavigate?: (id: NavTarget) => void };
 
 const actionTone = (action: AdequacyRecommendation["action"]) =>
   action === "blocked" || action === "adherence-first" ? "red" : action === "hold" ? "mint" : action === "review-access" ? "amber" : "blue";

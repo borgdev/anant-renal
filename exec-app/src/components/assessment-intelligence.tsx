@@ -50,13 +50,13 @@ import {
 } from "lucide-react";
 import { assessmentResponses } from "../lib/catalogs";
 import { startLiveRuntime, fetchRuntimeSnapshot, mutateRuntime, type RuntimeSnapshot } from "../lib/harness";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget, PlatformNavId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, ProgressBar, Tag } from "./ui";
 
 type ReviewState = "pending" | "confirmed";
 
-export default function AssessmentIntelligence({ onNavigate, onOpenDetail }: { onNavigate: (id: NavigationId) => void; onOpenDetail: OpenWorkflowDetail }) {
+export default function AssessmentIntelligence({ onNavigate, onOpenDetail }: { onNavigate: (id: NavTarget) => void; onOpenDetail: OpenWorkflowDetail }) {
   const [selected, setSelected] = useState(assessmentResponses[0].id);
   const [reviews, setReviews] = useState<Record<string, ReviewState>>({ "AR-1401-Transportation barrier": "confirmed", "AR-1401-Tuesday-specific constraint": "confirmed", "AR-1402-Employment goal": "confirmed", "AR-1402-Afternoon preference": "confirmed" });
   const [runtime, setRuntime] = useState<RuntimeSnapshot | null>(null);
@@ -93,7 +93,7 @@ export default function AssessmentIntelligence({ onNavigate, onOpenDetail }: { o
     setReviews((current) => ({ ...current, [key]: current[key] === "confirmed" ? "pending" : "confirmed" }));
   }
 
-  function openAssessmentDetail(title: string, summary: string, target: NavigationId = "patient") {
+  function openAssessmentDetail(title: string, summary: string, target: PlatformNavId = "patient") {
     const confirmed = usesRuntimeEvidence ? runtimeReview?.decision === "confirmed" || runtimeEvidence?.structured.humanConfirmed === true : true;
     onOpenDetail({ id: runtimeEvidence?.evidenceId ?? response.id, kind: "Assessment evidence", title, summary, status: confirmed ? "Human confirmed" : "Review required", tone: confirmed ? "mint" : "amber", owner: "Facility assessment reviewer", scope: "Maya Ortiz · SYN-10042", metrics: [{ label: "Format", value: response.format }, { label: "Extracted facts", value: String(response.extracted.length) }, { label: "Reviews", value: String(runtime?.counts.evidenceReviews ?? 0) }], evidence: [{ label: "Exact answer", value: runtimeEvidence?.exactText ?? response.answer, source: runtimeEvidence ? `${runtimeEvidence.sourceEventId} · ${runtimeEvidence.contentHash.slice(0, 12)}…` : response.source }, ...response.extracted.map((fact) => ({ label: fact.concept, value: `${Math.round(fact.confidence * 100)}% confidence`, source: "Cited span attached" }))], activity: [{ time: response.effective, title: "Answer became valid", detail: response.question, state: "done" }, { time: runtimeEvidence?.recordedAt ? new Date(runtimeEvidence.recordedAt).toLocaleString() : "Recorded", title: "Immutable evidence created", detail: runtimeEvidence?.evidenceId ?? response.id, state: "done" }, { time: runtimeReview?.createdAt ? new Date(runtimeReview.createdAt).toLocaleString() : "Current", title: confirmed ? "Human confirmation retained" : "Awaiting reviewer", detail: runtimeReview?.reviewerRole ?? "No semantic fact advances without review", state: confirmed ? "done" : "current" }], steps: [{ label: "Capture", detail: "Exact answer retained", state: "done" }, { label: "Extract", detail: "Bounded fact candidates produced", state: "done" }, { label: "Review", detail: confirmed ? "Human decision recorded" : "Reviewer decision required", state: confirmed ? "done" : "current" }, { label: "Use", detail: "Policy-compatible downstream context", state: confirmed ? "current" : "pending" }], primary: { label: target === "patient" ? "Open Patient Intelligence" : target === "command" ? "Open Outcome Command" : "Open AI Assurance", target } });
   }

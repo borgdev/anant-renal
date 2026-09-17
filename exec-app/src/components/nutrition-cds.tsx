@@ -75,10 +75,10 @@ import {
   type NutritionWhatIfResult,
   type PewPathwayScore,
 } from "../lib/nutrition";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget } from "../lib/types";
 import RankedActionsPanel from "./ranked-actions-panel";
 
-type Props = { onNavigate?: (id: NavigationId) => void };
+type Props = { onNavigate?: (id: NavTarget) => void };
 
 /** The five ways to lose albumin — never averaged into one "malnutrition" score. */
 function PathwayBars({ pathways, dominant }: { pathways: PewPathwayScore[]; dominant?: string }) {

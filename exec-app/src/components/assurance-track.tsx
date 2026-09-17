@@ -76,9 +76,9 @@ import {
   type ProtocolModeRecord,
   type RulePacksView,
 } from "../lib/assurance";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget } from "../lib/types";
 
-type Props = { onNavigate?: (id: NavigationId) => void };
+type Props = { onNavigate?: (id: NavTarget) => void };
 
 type Tab = "wiring" | "fairness" | "burden" | "rules" | "modes";
 
@@ -108,7 +108,7 @@ function StatusDot({ status }: { status: string }) {
 
 /* ---------- wiring & release ---------- */
 
-function ProtocolRow({ pack, onNavigate }: { pack: ProtocolAssessment; onNavigate?: (id: NavigationId) => void }) {
+function ProtocolRow({ pack, onNavigate }: { pack: ProtocolAssessment; onNavigate?: (id: NavTarget) => void }) {
   const failing = pack.checks.filter((c) => c.status === "fail");
   const warning = pack.checks.filter((c) => c.status === "warn");
   return (
@@ -169,7 +169,7 @@ function WiringTab({
 }: {
   overview: AssuranceOverview;
   gate: AssuranceGate | null;
-  onNavigate?: (id: NavigationId) => void;
+  onNavigate?: (id: NavTarget) => void;
   onAction: (kind: "red-team" | "drift") => void;
   actionBusy: boolean;
   actionNotice: string | null;

@@ -53,7 +53,7 @@ import {
 } from "lucide-react";
 import { federalFacts, measurePacks, publicBenchmarks, publicSources } from "../lib/catalogs";
 import { ensureRuntime, startLiveRuntime, mutateRuntime, fetchCmsReadiness, type CmsReadiness, type RuntimeSnapshot } from "../lib/harness";
-import type { NavigationId } from "../lib/types";
+import type { PlatformNavId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { approveSubmission, createSubmission, fetchSubmissions, type SubmissionPackageView } from "../lib/work";
 import { Eyebrow, LoadMore, PanelExpand, ProgressBar, SourceLink, Tag, usePaged } from "./ui";
@@ -144,7 +144,7 @@ export default function CmsControl({ onOpenDetail }: { onOpenDetail: OpenWorkflo
     }
   }
 
-  function openCmsDetail(title: string, summary: string, status: string, target: NavigationId = "cms", evidence: Array<{ label: string; value: string; source?: string }> = []) {
+  function openCmsDetail(title: string, summary: string, status: string, target: PlatformNavId = "cms", evidence: Array<{ label: string; value: string; source?: string }> = []) {
     onOpenDetail({ id: `CMS-${title.toUpperCase().replaceAll(" ", "-")}`, kind: "CMS work item", title, summary, status, tone: status.toLowerCase().includes("ready") || status.toLowerCase().includes("validated") ? "mint" : status.toLowerCase().includes("gap") || status.toLowerCase().includes("review") ? "amber" : "blue", owner: "Clinical quality", scope: "Payment year 2026", metrics: [{ label: "Runtime results", value: String(runtime?.counts.measures ?? 0) }, { label: "Packages", value: String(runtime?.submissionPackages.length ?? 0) }, { label: "Authority snapshots", value: String(runtime?.authoritySnapshots.length ?? 0) }], evidence: evidence.length ? evidence : selectedSources.map((source) => ({ label: source.authority, value: source.title, source: `${source.status} · effective ${source.effectiveFrom}` })), steps: [{ label: "Freeze", detail: "Eligible evidence version pinned", state: packageResult ? "done" : "current" }, { label: "Calculate", detail: `Measure pack ${selected.version}`, state: packageResult ? "done" : "pending" }, { label: "Validate", detail: packageResult ? "Conformance checks retained" : "Await dry run", state: packageResult ? "done" : "pending" }, { label: "Approve", detail: "Dual human approval required", state: packageResult ? "current" : "pending" }, { label: "Acknowledge", detail: "External transmission disabled", state: "pending" }], control: "Public CMS authority sources are real and linked. All patient/facility records here are synthetic, and the reference runtime cannot transmit to CMS, EQRS or NHSN.", primary: { label: target === "platform" ? "Open Platform & configuration" : target === "assurance" ? "Open AI Assurance" : target === "assessments" ? "Open Assessment Intelligence" : "Stay in CMS Operations", target } });
   }
 

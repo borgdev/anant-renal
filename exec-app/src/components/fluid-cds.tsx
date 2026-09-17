@@ -71,10 +71,10 @@ import {
   type FluidValidationView,
   type FluidWhatIfResult,
 } from "../lib/fluid";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget } from "../lib/types";
 import RankedActionsPanel from "./ranked-actions-panel";
 
-type Props = { onNavigate?: (id: NavigationId) => void };
+type Props = { onNavigate?: (id: NavTarget) => void };
 
 const HORIZONS = [15, 30, 60];
 

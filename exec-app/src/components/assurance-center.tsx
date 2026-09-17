@@ -57,7 +57,7 @@ import {
 } from "lucide-react";
 import { agentManifests, greenTeamChecks, redTeamScenarios, traceSpans } from "../lib/catalogs";
 import { startLiveRuntime, runRedTeamReplay, type RuntimeSnapshot } from "../lib/harness";
-import type { NavigationId } from "../lib/types";
+import type { PlatformNavId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, ProgressBar, Tag } from "./ui";
 
@@ -99,7 +99,7 @@ export default function AssuranceCenter({ onOpenDetail }: { onOpenDetail: OpenWo
     }
   }
 
-  function openAssuranceDetail(title: string, summary: string, status: string, evidence: Array<{ label: string; value: string; source?: string }> = [], target: NavigationId = "platform") {
+  function openAssuranceDetail(title: string, summary: string, status: string, evidence: Array<{ label: string; value: string; source?: string }> = [], target: PlatformNavId = "platform") {
     onOpenDetail({ id: `ASSURANCE-${title.toUpperCase().replaceAll(" ", "-")}`, kind: "AI assurance control", title, summary, status, tone: status.toLowerCase().includes("fail") || status.toLowerCase().includes("open") ? "red" : status.toLowerCase().includes("watch") || status.toLowerCase().includes("review") ? "amber" : "mint", owner: "AI assurance", scope: "Renal outcome harness", metrics: [{ label: "Executions", value: String(runtime?.counts.executions ?? 0) }, { label: "Trace spans", value: String(runtime?.traces.length ?? 0) }, { label: "Incidents", value: String(runtime?.incidents.filter((item) => item.status === "open").length ?? 0) }, { label: "Audit events", value: String(runtime?.counts.auditEvents ?? 0) }], evidence, steps: [{ label: "Define", detail: "Threshold and expected containment versioned", state: "done" }, { label: "Execute", detail: "Green or red evaluation run", state: replayState === "running" ? "current" : "done" }, { label: "Decide", detail: status, state: status.toLowerCase().includes("fail") ? "blocked" : "done" }, { label: "Promote", detail: "Human approval and canary required", state: "pending" }], control: "A passing reference replay is necessary but not sufficient for clinical production authorization. Security, privacy, clinical validation and local workflow approval remain separate gates.", primary: { label: target === "ecosystem" ? "Open Swarm Control" : target === "command" ? "Open Outcome Command" : "Open Configuration Studio", target } });
   }
 

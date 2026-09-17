@@ -40,7 +40,7 @@
  */
 
 import type { AgentCategory, AgentOperationsSnapshot, AgentView } from "./contracts";
-import type { NavigationId } from "./types";
+import type { NavTarget } from "./types";
 import type { WorkflowDetail } from "./workflow-detail";
 import { demoContext } from "./catalogs";
 import { responseOrThrow } from "./session";
@@ -1122,7 +1122,7 @@ export async function mutateAgentOperations(action: "replay" | "step"): Promise<
 
 /* ---------- work-item context (client-assembled from harness state) ---------- */
 
-export async function fetchWorkItemContext(reference: { entityId: string; entityType: string; target?: NavigationId }, fallback?: WorkflowDetail): Promise<{ detail: WorkflowDetail }> {
+export async function fetchWorkItemContext(reference: { entityId: string; entityType: string; target?: NavTarget }, fallback?: WorkflowDetail): Promise<{ detail: WorkflowDetail }> {
   const detail: WorkflowDetail = {
     id: reference.entityId,
     kind: reference.entityType,

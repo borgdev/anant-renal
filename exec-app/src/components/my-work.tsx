@@ -50,7 +50,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { fetchMyWork, fetchWorkDetail, performWorkAction, type PlatformWorkItem, type PlatformWorkDetail, type PlatformUrgency } from "../lib/work";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget, PlatformNavId } from "../lib/types";
 import type { OpenWorkflowDetail, WorkflowDetail } from "../lib/workflow-detail";
 import { EvidenceTag, Eyebrow, EmptyView, LoadMore, Tag, usePaged } from "./ui";
 
@@ -135,7 +135,7 @@ function detailToDrawer(item: PlatformWorkItem, detail?: PlatformWorkDetail): Wo
     { label: "Coordinate", detail: "Command dispatched through the harness to the owning system", state: "pending" },
     { label: "Verify", detail: "Outcome evidence, not send status, closes the loop", state: "pending" },
   ];
-  const primary: { label: string; target: NavigationId } =
+  const primary: { label: string; target: PlatformNavId } =
     item.kind === "episode" || item.kind === "review"
       ? { label: "Open Outcome Command", target: "command" }
       : item.kind === "release"
@@ -180,7 +180,7 @@ function detailToDrawer(item: PlatformWorkItem, detail?: PlatformWorkDetail): Wo
   };
 }
 
-export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: NavigationId) => void; onOpenDetail: OpenWorkflowDetail }) {
+export default function MyWork({ onNavigate, onOpenDetail }: { onNavigate: (id: NavTarget) => void; onOpenDetail: OpenWorkflowDetail }) {
   const [items, setItems] = useState<PlatformWorkItem[]>([]);
   /** Items the server returned that belong to the OPERATOR console instead. */
   const [elsewhere, setElsewhere] = useState(0);

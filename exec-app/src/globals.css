@@ -308,6 +308,14 @@ a { color: inherit; }
 .protocol-tab:hover { color: var(--text); border-color: var(--line-strong); }
 .protocol-tab.is-active { color: var(--text); background: color-mix(in srgb, var(--mint) 14%, transparent); border-color: color-mix(in srgb, var(--mint) 45%, transparent); }
 .protocol-tab small { color: var(--faint); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+
+/* G5b — the arm that catches a view the shell cannot draw.
+   Tinted as a fault rather than a page, because a page that merely says this is
+   one an operator would read as content. The whole point is that it does not
+   look like the blank workspace it replaced. */
+.unrenderable-view { border-left: 3px solid var(--amber); }
+.unrenderable-detail { display: grid; gap: 10px; max-width: 68ch; }
+.unrenderable-detail p { margin: 0; line-height: 1.55; }
 .protocol-tab.is-active small { color: var(--mint); }
 .protocol-group-label { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; color: var(--mint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
 @media (max-width: 760px) { .specialty-nav { padding: 10px 14px 0; } }

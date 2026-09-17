@@ -49,7 +49,7 @@ import {
 } from "lucide-react";
 import { outcomeEpisodes, patientTimeline, agentManifests } from "../lib/catalogs";
 import { startLiveRuntime, fetchRuntimeSnapshot, mutateRuntime, type RuntimeActionRow, type RuntimeSnapshot } from "../lib/harness";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, LoadMore, Metric, PanelExpand, ProgressBar, Tag, usePaged } from "./ui";
 
@@ -115,7 +115,7 @@ export default function CommandCockpit({
   selectedId: string;
   onSelect: (id: string) => void;
   onOpenDemo: () => void;
-  onNavigate: (id: NavigationId) => void;
+  onNavigate: (id: NavTarget) => void;
   onOpenDetail: OpenWorkflowDetail;
 }) {
   const [runtime, setRuntime] = useState<RuntimeSnapshot | null>(null);

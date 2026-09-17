@@ -66,15 +66,15 @@ import {
 import { EmptyView, Eyebrow, Metric, PanelExpand, ProgressBar, Tag, usePaged, LoadMore } from "./ui";
 import FleetActionsBoard from "./fleet-actions-board";
 import AdoptionPanel from "./adoption-panel";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget, SpecialtyViewId } from "../lib/types";
 
 type Props = {
-  onNavigate?: (id: NavigationId) => void;
+  onNavigate?: (id: NavTarget) => void;
 };
 
 /** Protocol-pack id → the exec view that owns that pack's page. `access` is the one
  *  that differs (its view is `vascular-access`), so the mapping is explicit. */
-const PROTOCOL_VIEW_BY_PACK: Record<string, NavigationId> = {
+const PROTOCOL_VIEW_BY_PACK: Record<string, SpecialtyViewId> = {
   adequacy: "adequacy",
   fluid: "fluid",
   access: "vascular-access",

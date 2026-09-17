@@ -71,10 +71,10 @@ import {
   type MbdValidationView,
   type MbdWhatIfResult,
 } from "../lib/mbd";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget } from "../lib/types";
 import RankedActionsPanel from "./ranked-actions-panel";
 
-type Props = { onNavigate?: (id: NavigationId) => void };
+type Props = { onNavigate?: (id: NavTarget) => void };
 
 const HORIZONS = [30, 60, 90];
 

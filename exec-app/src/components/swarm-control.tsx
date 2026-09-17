@@ -53,7 +53,7 @@ import {
 } from "lucide-react";
 import { agentManifests, ecosystemDemo, operatingModel } from "../lib/catalogs";
 import { startLiveFeed, startLiveRuntime, autofillRegionAssignments, fetchRegionOps, fetchRuntimeSnapshot, fetchSimulatorScenarios, fetchSimulatorStatus, mutateRuntime, pauseSimulator, resumeSimulator, startSimulator, stopSimulator, type LiveFeedView, type PolicySimulation, type RegionCensus, type RegionDeterioration, type RegionOpsView, type RuntimeInsightRow, type RuntimeSnapshot, type SimScenarioMeta, type SimulatorStatusView } from "../lib/harness";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget, PlatformNavId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, LoadMore, PanelExpand, ProgressBar, Tag, usePaged } from "./ui";
 
@@ -139,7 +139,7 @@ const messageTone: Record<string, "neutral" | "mint" | "amber" | "red" | "blue" 
   action: "violet",
 };
 
-export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate: (id: NavigationId) => void; onOpenDetail: OpenWorkflowDetail }) {
+export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate: (id: NavTarget) => void; onOpenDetail: OpenWorkflowDetail }) {
   const [roleId, setRoleId] = useState<RoleId>("dvp");
   const [topologyView, setTopologyView] = useState<TopologyView>("topology");
   const [selectedAgentId, setSelectedAgentId] = useState(agentManifests[0].id);
@@ -432,7 +432,7 @@ export default function SwarmControl({ onNavigate, onOpenDetail }: { onNavigate:
   }
 
   function openTopologyDetail(node: (typeof activeTopology.nodes)[number]) {
-    const target: NavigationId = node.label === "Patient" ? "patient" : node.label === "Facility" ? "facility" : node.label === "Measure" || topologyView === "regulatory" ? "cms" : node.label === "Intervention" || node.label === "Outcome" ? "command" : topologyView === "dependencies" ? "assurance" : "intelligence";
+    const target: PlatformNavId = node.label === "Patient" ? "patient" : node.label === "Facility" ? "facility" : node.label === "Measure" || topologyView === "regulatory" ? "cms" : node.label === "Intervention" || node.label === "Outcome" ? "command" : topologyView === "dependencies" ? "assurance" : "intelligence";
     onOpenDetail({
       id: `TOPOLOGY-${topologyView.toUpperCase()}-${node.label.replaceAll(" ", "-").toUpperCase()}`,
       kind: activeTopology.label,

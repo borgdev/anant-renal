@@ -63,7 +63,7 @@ import type {
   AgentOperationsSnapshot,
   AgentView,
 } from "../lib/contracts";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, ProgressBar, Tag } from "./ui";
 
@@ -92,7 +92,7 @@ export default function AgentOperations({
   onNavigate,
   onOpenDetail,
 }: {
-  onNavigate: (id: NavigationId) => void;
+  onNavigate: (id: NavTarget) => void;
   onOpenDetail: OpenWorkflowDetail;
 }) {
   const [snapshot, setSnapshot] = useState<AgentOperationsSnapshot | null>(null);

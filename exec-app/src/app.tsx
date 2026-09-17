@@ -94,6 +94,7 @@ import RoundDigestView from "./components/round-digest-view";
 import AssuranceCenter from "./components/assurance-center";
 import PlatformReview from "./components/platform-review";
 import SpecialtyActionsView from "./components/specialty-actions-view";
+import UnrenderableView from "./components/unrenderable-view";
 import WorkflowDetailDrawer from "./components/workflow-detail-drawer";
 import { Tag } from "./components/ui";
 import { demoContext, outcomeEpisodes } from "./lib/catalogs";
@@ -102,13 +103,14 @@ import { onSessionExpired } from "./lib/session";
 import { applyTheme, otherTheme, THEME_LABEL, readTheme, type ThemeName } from "./lib/theme";
 import { fetchContext } from "./lib/work";
 import type { MeUser } from "./lib/auth";
-import type { NavigationId } from "./lib/types";
+import type { NavTarget, PlatformNavId } from "./lib/types";
 import type { SpecialtyViewDecl } from "./lib/specialty-view";
 import type { ViewRendererKind } from "./lib/view-kinds";
 import type { WorkflowDetail } from "./lib/workflow-detail";
 
 type NavItem = {
-  id: NavigationId;
+  // The sidebar can only ever point at a destination the shell owns.
+  id: PlatformNavId;
   label: string;
   icon: typeof Gauge;
   badge?: string;
@@ -120,7 +122,7 @@ type NavItem = {
  * index) and each pack keeps its own page one click away — so the sidebar stays
  * short as packs are added, and nothing becomes a second-class citizen.
  */
-const PROTOCOL_VIEWS: Array<{ id: NavigationId; label: string; stage: string }> = [  { id: "protocols", label: "Cockpit", stage: "all" },
+const PROTOCOL_VIEWS: Array<{ id: NavTarget; label: string; stage: string }> = [  { id: "protocols", label: "Cockpit", stage: "all" },
   { id: "anemia", label: "Anemia & ESA", stage: "CDSS" },
   { id: "adequacy", label: "Adequacy & Kt/V", stage: "P1" },
   { id: "fluid", label: "Fluid & IDH", stage: "P2" },
@@ -204,7 +206,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   },
 ];
 
-const demoSteps: { nav: NavigationId; eyebrow: string; title: string; body: string }[] = [
+const demoSteps: { nav: PlatformNavId; eyebrow: string; title: string; body: string }[] = [
   { nav: "ecosystem", eyebrow: "1 · See the ecosystem", title: "The full renal-care enterprise fits one governed cockpit.", body: "Switch role and scope, inspect cross-facility insights, rank next-best actions and simulate policy changes without changing runtime state." },
   { nav: "agents", eyebrow: "2 · Inspect the specialists", title: "Twelve bounded cells contribute without owning the decision.", body: "Inspect each cell manifest, trigger contract, proposal authority, evaluation gate and kill-switch boundary." },
   { nav: "command", eyebrow: "3 · Detect the break", title: "A discharge event opens an outcome loop.", body: "The harness joins a synthetic discharge, a missing chair confirmation and a transportation barrier into one reviewable continuity episode." },
@@ -239,8 +241,8 @@ function userInitials(user?: MeUser | null): string {
   return name.split(/\s+/).map((w) => w[0] ?? "").join("").slice(0, 2).toUpperCase();
 }
 
-export default function AppShell({ initialNav = "my-work", user, onLogout }: { initialNav?: NavigationId; user?: MeUser | null; onLogout?: () => void }) {
-  const [activeNav, setActiveNav] = useState<NavigationId>(initialNav);
+export default function AppShell({ initialNav = "my-work", user, onLogout }: { initialNav?: NavTarget; user?: MeUser | null; onLogout?: () => void }) {
+  const [activeNav, setActiveNav] = useState<NavTarget>(initialNav);
   const [selectedId, setSelectedId] = useState(outcomeEpisodes[0].id);
   const [demoOpen, setDemoOpen] = useState(false);
   const [demoStep, setDemoStep] = useState(0);
@@ -322,7 +324,12 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
   const submenuGroups = useMemo(() => {
     const map = (views: SpecialtyViewDecl[]) =>
       views.map((view) => ({
-        id: view.id as NavigationId,
+        // No cast, and that is the point: `SpecialtyViewId` is open, so a pack's
+        // own word for its own page IS the type. The assertion that used to be
+        // here — the declared id forced into the shell's old closed union — was
+        // what let a specialty declare a screen the shell had never heard of and
+        // still type-check.
+        id: view.id,
         label: view.label,
         stage: protocolStage(view.id),
         ...(view.kind ? { kind: view.kind } : {}),
@@ -383,7 +390,7 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
    * switch that loses your place is one people stop using, and this strip only
    * earns its keep if moving between specialties is cheap.
    */
-  const lastViewByPack = useRef(new Map<string, NavigationId>());
+  const lastViewByPack = useRef(new Map<string, NavTarget>());
   useEffect(() => {
     if (activeGroup) lastViewByPack.current.set(activeGroup.packId, activeNav);
   }, [activeGroup, activeNav]);
@@ -422,12 +429,12 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
     viewRowRef.current.querySelector<HTMLElement>(".protocol-tab.is-active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeNav, submenuGroups]);
 
-  function selectNav(id: NavigationId) {
+  function selectNav(id: NavTarget) {
     setActiveNav(id);
     setSidebarOpen(false);
   }
 
-  function continueWorkflow(id: NavigationId) {
+  function continueWorkflow(id: NavTarget) {
     selectNav(id);
     setWorkflowDetail(null);
   }
@@ -549,6 +556,13 @@ export default function AppShell({ initialNav = "my-work", user, onLogout }: { i
       case "executive": return <ExecutiveOutcomes onNavigate={selectNav} onOpenDetail={openWorkflowDetail} />;
       case "assurance": return <AssuranceCenter onOpenDetail={openWorkflowDetail} />;
       case "platform": return <PlatformReview onNavigate={selectNav} />;
+      // G5b — the arm that was missing. Without it an id no `case` matches falls
+      // out of the switch and React renders `undefined`: a live, selected tab
+      // above a blank workspace, and nothing anywhere saying why. Reached by any
+      // pack that declares a view this build has no renderer for, which is a
+      // supported situation rather than a fault — the shell cannot enumerate
+      // specialties it has not been told about.
+      default: return <UnrenderableView id={activeNav} />;
     }
   })();
 

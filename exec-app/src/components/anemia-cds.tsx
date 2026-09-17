@@ -93,7 +93,7 @@ import {
   type EsaValidationView,
   type EsaWhatIfResult,
 } from "../lib/anemia";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget } from "../lib/types";
 import { EvidenceTag, Eyebrow, LoadMore, Metric, PanelExpand, Tag, usePaged } from "./ui";
 import RankedActionsPanel from "./ranked-actions-panel";
 
@@ -129,7 +129,7 @@ function fmtDose(v: number | null): string {
   return v === null ? "—" : `${v.toLocaleString()} u/wk`;
 }
 
-export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: NavigationId) => void }) {
+export default function AnemiaCds({ onNavigate }: { onNavigate?: (nav: NavTarget) => void }) {
   const [features, setFeatures] = useState<EsaFeaturesView | null>(null);
   const [state, setState] = useState<AnemiaStateView | null>(null);
   const [rec, setRec] = useState<EsaRecommendation | null>(null);

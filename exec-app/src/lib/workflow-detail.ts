@@ -31,7 +31,7 @@
  *
  ******************************************************************************/
 
-import type { NavigationId } from "./types";
+import type { NavTarget } from "./types";
 
 export type WorkflowTone = "neutral" | "mint" | "amber" | "red" | "blue" | "violet";
 export type WorkflowStepState = "done" | "current" | "pending" | "blocked";
@@ -51,7 +51,7 @@ export type WorkflowDetail = {
   activity?: Array<{ time: string; title: string; detail: string; state?: WorkflowStepState }>;
   steps?: Array<{ label: string; detail: string; state: WorkflowStepState }>;
   control?: string;
-  primary?: { label: string; target: NavigationId };
+  primary?: { label: string; target: NavTarget };
   security?: {
     serverAssembled: true;
     role: string;

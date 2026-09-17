@@ -51,7 +51,7 @@ import {
 } from "lucide-react";
 import { facilityStations } from "../lib/catalogs";
 import { startLiveRuntime, mutateRuntime, type RuntimeSnapshot } from "../lib/harness";
-import type { NavigationId } from "../lib/types";
+import type { PlatformNavId } from "../lib/types";
 import type { OpenWorkflowDetail } from "../lib/workflow-detail";
 import { Eyebrow, ProgressBar, Tag } from "./ui";
 
@@ -98,7 +98,7 @@ export default function FacilityTwin({ onOpenDetail }: { onOpenDetail: OpenWorkf
     }
   }
 
-  function openFacilityDetail(title: string, summary: string, status: string, target: NavigationId = "command", evidence: Array<{ label: string; value: string; source?: string }> = []) {
+  function openFacilityDetail(title: string, summary: string, status: string, target: PlatformNavId = "command", evidence: Array<{ label: string; value: string; source?: string }> = []) {
     onOpenDetail({ id: `FACILITY-${title.toUpperCase().replaceAll(" ", "-")}`, kind: "Facility digital twin", title, summary, status, tone: status.toLowerCase().includes("maintenance") || status.toLowerCase().includes("late") ? "red" : status.toLowerCase().includes("watch") ? "amber" : "mint", owner: "Facility administrator", scope: "Riverbend Franklin · shift 2", metrics: [{ label: "Runtime events", value: String(runtime?.counts.events ?? 0) }, { label: "Capacity executions", value: String(runtime?.executions.filter((item) => item.agentId === "capacity-cell").length ?? 0) }, { label: "Runtime effect", value: "False" }], evidence: evidence.length ? evidence : [{ label: "Capacity event", value: capacityEvent?.eventId ?? "Awaiting persisted capacity signal", source: capacityEvent?.sourceSystem ?? "Facility twin" }, { label: "Staff headroom", value: String(capacityEvent?.payload.staffRatioHeadroom ?? "—"), source: "facility.capacity.changed.v2" }], steps: [{ label: "Observe", detail: "Chair, staff, machine and arrival states joined", state: "done" }, { label: "Simulate", detail: scenarioResult ? `${scenarioResult.checks.length} constraints replayed` : "Safe scenario available", state: scenarioResult ? "done" : "current" }, { label: "Authorize", detail: "Human service-coordination decision", state: "pending" }, { label: "Verify", detail: "Downstream acknowledgement required", state: "pending" }], control: "The digital twin can project and compare plans. It cannot reserve a chair, change an order, notify a patient or write to the EMR.", primary: { label: target === "assessments" ? "Open Assessment Intelligence" : target === "assurance" ? "Open AI Assurance" : target === "facility" ? "Stay in Facility Operations" : "Open Outcome Command", target } });
   }
 

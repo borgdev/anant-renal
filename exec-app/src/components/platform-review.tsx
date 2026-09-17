@@ -22,7 +22,7 @@ import { useEffect, useState } from "react";
 import { ArrowUpRight, CheckCircle2, Gauge, ShieldAlert, ShieldCheck } from "lucide-react";
 import { fetchReleaseGate, harnessJson, type ReleaseGateView } from "../lib/harness";
 import { Eyebrow, PanelExpand, Tag } from "./ui";
-import type { NavigationId } from "../lib/types";
+import type { NavTarget } from "../lib/types";
 
 interface ActiveConfig {
   version: string;
@@ -38,7 +38,7 @@ interface OrganizationView {
   organization: { displayName?: string; operatingModel?: string; environmentName?: string; deploymentMode?: string; dataRegion?: string; synthetic?: boolean } | null;
 }
 
-export default function PlatformReview({ onNavigate }: { onNavigate: (id: NavigationId) => void }) {
+export default function PlatformReview({ onNavigate }: { onNavigate: (id: NavTarget) => void }) {
   const [gate, setGate] = useState<ReleaseGateView | null>(null);
   const [gateError, setGateError] = useState<string | null>(null);
   const [releases, setReleases] = useState<ActiveConfig[]>([]);
