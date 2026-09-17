@@ -25,6 +25,8 @@
     "liquid:test": "cd native && cargo test --workspace",
     "liquid:train": "cd native && cargo run -q -p liquid-train --",
     "liquid:wasm": "cd native/liquid-wasm && wasm-pack build --target web --out-dir pkg && cp pkg/liquid_wasm_bg.wasm pkg/liquid_wasm.js pkg/liquid_wasm.d.ts pkg/liquid_wasm_bg.wasm.d.ts ../../src/liquid/wasm/",
+    "population:generate": "tsx scripts/generate-population.ts",
+    "population:synthea:clone": "git clone --depth 1 https://github.com/synthetichealth/synthea.git .harness/synthea",
     "exec:install": "npm install --prefix exec-app",
     "exec:build": "npm run build --prefix exec-app",
     "exec:dev": "npm run dev --prefix exec-app"

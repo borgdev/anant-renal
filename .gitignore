@@ -38,3 +38,11 @@ renal-swarm-intelligence/.openai/
 # Python bytecode caches (repo tooling: add_copyright.py and friends)
 __pycache__/
 *.py[cod]
+
+# S2 — the Synthea checkout and the populations generated from it. Both are BUILD
+# ARTIFACTS, not sources: the checkout is a clone of an external project, and a
+# population is reproduced from its manifest (seed + reference date + generator
+# version) rather than committed. Committing either would put a third-party tree
+# and hundreds of generated FHIR files under our copyright header regime.
+.harness/synthea/
+synthea-population/

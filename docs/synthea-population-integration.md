@@ -609,14 +609,55 @@ differs, the seam is wrong.
 
 ### S2 — Runner, manifest, fixtures
 
-`SyntheaRunner` mirroring `LiquidTrainer` with an injectable runner.
-`scripts/generate-population.ts` (the `scripts/generate-pack-manifests.ts`
+`SyntheaRunner` mirroring `LiquidTrainer` with an injectable runner (so CI needs no
+JVM). `scripts/generate-population.ts` (the `scripts/generate-pack-manifests.ts`
 convention). A population manifest with seed/version/config hash. A **tiny committed
 golden bundle** under `tests/fixtures/synthea/` — the precedent is
 `native/domain-dialysis/tests/fixtures/parity_model.safetensors`.
 
 **Exit:** generation is reproducible from the manifest; `S2`'s tests pass with no
 JDK and no Python installed.
+
+#### What building it changed — reproducibility is per layer, not per run
+
+The plan assumed "generation is reproducible from the manifest" as one property.
+Running the reference generator twice with an identical `--seed` and
+`--reference-date` showed it is not one property. Measured by diffing two real runs:
+
+| Layer | Reproducible? |
+|---|---|
+| Patient identity (name + UUID), and the bundle filename | **yes** |
+| Patient clinical content — resources, references, dates, codes | **yes** |
+| Provider display names (`Dr. Eldridge510 Roob72` → `Dr. Victoria535 Roob72`) | **no** |
+| Practitioner roster — 122 entries, different UUIDs *and* names | **no** |
+| `hospitalInformation` content | yes, but its **filename** carries a wall-clock epoch |
+
+So a single byte digest over the output directory is compared "different" on every
+legitimate regeneration — a reuse gate that can never hit while looking careful. S2
+therefore carries **two** digests over two questions:
+
+- `outputDigest` — raw bytes. *Has this directory been touched since we made it?*
+- `patientDigest` — the patient layer with entity display names normalised (a
+  `display` beside a `reference` is a name; a `display` alone is a code, and is
+  kept). *Is this the same population?*
+
+The second is the one comparable across regenerations, and it still fails loudly on
+a different seed, an age-range change, a Synthea upgrade, or a module-set change.
+`nonReproducible` records the excluded layers as data, so a specialty author reading
+a manifest does not have to rediscover this by experiment.
+
+**Two CLI traps are encoded, both silent when wrong** (`runner.ts`):
+
+1. `-o` is *overflow population* in the reference, not output directory. Output goes
+   to the default `output/` and the caller looks elsewhere, with exit code 0.
+2. `--exporter.baseDirectory=` is a **base**, not the FHIR directory — Synthea
+   appends `fhir/`. Passing `<dir>/fhir` writes to `<dir>/fhir/fhir` while the reader
+   looks in `<dir>/fhir`, reporting a successful run that produced **0 files**. This
+   was found by running it, not by reading the docs.
+
+A third is a property of the machine rather than the CLI: `javac` and `java` can be
+different versions (S0's host had `javac` 17, `java` 1.8), so the runner resolves a
+JDK by reading each candidate's `release` file and never falls back to bare `java`.
 
 ### S3 — Ingest onto the platform, then enrich, then prime the engine
 

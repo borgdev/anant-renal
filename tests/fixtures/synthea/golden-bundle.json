@@ -1,0 +1,61 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "golden-0001",
+        "name": [{ "use": "official", "family": "Olivo261", "given": ["Andrés117", "Hernán834"], "prefix": ["Mr."] }],
+        "gender": "male",
+        "birthDate": "1969-12-13",
+        "identifier": [{ "system": "https://synthea.mitre.org/", "value": "golden-0001" }],
+        "extension": [
+          { "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-race", "extension": [{ "url": "text", "valueString": "White" }] },
+          { "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-ethnicity", "extension": [{ "url": "text", "valueString": "Non Hispanic or Latino" }] }
+        ],
+        "communication": [{ "language": { "coding": [{ "code": "en", "display": "English" }] } }]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Condition",
+        "id": "golden-0001-ckd",
+        "subject": { "reference": "Patient/golden-0001" },
+        "code": { "coding": [{ "system": "http://snomed.info/sct", "code": "431855005", "display": "Chronic kidney disease stage 5 (disorder)" }] },
+        "onsetDateTime": "2024-03-02"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "golden-0001-hgb",
+        "subject": { "reference": "Patient/golden-0001" },
+        "status": "final",
+        "code": { "coding": [{ "system": "http://loinc.org", "code": "718-7", "display": "Hemoglobin [Mass/volume] in Blood" }] },
+        "effectiveDateTime": "2026-08-14T09:00:00Z",
+        "valueQuantity": { "value": 9.4, "unit": "g/dL" }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "golden-0001-mircera",
+        "subject": { "reference": "Patient/golden-0001" },
+        "status": "active",
+        "medicationCodeableConcept": { "coding": [{ "system": "http://www.nlm.nih.gov/research/umls/rxnorm", "code": "1234567", "display": "Methoxy polyethylene glycol-epoetin beta" }] },
+        "authoredOn": "2026-08-14"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "golden-0001-enc",
+        "subject": { "reference": "Patient/golden-0001" },
+        "status": "finished",
+        "class": { "code": "AMB" },
+        "period": { "start": "2026-08-14T08:30:00Z", "end": "2026-08-14T12:30:00Z" }
+      }
+    }
+  ]
+}
