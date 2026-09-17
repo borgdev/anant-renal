@@ -196,17 +196,16 @@ say "newly diagnosed" as opposed to "has ever had".
 | Fidelity risk | None — it defines fidelity | Port drift is unverified; the README claims completeness but the project is young |
 | Fit to this repo | External CLI process | External CLI process **or** an importable library |
 
-**Recommendation:** default to the **Java reference implementation**, and treat
-PySynthea as a supported alternative — because the decision should not be load-bearing.
-Our stack is Node/TypeScript + Rust; neither generator runs in-process, both are
-external CLIs, so we are already in the "spawn a tool" business. We do exactly this
-today: `src/liquid/trainer.ts` spawns the `liquid-train` Rust CLI to train the CfC
-model.
+**Recommendation — now settled on evidence, see the S0 result in §5.** Take the **Java
+reference implementation**. This section originally proposed Java as the default with
+PySynthea as a supported alternative on the grounds that the decision should not be
+load-bearing; **S0 ran both and showed that it is**, at least for PySynthea: it emits
+`Unknown Unknown` as a patient name and a 1898 birth date for a living patient, where
+the reference emits `Olivo261` / `["Andrés117","Hernán834"]` and `1969-12-13`. Those are
+the exact fields §4.3 reads through `structuralState`.
 
-The mitigation for the wrong choice is architectural rather than a bet: **make the
-population source a seam** (§4). If the two generators disagree, swapping is a
-config change. `S0` should settle it on evidence — generate the same population
-with both and compare what we actually need.
+The seam argument below still stands as insurance — swapping generators remains a
+config change — but it is no longer the *reason* to be relaxed about the choice.
 
 Note the licensing obligation either way: both are Apache-2.0, so Synthea's NOTICE
 requires attribution. This repo has a strict header regime (`add_copyright.py`,
@@ -504,74 +503,90 @@ how much is dialysis-adjacent.
 **Exit:** a written comparison of real output, and a decision on generator. Nothing
 is built on documentation alone.
 
-#### S0 result — first pass, 2026-09-16 (PySynthea only)
+#### S0 result — both generators run, 2026-09-16
 
-Run on this machine, in a throwaway venv at `/tmp/synthea-spike`. **Java was not
-reachable** and the reason matters:
+Run on this machine, throwaway spikes in `/tmp`. **S0's exit criterion is now met.**
 
-```
-javac 17.0.20          ← compiler is 17
-java  openjdk 1.8.0_502 ← RUNTIME IS 8
-gradle: not on PATH
-```
+**Environment.** `javac` was 17 but the default `java` runtime was `1.8.0_502`, and
+Synthea needs JDK 17+. A JDK 17 is installed at
+`/usr/lib/jvm/java-17-openjdk-amd64`; the fix is `JAVA_HOME` for the runner, **not**
+a system-wide `update-alternatives` change. That is a concrete S2 requirement: the
+Synthea runner must set `JAVA_HOME` explicitly rather than trusting `java` on PATH.
 
-Synthea requires a **JDK 17+ runtime**; `/usr/bin/java` here is Java 8, and a
-`JAVA_HOME` is unset. So the Java path needs a system JDK install (a `sudo` step —
-yours to run, not mine). **The Java half of S0 is therefore still open.**
-
-**PySynthea did run.** `uv pip install tietai-synthea` → `tietai-synthea==1.0.1`;
-`-p 5 -s 12345` in 3.7s. Findings, in order of how much they change the decision:
-
-1. **Demographics are broken.** The emitted `Patient` is:
-
-   ```json
-   { "name": [{ "family": "Unknown", "given": ["Unknown"] }],
-     "gender": "female",
-     "birthDate": "1898-09-15" }
-   ```
-
-   `Unknown Unknown` as a name, and a birth date that makes a **living** patient
-   **128 years old** at a 2026 reference date. Gender and `identifier` (system
-   `https://synthea.mitre.org/`) are correct. §4.3 depends on `name` and `birthDate`
-   through `structuralState`, so this is not cosmetic to us.
-
-2. **A requested module produced no matching condition.** `-m breast_cancer -p 3 -s
-   777` yielded hypertension ×3, open-angle glaucoma, pneumonia — and **zero breast
-   cancer conditions**. Two hypotheses, and they are distinguishable:
-   (a) the sub-module `breast_cancer/tnm_diagnosis`, invoked by relative path from
-   `breast_cancer.json`, did not resolve; or (b) a legitimate sex/age gate rejected
-   all three patients. Distinguishing them needs a larger run and a check of the
-   gate logic — **not** assumed either way here.
-
-3. **The module count is internally inconsistent.** `--list-modules` reports
-   **99**, generation logs `Loaded 99 modules`, but **256** module JSONs ship in the
-   package. The loader (`engine/module.py:205`) uses `rglob('*.json')`, which
-   *recurses* — so the loader looks correct and the **99 is the suspicious number**,
-   not the 256. Unexplained, and worth resolving before depending on module coverage.
-
-4. **What is genuinely good.** The resource volume is real: one bundle carried
-   `Encounter: 19, Condition: 2, MedicationRequest: 4, Procedure: 33, Observation:
-   82`. 82 Observations is exactly the material §4.5's warm-up replay needs, and the
-   renal-relevant top-level modules are present and load — `chronic_kidney_disease`,
-   `dialysis`, `hypertension`, `kidney_transplant`.
-
-**Provisional conclusion: the evidence does NOT support adopting PySynthea as the
-default.** Findings 1–3 are the failure mode this document's risk table called out —
-*the shape is correct and the volume looks healthy, so the errors are plausible
-rather than obvious*. A population of `Unknown Unknown`, 128 years old, is worse than
-the hand-written round-robin it replaces, because it looks like real data.
-
-**S0's exit criterion is NOT met.** The Java half must be run before the generator is
-chosen, and it needs a JDK 17 runtime:
+**Reference (Java), commit `d9d07a6`.** Clone + build + 5 patients = 50s.
 
 ```
-sudo apt install openjdk-17-jdk     # yours to run — needs elevation
+3 -- Ashely524 Maybelle917 Balistreri607 (28 y/o F) Shrewsbury, Massachusetts
+4 -- Miguel815 Bashirian201            (52 y/o M) Dalton, Massachusetts
+2 -- Kimi714 Katerine813 Watsica258    (63 y/o F) Boston, Massachusetts
+1 -- Andrés117 Olivo261                (56 y/o M) Chicopee, Massachusetts
+5 -- Louie190 Botsford977              (80 y/o F) South Yarmouth, Massachusetts
 ```
 
-Until then the honest position is: **do not start S1 against a generator we have not
-chosen.** S1 is independent of the population source (it moves the *existing*
-round-robin behind a seam), so it can proceed — but only with `StaticPatientSource`
-as the sole implementation, which is what S1 was specified to do anyway.
+**The decisive comparison** — the `Patient` resource, which §4.3 consumes through
+`structuralState`:
+
+| | Reference (Java) | PySynthea |
+|---|---|---|
+| `name.family` | `Olivo261` | `Unknown` |
+| `name.given` | `["Andrés117", "Hernán834"]` | `["Unknown"]` |
+| `name.prefix` | `["Mr."]` | absent |
+| `gender` | `male` | `female` |
+| `birthDate` | `1969-12-13` | `1898-09-15` |
+
+**Recommendation: take the Java reference.** PySynthea's demographics are broken in
+the exact field our integration reads, and it is worse than the round-robin it would
+replace because it looks like real data.
+
+**Three corrections to my own first-pass findings**, which is the other half of what
+running S0 bought:
+
+1. **The module-count "inconsistency" was my error, not a defect.** The reference has
+   **85 top-level of 242** module files. Loading top-level entry points and resolving
+   the rest as sub-modules *by relative path* is the normal Synthea design. PySynthea's
+   99-of-256 is the same shape. `--list-modules` and the generation log both said 99 —
+   they agreed with each other; I assumed all 256 should load.
+2. **The 128-year-old is legal.** The reference reports `Min Age: 0, Max Age: 140`, so
+   that birth date is inside Synthea's own range. The real defect is the **name**, not
+   the age.
+3. **The `-m breast_cancer` result was not a valid comparison.** The **Java CLI has no
+   `-m` flag** at all, so there was nothing to compare against. It stays an open
+   question about PySynthea rather than a confirmed defect — stated as such.
+
+**A CLI divergence the runner must handle:** `-o` means *output directory* in PySynthea
+and *overflow population* in the reference. Same letter, different meaning, silent if
+wrong — the reference simply writes to its default `output/`.
+
+**The sizing answer, which the plan needed and did not have.** Reference Synthea, seed
+`4242`:
+
+| Population | renal patients | oncology patients |
+|---|---|---|
+| 25 | **0** | **0** |
+| 200 (235 records) | **28** (11.9%) | **15** (6.4%) |
+
+Plus diabetes in 45.1% and cardiac in 32.8% of patients.
+
+**The sizing answer, which the plan needed and did not have.** Reference Synthea, seed
+`4242`:
+
+| Population | renal patients | oncology patients |
+|---|---|---|
+| 25 | **0** | **0** |
+| 200 (235 records) | **28** (11.9%) | **15** (6.4%) |
+
+Plus diabetes in 45.1% and cardiac in 32.8% of patients.
+
+So **at 25 patients every renal and oncology cohort is empty**, and at 200 both
+populate. That is a measured answer to §9.6's question, and it changes the plan's
+assumed scale: the current scenarios deploy **58 patients**, and the population has to
+be roughly **an order of magnitude larger** for ten specialties to each find a cohort.
+It also confirms the multi-morbidity premise directly — 45% diabetic and 33% cardiac
+in the same 200 people is what makes overlapping cohorts real rather than contrived.
+
+**And the equity payoff is verified rather than assumed.** Every one of those 233
+patients carries `us-core-race`, `us-core-ethnicity`, `us-core-birthsex` and
+`communication` — the four axes §9.2 found entirely absent from our population.
 
 ### S1 — The seam, with no new data
 
@@ -704,7 +719,7 @@ manifest alone.
 | **Diversity measured by count, not by distribution** | 500 patients drawn from 3 demographics is 500 rows and no heterogeneity | Validate the *distribution* (age, sex, comorbidity, access type), not the row count; assert on histograms in `S5` |
 | **Clock mismatch** | Synthea timestamps vs accelerated `realmAt` → future-dated onsets | The as-of projection is a design decision, not an implementation detail (§2.3) |
 | **Identity duplication** | Regeneration creates a second chart per patient; `ingestFhirBundle` warns of exactly this | Deterministic Synthea-id → platform-id map, tested by re-running generation (`S3`) |
-| **PySynthea port drift** | The README claims completeness; the project is young | Prefer Java; `S0` validates on output; the seam makes it swappable |
+| **PySynthea port drift** | The README claims completeness; the project is young | **RESOLVED by S0** — Java chosen on evidence: PySynthea emits `Unknown Unknown` names and a 1898 birth date where the reference emits real names and plausible dates. Kept as a row because the failure was invisible from the shape and volume, which both looked correct |
 | **Synthea resources vendored into our tree** | 231 module JSONs + 394 resources, against a strict copyright regime | Consume as an external artifact + `NOTICE` entry; never copy resources in without attribution |
 | **Over-reliance on generated fixtures** | Tests that need a 200-patient artifact become slow and opaque | Commit a tiny golden bundle; keep `StaticPatientSource` as the unit-test default |
 | **Inventing a Kt/V from what Synthea has** | Synthea has no Kt/V (§4.6). An eGFR-based proxy would look like data, pass a review, and quietly become a clinical claim the platform makes | Declare the gap: seed `ktv_adequacy` from the renal domain, never from a proxy; assert in `S3` that no dimension is derived from a non-analogous observation |
@@ -719,9 +734,10 @@ manifest alone.
 
 ## 8. Open decisions
 
-1. **Generator.** My default is Java; `S0` settles it on evidence. Is there a reason
-   to prefer PySynthea (e.g. an existing Python toolchain in your environment) that
-   should weight this?
+1. **Generator.** — **DECIDED: the Java reference** (§5, S0). PySynthea was run and its
+   demographics are broken in the field our integration reads (`name`, `birthDate`),
+   so it is not a supported alternative for this purpose. See the S0 result for the
+   side-by-side and for the corrections to my own first-pass findings.
 2. **Artifact policy.** Commit a generated population (the `cms-data/` precedent
    commits 7 MB CSVs), or commit only the manifest and generate on demand? This
    affects reproducibility guarantees and clone size.
@@ -809,9 +825,11 @@ Age and sex are the only demographic axes the synthetic population carries, and
 healthcare equity is predominantly measured on race, ethnicity, language and payer.
 
 This makes the payoff materially larger than §1.2 claims. Synthea's demographics are
-census-derived and its FHIR carries race/ethnicity/language (US Core extensions) —
-*claimed from its documentation, to be confirmed in `S0`*, which is exactly the kind
-of claim `S0` exists to settle.
+census-derived and **S0 verified** that its FHIR carries the missing axes on *every*
+patient — all 233 patients in one 200-patient run carried `us-core-race`,
+`us-core-ethnicity`, `us-core-birthsex` and `communication` (language). Those are
+exactly the four fields §9.2 found absent, and they are present on 100% of output
+rather than on a subset.
 
 ### 9.3 `FacilitySeed.kind` is a closed platform vocabulary of care settings
 
