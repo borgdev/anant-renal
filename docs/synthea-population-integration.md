@@ -10,8 +10,15 @@
 Sections 1–4 are the analysis: what the population is today, why the limitation is
 worth fixing rather than cosmetic, and what the two candidate generators actually
 provide. Sections 5–6 are the approach and the phases, each with an exit criterion
-and a statement of what is testable. Sections 7–9 are the boundaries, the risks,
+and a statement of what is testable. Sections 7–8 are the boundaries, the risks,
 and the decisions that are yours rather than mine.
+
+**Section 9 is a review of §1–8 through a different lens** — *does this work for
+**every** specialty, or only for renal?* It found that the plan was renal-centric in
+ways the plan itself did not confront, including a fourth place one specialty's
+medicine is hardcoded in the platform layer, and a deeper question about whether the
+population is per-realm or per-platform. **Read §9 before treating §4–5 as the
+design.**
 
 Phase IDs are `S0`…`S6` (`S` is unused; the repo already uses `G` for gaps, `F` for
 FHIR, `M` for milestones).
@@ -104,6 +111,11 @@ the fixture is arithmetically incapable of showing the difference. The screen ca
 never be seen to fire. That is a test that passes for the wrong reason, and it is
 the failure mode this platform has been careful about elsewhere: a check that
 reports success while measuring nothing.
+
+And it is worse than that argument alone implies. §9.2 measured it: the seeded
+population carries **no race, ethnicity, language or insurance** — age and sex are
+the only demographic axes it has, and healthcare equity is predominantly measured on
+the other four. The screens do not lack signal; they lack fields. See §9.2.
 
 A population drawn from real census demographics with real disease prevalence —
 which is exactly what Synthea is for — is the difference between an equity screen
@@ -205,6 +217,12 @@ by copying a directory. PySynthea additionally asks for a citation in academic w
 ---
 
 ## 4. The approach: three seams, all reusing something we already have
+
+**A note on the section title.** These three are seams where we *reuse* something
+already built. §9.1 identifies a fourth that is not a reuse — the **`state_model`
+declaration**, which makes the trajectory engine's vocabulary a specialty's rather
+than the platform's. It is absent from this section because it is absent from the
+original plan, which is the finding §9 is about. It is scheduled in S1 (§9.7).
 
 ```mermaid
 flowchart TD
@@ -484,14 +502,26 @@ how much is dialysis-adjacent.
 **Exit:** a written comparison of real output, and a decision on generator. Nothing
 is built on documentation alone.
 
-### S1 — The seam, with no new data
+### S1 — The seams, with no new data
 
-Add `PatientSource`. Move the round-robin behind `StaticPatientSource` **unchanged**.
-`populateFacility` consumes a source.
+Two seams, both zero-behaviour-change:
+
+1. **`PatientSource`.** Move the round-robin behind `StaticPatientSource`
+   **unchanged**; `populateFacility` consumes a source.
+2. **The `state_model` declaration** (§9.1, §9.7). Add a `state_model` section to the
+   specialty contract beside `ontology`/`events`/`workflows`/`measures`/`ui_lens`, and
+   express `dialysis` as its first declaration — `DIALYSIS_DIMENSIONS`, `EVENT_ORDER`,
+   `projectDialysisState` and the renal thresholds move behind it. A specialty that
+   declares none gets patient state as-is, the same compatibility default `cohort`
+   and view kinds use.
+
+Both are seams rather than migrations, and doing them together is deliberate: §9.1
+shows the population seam and the state-model seam are the same defect in two places,
+and separating them would mean touching the population layer twice.
 
 **Exit:** full suite green, and a golden comparison showing the seeded realm is
 byte-for-byte what it was. This phase must change no behaviour; if the golden
-differs, the seam is wrong.
+differs, a seam is wrong.
 
 ### S2 — Runner, manifest, fixtures
 
@@ -605,6 +635,9 @@ manifest alone.
 | **Inventing a Kt/V from what Synthea has** | Synthea has no Kt/V (§4.6). An eGFR-based proxy would look like data, pass a review, and quietly become a clinical claim the platform makes | Declare the gap: seed `ktv_adequacy` from the renal domain, never from a proxy; assert in `S3` that no dimension is derived from a non-analogous observation |
 | **Warm-up replay cost** | One model step per patient per observation; a lifetime at observation granularity is thousands of steps × patients | Subsample (monthly over a bounded window), bound the window in config, and measure it in `S2` |
 | **Seeded state silently overwritten** | `labs` and `lastVitals` are engine outputs after tick 1 — a Synthea history that lands only there disappears immediately | Put the durable contribution in `problemList` (never overwritten) and assert the priming survived the first tick |
+| **Building a renal-only population layer** | §9.1: `src/liquid/` names dialysis throughout, and `populateFacility` gives every patient renal attributes. A population component written against that shape is a fourth place renal is hardcoded, and ten specialties cannot share it | Introduce the `state_model` declaration in S1 while only dialysis implements it, so `dialysis` is the first *implementation* of the platform's state model rather than its shape |
+| **A population that cannot satisfy a declared measure** | §9.6: a measure screen reads as "nothing to do" when the fixture has no denominator-qualifying patient | Validate at deployment level — every declared measure has ≥1 qualifying patient — and report it as a population issue, not a blank screen |
+| **Two realms, one human** | §9.5: ids are minted per facility, so one patient treated at two facilities is two unrelated patients and overlapping cohorts cannot mean what they claim | Decide per-realm vs per-platform population before S3's identity mapping is designed, because the mapping's shape depends on the answer |
 | **The equity screen still cannot fire after S5** | Would mean the population was never the limiting factor | `S5`'s exit criterion is that it *does* fire — a negative result here is a real finding, not a failure to be hidden |
 
 ---
@@ -636,8 +669,149 @@ manifest alone.
    invented the mapping from observations to dimensions, which is the same class of
    mistake as a Kt/V proxy. I would start with replay on a bounded window and fall
    back to `forkFrom` only for the dimensions §4.6 shows Synthea cannot inform.
+9. **Is the population per-realm or per-platform?** (§9.5). Today it is per-realm and
+   patient ids are minted per facility, so one human treated at two facilities is two
+   unrelated patients — which is incompatible with the overlapping-cohort premise.
+   This is the decision §9 calls the deepest gap, and it is yours rather than mine.
+10. **How many care settings must the platform express?** (§9.3). `FacilitySeed.kind`
+    is four values restated in five places. Generalising it is cheap; agreeing the
+    vocabulary is a product decision.
 
 ---
+
+## 9. Review — what this plan still misses for ten specialties
+
+Read back with one question — *does this work for **every** specialty, or only for
+renal?* — the plan above is renal-centric in ways it did not confront. Six findings,
+each measured, and the first reframes the work.
+
+### 9.1 The headline: this is the FOURTH place renal is hardcoded in the platform
+
+The plan treats the population layer as the thing to change. It is also **the third
+and fourth place one specialty's medicine lives in the platform layer**, and the
+population component is where that has to stop:
+
+| Layer | Renal hardcoded as | Status |
+|---|---|---|
+| `src/swarm/*`, protocol union | the specialty's modules and protocol ids | **fixed** — G1, G4b |
+| Shell vocabulary | `NavigationId` naming `mbd`, `nutrition`, `access` | **fixed** — G5b |
+| **`populateFacility`** | `problemsFor(kind)` says dialysis ⇒ ESRD/HTN/DM2; `ACCESS_TYPES`, `dialysisVintageYears`, `trajectory` are renal attributes every patient gets | **this plan** |
+| **`src/liquid/`** | `DIALYSIS_DIMENSIONS`, `EVENT_ORDER`, `projectDialysisState`, renal lab thresholds | **not in this plan** |
+
+The fourth row is the one the plan misses, and it is the largest. `src/liquid/` is the
+*platform's* trajectory engine, and it names dialysis throughout:
+
+- `src/liquid/types.ts` — `DIALYSIS_DIMENSIONS`, `DialysisState`, `DialysisDim`
+- `src/liquid/trajectory.ts` — `EVENT_ORDER = [missed_treatment, access_complication,
+  lab_marker_elevated, abnormal_vital_reading, diet_phosphate_violation]`, and
+  `#eventVector` hardcodes `Underdialysis`, `CKD-MBD`, K>5.5, URR<65, PHOS>5.5, HGB<10
+- `src/liquid/project.ts` — `projectDialysisState`
+- `src/liquid/regime.ts`, `forecast.ts` — iterate `DIALYSIS_DIMENSIONS`
+
+So §4.5's "prime the engine" is written as though the engine were renal's. It is
+parameterised — `TrajectoryAmbientProcess` takes `opts.domainId ?? 'dialysis'` and
+`native/domain-healthcare` exists — but **`domain-healthcare` is referenced nowhere
+in `src/`**, and every consumer of the engine is written against dialysis dimensions.
+Ten specialties cannot share this.
+
+**What this means for the plan:** the population component is not "better data for
+the existing engine". It is the point at which the **state model must become a
+declaration**, in exactly the way protocols (`G4b`) and views (`G5a/G5b`) did. A
+specialty should declare its state model the way it already declares its ontology,
+events, workflows, measures and lens — and `dialysis` becomes the first
+implementation of that declaration rather than the shape of the platform.
+
+### 9.2 The population has no equity dimensions at all
+
+§1.2 argues the population cannot *show* disparity because sex alternates and ages
+cycle. That understates it. `populateFacility` writes **no race, ethnicity, language
+or insurance** — grepped, zero occurrences in `src/realm/sim-populator.ts`.
+
+So the equity screens do not have a weak signal; **they have no fields to slice on.**
+Age and sex are the only demographic axes the synthetic population carries, and
+healthcare equity is predominantly measured on race, ethnicity, language and payer.
+
+This makes the payoff materially larger than §1.2 claims. Synthea's demographics are
+census-derived and its FHIR carries race/ethnicity/language (US Core extensions) —
+*claimed from its documentation, to be confirmed in `S0`*, which is exactly the kind
+of claim `S0` exists to settle.
+
+### 9.3 `FacilitySeed.kind` is a closed platform vocabulary of care settings
+
+```ts
+kind: 'dialysis' | 'primary-care' | 'urgent-care' | 'hospital';
+```
+
+— declared in `sim-populator.ts` and **restated verbatim in four places** in
+`src/server/admin-routes.ts` (the realm-create route and three more request schemas),
+plus re-exported as `FacilityKind` in `src/onboarding/bootstrap.ts`.
+
+Four care settings cannot express infusion, oncology clinic, home health, hospice,
+long-term care, radiology or dialysis-as-a-provider. This is the same closed-union
+defect G5b fixed in the shell, one layer down, and `PatientSource` as specified
+inherits it.
+
+### 9.4 Enrollment is a platform assertion, not a clinical fact
+
+`problemsFor(kind, trajectory)` decides that a dialysis patient has ESRD/HTN/DM2 —
+the platform asserting a specialty's case mix on the specialty's behalf. Combined
+with §9.3, *where a patient is treated and what they therefore have* is currently a
+facility-kind lookup.
+
+For multi-specialty this inverts. Enrollment should be a fact **from the record**
+(Synthea's encounters and conditions), and each specialty should declare what it
+needs to see — which is the direction the `cohort` work already established
+(*"which of these patients are mine"*, declared by the pack). The population should
+not be telling specialties who their patients are.
+
+### 9.5 One patient, several specialties — and today they cannot be one patient
+
+This is the deepest gap, and it follows from multi-specialty rather than from Synthea.
+
+The multi-specialty premise is a patient who belongs to **several** cohorts at once —
+that is what made the cohort work worth doing. But `populateFacility` mints patient
+ids as `${facilityId}-pt-0001`, so **a patient treated at two facilities is two
+patients**, generated independently by two realms. `renalPatientInputs` then emits one
+input per patient entity per realm, so the same human surfaces twice with different
+ids and different conditions.
+
+A real Synthea patient has encounters at multiple facilities over one lifetime — which
+is exactly the overlapping-cohort case. So the population component has to answer a
+question the plan never asks: **is the population per-realm or per-platform?**
+
+This needs a decision, and it interacts with §4.3's identity mapping: the mapping is
+not merely "Synthea id → our id" but "one Synthea patient → one platform patient,
+visible to every realm that treats them".
+
+### 9.6 Nothing checks that a population can satisfy the declared measures
+
+Packs declare CMS-bound measures (oncology declares `cms:enhancing-oncology-model`).
+A measure screen is empty unless the population contains denominator-qualifying
+patients — and nothing verifies it. This is the population-sized version of the
+oncology board problem: not broken, just *correctly empty*, and therefore readable as
+"nothing to do" rather than "your fixture cannot reach this code".
+
+A deployment-level check belongs here, next to the conformance matrix: **every declared
+measure has at least one qualifying patient in the configured population**, reported
+as a population issue rather than discovered on a screen.
+
+### 9.7 Sequencing — the recommendation
+
+§9.1 is large, and bundling it would double the plan. The recommendation is the one
+this codebase has used at every other generalization:
+
+1. **Introduce the declaration seam now, implement only dialysis.** Add a `state_model`
+   section to the specialty contract alongside `ontology`/`events`/`workflows`/`measures`/
+   `ui_lens`. `dialysis` is its first declaration; `src/liquid/` keeps working unchanged
+   against a pack-supplied vocabulary. **No behaviour change**, and the platform stops
+   growing renal by default.
+2. **Keep the compatibility default**, as `cohort` and view kinds do: a specialty that
+   declares no state model gets the patient state as-is.
+3. **Migrate when a second specialty needs it** — which is the same trigger the view
+   kinds used intentionally, and the reason `PLATFORM_VIEW_KINDS` still has one entry.
+
+That puts §9.1 in scope as a *seam*, not as a migration, and leaves the renal-first
+implementation honestly labelled as such.
 
 ## Appendix — proposed file layout
 
