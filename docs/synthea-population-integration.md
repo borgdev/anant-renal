@@ -95,14 +95,18 @@ A multi-specialty platform validated against a population with four
 single-comorbidity patients per specialty is validated against a fixture that
 cannot fail in the ways that matter.
 
-**And the cohort mechanism itself has one implementation.** `PackCohort` is declared
-by exactly one pack — `packs/oncology-provider/cohort.ts`, gating on
-`ONCOLOGY_PROBLEMS = [NSCLC, Breast cancer, Colorectal cancer, RCC]`. Every other
-`cohort:` in the tree is a *response field* on an assurance or route payload, not a
-declaration. So "every specialty's cohort is non-empty" — S3's exit criterion and
-S5's — is today a criterion about a mechanism that nine of ten specialties do not use.
-Populating it is still the right thing to do; assuming it has been validated ten times
-over is not, and the difference matters when S5 reports success.
+**And the cohort mechanism itself has one implementation — now measured.** `PackCohort`
+is declared by exactly one pack out of **23**: `packs/oncology-provider/cohort.ts`,
+gating on `ONCOLOGY_PROBLEMS = [NSCLC, Breast cancer, Colorectal cancer, RCC]`. Every
+other `cohort:` in the tree is a *response field* on an assurance or route payload, not
+a declaration, and `src/server/app.ts:512` hands a pack with no cohort the **whole**
+projection (`cohort ? all.filter(...) : all`).
+
+So "every specialty's cohort is non-empty" — S3's exit criterion and S5's — is a
+criterion about a mechanism **22 of 23 packs do not use**: it is vacuous for them
+rather than satisfied. Populating the one that exists is still the right thing to do
+(it does populate — see the S4 measurement in §5); assuming it has been validated
+twenty-three times over is not, and the difference matters when S5 reports success.
 
 ### 1.2 The population cannot exhibit the disparities our equity reporting looks for
 
@@ -890,9 +894,52 @@ strings); the projection gives one source and makes onset dates reachable. Defer
 because it is the one remaining S4 item that can silently empty every cohort if it is
 got wrong, and the current duplication is redundant rather than incorrect.
 - **`generateLongitudinalHistory`** — retained, on the reasoning in §4.7.
-- **The S4 exit criterion is not yet evidenced.** "Every specialty's cohort is
-  non-empty" has not been measured on a 20-patient realm; §1.1 already warns that
-  `PackCohort` has one implementation, so the measurement is worth more than the claim.
+- **The S4 exit criterion is measured, and it is VACUOUS for 22 of 23 packs.** See
+  the measurement below.
+
+#### The S4 exit measurement (2026-09-17) — the criterion is 1-fold, not 23-fold
+
+The exit criterion reads *"every installed specialty's cohort is non-empty and
+clinically coherent, and patients are distinct."* Measured rather than asserted:
+
+| | count |
+|---|---|
+| Packs in `packs/` | **23** |
+| Packs that declare a `cohort` | **1** — `packs/oncology-provider/index.ts:83`, `cohort: oncologyCohort` |
+| Packs that therefore receive the **whole** projection | **22** |
+
+The consumption site is `src/server/app.ts:512`:
+
+```ts
+const all = platformPatients();
+const cohort = cohortByPack.get(packId);
+const scoped = cohort ? all.filter((patient) => cohort.includes(patient)) : all;
+return appliedPatients(packId, scoped);
+```
+
+So a pack that declares no cohort is handed every patient in the deployment — which
+is precisely the defect §9.4 describes (*"the platform had exactly one patient
+projection and handed it to everyone"*). The cohort contribution was the fix, and it
+has been applied to **one pack out of twenty-three**.
+
+**What follows, and it matters for how S5 reports success:**
+
+- The criterion is not *failed*; it is **vacuous** for 22 packs. "Every specialty's
+  cohort is non-empty" reads as a 23-fold check. It is a 1-fold check plus 22 cases
+  where there is no cohort to be empty — and a criterion that passes because it does
+  not apply is the failure mode this document exists to avoid (§1.2, §7).
+- The one declaration does work: `ONCOLOGY_PROBLEMS = [NSCLC, Breast cancer,
+  Colorectal cancer, RCC]` reads `state.problemList`, and the S3 measurement of the
+  real population gives Breast 5, Colorectal 1, plus smaller NSCLC and RCC counts —
+  the ~8 at 200 that §8 #3 projected. **Oncology populates.**
+- So S5 half 1's honest claim is *"the one cohort that exists populates, on a real
+  population, from recorded facts"* — not "every specialty finds its cohort".
+  Declaring cohorts for the other 22 is the way to make the original claim true, and
+  it is a pack-side change per specialty rather than platform work.
+
+This is a better result than a pass would have been: it says the mechanism is sound
+and under-deployed, which is a work item, rather than implying 23 specialties were
+validated.
 
 ### S5 — The payoff: specialty realism and equity that can fail
 
