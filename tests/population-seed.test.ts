@@ -263,6 +263,18 @@ describe('seedRealmFromPopulation — the exit criteria (S3)', () => {
       // --- the report is honest about what it excluded -------------------------
       expect(report.projection.dropped.map((d) => d.resourceType).sort()).toEqual(expect.arrayContaining(['Encounter', 'Immunization']));
       expect(report.enrich.problemTerms.map((p) => p.term).sort()).toEqual(['CKD', 'DM2', 'ESRD', 'HTN']);
+      // §8 #7 — the problem list is now projected from the graph's `condition`
+      // entities, and the bundle parse is retained ONLY to be compared against it.
+      // This is that comparison, and zero is the only acceptable value: the two
+      // sources read the same vocabulary over the same displays, so a non-zero count
+      // means the id join or the entity kind has drifted — which would otherwise
+      // present as "these patients happen to have no conditions", since an empty
+      // problem list is legitimate for 67 of the 150 real patients.
+      //
+      // Asserted alongside the term list above rather than instead of it: the terms
+      // prove the projection produced the RIGHT answer, this proves it produced it
+      // from the graph rather than by luck.
+      expect(report.enrich.problemReconcileMisses).toBe(0);
       expect(report.enrich.unmatchedConditions.map((u) => u.display)).toContain('Medication review due (situation)');
       expect(report.enrich.ageRange).toEqual({ min: 54, max: 68 });
       expect(report.observations.withLabs).toBe(2);

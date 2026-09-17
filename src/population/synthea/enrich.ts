@@ -309,6 +309,48 @@ export interface EnrichOutcome {
   readonly trajectory: string;
   /** True when the patient already carried the values written here (a re-run). */
   readonly alreadyEnriched: boolean;
+  /**
+   * Did the graph projection agree with the bundle parse (§8 #7)?
+   *
+   * The graph is now the SOURCE — the bundle list is computed only to be compared
+   * against it, and this flag is the comparison's result. A `false` here is the one
+   * signal that distinguishes "this patient has no conditions" from "the graph
+   * projection is broken", which otherwise look identical from `problems` alone.
+   */
+  readonly problemsReconciled: boolean;
+}
+
+/**
+ * A patient's problem list, projected from the graph's `condition` entities (§8 #7).
+ *
+ * This is the destination the plan names: one source instead of two, and the entity
+ * carries `onset` — which the flat `string[]` discards, and which is what a cohort
+ * needs to say "newly diagnosed" rather than "has ever had".
+ *
+ * It works where the LABS version of the same idea does not, and the difference is
+ * worth stating because the file's header comment over-generalises it: a `result`
+ * entity has no `patientId` (a bare `Observation` never produces an `order` to link
+ * through), so labs cannot be walked back from the graph. A `condition` entity DOES
+ * carry one — `canonical.ts` writes `patientId: refId(c.subject)` — so conditions can.
+ */
+export function problemListFromGraph(realm: Realm, patientId: string): readonly string[] {
+  const displays: (string | undefined)[] = [];
+  for (const rec of realm.graph.listKind('condition')) {
+    const st = rec.state as { patientId?: unknown; display?: unknown };
+    if (st.patientId !== patientId) continue;
+    displays.push(typeof st.display === 'string' ? st.display : undefined);
+  }
+  // `.problems` only. The result also carries `unmatched` and `matched`, which the
+  // seed report aggregates separately — a projection that returned the whole object
+  // would put a struct into `state.problemList`, and every cohort reads a string[].
+  return problemListFromConditions(displays).problems;
+}
+
+/** Set equality, order-insensitive. The two sources do not share an insertion order. */
+function sameProblemSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const seen = new Set(b);
+  return a.every((term) => seen.has(term));
 }
 
 /**
@@ -348,6 +390,24 @@ export function enrichPatient(
     events: [],
   };
 
+  // §8 #7 — the GRAPH is the source; the bundle parse is a reconciliation, not a
+  // fallback.
+  //
+  // `fromBundle` is computed for exactly one reason: to be compared. `problems` is
+  // the graph's projection regardless of whether they agree, because falling back on
+  // a mismatch would make the two sources indistinguishable in the one case that
+  // matters — and a silent fallback is how "the graph projection is broken" becomes
+  // invisible. What surfaces the divergence instead is `problemsReconciled`, which
+  // `seed.ts` aggregates into the seed report.
+  //
+  // This is the S3 lesson applied to the one step that can empty every cohort: a
+  // report that reads only one of two independent facts cannot tell a working
+  // projection from one that discards everything.
+  const fromGraph = problemListFromGraph(realm, summary.localPatientId);
+  const fromBundle = summary.problems;
+  const problems = fromGraph;
+  const problemsReconciled = sameProblemSet(fromGraph, fromBundle);
+
   const patch: Record<string, unknown> = {
     admitted: true,
     facilityId: opts.facilityId,
@@ -360,7 +420,11 @@ export function enrichPatient(
     accessAcoustic: [],
     // THE durable half. Never overwritten by the engine (§4.5), so this is what
     // decides which specialties the patient belongs to for as long as the realm runs.
-    problemList: summary.problems,
+    //
+    // §8 #7 — projected from the graph's `condition` entities, not from a second parse
+    // of the bundle. `problems` below is still derived from the bundle and is used for
+    // ONE thing: confirming the two agree. It is not a fallback.
+    problemList: problems,
     trajectory: trajectoryLabel(state),
   };
   if (age !== undefined) patch['age'] = age;
@@ -381,8 +445,9 @@ export function enrichPatient(
   return {
     unitId,
     ...(age !== undefined ? { age } : {}),
-    problems: summary.problems,
+    problems,
     trajectory: trajectoryLabel(state),
     alreadyEnriched: existing.access !== undefined && existing.problemList !== undefined,
+    problemsReconciled,
   };
 }

@@ -161,6 +161,16 @@ export interface SeedPopulationReport {
     readonly unmatchedConditions: ReadonlyArray<{ display: string; patients: number }>;
     readonly ageRange: { min: number; max: number } | null;
     readonly withoutProblems: number;
+    /**
+     * Patients whose graph-projected problem list disagreed with the bundle parse
+     * (§8 #7). Should be ZERO.
+     *
+     * The graph is the source and the bundle parse is retained only to be compared
+     * against it, so a non-zero count here is the single signal that distinguishes
+     * "these patients have no conditions" from "the graph projection is broken" —
+     * two states that are identical from every other number in this report.
+     */
+    readonly problemReconcileMisses: number;
   };
   readonly prime: {
     readonly engine: 'liquid' | 'absent';
@@ -277,7 +287,7 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
       patients: { seeded: 0, excludedDeceased: loaded.deceasedExcluded.length, bundlesRead: loaded.patientsRead },
       ingest: { chunks: 0, applied: 0, skipped: 0, structuralUpserts: 0, effectsApplied: 0, effectsRejected: 0, skipReasons: [] },
       projection: { inputEntries: 0, outputEntries: 0, kept: [], dropped: [], filteredOut: [], retainedAway: [] },
-      enrich: { unitCounts: [], problemTerms: [], unmatchedConditions: [], ageRange: null, withoutProblems: 0 },
+      enrich: { unitCounts: [], problemTerms: [], unmatchedConditions: [], ageRange: null, withoutProblems: 0, problemReconcileMisses: 0 },
       prime: { engine: realm.trajectoryEngine === 'liquid' ? 'liquid' : 'absent', seeded: 0, reason: 'skipped — already seeded', bySource: [], noSourceDimensions: [], saturated: [] },
       observations: { withLabs: 0, withVitals: 0, newestDays: null },
       durationMs: Date.now() - startedAt,
@@ -392,6 +402,7 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
   let withLabs = 0;
   let withVitals = 0;
   let withoutProblems = 0;
+  let problemReconcileMisses = 0;
   let primedCount = 0;
   let engine: 'liquid' | 'absent' = 'absent';
   let primeReason = '';
@@ -424,8 +435,14 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
     });
     unitCounts.set(outcome.unitId, (unitCounts.get(outcome.unitId) ?? 0) + 1);
     if (outcome.age !== undefined) ages.push(outcome.age);
-    if (summary.problems.length === 0) withoutProblems++;
-    for (const p of summary.problems) problemCounts.set(p, (problemCounts.get(p) ?? 0) + 1);
+    // Counted from the OUTCOME, not from `summary`: the graph projection is what was
+    // actually written to `state.problemList`, and a report describing the bundle
+    // parse instead would be a report about a source nothing reads any more. It is
+    // also the S3 lesson — the report and the written state are two independent
+    // facts, and only reading both can tell them apart.
+    if (outcome.problems.length === 0) withoutProblems++;
+    for (const p of outcome.problems) problemCounts.set(p, (problemCounts.get(p) ?? 0) + 1);
+    if (!outcome.problemsReconciled) problemReconcileMisses++;
     for (const u of summary.unmatchedConditions) unmatchedCounts.set(u, (unmatchedCounts.get(u) ?? 0) + 1);
 
     const primed2 = primeEngine(realm, summary.localPatientId, primed.state);
@@ -465,6 +482,7 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
       unmatchedConditions: (toRows(unmatchedCounts, 'display', 'patients', 15) as Array<{ display: string; patients: number }>),
       ageRange: ages.length > 0 ? { min: Math.min(...ages), max: Math.max(...ages) } : null,
       withoutProblems,
+      problemReconcileMisses,
     },
     prime: {
       engine,
