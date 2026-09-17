@@ -504,6 +504,75 @@ how much is dialysis-adjacent.
 **Exit:** a written comparison of real output, and a decision on generator. Nothing
 is built on documentation alone.
 
+#### S0 result — first pass, 2026-09-16 (PySynthea only)
+
+Run on this machine, in a throwaway venv at `/tmp/synthea-spike`. **Java was not
+reachable** and the reason matters:
+
+```
+javac 17.0.20          ← compiler is 17
+java  openjdk 1.8.0_502 ← RUNTIME IS 8
+gradle: not on PATH
+```
+
+Synthea requires a **JDK 17+ runtime**; `/usr/bin/java` here is Java 8, and a
+`JAVA_HOME` is unset. So the Java path needs a system JDK install (a `sudo` step —
+yours to run, not mine). **The Java half of S0 is therefore still open.**
+
+**PySynthea did run.** `uv pip install tietai-synthea` → `tietai-synthea==1.0.1`;
+`-p 5 -s 12345` in 3.7s. Findings, in order of how much they change the decision:
+
+1. **Demographics are broken.** The emitted `Patient` is:
+
+   ```json
+   { "name": [{ "family": "Unknown", "given": ["Unknown"] }],
+     "gender": "female",
+     "birthDate": "1898-09-15" }
+   ```
+
+   `Unknown Unknown` as a name, and a birth date that makes a **living** patient
+   **128 years old** at a 2026 reference date. Gender and `identifier` (system
+   `https://synthea.mitre.org/`) are correct. §4.3 depends on `name` and `birthDate`
+   through `structuralState`, so this is not cosmetic to us.
+
+2. **A requested module produced no matching condition.** `-m breast_cancer -p 3 -s
+   777` yielded hypertension ×3, open-angle glaucoma, pneumonia — and **zero breast
+   cancer conditions**. Two hypotheses, and they are distinguishable:
+   (a) the sub-module `breast_cancer/tnm_diagnosis`, invoked by relative path from
+   `breast_cancer.json`, did not resolve; or (b) a legitimate sex/age gate rejected
+   all three patients. Distinguishing them needs a larger run and a check of the
+   gate logic — **not** assumed either way here.
+
+3. **The module count is internally inconsistent.** `--list-modules` reports
+   **99**, generation logs `Loaded 99 modules`, but **256** module JSONs ship in the
+   package. The loader (`engine/module.py:205`) uses `rglob('*.json')`, which
+   *recurses* — so the loader looks correct and the **99 is the suspicious number**,
+   not the 256. Unexplained, and worth resolving before depending on module coverage.
+
+4. **What is genuinely good.** The resource volume is real: one bundle carried
+   `Encounter: 19, Condition: 2, MedicationRequest: 4, Procedure: 33, Observation:
+   82`. 82 Observations is exactly the material §4.5's warm-up replay needs, and the
+   renal-relevant top-level modules are present and load — `chronic_kidney_disease`,
+   `dialysis`, `hypertension`, `kidney_transplant`.
+
+**Provisional conclusion: the evidence does NOT support adopting PySynthea as the
+default.** Findings 1–3 are the failure mode this document's risk table called out —
+*the shape is correct and the volume looks healthy, so the errors are plausible
+rather than obvious*. A population of `Unknown Unknown`, 128 years old, is worse than
+the hand-written round-robin it replaces, because it looks like real data.
+
+**S0's exit criterion is NOT met.** The Java half must be run before the generator is
+chosen, and it needs a JDK 17 runtime:
+
+```
+sudo apt install openjdk-17-jdk     # yours to run — needs elevation
+```
+
+Until then the honest position is: **do not start S1 against a generator we have not
+chosen.** S1 is independent of the population source (it moves the *existing*
+round-robin behind a seam), so it can proceed — but only with `StaticPatientSource`
+as the sole implementation, which is what S1 was specified to do anyway.
+
 ### S1 — The seam, with no new data
 
 Add `PatientSource`. Move the round-robin behind `StaticPatientSource` **unchanged**.
