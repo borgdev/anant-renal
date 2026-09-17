@@ -146,7 +146,12 @@ valuable:
 | Concern | Today | Source of truth after |
 |---|---|---|
 | **Who the patients are** — age, sex, conditions, meds, history | `AGES[i%10]`, `COMORBIDITIES[i%9]`, index arithmetic | **Synthea** |
-| **What happens to them** — sessions, labs, ESA, access, Kt/V | `longitudinal.ts`, `scenarios.ts`, the liquid engine | **Unchanged — our renal domain** |
+| **What happens to them** — sessions, ESA dosing, access surveillance, Kt/V dynamics | `longitudinal.ts`, `scenarios.ts`, the liquid engine | **Unchanged — our renal domain** |
+
+The boundary is slightly more porous than that table suggests for one field, and §4.5
+works it out precisely: Synthea also supplies the **initial** lab and vitals state
+that the trajectory engine starts from. What it does not supply is anything the
+engine computes afterwards.
 
 That division is the whole design. **Synthea supplies the patient; the realm
 supplies the time.**
@@ -203,7 +208,7 @@ by copying a directory. PySynthea additionally asks for a citation in academic w
 
 ```mermaid
 flowchart TD
-    subgraph external["External (S0–S2)"]
+    subgraph external["External (S0-S2)"]
         CLI["Synthea CLI<br/>seed + config pinned"]
         ART["synthea-population/<br/>FHIR ndjson + manifest.json"]
     end
@@ -214,9 +219,15 @@ flowchart TD
         SYN["SyntheaPatientSource<br/>as-of projection + identity map"]
     end
 
-    subgraph realm["Realm (S3–S4)"]
-        ING["ingestFhirBundle()<br/>EXISTING — reuse"]
-        POP["populateFacility()<br/>seeds patient entities"]
+    subgraph realm["Realm (S3-S4)"]
+        ING["ingestFhirBundle()<br/>EXISTING, reused"]
+        POP["populateFacility()<br/>enriches patient entities"]
+    end
+
+    subgraph engine["Trajectory engine (CfC/LTC)"]
+        VEC["#eventVector()<br/>5 features from patient STATE"]
+        STEP["stepWithEvents(eventJson, dt)<br/>once per realm tick"]
+        APPLY["#apply()<br/>patches labs, lastVitals,<br/>trajectory, risk, liquid.*"]
     end
 
     subgraph consumer["Consumers (unchanged)"]
@@ -228,6 +239,9 @@ flowchart TD
     PS --> STATIC
     PS --> SYN
     SYN --> ING --> POP
+    POP -->|"seeds problemList (durable)<br/>labs + lastVitals (tick 1)"| VEC
+    VEC --> STEP --> APPLY
+    APPLY -->|"overwrites labs, lastVitals<br/>NOT problemList"| VEC
     POP --> PROJ --> PACKS
 ```
 
@@ -382,6 +396,82 @@ Two decisions this surfaces, both recorded in §8:
   pack's cohort). The first is the smaller step; the second is where this should
   end up, because "a recorded problem" is precisely a `Condition`.
 
+### 4.5 How Synthea reaches the trajectory engine — it feeds the STATE, not the events
+
+The simulator's scripted `emit` entries are not what CfC/LTC consume. The engine is
+stepped once per realm tick with a **5-element event-feature vector computed from
+patient state**, in `TrajectoryAmbientProcess.#eventVector`:
+
+```
+EVENT_ORDER = [missed_treatment, access_complication, lab_marker_elevated,
+               abnormal_vital_reading, diet_phosphate_violation]
+```
+
+| Feature | Where the input actually comes from |
+|---|---|
+| `missed_treatment` | effect pulse from `flag-safety-event` · **or** `state.trajectory === 'underdialyzed'` · **or** `problemList` ∋ `Underdialysis` |
+| `access_complication` | effect pulse from access safety events · **or** `state.accessIssue` |
+| `lab_marker_elevated` | effect pulse from lab events / abnormal `result-lab` · **or** `state.labs` thresholds (K>5.5, URR<65, PHOS>5.5, HGB<10) |
+| `abnormal_vital_reading` | `state.lastVitals` (hr>110, hr<50, spo2<92) |
+| `diet_phosphate_violation` | `state.phosBinderAdherence === 'poor'` · **or** `problemList` ∋ `CKD-MBD` |
+
+**Four of the five inputs are a function of patient state** — `problemList`, `labs`,
+`lastVitals`, `trajectory`, `accessIssue`, `phosBinderAdherence`. Two of those,
+`problemList` and `labs`, are precisely what Synthea supplies and what the FHIR
+ingestor does not write (§4.3).
+
+So the answer to "how does Synthea data integrate with the events the simulator
+loads" is: **it doesn't enter the event stream. It enters the state the event vector
+is computed from.** The events keep coming from the realm.
+
+Three mechanics that decide the design:
+
+1. **`problemList` is durable; `labs` and `lastVitals` are not.** `#apply` patches
+   `trajectory`, `risk`, `lastVitals`, `labs` and `liquid.*` back onto the patient
+   **every tick**. So a seeded `labs` value is consumed on tick 1 and then the engine
+   owns it — the seed is an *initial condition*, not a persistent input. `problemList`
+   is never written by the engine, so a Synthea problem list shapes the event vector
+   for the patient's whole life in the realm. **That is Synthea's strongest and most
+   durable contribution.**
+2. **The engine state is seeded, not derived.** `forkFrom(stateJson, t)` sets the 5
+   dimensions directly; there is no "derive dims from a lab record" path.
+3. **`stepWithEvents(eventJson, dt)` is the only way in.** A warm-up replay is
+   therefore possible: feed Synthea's observation history as a sequence of steps with
+   `dt` between observations, so the engine's own dynamics produce the state rather
+   than us hand-setting dimensions. Cost is one model step per patient per observation,
+   so subsample — monthly over five years is 60 steps, a full lifetime at observation
+   granularity is not.
+
+### 4.6 The honest dimension mapping — Synthea supplies two of five
+
+Whatever route is taken, the ceiling is the same, and it is worth stating before
+anyone plans around it:
+
+| Engine dimension (0..1) | Synthea source |
+|---|---|
+| `anemia_severity` | ✅ haemoglobin observations |
+| `phosphate` | ✅ serum phosphate observations, *if* the enabled modules emit them |
+| `ktv_adequacy` | ⚠️ **no.** Synthea has no Kt/V, and eGFR/creatinine are not dialysis adequacy. A proxy here would be invented — and inventing it silently would be worse than declaring the gap |
+| `vitals_instability` | ⚠️ partially. BP/HR exist, but *intra-dialytic* instability is not in Synthea |
+| `deterioration_risk` | ❌ derived; no Synthea source |
+
+**Synthea sets the clinical baseline; the renal simulator still owns the dialysis
+dynamics.** That is less than "we no longer need the simulator" and more than "a
+problem list" — and it is the reason §6 keeps the renal domain firmly out of scope.
+
+### 4.7 We have already hand-rolled a worse version of this
+
+`src/simulator/longitudinal.ts` — `generateLongitudinalHistory({patientId,
+facilityId, trajectory, days, seed, asOf})` — produces, for one trajectory, a
+consistent 90-day history of labs, vitals and ESA doses, and `populateFacility` seeds
+it via `PopulateHistoryOptions`.
+
+That is the same idea as Synthea, at 90 days instead of a lifetime, for one disease
+instead of 231, with hand-written dynamics instead of clinical modules. **Synthea's
+real target on the state side is `longitudinal.ts`**, not the scenario definitions —
+and the warm-up replay in §4.5 is the direct replacement for what
+`generateLongitudinalHistory` fabricates.
+
 ## 5. Phases
 
 ### S0 — Prove the tool, and decide (§3)
@@ -414,16 +504,21 @@ golden bundle** under `tests/fixtures/synthea/` — the precedent is
 **Exit:** generation is reproducible from the manifest; `S2`'s tests pass with no
 JDK and no Python installed.
 
-### S3 — Ingest onto the platform, then enrich
+### S3 — Ingest onto the platform, then enrich, then prime the engine
 
-Two steps, in this order, and the order is the design:
+Three steps, in this order, and the order is the design (§4.5):
 
 1. **Ingest.** Feed Synthea's FHIR through `ingestFhirBundle` — the existing path,
    with its idempotency ledger, dry-run and merge handling. One or more bundles per
    population (§4.3).
-2. **Enrich.** Complete the ingested patients with the renal shape: unit, access
-   type, vintage, trajectory, derived `age`, and the conditions projected into the
-   cohort vocabulary. This is new code and the only place the renal shape is applied.
+2. **Enrich — the durable half.** Complete the ingested patients with the renal
+   shape: unit, access type, vintage, `trajectory`, derived `age`, and the conditions
+   projected into `problemList`. **`problemList` is the part the engine never
+   overwrites**, so it shapes the event vector for the patient's whole life in the
+   realm — this is where Synthea's contribution actually sticks.
+3. **Prime — the transient half.** Seed `labs` / `lastVitals` for tick 1, and the
+   engine's 5 dimensions either by warm-up replay (preferred, §4.5(3)) or by
+   `forkFrom(stateJson, t)` where Synthea has no source (§4.6).
 
 The critical sub-problem is **identity**: `ingestFhirBundle` warns that an EMR feed
 must supply `identity` or *"a patient whose MRN the harness has not seen before
@@ -431,16 +526,22 @@ silently becomes a second chart."* Synthea patient ids need a deterministic mapp
 onto our `facilityId-pt-NNNN` ids so regeneration does not duplicate charts.
 
 **Exit:** a realm seeded entirely from Synthea output renders in both consoles;
-re-running generation produces no duplicates; and every specialty's cohort is
-**non-empty**, which is the assertion that catches "we ingested but the packs cannot
-see anything".
+re-running generation produces no duplicates; every specialty's cohort is
+**non-empty**; and **the trajectory engine advances from the seeded state rather
+than from zero** — asserted by checking that a patient seeded with an abnormal
+Synthea haemoglobin starts in a non-zero `anemia_severity` and moves.
 
-### S4 — Replace the round-robin
+### S4 — Replace the round-robin, and retire `longitudinal.ts`
 
 `sim-populator` enriches from the configured source rather than generating.
 `AGES` / `SEXES` / `COMORBIDITIES` / `ACCESS_TYPES` stop being the population's
 source of truth — though `StaticPatientSource` keeps them for the test path, which
 is what lets the unit suite stay dependency-free.
+
+In the same step, `generateLongitudinalHistory` (§4.7) becomes the Synthea warm-up:
+the hand-written 90-day lab/vitals history is replaced by real observation history
+from the bundle. This is the substep with the most direct clinical payoff, because it
+is where the engine's starting state stops being authored and starts being measured.
 
 **Exit:** every installed specialty's cohort is non-empty and clinically coherent,
 and patients are distinct. Measurably: the oncology cohort is no longer drawn from
@@ -501,6 +602,9 @@ manifest alone.
 | **PySynthea port drift** | The README claims completeness; the project is young | Prefer Java; `S0` validates on output; the seam makes it swappable |
 | **Synthea resources vendored into our tree** | 231 module JSONs + 394 resources, against a strict copyright regime | Consume as an external artifact + `NOTICE` entry; never copy resources in without attribution |
 | **Over-reliance on generated fixtures** | Tests that need a 200-patient artifact become slow and opaque | Commit a tiny golden bundle; keep `StaticPatientSource` as the unit-test default |
+| **Inventing a Kt/V from what Synthea has** | Synthea has no Kt/V (§4.6). An eGFR-based proxy would look like data, pass a review, and quietly become a clinical claim the platform makes | Declare the gap: seed `ktv_adequacy` from the renal domain, never from a proxy; assert in `S3` that no dimension is derived from a non-analogous observation |
+| **Warm-up replay cost** | One model step per patient per observation; a lifetime at observation granularity is thousands of steps × patients | Subsample (monthly over a bounded window), bound the window in config, and measure it in `S2` |
+| **Seeded state silently overwritten** | `labs` and `lastVitals` are engine outputs after tick 1 — a Synthea history that lands only there disappears immediately | Put the durable contribution in `problemList` (never overwritten) and assert the priming survived the first tick |
 | **The equity screen still cannot fire after S5** | Would mean the population was never the limiting factor | `S5`'s exit criterion is that it *does* fire — a negative result here is a real finding, not a failure to be hidden |
 
 ---
@@ -526,6 +630,12 @@ manifest alone.
    reader of `state.age`.
 7. **Conditions → `problemList` by projection, or cohorts reading `condition`
    entities directly** (§4.4). The first is smaller; the second is the destination.
+8. **Warm-up replay vs direct dimension seeding** (§4.5(3)). Replay is more faithful —
+   the engine's own dynamics produce the state instead of us asserting it — but costs
+   one model step per patient per observation. Direct `forkFrom` is cheap but means we
+   invented the mapping from observations to dimensions, which is the same class of
+   mistake as a Kt/V proxy. I would start with replay on a bounded window and fall
+   back to `forkFrom` only for the dimensions §4.6 shows Synthea cannot inform.
 
 ---
 
