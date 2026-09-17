@@ -55,12 +55,36 @@
 
 import type { ProtocolId } from './rule-packs.js';
 
-export type SliceDimension = 'age' | 'sex' | 'vintage' | 'access';
+export type SliceDimension =
+  | 'age'
+  | 'sex'
+  | 'vintage'
+  | 'access'
+  // ---- S5 L1: the demographic axes ----
+  //
+  // The four above are RENAL: a dialysis vintage and a vascular access modality have
+  // no meaning outside this specialty. These three are the axes healthcare equity is
+  // mostly measured on, and until S5 L1 the screen could not see any of them — even
+  // though `structuralState` (S6-prep) already put all four demographic facts on the
+  // patient. The data was reaching the patient and nothing was reading it.
+  //
+  // `birthSex` is deliberately NOT a fourth addition. `sex` already bands that axis,
+  // and `fairnessReport` takes the WORST verdict across dimensions, so two dimensions
+  // over one axis would double-count the same disparity in the headline verdict while
+  // looking like two independent findings.
+  | 'race'
+  | 'ethnicity'
+  | 'language';
 
 /** Band id within a dimension; `unknown` when the input is absent. */
 export type SliceKey = string;
 
-export const SLICE_DIMENSIONS: readonly SliceDimension[] = ['age', 'sex', 'vintage', 'access'];
+export const SLICE_DIMENSIONS: readonly SliceDimension[] = [
+  'age', 'sex', 'vintage', 'access',
+  // Appended rather than interleaved: a reader comparing a pre-L1 report against a
+  // post-L1 one should see the renal four in the same positions.
+  'race', 'ethnicity', 'language',
+];
 
 export interface FairnessRow {
   patientId: string;
@@ -68,6 +92,12 @@ export interface FairnessRow {
   sex?: string | undefined;
   vintageYears?: number | undefined;
   accessType?: string | undefined;
+  /** UsCore race coding, e.g. `2106-3`. Absent means not recorded — see `codeSlice`. */
+  race?: string | undefined;
+  /** UsCore ethnicity coding, e.g. `2186-5`. */
+  ethnicity?: string | undefined;
+  /** BCP-47 language tag as FHIR `Patient.communication` carries it, e.g. `en-US`. */
+  language?: string | undefined;
   /** the protocol's coverage gate accepted this patient's data */
   covered: boolean;
   /** the protocol surfaced at least one finding for this patient */
@@ -103,6 +133,40 @@ export const SEX_SLICES: readonly string[] = ['F', 'M'];
 export const ACCESS_SLICES: readonly string[] = ['avf', 'avg', 'catheter'];
 
 export const UNKNOWN_SLICE = 'unknown';
+
+/**
+ * Human labels for the coded demographic values this platform actually receives.
+ *
+ * The codes are the ones the real 249-patient projected artifact carries, measured
+ * rather than guessed: race `2106-3` 151 / `2054-5` 22 / `2028-9` 18 / `2076-8` 5,
+ * ethnicity `2186-5` 174 / `2135-2` 26, language `en-US` 181 / `es` 14 / `zh` 4 /
+ * `fr-FR` 1. A report that bands by `2106-3` is technically correct and unreadable,
+ * and an operator reading a disparity finding has to be able to name the group.
+ *
+ * An UNLISTED code falls back to the code itself rather than to `unknown`. A
+ * demographic code this table has not seen is still a real subgroup — reporting it as
+ * "not recorded" would hide exactly the kind of patient a real deployment would
+ * struggle with.
+ */
+export const DEMOGRAPHIC_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  // race (US Core / OMB)
+  '2106-3': 'White',
+  '2054-5': 'Black or African American',
+  '2028-9': 'Asian',
+  '2076-8': 'Native Hawaiian or Pacific Islander',
+  '1002-5': 'American Indian or Alaska Native',
+  '2131-1': 'Other race',
+  // ethnicity
+  '2186-5': 'Not Hispanic or Latino',
+  '2135-2': 'Hispanic or Latino',
+  // language
+  'en-US': 'English (US)',
+  'en': 'English',
+  'es': 'Spanish',
+  'zh': 'Chinese',
+  'fr-FR': 'French (France)',
+  'fr': 'French',
+});
 
 /**
  * Tolerances. These are deliberately loose enough to survive a small facility
@@ -192,12 +256,36 @@ export function accessSlice(accessType: string | undefined): { id: SliceKey; lab
   return { id: UNKNOWN_SLICE, label: 'access unknown' };
 }
 
+/**
+ * A slice for a dimension whose value IS the slice key — a coded demographic field,
+ * where the platform has no bands to impose and no normalisation to do.
+ *
+ * Deliberately NOT case-folded, unlike `sexSlice` and `accessSlice`. Those normalise
+ * because a free-text clinical field legitimately arrives as `Female` or `AV Fistula`.
+ * A race or language code is a controlled vocabulary — `2106-3`, `en-US` — and
+ * folding it would merge `en-US` with a hypothetical `en-us` that no vocabulary
+ * defines, quietly inventing an equivalence the standard does not make.
+ *
+ * An absent value reports as `unknown` and is labelled "not recorded" rather than
+ * being dropped from the cohort. A cohort where nobody's race is recorded is a
+ * finding about the population, and silently excluding those patients would turn that
+ * finding into a smaller report.
+ */
+export function codeSlice(value: string | undefined): { id: SliceKey; label: string } {
+  const trimmed = (value ?? '').trim();
+  if (trimmed === '') return { id: UNKNOWN_SLICE, label: 'not recorded' };
+  return { id: trimmed, label: DEMOGRAPHIC_LABELS[trimmed] ?? trimmed };
+}
+
 export function sliceOf(dimension: SliceDimension, row: FairnessRow): { id: SliceKey; label: string } {
   switch (dimension) {
     case 'age': return ageBand(row.age);
     case 'sex': return sexSlice(row.sex);
     case 'vintage': return vintageBand(row.vintageYears);
     case 'access': return accessSlice(row.accessType);
+    case 'race': return codeSlice(row.race);
+    case 'ethnicity': return codeSlice(row.ethnicity);
+    case 'language': return codeSlice(row.language);
   }
 }
 
@@ -207,7 +295,13 @@ export function sliceOrder(dimension: SliceDimension, keys: readonly SliceKey[])
     dimension === 'age' ? AGE_BANDS.map((b) => b.id)
       : dimension === 'vintage' ? VINTAGE_BANDS.map((b) => b.id)
         : dimension === 'sex' ? [...SEX_SLICES]
-          : [...ACCESS_SLICES];
+          : dimension === 'access' ? [...ACCESS_SLICES]
+            // The coded demographics have no bands to declare, so every key is an
+            // "extra" and sorts alphabetically. That keeps `fairnessSignature`
+            // stable across runs, which is what its determinism contract requires —
+            // a slice ordering that depended on Map insertion would make the
+            // signature depend on patient order.
+            : [];
   const known = declared.filter((k) => keys.includes(k));
   const extra = keys.filter((k) => !known.includes(k)).sort();
   return [...known, ...extra];
@@ -433,4 +527,7 @@ export const FAIRNESS_DIMENSION_LABELS: Record<SliceDimension, string> = {
   sex: 'Sex',
   vintage: 'Dialysis vintage',
   access: 'Vascular access',
+  race: 'Race',
+  ethnicity: 'Ethnicity',
+  language: 'Language',
 };

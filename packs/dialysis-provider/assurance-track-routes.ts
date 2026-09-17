@@ -162,6 +162,19 @@ export function cohortSignals(inputs: readonly RenalPatientInput[]): CohortSigna
       ...(facts.sex !== undefined ? { sex: facts.sex } : {}),
       ...(numeric(state.dialysisVintageYears) !== undefined ? { vintageYears: numeric(state.dialysisVintageYears) } : {}),
       ...(stringOf(access.type) !== undefined ? { accessType: stringOf(access.type) } : {}),
+      // ---- S5 L1: the demographic axes ----
+      //
+      // `structuralState` has written `race` / `ethnicity` / `birthSex` / `language`
+      // onto every ingested patient since S6-prep, and until now NOTHING read them —
+      // the fairness screen declared four renal dimensions and the data had no
+      // consumer. These three are the axes healthcare equity is mostly measured on.
+      //
+      // Read from the entity state rather than from `facts`, which does not carry
+      // them: `RenalPatientFacts` is the specialty's clinical projection and has no
+      // business knowing a patient's race.
+      ...(stringOf(state.race) !== undefined ? { race: stringOf(state.race) } : {}),
+      ...(stringOf(state.ethnicity) !== undefined ? { ethnicity: stringOf(state.ethnicity) } : {}),
+      ...(stringOf(state.language) !== undefined ? { language: stringOf(state.language) } : {}),
       covered: coveredProtocols.length > 0,
       flagged: alerts.some((a) => a.patientId === facts.patientId),
       score: coveredProtocols.length,

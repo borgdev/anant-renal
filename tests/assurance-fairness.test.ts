@@ -191,7 +191,12 @@ describe('assurance — the shipped fairness route', () => {
 
       expect(body.cohort.patients).toBe(12);
       expect(body.report.cohortN).toBe(12);
-      expect(body.report.dimensions.map((d) => d.dimension)).toEqual(['age', 'sex', 'vintage', 'access']);
+      // Seven since S5 L1: the renal four plus race, ethnicity and language. The
+      // order is asserted because it is observable — the renal four keep their
+      // positions so a pre-L1 report and a post-L1 one are comparable side by side.
+      expect(body.report.dimensions.map((d) => d.dimension)).toEqual([
+        'age', 'sex', 'vintage', 'access', 'race', 'ethnicity', 'language',
+      ]);
       expect(typeof body.signature).toBe('string');
 
       // eslint-disable-next-line no-console
@@ -204,15 +209,41 @@ describe('assurance — the shipped fairness route', () => {
     }
   });
 
-  // A supplied-but-unrecognised protocol is REFUSED rather than answered about a
-  // different one — the route's own comment records that `?protocol=mbd` used to
-  // return ANEMIA's report, "a wrong answer shaped like a right one".
-  it('refuses an unknown dimension and an unknown protocol', async () => {
+  // S5 L1 moved this line. Before it, `race` was a real field on every ingested
+  // patient and NOT a declared `SliceDimension`, so asking for it was a 400 — and an
+  // empty `DisparityReport` would have read as "no racial disparity", the most
+  // dangerous wrong answer this endpoint could give. Now it is served, and the 400
+  // case has moved to the axis that is still missing.
+  it('serves a demographic dimension that used to be refused', async () => {
     seedRealm();
     const app = await build();
     try {
-      const badDim = await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness?dimension=race' });
+      const res = await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness?dimension=race' });
+      expect(res.statusCode).toBe(200);
+
+      const body = res.json() as { dimension: { dimension: string; slices: Array<{ slice: string; n: number }> } };
+      expect(body.dimension.dimension).toBe('race');
+      // The static fixture carries no race, so every patient bands into `unknown` —
+      // and is COUNTED there rather than dropped, which is the distinction that makes
+      // the gap visible instead of invisible.
+      expect(body.dimension.slices.map((s) => [s.slice, s.n])).toEqual([['unknown', 12]]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  // `insurance` is a real equity axis (§9.2 names it alongside race, ethnicity and
+  // language) and is still NOT declared. It stays a 400 so the gap is asserted rather
+  // than latent — and an unlisted dimension must never come back as an empty report,
+  // because "no disparity in insurance" and "we do not record insurance" are opposite
+  // conclusions that would render identically.
+  it('refuses a dimension that is still undeclared, and an unknown protocol', async () => {
+    seedRealm();
+    const app = await build();
+    try {
+      const badDim = await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness?dimension=insurance' });
       expect(badDim.statusCode).toBe(400);
+      expect((badDim.json() as { error: string }).error).toContain('insurance');
 
       const badProtocol = await app.inject({ method: 'GET', url: '/admin/swarm/assurance/fairness?protocol=mbd' });
       expect(badProtocol.statusCode).toBe(400);
