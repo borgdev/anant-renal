@@ -255,13 +255,36 @@ export interface CrossPackFiring {
   readonly outcomes: readonly CrossPackActionOutcome[];
 }
 
+/**
+ * Everything the actions need to know about the event that fired them.
+ *
+ * Passed to the handlers rather than left to the caller to close over, because a
+ * hand-off that reaches a target pack with no event attached is not actionable —
+ * the queue entry and the case both have to say what caused them.
+ */
+export interface CrossPackFiringContext {
+  readonly eventType: string;
+  readonly eventId?: string;
+  readonly sourcePackId?: string;
+  readonly at: string;
+}
+
+/**
+ * The handlers are allowed to be async, and `handleCrossPackEvent` awaits them.
+ *
+ * This is the difference between `executed: true` meaning "a handler was
+ * registered" and meaning "it happened". A durable case that is reported as
+ * opened before the write lands is the same defect as a hand-off that looks wired
+ * and does nothing — one layer in, and harder to see, because the log says it
+ * worked.
+ */
 export interface CrossPackHandlers {
   /** Record the audit trail for a triggered hand-off. */
-  readonly onAudit?: (action: Extract<CrossPackAction, { kind: 'audit' }>, workflow: CrossPackWorkflow) => void;
+  readonly onAudit?: (action: Extract<CrossPackAction, { kind: 'audit' }>, workflow: CrossPackWorkflow, context: CrossPackFiringContext) => void | Promise<void>;
   /** Hand the target pack a workflow to run. */
-  readonly onNotify?: (action: Extract<CrossPackAction, { kind: 'notify-pack' }>, workflow: CrossPackWorkflow) => void;
+  readonly onNotify?: (action: Extract<CrossPackAction, { kind: 'notify-pack' }>, workflow: CrossPackWorkflow, context: CrossPackFiringContext) => void | Promise<void>;
   /** Open a durable case. Absent ⇒ reported as not executed, never as done. */
-  readonly onOpenCase?: (action: Extract<CrossPackAction, { kind: 'open-case' }>, workflow: CrossPackWorkflow) => void;
+  readonly onOpenCase?: (action: Extract<CrossPackAction, { kind: 'open-case' }>, workflow: CrossPackWorkflow, context: CrossPackFiringContext) => void | Promise<void>;
 }
 
 const FIRING_LOG_LIMIT = 50;
@@ -291,13 +314,26 @@ export function resetCrossPackFirings(): void {
  * `executed: false` WITH the reason, rather than quietly omitted — the defect this
  * whole gap is about is a hand-off that looks wired and does nothing, and a log
  * that only records successes would reproduce it in the observability layer.
+ *
+ * Async because the handlers now write (a queue entry, a durable case) and the
+ * report must not claim more than has happened. A handler that throws is reported
+ * as `executed: false` carrying the error rather than rejecting the whole event:
+ * one pack's failing hand-off must not silently drop the others in the same
+ * workflow, and the reason has to survive into the firing log.
  */
-export function handleCrossPackEvent(
+export async function handleCrossPackEvent(
   router: CrossPackRouter,
   event: { readonly type: string; readonly id?: string; readonly sourcePackId?: string },
   handlers: CrossPackHandlers = {},
-): readonly CrossPackFiring[] {
+): Promise<readonly CrossPackFiring[]> {
   const fired: CrossPackFiring[] = [];
+  const at = new Date().toISOString();
+  const context: CrossPackFiringContext = {
+    eventType: event.type,
+    ...(event.id ? { eventId: event.id } : {}),
+    ...(event.sourcePackId ? { sourcePackId: event.sourcePackId } : {}),
+    at,
+  };
   // A canonical event carries no pack id, so the trigger's `sourcePackId` is the
   // declaration of who publishes it. Matching on it is what keeps a hand-off from
   // firing on someone else's event of the same name — the two are different facts
@@ -305,30 +341,39 @@ export function handleCrossPackEvent(
   const matched = router.all().filter((w) => w.trigger.eventType === event.type);
   for (const workflow of matched) {
     if (event.sourcePackId && workflow.trigger.sourcePackId !== event.sourcePackId) continue;
-    const outcomes: CrossPackActionOutcome[] = workflow.actions.map((action) => {
+    const outcomes: CrossPackActionOutcome[] = [];
+    for (const action of workflow.actions) {
+      // One place to run a handler, so "ran it" and "caught its failure" cannot
+      // drift apart per action kind.
+      const run = async (
+        handler: ((a: never, w: CrossPackWorkflow, c: CrossPackFiringContext) => void | Promise<void>) | undefined,
+        detail: string,
+      ): Promise<CrossPackActionOutcome> => {
+        if (!handler) return { kind: action.kind, detail, executed: false };
+        try {
+          await handler(action as never, workflow, context);
+          return { kind: action.kind, detail, executed: true };
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          return { kind: action.kind, detail: `${detail} — handler failed: ${reason}`, executed: false };
+        }
+      };
       switch (action.kind) {
         case 'audit':
-          if (!handlers.onAudit) return { kind: action.kind, detail: action.action, executed: false };
-          handlers.onAudit(action, workflow);
-          return { kind: action.kind, detail: action.action, executed: true };
+          outcomes.push(await run(handlers.onAudit, action.action));
+          break;
         case 'notify-pack':
-          if (!handlers.onNotify) {
-            return { kind: action.kind, detail: `${action.packId} ← ${action.workflowId}`, executed: false };
-          }
-          handlers.onNotify(action, workflow);
-          return { kind: action.kind, detail: `${action.packId} ← ${action.workflowId}`, executed: true };
+          outcomes.push(await run(handlers.onNotify, `${action.packId} ← ${action.workflowId}`));
+          break;
         case 'open-case':
-          if (!handlers.onOpenCase) {
-            return { kind: action.kind, detail: `${action.packId}: ${action.caseKind}`, executed: false };
-          }
-          handlers.onOpenCase(action, workflow);
-          return { kind: action.kind, detail: `${action.packId}: ${action.caseKind}`, executed: true };
+          outcomes.push(await run(handlers.onOpenCase, `${action.packId}: ${action.caseKind}`));
+          break;
       }
-    });
+    }
     const firing: CrossPackFiring = {
       workflowId: workflow.id,
       eventType: event.type,
-      at: new Date().toISOString(),
+      at,
       ...(event.id ? { eventId: event.id } : {}),
       outcomes,
     };

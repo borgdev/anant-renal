@@ -45,6 +45,7 @@ import {
   recentCrossPackFirings,
   type CrossPackSeedIssue,
 } from '../control-plane/cross-pack-workflows.js';
+import { crossPackRuntime } from '../control-plane/cross-pack-runtime.js';
 
 export interface CrossPackRouteOptions {
   /** Every installed pack id, so the route can say what is missing rather than only what is present. */
@@ -84,5 +85,71 @@ export async function registerCrossPackRoutes(
       firings: recentCrossPackFirings(),
       note: 'A workflow runs only when every pack its definition involves declares it. `notRunning` names the ones that cannot, with the reason.',
     };
+  });
+
+  /**
+   * The pack queue — what `notify-pack` actually did.
+   *
+   * Step 4: this route is the difference between "the hand-off was declared" and
+   * "the hand-off arrived". Before it, `notify-pack` reported `executed: false`
+   * with the reason "a pack queue does not exist yet", so the two hand-offs that
+   * notify a target pack were wired, validated, visible and inert.
+   *
+   * A pack reads its OWN queue by id. That is not access control — the route is
+   * already scoped to exec — it is the shape of the fact: a notification belongs
+   * to the pack that must act on it, and a target pack polling everything would
+   * make "who was told" unanswerable.
+   */
+  app.get('/admin/swarm/cross-pack/queue', async (request) => {
+    const query = (request.query ?? {}) as { packId?: string; state?: string };
+    const runtime = crossPackRuntime();
+    const state = query.state === 'claimed' || query.state === 'pending' ? query.state : undefined;
+    return {
+      generatedAt: new Date().toISOString(),
+      ...(query.packId ? { packId: query.packId } : {}),
+      // `durable: false` is the honest answer in a profile with no store, and it
+      // is REPORTED rather than hidden: a queue that empties on restart must not
+      // look like a queue that was drained.
+      durable: runtime?.durable ?? false,
+      writeErrors: runtime?.durableWriteErrors() ?? [],
+      notifications: runtime?.notifications(query.packId, state) ?? [],
+    };
+  });
+
+  app.post('/admin/swarm/cross-pack/queue/:id/claim', async (request, reply) => {
+    const runtime = crossPackRuntime();
+    const { id } = request.params as { id: string };
+    const claimed = await runtime?.claim(id);
+    if (!claimed) return reply.code(404).send({ error: 'no such notification', id });
+    return claimed;
+  });
+
+  /**
+   * The case log — what `open-case` actually did.
+   *
+   * A case has an id, a state and an owning pack, which is what makes it a case
+   * rather than a mention of one. Closing it is explicit for the same reason: an
+   * auto-closing case would be a hand-off nobody answered reported as answered.
+   */
+  app.get('/admin/swarm/cross-pack/cases', async (request) => {
+    const query = (request.query ?? {}) as { packId?: string; state?: string };
+    const runtime = crossPackRuntime();
+    const state = query.state === 'open' || query.state === 'closed' ? query.state : undefined;
+    const filter: { packId?: string; state?: 'open' | 'closed' } = {};
+    if (query.packId) filter.packId = query.packId;
+    if (state) filter.state = state;
+    return {
+      generatedAt: new Date().toISOString(),
+      durable: runtime?.durable ?? false,
+      cases: runtime?.cases(filter) ?? [],
+    };
+  });
+
+  app.post('/admin/swarm/cross-pack/cases/:id/close', async (request, reply) => {
+    const runtime = crossPackRuntime();
+    const { id } = request.params as { id: string };
+    const closed = await runtime?.closeCase(id);
+    if (!closed) return reply.code(404).send({ error: 'no such case', id });
+    return closed;
   });
 }

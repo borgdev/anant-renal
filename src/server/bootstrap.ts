@@ -69,6 +69,7 @@ import { buildApp } from './app.js';
 import { getProposalSweeper } from '../fhir/routes.js';
 import { loadInstalledPacks } from '../control-plane/pack-loader.js';
 import { crossPackRouterState, handleCrossPackEvent } from '../control-plane/cross-pack-workflows.js';
+import { CrossPackRuntime, setCrossPackRuntime } from '../control-plane/cross-pack-runtime.js';
 import type { ActorContext } from './scoped-persistence.js';
 import { LocalUserStore, seedDefaultUsers, SessionManager, sessionActorResolver, sqlSessionPersistence, sqlUserPersistence } from './auth/index.js';
 import type { FastifyRequest } from 'fastify';
@@ -205,6 +206,14 @@ export async function main(): Promise<void> {
     telemetry.log('warn', `pack not loaded: ${issue.packId} (${issue.code})`, { attributes: { detail: issue.detail } });
   }
 
+  // Cross-pack step 4 — the queue and the case log, installed before the app so
+  // the routes can answer immediately and hydrated so a case opened before a
+  // restart is still open after one.
+  const handoffRuntime = new CrossPackRuntime({ persistence: sqlStore });
+  const hydrated = await handoffRuntime.hydrate();
+  telemetry.log('info', `cross-pack runtime ready (${handoffRuntime.durable ? 'durable' : 'memory-only'}) — restored ${hydrated.notifications} queued hand-off(s), ${hydrated.cases} case(s)`, {});
+  setCrossPackRuntime(handoffRuntime);
+
   const app = await buildApp({
     store,
     telemetry,
@@ -249,11 +258,14 @@ export async function main(): Promise<void> {
       async (msg) => {
         const e = decodeCanonicalEvent(msg.value);
         if (!e) return;
-        // Only `audit` has a handler; the other actions are reported as not
-        // executed rather than dropped, because a hand-off that looks wired and
-        // does nothing is the defect this gap is about.
-        const fired = handleCrossPackEvent(crossPack.router, { type: e.type, id: e.id }, {
-          onAudit: (action, workflow) => telemetry.log('info', `cross-pack ${workflow.id}: ${action.action}`, { attributes: { eventId: e.id } }),
+        // Step 4: every action now has an implementation, so `executed: true`
+        // means the queue entry or the case was actually written. A hand-off that
+        // looks wired and does nothing was the defect this gap is about, and
+        // reporting success for a write that has not landed is the same defect one
+        // layer in.
+        const fired = await handleCrossPackEvent(crossPack.router, { type: e.type, id: e.id }, {
+          onAudit: (action, workflow) => { telemetry.log('info', `cross-pack ${workflow.id}: ${action.action}`, { attributes: { eventId: e.id } }); },
+          ...handoffRuntime.handlers(),
         });
         for (const f of fired) {
           const skipped = f.outcomes.filter((o) => !o.executed);

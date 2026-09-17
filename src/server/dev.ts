@@ -88,6 +88,7 @@ import type { ActorContext } from './scoped-persistence.js';
 // introducing a specialty meant editing a platform file.
 import { loadInstalledPacks } from '../control-plane/pack-loader.js';
 import { crossPackRouterState, handleCrossPackEvent } from '../control-plane/cross-pack-workflows.js';
+import { CrossPackRuntime, setCrossPackRuntime } from '../control-plane/cross-pack-runtime.js';
 
 /** Minimal in-memory stand-in for `PostgresEventStore` used by the app. */
 function inMemoryStore(): PostgresEventStore {
@@ -336,6 +337,20 @@ export async function main(): Promise<void> {
     telemetry.log('warn', `pack not loaded: ${issue.packId} (${issue.code})`, { attributes: { detail: issue.detail } });
   }
 
+  // Cross-pack step 4 — installed BEFORE the app is built, because the routes read
+  // it and the queue has to be answerable on the first request after a reload.
+  //
+  // Hydrated rather than merely constructed: persisting without refilling the
+  // in-memory maps would mean a case survives a restart in the database and
+  // vanishes from every screen, which is worse than not persisting at all — the
+  // record exists and nothing can see it.
+  const handoffRuntime = new CrossPackRuntime({ persistence: sqlStore });
+  const hydrated = await handoffRuntime.hydrate();
+  if (hydrated.notifications > 0 || hydrated.cases > 0) {
+    telemetry.log('info', `cross-pack runtime restored ${hydrated.notifications} queued hand-off(s) and ${hydrated.cases} case(s)`, {});
+  }
+  setCrossPackRuntime(handoffRuntime);
+
   const app = await buildApp({
     store,
     telemetry,
@@ -427,14 +442,13 @@ export async function main(): Promise<void> {
       async (msg) => {
         const e = decodeCanonicalEvent(msg.value);
         if (!e) return;
-        // Only `audit` has a handler. The other two actions are REPORTED as not
-        // executed rather than silently dropped: opening a durable case and
-        // enqueueing a target pack's workflow need the coordinator and a pack
-        // queue that do not exist yet, and a log that recorded only successes
-        // would reproduce the very defect this gap is about — a hand-off that
-        // looks wired and does nothing.
-        const fired = handleCrossPackEvent(crossPack.router, { type: e.type, id: e.id }, {
-          onAudit: (action, workflow) => telemetry.log('info', `cross-pack ${workflow.id}: ${action.action}`, { attributes: { eventId: e.id } }),
+        // Step 4: the queue and the case log are real, so `executed: true` now
+        // means "it happened" rather than "a handler was registered". The two
+        // actions that had no implementation were the reason a declared hand-off
+        // could be validated, visible on the route, and inert.
+        const fired = await handleCrossPackEvent(crossPack.router, { type: e.type, id: e.id }, {
+          onAudit: (action, workflow) => { telemetry.log('info', `cross-pack ${workflow.id}: ${action.action}`, { attributes: { eventId: e.id } }); },
+          ...handoffRuntime.handlers(),
         });
         for (const f of fired) {
           const skipped = f.outcomes.filter((o) => !o.executed);

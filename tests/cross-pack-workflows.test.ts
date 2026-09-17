@@ -152,13 +152,13 @@ describe('G3 — the installed packs decide which hand-offs run', () => {
 describe('G3 — a firing says what it did', () => {
   const HOSPITALIZATION = seedCrossPackWorkflows.find((w) => w.id === 'x:hospitalization->payer-auth')!;
 
-  it('fires on the declared trigger and executes the audit', () => {
+  it('fires on the declared trigger and executes the audit', async () => {
     const { router } = crossPackRouterFromManifests(installed());
     const audited: string[] = [];
-    const fired = handleCrossPackEvent(
+    const fired = await handleCrossPackEvent(
       router,
       { type: 'hospitalization.admitted', id: 'evt-1' },
-      { onAudit: (action) => audited.push(action.action) },
+      { onAudit: (action) => { audited.push(action.action); } },
     );
     expect(fired.map((f) => f.workflowId)).toEqual(['x:hospitalization->payer-auth']);
     expect(audited).toEqual(['hospitalization-recorded']);
@@ -167,15 +167,17 @@ describe('G3 — a firing says what it did', () => {
     expect(fired[0]?.outcomes.find((o) => o.kind === 'audit')?.executed).toBe(true);
   });
 
-  it('reports an action with no handler as NOT executed, never as done', () => {
+  it('reports an action with no handler as NOT executed, never as done', async () => {
     // The defect this whole gap is about is a hand-off that looks wired and does
     // nothing — so an observability layer that recorded only successes would
     // reproduce it. The reason is carried, not just the fact.
     const { router } = crossPackRouterFromManifests(installed());
-    // The audit IS handled here, so what remains unexecuted is exactly the two
-    // actions that need machinery the platform does not have yet: a durable case
-    // and a queue on the target pack.
-    const fired = handleCrossPackEvent(router, { type: 'hospitalization.admitted' }, { onAudit: () => { /* recorded */ } });
+    // The audit IS handed here and the other two are NOT, so what remains
+    // unexecuted is exactly the pair this test is about. Both now HAVE an
+    // implementation (`CrossPackRuntime`); a caller that supplies no handler still
+    // gets "not executed" rather than an assumed success, which is the property
+    // that must hold however many actions are implemented.
+    const fired = await handleCrossPackEvent(router, { type: 'hospitalization.admitted' }, { onAudit: () => { /* recorded */ } });
     const skipped = fired[0]?.outcomes.filter((o) => !o.executed) ?? [];
     expect(skipped.map((o) => o.kind).sort()).toEqual(['notify-pack', 'open-case']);
     expect(skipped.find((o) => o.kind === 'notify-pack')?.detail).toContain('payer');
@@ -183,40 +185,40 @@ describe('G3 — a firing says what it did', () => {
     expect(recentCrossPackFirings()).toHaveLength(1);
   });
 
-  it('claims nothing was done when nothing can be', () => {
+  it('claims nothing was done when nothing can be', async () => {
     // With no handlers at all, every action is unexecuted — including the audit.
     // A caller that supplied nothing must not be told the hand-off was recorded.
     const { router } = crossPackRouterFromManifests(installed());
-    const fired = handleCrossPackEvent(router, { type: 'hospitalization.admitted' });
+    const fired = await handleCrossPackEvent(router, { type: 'hospitalization.admitted' });
     expect(fired[0]?.outcomes.map((o) => o.kind).sort()).toEqual(['audit', 'notify-pack', 'open-case']);
     expect(fired[0]?.outcomes.every((o) => !o.executed)).toBe(true);
   });
 
-  it('runs an action when a handler is supplied', () => {
+  it('runs an action when a handler is supplied', async () => {
     const { router } = crossPackRouterFromManifests(installed());
     const notified: string[] = [];
     const cases: string[] = [];
-    handleCrossPackEvent(router, { type: 'hospitalization.admitted' }, {
-      onNotify: (action) => notified.push(action.packId),
-      onOpenCase: (action) => cases.push(`${action.packId}:${action.caseKind}`),
+    await handleCrossPackEvent(router, { type: 'hospitalization.admitted' }, {
+      onNotify: (action) => { notified.push(action.packId); },
+      onOpenCase: (action) => { cases.push(`${action.packId}:${action.caseKind}`); },
     });
     expect(notified).toEqual(['payer']);
     expect(cases).toEqual(['care-management:transitions-of-care']);
   });
 
-  it('does not fire on the right event type from the WRONG pack', () => {
+  it('does not fire on the right event type from the WRONG pack', async () => {
     // A canonical event carries no pack id, so the trigger's `sourcePackId` is the
     // declaration of who publishes it. Without this check a payer's event named
     // `hospitalization.admitted` would open a care-management case.
     const { router } = crossPackRouterFromManifests(installed());
-    expect(handleCrossPackEvent(router, { type: 'hospitalization.admitted', sourcePackId: 'payer' })).toEqual([]);
-    expect(handleCrossPackEvent(router, { type: 'treatment.missed' })).toEqual([]);
+    expect(await handleCrossPackEvent(router, { type: 'hospitalization.admitted', sourcePackId: 'payer' })).toEqual([]);
+    expect(await handleCrossPackEvent(router, { type: 'treatment.missed' })).toEqual([]);
     expect(recentCrossPackFirings()).toEqual([]);
   });
 
-  it('is bounded, so a busy stream cannot grow the log without limit', () => {
+  it('is bounded, so a busy stream cannot grow the log without limit', async () => {
     const { router } = crossPackRouterFromManifests(installed());
-    for (let i = 0; i < 80; i += 1) handleCrossPackEvent(router, { type: 'hospitalization.admitted' });
+    for (let i = 0; i < 80; i += 1) await handleCrossPackEvent(router, { type: 'hospitalization.admitted' });
     expect(recentCrossPackFirings().length).toBeLessThanOrEqual(50);
     // Newest survive.
     expect(recentCrossPackFirings().length).toBe(50);
