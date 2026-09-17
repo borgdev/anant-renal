@@ -223,7 +223,14 @@ function serializePatient(rec: EntityRecord, ctx: FhirCtx): Patient {
     active: true,
     ...(gender ? { gender } : {}),
     ...(name ? { name: [{ family: name.split(' ').slice(1).join(' ') || name, given: [name.split(' ')[0] ?? ''] }] } : {}),
-    ...(birthDate ? { birthDate } : age !== undefined ? { birthDate: `${new Date().getFullYear() - age}-01-01` } : {}),
+    // `birthDate` wins when it exists, which is what the ingest path writes. When it
+    // does not, the birthday is reconstructed from `age` — and reconstructed against
+    // the RECORD's own timestamp rather than `new Date()`. A wall-clock year here put a
+    // realm that had simulated three years on a birth date from real time, beside an
+    // `age` that had not moved: one resource, two facts disagreeing (§4.4). Ingesting a
+    // real birth date is the fix (§8 #6); this is the honest fallback until a patient
+    // has one.
+    ...(birthDate ? { birthDate } : age !== undefined ? { birthDate: `${new Date(rec.updatedAt).getUTCFullYear() - age}-01-01` } : {}),
     ...(st['address'] ? { address: [st['address'] as { line?: string[]; city?: string; state?: string; postalCode?: string }] } : {}),
   };
   return patient;

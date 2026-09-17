@@ -111,6 +111,7 @@ import { tmpdir } from 'node:os';
 import { join as pathJoin } from 'node:path';
 import type { SeedPopulationReport } from '../population/synthea/seed.js';
 import { SyntheaPopulationSeeder, seederRequestFrom } from '../population/seeder.js';
+import { patientAge } from '../population/age.js';
 import type { FacilityKind } from '../population/source.js';
 
 /**
@@ -601,7 +602,11 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
             await sql.savePatient({
               id: p.id, facilityId: typeof st.facilityId === 'string' ? st.facilityId : fallbackFacilityId,
               unitId: typeof st.unitId === 'string' ? st.unitId : '', realmId: id,
-              age: typeof st.age === 'number' ? st.age : null,
+              // Derived from `birthDate` at the realm's own instant (§8 #6), not read
+              // off the stored `age` — which for an ingested patient is a snapshot that
+              // rots as the accelerated clock advances. Falls back to the stored value
+              // for the static fixture, which has no birth date and never will.
+              age: patientAge(st, realm.clock.realmAt) ?? null,
               sex: typeof st.sex === 'string' ? st.sex : null,
               trajectory: typeof st.trajectory === 'string' ? st.trajectory : null,
               labsJson: st.labs ? JSON.stringify(st.labs) : null,
