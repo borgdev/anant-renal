@@ -1429,6 +1429,86 @@ A deployment-level check belongs here, next to the conformance matrix: **every d
 measure has at least one qualifying patient in the configured population**, reported
 as a population issue rather than discovered on a screen.
 
+#### Outcome — NOT built, and the reason is that the cheap version would lie
+
+The declared-measure surface exists and is small: packs carry
+`cmsUniverse: [{ id, title, authority }]` (`dialysis-provider` declares four,
+`oncology-provider` and `infusion-provider` two, `payer` one). A check over it is
+therefore *reachable*. What stops it is that "qualifying patient" is a measure
+evaluation, not a population property: answering it means running
+`evaluateCatalogMeasure(spec, bundle)` once per patient per measure over the
+denominator criteria.
+
+Everything cheaper than that is a heuristic over problem terms — "the oncology measure
+is probably denominator-reachable because two patients carry a cancer term". Shipping
+that as a *population issue* would produce a report that reads like an evaluation, is
+wrong in both directions (it will call a measure reachable when no patient satisfies
+the real criteria, and unreachable when one does for a reason the terms don't mention),
+and would be trusted precisely because it is stated in the register of the things that
+are correct. That is the failure this document already catalogues twice — the
+`longitudinal.ts` fixture that *looked* like history, and the fairness screen whose
+`vintage=watch` verdict came from a probe rather than the shipped route. The first is
+fixed by S4; the second by §5's correction. Adding a third of the same kind to close a
+checkbox would be the wrong trade.
+
+There is, however, a **decidable half** worth having, and naming it is more useful than
+a note saying "deferred". Every declared `cmsUniverse` id is a reference into the
+measure catalog. Whether a declared id *resolves* is set membership — no evaluation, no
+heuristic, no ambiguity — and a pack that declares an id the catalog does not carry is
+broken for **every** population, not just an unlucky one. That check is real, it is
+cheap, and it is the precondition the population check would need anyway: there is no
+point asking whether patients can reach a measure that doesn't exist. It is recorded
+here as the correct first step rather than built, so that whoever picks this up builds
+the part that cannot lie first.
+
+#### Onset dates — the other half of §8 #7, closed without code
+
+§8 #7's fix made the patient's problem list a projection of the condition graph rather
+than a parallel summary carried alongside it. That removed the duplication, and it also
+settled the onset-date question rather than deferring it: **the condition entity
+carries `onset`, the graph is now the source the projection reads, so onsets are
+reachable through the same walk that produces the terms.**
+
+Writing a `problemOnset` map into patient state would be the *opposite* of §8 #7 —
+reintroducing a second representation of a fact the graph already holds, and one with
+no consumer, since no cohort reads a diagnosis date. `problemListFromGraph` in
+`src/population/synthea/enrich.ts` is the worked example of the walk a consumer needs;
+a cohort that wants onsets adds a few lines to it. Deliberately not built: a mechanism
+with no consumer is the shape this codebase rejects by rule (§9.7), and it would be
+built against a guess at what the first real consumer wants.
+
+#### The `covered` defect — found by the trip-wire work, fixed
+
+Recorded here because it is a correction to a *shipped* surface rather than to this
+plan. `cohortSignals` derived a row's `covered` as "at least one protocol could
+evaluate this patient". A probe against an empty patient state showed that is always
+true: `access` returns `green` at severity 0.25 rather than `unknown`, so a patient
+nobody has measured still produces a verdict. Every row was covered — which made the
+coverage comparison `fairness.ts` performs **before** it compares flag rates a
+constant, and `disparityReport` reads a coverage gap as `breach`. The one gate that
+could have caught a data-capture disparity was measuring nothing.
+
+It now uses `registry.ts`'s own `unknown` condition negated
+(`sessions.count > 0 || panel.completenessPct >= 50`). Both halves of the probe are
+pinned as tests: the bare patient is uncovered *and* flagged — not a contradiction,
+since `adequacy` reports amber 0.5 against a `red` threshold of 0.6, so a patient
+nobody measured is 0.1 from being flagged for inadequate dialysis.
+
+#### §9.1's trip-wire — now enforced rather than described
+
+`tests/liquid-tripwire.test.ts` freezes the renal vocabulary `src/liquid/` already
+carries and fails when a new name appears; a second test asserts no file in
+`src/liquid/` imports the population layer, which is §9.1 constraint 1's other half.
+The baseline is measured: 5 distinct identifiers and 8 quoted literals. A non-vacuity
+test guards the guard, because a pattern that stops matching would pass both
+assertions against an empty result while reporting success.
+
+**The trip-wire is not an endorsement of the coupling it measures.** It exists because
+§9.7 defers the `state_model` seam, and a deferral with no enforcer is an omission that
+reads like a decision. The engine carrying `DialysisState` in 22 places is the *reason*
+the seam is deferred — that is the counter-evidence the deferral rests on, and it is
+now recorded in a form that fails loudly if it grows.
+
 ### 9.7 Sequencing — the recommendation, **revised**
 
 §9.7 originally said: introduce the `state_model` declaration seam in S1, with
