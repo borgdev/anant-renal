@@ -130,7 +130,7 @@ export class SimulatorController {
         hypergraph: new RealmHypergraph(buildHealthcareHypergraphSchema(), def.id),
       });
       populateFacility(realm, def.facility, { seed: sc.seed, days: 90 });
-      this.spawnPresences(realm, def.presences);
+      spawnScriptPresences(realm, def.presences);
       if (def.script.entries.length) {
         realm.ambient.register(new ScriptedEventGenerator({ realm, script: def.script, seed: sc.seed }));
       }
@@ -330,22 +330,34 @@ export class SimulatorController {
     };
   }
 
-  private spawnPresences(realm: Realm, roles: SimRole[]): void {
-    const facility = realm.graph.listKind('facility')[0];
-    const unit = realm.graph.listKind('unit')[0];
-    const location: { facilityId: string; unitId?: string } = { facilityId: facility?.id ?? 'unknown' };
-    if (unit) location.unitId = unit.id;
-    for (const role of roles) {
-      realm.presences.spawn({
-        realmId: realm.id,
-        agentSpecId: `sim.${role}`,
-        runId: `sim.${role}`,
-        role,
-        clearance: 'restricted-phi',
-        purposeOfUse: ['treatment'],
-        location,
-        perceptualRange: { units: ['*'], patients: ['*'], eventTypes: ['*'] },
-      });
-    }
+}
+
+/**
+ * Spawn the role presences a scripted event mix emits through.
+ *
+ * Module-level and exported rather than a private controller method because a realm
+ * created through `POST /admin/realms` needs the same presences as a fleet realm, and
+ * the failure is silent when it does not get them: `ScriptedEventGenerator.#emitVia`
+ * drops every effect whose role has no presence (`if (!presence) return`). A realm with
+ * a script and no presences therefore looks like a realm with no script at all — it
+ * ticks, produces nothing, and every protocol reads `green` because nothing ever
+ * happened to the patient.
+ */
+export function spawnScriptPresences(realm: Realm, roles: readonly SimRole[]): void {
+  const facility = realm.graph.listKind('facility')[0];
+  const unit = realm.graph.listKind('unit')[0];
+  const location: { facilityId: string; unitId?: string } = { facilityId: facility?.id ?? 'unknown' };
+  if (unit) location.unitId = unit.id;
+  for (const role of roles) {
+    realm.presences.spawn({
+      realmId: realm.id,
+      agentSpecId: `sim.${role}`,
+      runId: `sim.${role}`,
+      role,
+      clearance: 'restricted-phi',
+      purposeOfUse: ['treatment'],
+      location,
+      perceptualRange: { units: ['*'], patients: ['*'], eventTypes: ['*'] },
+    });
   }
 }

@@ -756,3 +756,19 @@ export function listScenarios(): Array<{ id: string; label: string; description:
 export function scenarioFor(id: string): SimScenario | undefined {
   return SCENARIOS.find((s) => s.id === id);
 }
+
+/**
+ * Every realm id any scenario creates, mapped to the scenario that owns it.
+ *
+ * A scenario's realm ids belong to its world; they are not names a caller gets to reuse.
+ * Exported so `POST /admin/realms` can refuse one rather than silently replacing a demo
+ * realm — which is exactly what happened at `sim:ent-midtn-a`, an id
+ * `dialysis-enterprise` already uses for its Middle-Tennessee realm.
+ */
+export function scenarioRealmOwners(): ReadonlyMap<string, string> {
+  const owners = new Map<string, string>();
+  for (const sc of SCENARIOS) {
+    for (const realm of sc.realms) owners.set(realm.id, sc.id);
+  }
+  return owners;
+}

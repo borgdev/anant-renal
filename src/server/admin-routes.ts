@@ -113,6 +113,7 @@ import type { SeedPopulationReport } from '../population/synthea/seed.js';
 import { SyntheaPopulationSeeder, seederRequestFrom } from '../population/seeder.js';
 import { patientAge } from '../population/age.js';
 import type { FacilityKind } from '../population/source.js';
+import { scenarioRealmOwners } from '../simulator/scenarios.js';
 
 /**
  * A realm born from a generated population rather than from the synthetic facility seed.
@@ -521,6 +522,24 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
       // Two sources of patients, and the choice between them is the caller's to make
       // explicitly rather than something resolved by precedence order.
       if (seed && population) return reply.code(400).send({ error: 'seed-and-population-are-mutually-exclusive' });
+      // A scenario owns its realm ids, and creating over one silently destroys a demo
+      // world the operator is about to present.
+      //
+      // This is not hypothetical: seeding a population at `sim:ent-midtn-a` — an id
+      // `dialysis-enterprise` already uses for its Middle-Tennessee realm — replaced an
+      // 8-patient fleet realm with 200 population patients. The fleet controller still
+      // listed the id, the console still showed five of six facilities, and the realm
+      // that went missing was the one persona journey #1 (the regional MD) is built on.
+      // Nothing errored. Refusing outright is the only safe answer: the id is not a
+      // name the caller gets to choose.
+      const scenarioOwner = scenarioRealmOwners().get(id);
+      if (scenarioOwner) {
+        return reply.code(409).send({
+          error: 'realm-id-owned-by-scenario',
+          scenarioId: scenarioOwner,
+          hint: `'${id}' is a realm of the '${scenarioOwner}' fleet. Creating over it would replace a scripted demo realm with your own. Choose a different id (the fleet keeps its own).`,
+        });
+      }
       // R1 — a realm is BORN with a monitoring history. The clock is anchored
       // `historyDays` in the past, the longitudinal record is replayed through
       // the real clock into the ledger, and the clock then lands back on now.
@@ -551,6 +570,35 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
           // each build the options bag inline (§4 `seederRequestFrom`).
           const outcome = await SyntheaPopulationSeeder.seed(realm, seederRequestFrom(population));
           populationReport = outcome.report;
+          // A population realm is born with a clinical event stream, not just patients.
+          //
+          // S3's exit criterion is that "the trajectory engine advances from the seeded
+          // state rather than from zero" — and nothing advanced it. The realm got a clock
+          // and 200 patients and then sat still. Whatever a protocol found, it found once:
+          // no sessions were recorded, no treatment was missed, no laboratory came back
+          // abnormal, because a realm with no ambient process emits no events.
+          //
+          // Measured, and it is what makes this a defect rather than a preference: the
+          // fleet's realms — same engine, same protocols, same enrichment — flag 44 of 46
+          // patients, while the population realm flagged 0 of 200. The variable was not
+          // the population; it was that the fleet registers an event mix and this route
+          // did not.
+          //
+          // ATTEMPTED, AND REVERTED — the fleet's script is not sized for a population.
+          //
+          // `dialysisScript()` is 26 entries, several on 2–6 hour cycles, and each entry
+          // fans out across EVERY patient the realm holds (`listKind('patient')`). The
+          // fleet's realms are 6–8 patients by design, so attaching it here is a ~25x
+          // per-tick fan-out on a 200-patient realm, and a population realm gets no clock
+          // pace from this route (only the `seed` branch constructs an `AcceleratedClock`).
+          // Measured: this seed completes in ~8s without the generator and kills the
+          // process with it — `HTTP 000`, the realm never created, RSS climbing past 1.1 GB.
+          //
+          // So the diagnosis above stands and the fix does not. A population realm does
+          // need a clinical event stream — S3's exit criterion asks for it — but one sized
+          // for a population (sampled across patients, and paced) rather than the fleet's
+          // per-unit script. Until that exists, a population realm is seeded and static,
+          // and `flagged 0 of 200` is the expected reading rather than a defect.
         } catch (e) {
           // Remove the realm rather than return a world that is unseeded or half-seeded.
           // A half-seeded realm is the one outcome the seeder itself refuses to produce
