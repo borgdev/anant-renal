@@ -638,7 +638,7 @@ function bloodCultureOrders({ patientIds, seq, rng, realm }: ScriptEmitInput): W
   return out;
 }
 
-function dialysisScript(): SimScriptEntry[] {
+export function dialysisScript(): SimScriptEntry[] {
   return [
     every('labs', 3, 'md', orderLabs),
     // Weekly ESA order for each on-ESA patient → REAL dosing events on the

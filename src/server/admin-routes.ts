@@ -113,7 +113,9 @@ import type { SeedPopulationReport } from '../population/synthea/seed.js';
 import { SyntheaPopulationSeeder, seederRequestFrom } from '../population/seeder.js';
 import { patientAge } from '../population/age.js';
 import type { FacilityKind } from '../population/source.js';
-import { scenarioRealmOwners } from '../simulator/scenarios.js';
+import { DEMO_CLINICAL_ROLES, spawnScriptPresences } from '../simulator/controller.js';
+import { ScriptedEventGenerator } from '../simulator/script.js';
+import { dialysisScript, scenarioRealmOwners } from '../simulator/scenarios.js';
 
 /**
  * A realm born from a generated population rather than from the synthetic facility seed.
@@ -596,7 +598,8 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
           // the population; it was that the fleet registers an event mix and this route
           // did not.
           //
-          // ATTEMPTED, AND REVERTED — the fleet's script is not sized for a population.
+          // ATTEMPTED, REVERTED, THEN RE-ENABLED — the realm was the wrong size, not the
+          // script.
           //
           // `dialysisScript()` is 26 entries, several on 2–6 hour cycles, and each entry
           // fans out across EVERY patient the realm holds (`listKind('patient')`). The
@@ -606,11 +609,15 @@ export async function registerAdminRoutes(app: FastifyInstance, opts: AdminRoute
           // Measured: this seed completes in ~8s without the generator and kills the
           // process with it — `HTTP 000`, the realm never created, RSS climbing past 1.1 GB.
           //
-          // So the diagnosis above stands and the fix does not. A population realm does
-          // need a clinical event stream — S3's exit criterion asks for it — but one sized
-          // for a population (sampled across patients, and paced) rather than the fleet's
-          // per-unit script. Until that exists, a population realm is seeded and static,
-          // and `flagged 0 of 200` is the expected reading rather than a defect.
+          // That was true at 200 patients and it stopped being true when admission was
+          // filtered to the renal cohort. A dialysis unit built from this population is
+          // TEN patients — the same size as the fleet's own realms, which is the size the
+          // script was written for. So the fan-out that killed the process no longer
+          // exists, and the fix is the one the revert said was needed: cohort selection
+          // first, script second. Attaching it before the filter would have been the same
+          // mistake in the same direction.
+          spawnScriptPresences(realm, DEMO_CLINICAL_ROLES);
+          realm.ambient.register(new ScriptedEventGenerator({ realm, script: { entries: dialysisScript() }, seed: 1 }));
         } catch (e) {
           // Remove the realm rather than return a world that is unseeded or half-seeded.
           // A half-seeded realm is the one outcome the seeder itself refuses to produce

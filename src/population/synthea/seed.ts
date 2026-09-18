@@ -75,7 +75,7 @@ import type { FhirCtx } from '../../fhir/types.js';
 import { ingestFhirBundle, type IngestBundleResult } from '../../fhir/bundle-ingest.js';
 import type { Realm } from '../../realm/realm.js';
 import { primeDialysisState, primeEngine, type DimensionSource, type PrimedDimension } from './prime.js';
-import { enrichPatient, summarisePatient, type PatientClinicalSummary } from './enrich.js';
+import { enrichPatient, isRenalCohort, summarisePatient, type PatientClinicalSummary } from './enrich.js';
 import { applyPatientIdMap, patientIdsIn, planPatientIds } from './identity.js';
 import { projectBundle, type ProjectionOptions, type ProjectionResult } from './projection.js';
 import { loadPopulation } from './population.js';
@@ -248,6 +248,36 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
     ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
   });
 
+  // Option 2 — admission belongs to the renal cohort.
+  //
+  // A SYNTHEA GENERAL POPULATION IS NOT A DIALYSIS UNIT, and admitting all of it asks
+  // every dialysis protocol a question about patients it has no business seeing. The
+  // measured shape of the pinned artifact: 200 patients, of whom 10 carry `CKD` and 1
+  // `ESRD`. The other 189 are a census sample whose haemoglobin is normal — 20 of them
+  // sit ABOVE the engine's declared ceiling of 13 g/dL against a range of [13, 8] — and
+  // whose Kt/V does not exist at all. Handing those 189 to a dialysis protocol is not a
+  // fixture that fails; it is one that cannot pass, and it inflates every denominator
+  // the console prints.
+  //
+  // So the filter runs HERE, before identity is planned and before anything is written:
+  // the realm is built from its cohort rather than built and then narrowed. Filtering
+  // after ingest would leave 189 patients in the graph that nothing has a claim on, and
+  // they would appear in every count the operator reads.
+  //
+  // `dialysisLabs` carries this, because the three effects are ONE choice: a realm that
+  // takes its dialysis state from the renal domain is a dialysis unit, and a dialysis
+  // unit is its cohort. Splitting them would permit the incoherent middle — 200 admitted
+  // patients of whom 11 are on dialysis — which is the arrangement this replaces. The
+  // name is narrower than the effect; renaming it is a follow-up, not a reason to split
+  // a single decision across two flags that must agree.
+  //
+  // It also right-sizes the realm for a clinical event stream: at ~11 patients it is the
+  // same size as the demo fleet's own realms, which is what makes the fleet's scripted
+  // mix attachable without the ~25x fan-out that killed the process at 200.
+  const admitted = opts.dialysisLabs === true
+    ? loaded.bundles.filter((bundle) => isRenalCohort(summarisePatient(bundle, loaded.referenceAt)?.problems ?? []))
+    : loaded.bundles;
+
   // ---- identity: assign realm-scoped ids BEFORE anything is written -----------
   //
   // A `projected` artifact was already renamed when it was written, so re-planning here
@@ -256,8 +286,8 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
   // `MAX_LOCAL_PATIENTS`), but relying on it would make a correctness property of the
   // ingest rest on a string-sort coincidence, so the two forms take different paths.
   const alreadyRenamed = loaded.form === 'projected';
-  const planned = alreadyRenamed ? new Map<string, string>() : planPatientIds(patientIdsIn(loaded.bundles), opts.realmId);
-  const plannedIds = alreadyRenamed ? patientIdsIn(loaded.bundles) : [...planned.values()];
+  const planned = alreadyRenamed ? new Map<string, string>() : planPatientIds(patientIdsIn(admitted), opts.realmId);
+  const plannedIds = alreadyRenamed ? patientIdsIn(admitted) : [...planned.values()];
   const present = plannedIds.filter((id) => realm.graph.get(realm.graph.urnFor('patient', id)));
 
   const verdict: SeedVerdict = plannedIds.length === 0
@@ -325,7 +355,7 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
   let inputEntries = 0;
   let outputEntries = 0;
 
-  for (const bundle of loaded.bundles) {
+  for (const bundle of admitted) {
     applyPatientIdMap(bundle, planned);
     // A `projected` artifact is ALREADY the output of this step — renamed and reduced —
     // so projecting it again would apply retention a second time and report the residue
@@ -394,7 +424,7 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
   // because ingested `result` entities carry no patient reference — see the header of
   // `enrich.ts` for the measurement and the reasoning.
   const summaries: PatientClinicalSummary[] = [];
-  for (const bundle of loaded.bundles) {
+  for (const bundle of admitted) {
     const summary = summarisePatient(bundle, loaded.referenceAt);
     if (summary) summaries.push(summary);
   }

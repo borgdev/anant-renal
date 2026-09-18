@@ -333,6 +333,15 @@ export class SimulatorController {
 }
 
 /**
+ * The care team a scripted event mix emits through.
+ *
+ * Hoisted to a constant so a realm outside the fleet can ask for the same team rather
+ * than restating it. A second copy of this list would be a second answer to "what is a
+ * demo care team?", and the two would drift the first time a role was added to one.
+ */
+export const DEMO_CLINICAL_ROLES: readonly SimRole[] = ['md', 'nurse', 'coder'];
+
+/**
  * Spawn the role presences a scripted event mix emits through.
  *
  * Module-level and exported rather than a private controller method because a realm
