@@ -1161,15 +1161,42 @@ reference naming no realm entity. The fairness report bands the name and never r
 it; a FHIR reader following that reference gets nothing. Recorded at both sites where it
 happens.
 
-**Verified in process, not live — and that is a gap rather than a pass.** The chain is
-pinned end to end in `tests/population-seed.test.ts` (claim → lift → ingest →
-`state.insurance`, with the display fallback proved load-bearing by removing it and
-watching the test fail), but it was **not** confirmed through a running server: this
-machine's dev server saturates its event loop at ~100% CPU and stops servicing new
-connections. That was measured to be independent of this change — stashing it and
-restarting still gave 135% CPU, and an isolated database with zero realms restored still
-gave 102% for the process's entire life — but it is unexplained, and until it is, the
-payer band has not been seen on a live console.
+**Verified live, on a running server.** The chain is pinned end to end in
+`tests/population-seed.test.ts` (claim → lift → ingest → `state.insurance`, with the
+display fallback proved load-bearing by removing it and watching the test fail), and it
+has now also been confirmed through a live server rather than only in process. A realm was
+seeded from the committed projected artifact via `POST /admin/realms` with a `population`
+block and read back through `GET /admin/realms/:id/patients`:
+
+- the pinned 200-patient population bands into the **same 10 payers** — Medicare 43,
+  Humana 35, Medicaid 31, **NO_INSURANCE 22**, Blue Cross Blue Shield 19, UnitedHealthcare
+  14, Anthem 13, Cigna Health 9, Dual Eligible 9, Aetna 5;
+- the realm registry reports exactly **200 `insurance` entities for 200 patients**, which is
+  the one-Coverage-per-patient invariant holding in the live graph, not only in the
+  projection — the failure mode the lift was written to avoid (every source Coverage shares
+  the literal id `"coverage"`, so lifting them as-is would fold 28,447 claims onto one
+  entity);
+- K, HGB, URR and PHOS are present on **200 of 200** patients, so the renal-domain labs
+  reached the seeded state.
+
+What the live read also shows is a limit, recorded rather than smoothed over: all 9
+CKD/ESRD patients carry **HGB 13**, and the anaemia protocol flags HGB < 10, so this realm
+demonstrates the payer band and does **not** demonstrate an anaemia flag. 13 is the
+engine's ceiling, which is what a clamped value looks like, so this realm was almost
+certainly seeded without `dialysisLabs: true` — re-seeding with it is what the Demo B
+runbook is for.
+
+**The CPU note that used to sit here is now partly explained, and the explanation is not
+comfortable.** The dev server's saturating event loop was profiled: `HypergraphStore.assertEdge`
+called `snapshot()` — a full ledger replay — twice per edge, and the realm bridge asserts a
+membership edge plus one edge per relation for every effect, making the write path O(n²)
+against a ledger that only grows. 26.4% of samples were in `snapshot`, 11.5% in `assertEdge`,
+47% of CPU in that one file. Replacing the per-write replay with an incrementally folded index
+took busy CPU from 38.6s to 11.2s in an otherwise identical 60s window. That fix does not make
+the server healthy: the process still grows without bound and dies of
+`FATAL ERROR: Reached heap limit` after roughly 45 minutes, and RSS peaks near 1.1 GB during
+boot before settling. So the original symptom is no longer unexplained, but it is also not
+gone — it moved from time to memory, which is a separate problem this pass did not close.
 
 **§7's risk row was recorded as measured true, and that record is also withdrawn.**
 Its text was: *"The equity screen still cannot fire after S5 — would mean the
