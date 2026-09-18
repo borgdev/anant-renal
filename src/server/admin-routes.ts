@@ -139,6 +139,18 @@ export interface PopulationSeedRequest {
   readonly limit?: number;
   /** Write the measured `labs`/`lastVitals` onto the patient. Default true. */
   readonly seedObservationState?: boolean;
+  /**
+   * Give the renal cohort (CKD/ESRD) its dialysis labs from the renal domain
+   * instead of from Synthea's observations. Default false.
+   *
+   * Measured reason: a general population's haemoglobin is normal (12-17.5) and
+   * 20 of the 200 pinned patients sit ABOVE the engine's ceiling of 13, while the
+   * anaemia protocol flags HGB < 10 — so a population realm populated from
+   * Synthea's own observations flags nothing, which is correct but not
+   * demonstrable. Opt-in because it makes the realm a dialysis unit rather than a
+   * general population, and that is the caller's decision (§8 #4).
+   */
+  readonly dialysisLabs?: boolean;
 }
 
 /** Title-token overlap matcher — suggests a synced eCQM measure for a catalog measure. */

@@ -105,6 +105,14 @@ export interface SeedPopulationOptions {
    * only the durable half, so an engine comparison can start from the model default.
    */
   readonly seedObservationState?: boolean;
+  /**
+   * Give the renal cohort its dialysis labs from the renal domain rather than
+   * from Synthea's observations (see `EnrichOptions.dialysisLabs`). Opt-in: a
+   * general population's haemoglobin is normal, so writing it onto a dialysis
+   * patient asserts a measurement about the wrong thing — but turning that into
+   * the default would change what every existing caller's realm means.
+   */
+  readonly dialysisLabs?: boolean;
 }
 
 export type SeedVerdict = 'fresh' | 'already-seeded' | 'partial-population';
@@ -432,6 +440,7 @@ export async function seedRealmFromPopulation(realm: Realm, opts: SeedPopulation
       unitIds,
       realmAt,
       ...(opts.seedObservationState !== undefined ? { seedObservationState: opts.seedObservationState } : {}),
+      ...(opts.dialysisLabs !== undefined ? { dialysisLabs: opts.dialysisLabs } : {}),
     });
     unitCounts.set(outcome.unitId, (unitCounts.get(outcome.unitId) ?? 0) + 1);
     if (outcome.age !== undefined) ages.push(outcome.age);

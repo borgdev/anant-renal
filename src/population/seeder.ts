@@ -259,6 +259,8 @@ export interface SeederPayload {
   readonly limit?: number;
   readonly includeDeceased?: boolean;
   readonly seedObservationState?: boolean;
+  /** Renal-domain dialysis labs for the CKD/ESRD cohort. Default false. */
+  readonly dialysisLabs?: boolean;
 }
 
 /**
@@ -281,7 +283,8 @@ export function seederRequestFrom(payload: SeederPayload): SeederRequest {
     payload.root !== undefined
     || payload.limit !== undefined
     || payload.includeDeceased !== undefined
-    || payload.seedObservationState !== undefined;
+    || payload.seedObservationState !== undefined
+    || payload.dialysisLabs !== undefined;
 
   return {
     facilityId: payload.facilityId,
@@ -298,6 +301,9 @@ export function seederRequestFrom(payload: SeederPayload): SeederRequest {
               : {}),
             ...(payload.seedObservationState !== undefined
               ? { seedObservationState: payload.seedObservationState }
+              : {}),
+            ...(payload.dialysisLabs !== undefined
+              ? { dialysisLabs: payload.dialysisLabs }
               : {}),
           },
         }

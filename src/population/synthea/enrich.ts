@@ -68,6 +68,11 @@
 import { codeFor } from '../../fhir/code-registry.js';
 import type { Bundle, FhirResource } from '../../fhir/types.js';
 import { trajectoryLabel } from '../../liquid/project.js';
+import {
+  generateLongitudinalHistory,
+  LONGITUDINAL_TRAJECTORIES,
+  type LongitudinalTrajectory,
+} from '../../simulator/longitudinal.js';
 import type { DialysisLabs, DialysisState } from '../../liquid/types.js';
 import type { Realm } from '../../realm/realm.js';
 import { problemListFromConditions } from './conditions.js';
@@ -287,6 +292,24 @@ export function ageAt(birthDate: string | undefined, at: Date): number | undefin
 const ACCESS_TYPES = ['avf', 'avf', 'avg', 'catheter'] as const;
 const ACCESS_SITES = ['left-forearm', 'right-forearm', 'left-upper-arm'] as const;
 
+/**
+ * The problems that make a patient this realm's to treat.
+ *
+ * Deliberately the two that mean the patient is ON dialysis or heading there.
+ * `Anemia` is not in this list and that is a decision, not an oversight: 72 of
+ * the 200 pinned patients carry it, and anaemia is common in a general
+ * population for a dozen reasons that have nothing to do with a dialysis chair.
+ * A cohort predicate a clinician would argue about is a clinical position, and
+ * the narrow one is the defensible one — the same reasoning
+ * `packs/oncology-provider/cohort.ts` records for its own list.
+ */
+export const RENAL_COHORT_PROBLEMS: readonly string[] = Object.freeze(['CKD', 'ESRD']);
+
+/** Is this patient the renal domain's to treat? */
+export function isRenalCohort(problems: readonly string[]): boolean {
+  return problems.some((problem) => RENAL_COHORT_PROBLEMS.includes(problem));
+}
+
 export interface EnrichOptions {
   readonly facilityId: string;
   readonly unitIds: readonly string[];
@@ -300,6 +323,29 @@ export interface EnrichOptions {
    * useful for comparing a seeded engine against the static path.
    */
   readonly seedObservationState?: boolean;
+  /**
+   * Give the RENAL cohort its dialysis labs from the renal domain instead of
+   * from Synthea's own observations.
+   *
+   * This is the boundary the plan draws (§2.2) made concrete. Synthea supplies
+   * who the patient is; the realm supplies the dialysis state — and for the
+   * patients this realm actually treats, the haemoglobin Synthea supplies is
+   * not a dialysis haemoglobin at all.
+   *
+   * Measured on the pinned artifact: the engine's declared range is [13, 8] g/dL
+   * and 20 patients sit ABOVE its ceiling — HGB 17.496, 16.497, 16.245, 15.831 —
+   * while the anaemia protocol flags HGB < 10. A general population's
+   * haemoglobin is normal at 12–17.5, so it cannot trip a dialysis protocol
+   * however the realm is driven, and writing one onto a dialysis patient asserts
+   * a measurement about the wrong thing. `generateLongitudinalHistory` already
+   * produces trajectory-consistent dialysis labs, which is why the static world
+   * flags 44 of 46 patients while the population realm flagged 0 of 200.
+   *
+   * Patients OUTSIDE the renal cohort keep Synthea's observations. They are not
+   * dialysis patients and giving them dialysis labs would be the same error in
+   * the other direction.
+   */
+  readonly dialysisLabs?: boolean;
 }
 
 export interface EnrichOutcome {
@@ -456,8 +502,34 @@ export function enrichPatient(
   };
   if (age !== undefined) patch['age'] = age;
   if (opts.seedObservationState !== false) {
-    if (Object.keys(summary.labs).length > 0) patch['labs'] = summary.labs;
-    if (Object.keys(summary.vitals).length > 0) patch['lastVitals'] = { ...summary.vitals, at: opts.realmAt.toISOString() };
+    // Option 2 of the demo decision: the renal cohort's dialysis state comes from
+    // the renal domain, everyone else's from Synthea.
+    //
+    // `trajectoryLabel` is the engine's own vocabulary and returns a member of
+    // `LongitudinalTrajectory`, but its signature is `string` — so the value is
+    // checked for membership and falls back to `stable` rather than being cast
+    // into a union it might not belong to.
+    const label = trajectoryLabel(state);
+    const renalTrajectory: LongitudinalTrajectory = (
+      LONGITUDINAL_TRAJECTORIES as readonly string[]
+    ).includes(label)
+      ? (label as LongitudinalTrajectory)
+      : 'stable';
+    if (opts.dialysisLabs === true && isRenalCohort(problems)) {
+      const profile = generateLongitudinalHistory({
+        patientId: urn,
+        facilityId: opts.facilityId,
+        trajectory: renalTrajectory,
+        days: 90,
+        seed: 1,
+        asOf: opts.realmAt,
+      });
+      patch['labs'] = profile.latest.labs;
+      patch['lastVitals'] = { ...profile.latest.vitals, at: opts.realmAt.toISOString() };
+    } else {
+      if (Object.keys(summary.labs).length > 0) patch['labs'] = summary.labs;
+      if (Object.keys(summary.vitals).length > 0) patch['lastVitals'] = { ...summary.vitals, at: opts.realmAt.toISOString() };
+    }
   }
 
   g.patch(urn, patch, 'population:synthea-enrich');
