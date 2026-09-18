@@ -354,13 +354,22 @@ function eventToEffects(evt: CanonicalEvent, opts: FhirIngestOptions): { effects
       return { effects: [{ kind: 'order-lab', patientId: patientRef, code, priority: sr.priority === 'stat' ? 'stat' : sr.priority === 'urgent' ? 'send-out' : 'routine', ...(refId(sr.encounter) ? { encounterId: refId(sr.encounter)! } : {}) }] };
     }
     case 'MedicationRequest': {
-      const mr = resource as { subject?: unknown; medicationCodeableConcept?: { coding?: Array<{ code?: string }> }; dosageInstruction?: Array<{ text?: string; timing?: { repeat?: { frequency?: number; periodUnit?: string } }; route?: { coding?: Array<{ code?: string }> }; doseAndRate?: Array<{ doseQuantity?: { value?: number; unit?: string } }> }> };
+      const mr = resource as { subject?: unknown; medicationCodeableConcept?: { coding?: Array<{ code?: string }> }; dosageInstruction?: Array<{ text?: string; timing?: { repeat?: { frequency?: number; period?: number; periodUnit?: string } }; route?: { coding?: Array<{ code?: string }> }; doseAndRate?: Array<{ doseQuantity?: { value?: number; unit?: string } }> }> };
       if (!patientRef) return { skipped: 'medicationrequest-without-subject' };
       const code = mr.medicationCodeableConcept?.coding?.[0]?.code ?? 'unknown';
       const di = mr.dosageInstruction?.[0];
       const dose = di?.doseAndRate?.[0]?.doseQuantity ? `${di.doseAndRate[0].doseQuantity.value ?? ''} ${di.doseAndRate[0].doseQuantity.unit ?? ''}`.trim() : undefined;
       const route = di?.route?.coding?.[0]?.code;
-      const frequency = di?.timing?.repeat?.frequency ? `Q${di.timing.repeat.frequency}H` : undefined;
+      // `frequency` is doses per `period` `periodUnit`, and the unit was being DISCARDED:
+      // the rendering hardcoded `H`, so Synthea's `{frequency: 1, period: 1, periodUnit: 'd'}`
+      // — once daily — went onto the chart as `Q1H`, which says hourly. A medication list
+      // that states the wrong interval is worse than one that states none, so the period and
+      // its unit are both rendered. `frequency` is kept rather than collapsed because
+      // `{frequency: 2, period: 1, unit: 'd'}` is twice daily, not once.
+      const rep = di?.timing?.repeat;
+      const frequency = rep?.period !== undefined
+        ? `${rep.frequency ?? 1} per ${rep.period} ${rep.periodUnit ?? 'h'}`
+        : undefined;
       return { effects: [{ kind: 'order-med', patientId: patientRef, code, dose: dose ?? '', route: route ?? '', frequency: frequency ?? '' }] };
     }
     case 'Observation': {

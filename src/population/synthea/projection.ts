@@ -206,7 +206,7 @@ export const RESOURCE_PROJECTION: readonly ProjectionRule[] = Object.freeze([
   {
     resourceType: 'Medication',
     keep: 'never',
-    reason: '4,347 entries. The catalogue a MedicationRequest points at; the order carries the drug code.',
+    reason: '4,347 entries. The catalogue a MedicationRequest points at. Dropped because the order is made self-describing first — its `medicationReference` is resolved and inlined as `medicationCodeableConcept` in this same pass, so the code survives the exclusion. It did NOT before: the order carried a reference and no code, and every ingested order read `code: \'unknown\'`.',
   },
   {
     resourceType: 'MedicationAdministration',
@@ -388,6 +388,31 @@ export function projectBundle(bundle: Bundle, opts: ProjectionOptions = {}): Pro
    * `tests/population-projection.test.ts` asserts on the CHUNK CONTENTS and not only on
    * the report — a report can corroborate its own bug.
    */
+  // Synthea puts the drug code on a SEPARATE `Medication` resource and points at it with
+  // `medicationReference`, so excluding `Medication` (see its rule below) excluded the only
+  // copy of the code — every order ingested as `code: 'unknown'`. Measured on the pinned
+  // artifact: 3,008 MedicationRequests, all by reference, none carrying
+  // `medicationCodeableConcept`. That is what made the exclusion's own stated reason false
+  // ("the order carries the drug code" — it did not), and a reason that is wrong is worse
+  // than no reason, because it stops the next reader from checking.
+  //
+  // So the code is resolved here and inlined, which makes that sentence TRUE rather than
+  // deleting it. `urn:uuid:` references are bundle-local by definition, so the catalogue
+  // entry is always in this same bundle; an unresolvable reference is left alone and takes
+  // the existing `'unknown'` path in `canonical.ts` rather than being papered over.
+  const medicationCodes = new Map<string, { system?: string; code?: string; display?: string }>();
+  for (const entry of bundle.entry ?? []) {
+    const res = entry.resource as
+      | { resourceType?: string; id?: string; code?: { coding?: Array<{ system?: string; code?: string; display?: string }> } }
+      | undefined;
+    if (!res || res.resourceType !== 'Medication') continue;
+    const coding = res.code?.coding?.[0];
+    if (!coding?.code) continue;
+    for (const key of [res.id, entry.fullUrl]) {
+      if (typeof key === 'string' && key.length > 0) medicationCodes.set(key, coding);
+    }
+  }
+
   const vocabulary: FhirResource[] = [];
   const groups = new Map<string, RetentionGroup>();
 
@@ -420,6 +445,21 @@ export function projectBundle(bundle: Bundle, opts: ProjectionOptions = {}): Pro
       vocabulary.push(resource);
       keep(resource.resourceType);
       continue;
+    }
+
+    // A drug order carries its code by REFERENCE. Inline it so the kept resource is
+    // self-describing, which is what the `Medication` exclusion below assumes.
+    if (resource.resourceType === 'MedicationRequest') {
+      const mr = resource as { medicationCodeableConcept?: unknown; medicationReference?: { reference?: string } };
+      const target = mr.medicationReference?.reference;
+      if (mr.medicationCodeableConcept === undefined && typeof target === 'string') {
+        const coding = medicationCodes.get(target);
+        if (coding) {
+          // Double cast: `resource` is narrowed to `MedicationRequest` here, which has no
+          // index signature, so it does not overlap `Record<string, unknown>` directly.
+          (resource as unknown as Record<string, unknown>)['medicationCodeableConcept'] = { coding: [coding] };
+        }
+      }
     }
 
     // ---- series ----

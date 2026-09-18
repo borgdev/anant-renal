@@ -8,14 +8,14 @@
     "seed": 20260917
   },
   "configHash": "9a3df58fa8c4eae8",
-  "outputDigest": "415962f5f1639860",
-  "patientDigest": "c7ac52ee04cf8b2f",
+  "outputDigest": "f7994a632f2bdc1a",
+  "patientDigest": "8e43c38f7543bb1e",
   "patientCount": 244,
   "nonReproducible": [
     "practitioner-roster",
     "provider-display-names"
   ],
-  "generatedAt": "2026-09-17T23:43:31.445Z",
+  "generatedAt": "2026-09-18T01:52:58.527Z",
   "fileCount": 246,
   "argv": [
     "-p",
@@ -31,8 +31,8 @@
   },
   "projected": {
     "bundles": 244,
-    "inputEntries": 344185,
-    "outputEntries": 12795
+    "inputEntries": 329449,
+    "outputEntries": 12717
   },
   "artifactForm": "projected"
 }
