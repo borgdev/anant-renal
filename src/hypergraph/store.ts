@@ -57,21 +57,112 @@ export interface HypergraphSnapshot {
 export class HypergraphStore {
   constructor(private readonly schema: HypergraphSchema, private readonly ledger: MutationLedger) {}
 
+  // ---------------------------------------------------------------------------
+  // The write-path index.
+  //
+  // `snapshot()` replays the whole ledger — that is what a bitemporal QUERY needs,
+  // and this file keeps doing it. But `assertEdge` used to call `snapshot()` twice
+  // per edge, once for the role-type lookup and once for the duplicate-id check, so
+  // every write cost O(ledger). The bridge asserts one membership edge plus one edge
+  // per relation for EVERY effect in a realm, so writing N entries cost O(N^2) — and
+  // the ledger only ever grows. Measured on the dev server at 9 realms: 33% of all
+  // CPU in `snapshot`, 14% in `assertEdge`, 47% in this file, with the event loop
+  // starved badly enough that new connections were never accepted.
+  //
+  // These two maps answer the only questions the write path asks — "what type is
+  // this node id" and "is this edge id already live" — in O(1) amortised, by folding
+  // each ledger entry exactly once.
+  //
+  // They deliberately DO NOT consult valid-time windows: they mean "latest asserted,
+  // not retracted", which is the reference `validate()`'s own comment already
+  // specified ("use current-valid snapshot as reference"). The only input that can
+  // see the difference is a node asserted with a `validFrom` in the future, which the
+  // bridge never produces — it stamps every write with the current instant. Queries
+  // are unaffected: `snapshot()`/`now()` still replay and stay time-correct.
+  // ---------------------------------------------------------------------------
+  private readonly nodeTypeIndex = new Map<NodeId, string>();
+  /**
+   * Mirrors `snapshot()`'s permanent `retracted` shadow set.
+   *
+   * The replay ignores a `node.assert` whose id has EVER been retracted, so re-asserting
+   * one is a silent no-op there. The index reproduces that rather than letting the id
+   * come back to life, which would let the write path bind an edge to a node the store
+   * does not believe in. (`edge.retract` has NO such shadow set in the replay — a
+   * retracted edge may be re-asserted — so this asymmetry is the replay's, not mine.)
+   */
+  private readonly retractedNodeIds = new Set<NodeId>();
+  private readonly liveEdgeIds = new Set<EdgeId>();
+  /**
+   * Mirrors `snapshot()`'s permanent `supersededEdges` shadow set.
+   *
+   * The replay ignores an `edge.assert` whose id has EVER been superseded — not only
+   * while the supersede is the latest event — so re-asserting a superseded id is a
+   * silent no-op there. The index reproduces that exactly rather than inventing a
+   * stricter "already used" rule of its own: the two must agree, or the write path
+   * would accept an edge the store then never shows. (The silent no-op is arguably
+   * worth rejecting outright, but that is a behaviour change and belongs in its own
+   * commit, not smuggled in behind a performance fix.)
+   */
+  private readonly supersededEdgeIds = new Set<EdgeId>();
+  private indexedCount = 0;
+  private indexedVersion = 0;
+
+  /**
+   * Fold any ledger entries not yet in the index.
+   *
+   * A `retract()` rewrites an entry in place, so the ledger version can move without
+   * the length moving. When the version delta cannot be explained by appends we Rebuild
+   * rather than guess — a retraction is rare, and an index that kept serving a
+   * retracted node as live would be the kind of wrong that looks right.
+   */
+  private syncIndex(): void {
+    const entries = this.ledger.all();
+    const version = this.ledger.version();
+    if (version - this.indexedVersion !== entries.length - this.indexedCount) {
+      this.nodeTypeIndex.clear();
+      this.retractedNodeIds.clear();
+      this.liveEdgeIds.clear();
+      this.supersededEdgeIds.clear();
+      this.indexedCount = 0;
+    }
+    for (let i = this.indexedCount; i < entries.length; i++) this.foldEntry(entries[i]!);
+    this.indexedCount = entries.length;
+    this.indexedVersion = version;
+  }
+
+  /** One ledger entry → its effect on the index. A retracted entry contributes nothing. */
+  private foldEntry(e: LedgerEntry): void {
+    if (e.retractedAt) return;
+    switch (e.kind) {
+      case 'node.assert':
+        if (!this.retractedNodeIds.has(e.node.id)) this.nodeTypeIndex.set(e.node.id, e.node.type);
+        break;
+      case 'node.retract':
+        this.retractedNodeIds.add(e.nodeId);
+        this.nodeTypeIndex.delete(e.nodeId);
+        break;
+      case 'edge.assert':
+        if (!this.supersededEdgeIds.has(e.edge.id)) this.liveEdgeIds.add(e.edge.id);
+        break;
+      case 'edge.retract': this.liveEdgeIds.delete(e.edgeId); break;
+      case 'edge.supersede':
+        this.supersededEdgeIds.add(e.predecessorEdgeId);
+        this.liveEdgeIds.delete(e.predecessorEdgeId);
+        this.liveEdgeIds.add(e.successor.id);
+        break;
+    }
+  }
+
   /** Apply an entry with schema validation. Throws SchemaError on bad input. */
   validate(entry: LedgerEntry): void {
     if (entry.kind === 'node.assert') {
       this.schema.validateNode(entry.node);
     } else if (entry.kind === 'edge.assert') {
-      // We need a way to look up node types; use current-valid snapshot as
-      // reference. Callers that assert edges before all nodes exist should
-      // do it in a single transaction.
-      const now = new Date().toISOString();
-      const snap = this.snapshot({ validAt: now, transactionAt: now });
-      this.schema.validateEdge(entry.edge, (id) => snap.nodes.get(id)?.type);
+      this.syncIndex();
+      this.schema.validateEdge(entry.edge, (id) => this.nodeTypeIndex.get(id));
     } else if (entry.kind === 'edge.supersede') {
-      const now = new Date().toISOString();
-      const snap = this.snapshot({ validAt: now, transactionAt: now });
-      this.schema.validateEdge(entry.successor, (id) => snap.nodes.get(id)?.type);
+      this.syncIndex();
+      this.schema.validateEdge(entry.successor, (id) => this.nodeTypeIndex.get(id));
     }
   }
 
@@ -107,7 +198,7 @@ export class HypergraphStore {
     return { nodes, edges };
   }
 
-  /** Latest snapshot given the wall clock. */
+  /** Latest snapshot given the wall clock. O(ledger) — a READ path, never call it per write. */
   now(): HypergraphSnapshot {
     const t = new Date().toISOString();
     return this.snapshot({ validAt: t, transactionAt: t });
@@ -127,10 +218,10 @@ export class HypergraphStore {
 
   /** Assert an edge, validating its role bindings against currently-live nodes. */
   assertEdge(edge: HyperEdge, opts: { validFrom: string; validTo?: string; actorRef: string; scopeId: string; reason?: string }): LedgerEntry {
-    const snap = this.now();
-    this.schema.validateEdge(edge, (id) => snap.nodes.get(id)?.type);
+    this.syncIndex();
+    this.schema.validateEdge(edge, (id) => this.nodeTypeIndex.get(id));
     // Reject duplicate live edge ids so callers must use supersede for updates.
-    if (snap.edges.has(edge.id)) throw new SchemaError(`edge ${edge.id} already live; use supersede`);
+    if (this.liveEdgeIds.has(edge.id)) throw new SchemaError(`edge ${edge.id} already live; use supersede`);
     return this.ledger.append({
       kind: 'edge.assert', edge,
       validFrom: opts.validFrom,

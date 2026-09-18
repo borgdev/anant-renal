@@ -117,10 +117,22 @@ export class LedgerError extends Error {
 
 export class MutationLedger {
   private readonly entries: LedgerEntry[] = [];
+  private rev = 0;
   constructor(private readonly clock: () => Date = () => new Date()) {}
 
   size(): number { return this.entries.length; }
   all(): readonly LedgerEntry[] { return this.entries; }
+
+  /**
+   * Monotonic revision, bumped by EVERY mutation — `retract()` included.
+   *
+   * `retract()` rewrites an entry IN PLACE and so moves no length, which means a
+   * consumer that skips work by watching `size()` cannot see a retraction at all.
+   * `HypergraphStore.syncIndex` uses this counter for exactly that check, and for
+   * nothing else — a counter that only tracked appends would let its incremental
+   * index keep serving a retracted node as live.
+   */
+  version(): number { return this.rev; }
 
   append(input: LedgerAppendInput): LedgerEntry {
     const transactionAt = this.clock().toISOString();
@@ -162,6 +174,7 @@ export class MutationLedger {
     }
     const frozen = Object.freeze(entry) as LedgerEntry;
     this.entries.push(frozen);
+    this.rev += 1;
     return frozen;
   }
 
@@ -177,6 +190,7 @@ export class MutationLedger {
     const retractedAt = this.clock().toISOString();
     const replaced = Object.freeze({ ...original, retractedAt, retractedBy: actorRef, retractionReason: reason }) as LedgerEntry;
     this.entries[idx] = replaced;
+    this.rev += 1;
     return replaced;
   }
 

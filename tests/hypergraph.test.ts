@@ -182,3 +182,145 @@ describe('projections', () => {
     expect(tl[0]!.at <= tl[tl.length - 1]!.at).toBe(true);
   });
 });
+
+describe('hypergraph write path', () => {
+  /**
+   * A ledger that counts full replays.
+   *
+   * `snapshot()` is built on `liveAt()`, so counting it measures exactly what a write
+   * used to cost: `assertEdge` called `now()` — one replay allocating two fresh Maps —
+   * twice per edge, and the bridge asserts a membership edge plus one edge per
+   * relation for every effect in a realm. N writes therefore cost O(N^2) against a
+   * ledger that only grows. Measured on the dev server: 33% of CPU in `snapshot`,
+   * 14% in `assertEdge`, event loop starved.
+   */
+  class CountingLedger extends MutationLedger {
+    replays = 0;
+    override liveAt(validAt: string, asOf: string): ReturnType<MutationLedger['liveAt']> {
+      this.replays += 1;
+      return super.liveAt(validAt, asOf);
+    }
+  }
+
+  const WRITE = { validFrom: '2026-05-01', actorRef: 'u', scopeId: 's1' };
+  const episodeEdge = (id: string, patient = 'p', facility = 'f') => ({
+    id,
+    type: 'treatment-episode' as const,
+    roles: { patient: [patient], facility: [facility] },
+    attributes: { cycleAnchor: 'p' },
+  });
+
+  function graphWith(edgeCount: number) {
+    const ledger = new CountingLedger();
+    const store = new HypergraphStore(buildDialysisSchema(), ledger);
+    store.assertNode({ id: 'p', type: 'patient', attributes: { mrn: 'M' } }, WRITE);
+    store.assertNode({ id: 'f', type: 'facility', attributes: {} }, WRITE);
+    for (let i = 0; i < edgeCount; i++) store.assertEdge(episodeEdge(`e${i}`), WRITE);
+    return { store, ledger };
+  }
+
+  it('does NOT replay the ledger to assert an edge', () => {
+    const { ledger } = graphWith(200);
+    expect(ledger.replays).toBe(0);
+  });
+
+  it('replays only on the read path — so the counter above is not vacuous', () => {
+    const { store, ledger } = graphWith(3);
+    expect(ledger.replays).toBe(0);
+    const snap = store.now();
+    expect(ledger.replays).toBeGreaterThan(0);
+    expect(snap.nodes.size).toBe(2);
+    expect(snap.edges.size).toBe(3);
+  });
+
+  it('still refuses a duplicate live edge id', () => {
+    const { store } = graphWith(1);
+    expect(() => store.assertEdge(episodeEdge('e0'), WRITE)).toThrow(/already live; use supersede/);
+  });
+
+  it('still validates role bindings against node TYPES, not just presence', () => {
+    const { store } = graphWith(0);
+    // `patient` bound to a facility: present in the index, wrong type.
+    expect(() => store.assertEdge(episodeEdge('wrongType', 'f', 'f'), WRITE)).toThrow(/role|type/i);
+    // an id that was never asserted at all
+    expect(() => store.assertEdge(episodeEdge('ghost', 'ghost', 'f'), WRITE)).toThrow(/role|type/i);
+  });
+
+  it('an in-place ledger.retract() UNDOES the entry, so a re-assert revives the node', () => {
+    // `ledger.retract()` rewrites the target entry in place, and `asOfTransaction` filters
+    // out any entry carrying `retractedAt`. So it does not leave a tombstone — it removes
+    // the assertion from history. Re-asserting the id therefore brings the node BACK, in
+    // the replay and in the index alike.
+    //
+    // Measured, not assumed: the first version of this test asserted the opposite and
+    // failed. The index had to be made to agree with the code, not with my reading of it.
+    const ledger = new CountingLedger();
+    const store = new HypergraphStore(buildDialysisSchema(), ledger);
+    const patientEntry = store.assertNode({ id: 'p', type: 'patient', attributes: { mrn: 'M' } }, WRITE);
+    store.assertNode({ id: 'f', type: 'facility', attributes: {} }, WRITE);
+    store.assertEdge(episodeEdge('e0'), WRITE);
+
+    ledger.retract(patientEntry.id, 'u', 'recorded in error');
+    expect(store.now().nodes.has('p')).toBe(false);
+    expect(() => store.assertEdge(episodeEdge('e1'), WRITE)).toThrow(/role|type/i);
+
+    store.assertNode({ id: 'p', type: 'patient', attributes: { mrn: 'M2' } }, WRITE);
+    expect(store.now().nodes.has('p')).toBe(true);
+    expect(() => store.assertEdge(episodeEdge('e2'), WRITE)).not.toThrow();
+  });
+
+  it('a node.retract() ENTRY does tombstone the id, and the index mirrors that', () => {
+    // The other retraction mechanism: an explicit `node.retract` ledger entry. That one
+    // DOES leave a tombstone — `snapshot()` keeps a permanent `retracted` set and ignores
+    // any later `node.assert` of the same id.
+    //
+    // Nothing in src/ appends this kind today (`ledger.retract()` is the only retraction
+    // in use, and it does not go through `append`), which is exactly why the index's
+    // handling of it needs a test rather than a hope: it is unreachable code that a future
+    // caller can reach.
+    const ledger = new CountingLedger();
+    const store = new HypergraphStore(buildDialysisSchema(), ledger);
+    store.assertNode({ id: 'p', type: 'patient', attributes: { mrn: 'M' } }, WRITE);
+    store.assertNode({ id: 'f', type: 'facility', attributes: {} }, WRITE);
+    store.assertEdge(episodeEdge('e0'), WRITE);
+
+    ledger.append({ kind: 'node.retract', nodeId: 'p', validFrom: '2026-05-02', actorRef: 'u', scopeId: 's1' });
+    expect(store.now().nodes.has('p')).toBe(false);
+    expect(() => store.assertEdge(episodeEdge('e1'), WRITE)).toThrow(/role|type/i);
+
+    // The replay ignores the re-assert, so the index must too — otherwise the write path
+    // would accept an edge bound to a node the store never shows.
+    store.assertNode({ id: 'p', type: 'patient', attributes: { mrn: 'M2' } }, WRITE);
+    expect(store.now().nodes.has('p')).toBe(false);
+    expect(() => store.assertEdge(episodeEdge('e2'), WRITE)).toThrow(/role|type/i);
+  });
+
+  it('agrees with the replay about a superseded edge id', () => {
+    // `snapshot()` keeps a PERMANENT `supersededEdges` shadow set, so re-asserting a
+    // superseded id is accepted and then silently ignored by the replay forever. The
+    // index mirrors that rather than inventing a stricter rule: if the two disagreed,
+    // the write path would accept an edge the store never shows.
+    const ledger = new CountingLedger();
+    const store = new HypergraphStore(buildDialysisSchema(), ledger);
+    store.assertNode({ id: 'p', type: 'patient', attributes: { mrn: 'M' } }, WRITE);
+    store.assertNode({ id: 'f', type: 'facility', attributes: {} }, WRITE);
+    store.assertEdge(episodeEdge('e0'), WRITE);
+
+    ledger.append({
+      kind: 'edge.supersede',
+      predecessorEdgeId: 'e0',
+      successor: episodeEdge('e1'),
+      validFrom: '2026-05-02',
+      actorRef: 'u',
+      scopeId: 's1',
+    });
+    expect(store.now().edges.has('e0')).toBe(false);
+    expect(store.now().edges.has('e1')).toBe(true);
+
+    // The id is free again, exactly as it is for the replay…
+    expect(() => store.assertEdge(episodeEdge('e0'), WRITE)).not.toThrow();
+    // …and the re-assertion stays inert in BOTH, which is the parity being pinned.
+    expect(store.now().edges.has('e0')).toBe(false);
+    expect(() => store.assertEdge(episodeEdge('e0'), WRITE)).not.toThrow();
+  });
+});
