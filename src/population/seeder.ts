@@ -94,6 +94,11 @@ export interface PopulationArtifactSpec {
    * only the durable half, so an engine comparison can start from the model default.
    */
   readonly seedObservationState?: boolean;
+  /**
+   * Give the renal cohort (CKD/ESRD) its dialysis labs and its case mix from the
+   * renal domain rather than from Synthea's observations. Default false.
+   */
+  readonly dialysisLabs?: boolean;
 }
 
 /** Everything a seeder needs to stand up one facility inside a realm. */
@@ -220,6 +225,9 @@ export const SyntheaPopulationSeeder: PopulationSeeder = {
         : {}),
       ...(artifact.seedObservationState !== undefined
         ? { seedObservationState: artifact.seedObservationState }
+        : {}),
+      ...(artifact.dialysisLabs !== undefined
+        ? { dialysisLabs: artifact.dialysisLabs }
         : {}),
     });
 

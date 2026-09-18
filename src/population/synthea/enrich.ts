@@ -310,6 +310,43 @@ export function isRenalCohort(problems: readonly string[]): boolean {
   return problems.some((problem) => RENAL_COHORT_PROBLEMS.includes(problem));
 }
 
+/**
+ * The case mix a seeded dialysis unit is given, cycled by patient index.
+ *
+ * Spread rather than derived, and both halves of that are deliberate.
+ *
+ * `trajectoryLabel(state)` — the engine's own vocabulary — CANNOT work here, and
+ * the reason is measured rather than assumed. `state` is the PRIMED ENGINE STATE,
+ * which for a population realm was primed from Synthea's observations; a general
+ * population's haemoglobin is normal, so `anemia_severity` lands near zero and
+ * `trajectoryLabel` returns `stable` for every patient. `baselineLabsFor('stable')`
+ * is HGB 11.4 — one tenth of a gram above the `< 11` alert threshold — so a realm
+ * of 200 identical `stable` patients flags nothing and looks clinically inert. It
+ * also silences the `missed_treatment` event-vector input, which reads
+ * `state.trajectory === 'underdialyzed'` (§4.5).
+ *
+ * So the mix is declared, the way `populateFacility` declares its own
+ * (`TRAJECTORIES[i % 7]`): a dialysis unit contains a spread of severities, and
+ * that is a property of the UNIT rather than of the patient's source record. What
+ * it is deliberately NOT is a clinical derivation — nobody can read "deteriorating"
+ * off a census-derived chart, and inventing a mapping from a problem term to a
+ * severity would be a clinical position this layer has no business taking. This is
+ * the same restraint `RENAL_COHORT_PROBLEMS` above records.
+ *
+ * `generateLongitudinalHistory` produces its labs FROM this value, so the two agree
+ * by construction — which is the invariant that was broken when the labs came from
+ * the renal domain and the trajectory came from Synthea.
+ */
+export const RENAL_CASE_MIX: readonly LongitudinalTrajectory[] = Object.freeze([
+  'stable',
+  'anemic-worsening',
+  'underdialyzed',
+  'decompensating',
+  'stable',
+  'hyperphosphatemia',
+  'anemic-recovering',
+]);
+
 export interface EnrichOptions {
   readonly facilityId: string;
   readonly unitIds: readonly string[];
@@ -477,6 +514,20 @@ export function enrichPatient(
   const problemsReconciled = sameProblemSet(fromGraph, fromBundle);
   const payer = payerFromGraph(realm, summary.localPatientId);
 
+  // The patient's dialysis trajectory — computed ONCE, because the patch and the
+  // labs both depend on it and two computations are two answers waiting to differ.
+  //
+  // For the renal cohort it is the declared case mix; for everyone else it stays
+  // the engine's own label, checked for membership rather than cast into a union it
+  // might not belong to (`trajectoryLabel` returns `string`).
+  const renalCohortPatient = opts.dialysisLabs === true && isRenalCohort(problems);
+  const engineLabel = trajectoryLabel(state);
+  const trajectory: LongitudinalTrajectory = renalCohortPatient
+    ? RENAL_CASE_MIX[index % RENAL_CASE_MIX.length]!
+    : (LONGITUDINAL_TRAJECTORIES as readonly string[]).includes(engineLabel)
+      ? (engineLabel as LongitudinalTrajectory)
+      : 'stable';
+
   const patch: Record<string, unknown> = {
     admitted: true,
     facilityId: opts.facilityId,
@@ -494,7 +545,7 @@ export function enrichPatient(
     // of the bundle. `problems` below is still derived from the bundle and is used for
     // ONE thing: confirming the two agree. It is not a fallback.
     problemList: problems,
-    trajectory: trajectoryLabel(state),
+    trajectory,
     // The payer, projected from the patient's `Coverage` entity when one exists. A
     // coverage fact lives on its own entity rather than on the patient, so the
     // fairness report cannot reach it without this step.
@@ -503,23 +554,14 @@ export function enrichPatient(
   if (age !== undefined) patch['age'] = age;
   if (opts.seedObservationState !== false) {
     // Option 2 of the demo decision: the renal cohort's dialysis state comes from
-    // the renal domain, everyone else's from Synthea.
-    //
-    // `trajectoryLabel` is the engine's own vocabulary and returns a member of
-    // `LongitudinalTrajectory`, but its signature is `string` — so the value is
-    // checked for membership and falls back to `stable` rather than being cast
-    // into a union it might not belong to.
-    const label = trajectoryLabel(state);
-    const renalTrajectory: LongitudinalTrajectory = (
-      LONGITUDINAL_TRAJECTORIES as readonly string[]
-    ).includes(label)
-      ? (label as LongitudinalTrajectory)
-      : 'stable';
-    if (opts.dialysisLabs === true && isRenalCohort(problems)) {
+    // the renal domain, everyone else's from Synthea. Both `trajectory` and
+    // `renalCohortPatient` were decided above, so the labs cannot disagree with the
+    // trajectory they were generated from.
+    if (renalCohortPatient) {
       const profile = generateLongitudinalHistory({
         patientId: urn,
         facilityId: opts.facilityId,
-        trajectory: renalTrajectory,
+        trajectory,
         days: 90,
         seed: 1,
         asOf: opts.realmAt,
