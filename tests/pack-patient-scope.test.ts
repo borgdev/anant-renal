@@ -108,7 +108,7 @@ const awaitingAScopingFact: Readonly<Record<string, string>> = Object.freeze({
   oncologyDeepPack:
     'It would narrow the oncology cohort that already exists, but declares nothing of its own.',
   payerPack:
-    'No Coverage or payor fact reaches the graph: `projection.ts` has no Coverage rule, so benefit membership cannot be decided at all.',
+    'The payor fact now reaches the graph for a GENERATED population — `projection.ts` lifts it out of the claim it is nested in and `enrich.ts` writes it to `state.insurance` (see §5 S5) — but the static fixture writes no coverage at all, so it is absent for every fixture patient. Benefit membership is therefore decidable only against a population realm, and the predicate is still unwritten: a cohort selecting on it would empty on the default fixture.',
   careManagementPack: 'No risk-stratification fact in the projection.',
   behavioralHealthPack: 'No behavioural-health diagnosis reaches the recorded problem list.',
   infusionProviderPack: 'No specialty-drug administration fact in the projection.',

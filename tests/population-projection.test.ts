@@ -346,3 +346,111 @@ describe('projection filtering and reporting (S3)', () => {
     expect(report.inputEntries).toBe(0);
   });
 });
+
+describe('the payer lift (S6)', () => {
+  /**
+   * A claim shaped the way Synthea emits one: a payment record whose ONLY payer is a
+   * `Coverage` nested inside it. Both date fields are set, as they are on 100% of the
+   * 28,447 claims measured in the pinned artifact.
+   */
+  const claim = (payer: string, at: string): AnyResource => ({
+    resourceType: 'ExplanationOfBenefit',
+    id: `eob-${payer}-${at}`,
+    created: at,
+    billablePeriod: { start: at },
+    contained: [
+      // The literal id `coverage`, as Synthea writes it — shared by every one of them.
+      {
+        resourceType: 'Coverage',
+        id: 'coverage',
+        status: 'active',
+        type: { text: payer },
+        beneficiary: { reference: 'urn:uuid:not-a-local-id-yet' },
+        payor: [{ display: payer }],
+      },
+      { resourceType: 'ServiceRequest', id: 'sr' },
+    ],
+  });
+
+  const coveragesIn = (chunks: readonly Bundle[]): AnyResource[] =>
+    flattened(chunks).filter((r) => r.resourceType === 'Coverage') as unknown as AnyResource[];
+
+  it('lifts the payer, because Coverage is never a bundle entry', () => {
+    // The whole point: `ExplanationOfBenefit` is `keep: 'never'`, and the payer lives in
+    // its `contained` array. A `Coverage` row in `RESOURCE_PROJECTION` could not fire —
+    // the loop walks `bundle.entry` — so the lift has to happen before the exclusion
+    // runs. This asserts the payer survives the exclusion that would otherwise drop it.
+    expect(RESOURCE_PROJECTION.some((r) => r.resourceType === 'Coverage')).toBe(false);
+
+    const { chunks, report } = projectBundle(bundleOf([patient(), claim('Medicare', '2026-03-01T00:00:00Z')]));
+
+    const coverages = coveragesIn(chunks);
+    expect(coverages).toHaveLength(1);
+    expect((coverages[0]!['payor'] as Array<{ display?: string }>)[0]!.display).toBe('Medicare');
+    // Read from the source: `payor[0]` is a display and there is no reference to copy.
+    expect((coverages[0]!['payor'] as Array<{ reference?: string }>)[0]!.reference).toBeUndefined();
+    expect(coverages[0]!['beneficiary']).toEqual({ reference: 'Patient/pt-1' });
+    expect(report.kept.some((k) => k.resourceType === 'Coverage' && k.count === 1)).toBe(true);
+
+    // …and the payment record itself is still dropped.
+    expect(flattened(chunks).some((r) => r.resourceType === 'ExplanationOfBenefit')).toBe(false);
+    expect(report.dropped.some((d) => d.resourceType === 'ExplanationOfBenefit')).toBe(true);
+  });
+
+  it('keys the Coverage on the patient, not on the source id every claim shares', () => {
+    // Synthea gives all 118 of a patient's Coverages the literal id `coverage`. Lifting
+    // them as they stand would upsert them onto ONE entity, so the realm would hold a
+    // single coverage and give one arbitrary patient the payer. Measured, not assumed:
+    // the fixture's contained id is deliberately `coverage`.
+    const claimA = claim('Medicare', '2026-03-01T00:00:00Z');
+    const { chunks } = projectBundle(bundleOf([patient('pt-7'), claimA]));
+    const [coverage] = coveragesIn(chunks);
+    expect(coverage!['id']).toBe('pt-7-coverage');
+  });
+
+  it('takes the NEWEST claim’s payer when a patient’s coverage changes', () => {
+    // 138 of 246 measured patients carry more than one payer, so the rule needs a
+    // definition rather than a default. Ordered oldest-LAST here, so a positional
+    // implementation would return the wrong one and this would fail.
+    const older = claim('Medicaid', '2024-01-01T00:00:00Z');
+    const newer = claim('Blue Cross Blue Shield', '2026-06-01T00:00:00Z');
+    const { chunks } = projectBundle(bundleOf([patient(), newer, older]));
+
+    const [coverage] = coveragesIn(chunks);
+    expect((coverage!['payor'] as Array<{ display?: string }>)[0]!.display).toBe('Blue Cross Blue Shield');
+  });
+
+  it('emits ONE Coverage per patient, not one per claim', () => {
+    const claims = ['Medicare', 'Medicare', 'Medicaid', 'Medicare', 'Humana'].map((p, i) =>
+      claim(p, `2026-0${i + 1}-01T00:00:00Z`),
+    );
+    const { chunks } = projectBundle(bundleOf([patient(), ...claims]));
+
+    expect(coveragesIn(chunks)).toHaveLength(1);
+    // Newest is 2026-05-01, i.e. the fifth.
+    expect((coveragesIn(chunks)[0]!['payor'] as Array<{ display?: string }>)[0]!.display).toBe('Humana');
+  });
+
+  it('sticks with the first payer when NO claim carries a date', () => {
+    // Defensive: both date fields are present on every measured claim, so this path is
+    // unreachable on real output. A NaN must not displace a payer already chosen, and
+    // must not crash the comparison that decides it.
+    const undated = (payer: string): AnyResource => ({
+      resourceType: 'ExplanationOfBenefit',
+      id: `eob-${payer}`,
+      contained: [{ resourceType: 'Coverage', id: 'coverage', payor: [{ display: payer }] }],
+    });
+    const { chunks } = projectBundle(bundleOf([patient(), undated('Aetna'), undated('Anthem')]));
+
+    expect(coveragesIn(chunks)).toHaveLength(1);
+    expect((coveragesIn(chunks)[0]!['payor'] as Array<{ display?: string }>)[0]!.display).toBe('Aetna');
+  });
+
+  it('emits no Coverage at all when the patient has no claim', () => {
+    // The static fixture's position, and the reason the fairness report counts those
+    // patients as `unknown` rather than dropping them: an absent payer is a visible gap.
+    const { chunks, report } = projectBundle(bundleOf([patient(), observation('718-7', '2026-01-01T00:00:00Z', 11)]));
+    expect(coveragesIn(chunks)).toHaveLength(0);
+    expect(report.kept.some((k) => k.resourceType === 'Coverage')).toBe(false);
+  });
+});

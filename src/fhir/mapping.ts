@@ -389,6 +389,12 @@ function serializeInsurance(rec: EntityRecord, ctx: FhirCtx): Coverage {
     kind: 'group',
     identifier: [{ system: CODE_SYSTEMS.oid, value: str(st['policyNumber']) ?? rec.id, use: 'official' }],
     ...(str(st['patientId']) ? { beneficiary: { reference: `Patient/${str(st['patientId'])}` } } : {}),
+    // `payerId` is written as an Organization reference, and for a SEEDED population it
+    // names no entity: the population's payer is a display name (`'Medicare'`), because
+    // Synthea supplies no payor reference and `ExplanationOfBenefit.insurer` is absent on
+    // every claim. The fairness report bands the name and never resolves it; an outbound
+    // reader following this reference gets nothing. See the `insurance` branch in
+    // `canonical.ts`, which is where the name wins its place in the state.
     payor: [{ reference: `Organization/${str(st['payerId']) ?? 'payer'}` }],
     period: {
       ...(str(st['effectiveStart']) ? { start: str(st['effectiveStart'])! } : {}),

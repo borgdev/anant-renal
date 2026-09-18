@@ -536,11 +536,25 @@ function structuralState(kind: EntityKind, resource: FhirResource): Record<strin
       return { kind: d.type?.coding?.[0]?.code ?? 'device', serial: d.serialNumber ?? resource.id, assignedPatientId: refId(d.patient) ?? undefined };
     }
     case 'insurance': {
-      const c = resource as { identifier?: Array<{ value?: string }>; beneficiary?: { reference?: string }; payor?: Array<{ reference?: string }>; period?: { start?: string; end?: string }; status?: string };
+      const c = resource as { identifier?: Array<{ value?: string }>; beneficiary?: { reference?: string }; payor?: Array<{ reference?: string; display?: string }>; period?: { start?: string; end?: string }; status?: string };
+      // `payerId` falls back to the payor's DISPLAY, and that is a deliberate concession to
+      // the source rather than a convenience. A generated population supplies
+      // `payor: [{ display: 'Medicare' }]` — a name with no reference, and no
+      // `ExplanationOfBenefit.insurer` to recover one from — so the payer's name is the
+      // only identifier that exists. Resolving it here rather than in the projection keeps
+      // ONE definition of "who is the payer": a real reference still wins when a
+      // deployment supplies one, and the fallback only covers the population path.
+      //
+      // The cost is visible in `serializeInsurance` (mapping.ts): the outbound Coverage
+      // emits `payor: [{ reference: 'Organization/Medicare' }]`, which names no realm
+      // entity. Banding the fairness report does not read it; a FHIR client resolving it
+      // would get nothing. Recorded rather than hidden.
+      const payor = c.payor?.[0];
+      const display = typeof payor?.display === 'string' && payor.display ? payor.display : undefined;
       return {
         policyNumber: c.identifier?.[0]?.value ?? resource.id,
         patientId: refId(c.beneficiary) ?? undefined,
-        payerId: refId(c.payor?.[0]) ?? undefined,
+        payerId: refId(payor) ?? display,
         effectiveStart: c.period?.start, effectiveEnd: c.period?.end,
         status: c.status ?? 'active',
         kind: 'claim' in resource ? 'claim' : undefined,

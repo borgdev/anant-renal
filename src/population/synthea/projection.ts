@@ -196,7 +196,12 @@ export const RESOURCE_PROJECTION: readonly ProjectionRule[] = Object.freeze([
   {
     resourceType: 'ExplanationOfBenefit',
     keep: 'never',
-    reason: '20,213 entries. Same as Claim — a payment record, not patient state.',
+    reason:
+      '20,213 entries. Dropped as a payment record — but its `contained` Coverage is LIFTED first, ' +
+      'because that is the only place Synthea puts the payer: measured on the pinned artifact, ZERO of ' +
+      'the 28,447 Coverage resources are bundle entries, all of them are nested here. Without the lift this ' +
+      'exclusion would discard the payer axis silently, and because the payer lives in `contained` a ' +
+      '`Coverage` rule in this table could never fire — the loop below walks `bundle.entry` only.',
   },
   {
     resourceType: 'DocumentReference',
@@ -338,6 +343,55 @@ function displayOf(resource: FhirResource): string | undefined {
   return (resource as { code?: { coding?: Array<{ display?: string }> } }).code?.coding?.[0]?.display ?? undefined;
 }
 
+/** The realm-local patient id this bundle is about, after `applyPatientIdMap`. */
+function patientIdIn(bundle: Bundle): string | undefined {
+  for (const entry of bundle.entry ?? []) {
+    const r = entry.resource as { resourceType?: string; id?: string } | undefined;
+    if (r?.resourceType === 'Patient' && typeof r.id === 'string' && r.id) return r.id;
+  }
+  return undefined;
+}
+
+/**
+ * The payer on the patient's NEWEST claim.
+ *
+ * Synthea nests a `Coverage` inside every `ExplanationOfBenefit`, and that Coverage is the
+ * only place the payer appears. Two measured properties decide the rule:
+ *
+ *   • the Coverage has NO date of its own — the date is on the claim that contains it, so
+ *     "the patient's payer" has to be defined as the payer on the newest claim. 138 of 246
+ *     patients carry more than one payer across their lifetime record, so without a rule
+ *     the choice would be arbitrary rather than merely inconvenient;
+ *   • `payor[0]` is `{ display: 'Humana' }` — a name and no reference, and
+ *     `ExplanationOfBenefit.insurer` is absent on all 28,447 claims. So the payer's
+ *     identity in this data IS its name; there is no id to resolve.
+ */
+function payerFromClaims(bundle: Bundle): string | undefined {
+  let newestAt = Number.NEGATIVE_INFINITY;
+  let payer: string | undefined;
+  for (const entry of bundle.entry ?? []) {
+    const r = entry.resource as
+      | {
+          resourceType?: string;
+          created?: string;
+          billablePeriod?: { start?: string };
+          contained?: Array<{ resourceType?: string; payor?: Array<{ display?: string }> }>;
+        }
+      | undefined;
+    if (r?.resourceType !== 'ExplanationOfBenefit') continue;
+    const name = r.contained?.find((c) => c.resourceType === 'Coverage')?.payor?.[0]?.display;
+    if (typeof name !== 'string' || name.length === 0) continue;
+    const raw = r.billablePeriod?.start ?? r.created;
+    const at = raw ? Date.parse(raw) : Number.NaN;
+    // An undated claim is only used when nothing dated has been seen, so a NaN cannot
+    // displace a real date. Both date fields are present on 100% of measured claims.
+    if (payer !== undefined && !(at > newestAt)) continue;
+    payer = name;
+    newestAt = Number.isNaN(at) ? newestAt : at;
+  }
+  return payer;
+}
+
 interface RetentionGroup {
   readonly type: string;
   readonly reason: string;
@@ -411,6 +465,40 @@ export function projectBundle(bundle: Bundle, opts: ProjectionOptions = {}): Pro
     for (const key of [res.id, entry.fullUrl]) {
       if (typeof key === 'string' && key.length > 0) medicationCodes.set(key, coding);
     }
+  }
+
+  // ---- the payer, lifted out of the payment record ---------------------------
+  //
+  // This is a SECOND lift, and it exists for the same reason as the drug code above: an
+  // exclusion was dropping a fact a consumer reads, and the exclusion's own reason did not
+  // mention it. The difference is that the payer is not merely on the far side of a
+  // reference — it is on the far side of an array the projection never walks.
+  //
+  // Synthea puts `Coverage` in `ExplanationOfBenefit.contained`, so it is invisible to
+  // both of this module's entry-level paths: the type rule (there is no entry to match) and
+  // the loop below. A `Coverage` row in `RESOURCE_PROJECTION` would therefore be an inert
+  // rule — it would read as implemented, change nothing, and be trusted, which is the
+  // failure this file's header already catalogues twice.
+  //
+  // One synthesized Coverage PER PATIENT, not the 118 the claims carry. Every Coverage in
+  // the pool shares the literal id `"coverage"`, so lifting them as they stand would
+  // upsert them all onto a single entity and give one arbitrary patient the realm's only
+  // payer. Keying on the patient makes the entity unique and the fact current.
+  const payerName = payerFromClaims(bundle);
+  const lifted: FhirResource[] = [];
+  const subject = patientIdIn(bundle);
+  if (payerName !== undefined && subject !== undefined) {
+    lifted.push({
+      resourceType: 'Coverage',
+      id: `${subject}-coverage`,
+      status: 'active',
+      type: { text: payerName },
+      beneficiary: { reference: `Patient/${subject}` },
+      // A display, matching the source. `structuralState` reads the display only because
+      // there is no reference to read — see the `insurance` branch in `canonical.ts`.
+      payor: [{ display: payerName }],
+    } as unknown as FhirResource);
+    keep('Coverage');
   }
 
   const vocabulary: FhirResource[] = [];
@@ -512,11 +600,11 @@ export function projectBundle(bundle: Bundle, opts: ProjectionOptions = {}): Pro
   }
 
   // Ordering: Patient first (so no effect can find an unknown patient and mint a
-  // second chart), then the condition list, then the retained series. Conditions are
-  // structural — they carry no effect — so their position among themselves is free,
-  // but placing them before the series keeps a chunk's structural work ahead of its
-  // effects for the same patient.
-  const all: FhirResource[] = [...patient, ...vocabulary, ...ordered];
+  // second chart), then the structural group (conditions and the lifted payer), then the
+  // retained series. Conditions and coverage are structural — they carry no effect — so
+  // their position among themselves is free, but placing them before the series keeps a
+  // chunk's structural work ahead of its effects for the same patient.
+  const all: FhirResource[] = [...patient, ...vocabulary, ...lifted, ...ordered];
   const chunks = chunkResources(all, bundle.id ?? 'population');
 
   const asRows = (map: Map<string, { count: number; reason: string }>): Array<{ resourceType: string; count: number; reason: string }> =>

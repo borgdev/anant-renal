@@ -127,8 +127,10 @@ appear in exactly one of three lists:
   platform, not a specialty) and `cms-universe` describes programs and never enrols a
   patient.
 - `awaitingAScopingFact` — takes everyone because the fact that would scope it is absent,
-  each entry naming it. `payer` is the sharpest: no `Coverage` rule exists in
-  `projection.ts`, so benefit membership cannot be decided at all. `dialysis-provider` and
+  each entry naming it. `payer` is the sharpest: the payor now reaches a GENERATED
+  population's patients as `state.insurance` (§5 S5), but the static fixture writes no
+  coverage, so a predicate here would be decidable only against a population realm — and
+  it is still unwritten. `dialysis-provider` and
   `ckd-navigation` are the most awkward, because their fact *is* recorded (ESRD and CKD on
   the problem list) and only the predicate is unwritten.
 
@@ -1113,8 +1115,61 @@ no disparity, now for a measurable reason.
 
 **And `insurance` is absent on all 200** — the payer axis resolves to `unknown` for every
 patient because `projection.ts` has no `Coverage` rule at all, so the resource is
-discarded before ingest ever sees it. Measured rather than assumed; the fix is named (a
-`Coverage` rule keeping `beneficiary` and `payor`) and is the next step for that axis.
+discarded before ingest ever sees it. Measured rather than assumed.
+
+**The named fix was wrong, and one measurement showed it.** That paragraph proposed *"a
+`Coverage` rule keeping `beneficiary` and `payor`"*. A rule would have been **inert**.
+Measured on the pinned artifact: **28,447 `Coverage` resources, and ZERO of them are
+bundle entries** — every one lives inside an `ExplanationOfBenefit.contained` array (118
+per patient at 244 patients), and `ExplanationOfBenefit` is `keep: 'never'`.
+`projectBundle` walks `bundle.entry`, so a `Coverage` row in `RESOURCE_PROJECTION` would
+never have matched anything: it would have read as implemented, changed nothing, and been
+trusted. That is the failure this document already catalogues twice — §5 S2's single
+digest, §5 S5's `vintage=watch` verdict — and it very nearly became a third.
+
+Two further properties of the source decided the shape, both measured:
+
+- **The payer has no reference.** `payor[0]` is `{ display: 'Humana' }`, and
+  `ExplanationOfBenefit.insurer` is absent on all 28,447 claims. `canonical.ts` read
+  `refId(c.payor?.[0])` — `reference` only — so even an ingested `Coverage` would have
+  produced `payerId: undefined`. Fixing the lift alone would have moved the silence
+  rather than removed it.
+- **A payer is not one value per patient, and `Coverage` carries no date of its own.** It
+  has no `created` and no `period`; the date is on the claim containing it. 108 of 246
+  patients carry one payer and 138 carry up to six, so "the patient's payer" needed a
+  definition rather than a default: **the payer on the newest claim wins**
+  (`billablePeriod.start`, falling back to `created` — both present on 100% of measured
+  claims).
+
+**Shipped** — a second lift in `projection.ts`, plus the display fallback in
+`canonical.ts`. The payer is lifted out of the payment record *before* the exclusion
+runs, and synthesized as **one `Coverage` per patient**, keyed `<localId>-coverage`,
+because every `Coverage` in the pool shares the literal id `"coverage"`: lifting them as
+they stand would upsert them all onto one entity and hand one arbitrary patient the
+realm's only payer.
+
+Measured on the re-projected artifact, with the population otherwise byte-identical (the
+raw-pool digest is unchanged, which isolates the change to the projection): **244 of 244
+patients band, into 10 payers** — Medicare 71, Humana 37, Medicaid 35, **NO_INSURANCE
+24**, Blue Cross Blue Shield 21, UnitedHealthcare 14, Dual Eligible 14, Anthem 13, Cigna
+Health 10, Aetna 5. That reproduces the independent raw-pool measurement exactly, which
+is the cross-check saying the lift is faithful rather than merely non-empty.
+
+The cost is named rather than hidden: `serializeInsurance` writes
+`payor: [{ reference: 'Organization/<payerId>' }]`, so a name in `payerId` emits a
+reference naming no realm entity. The fairness report bands the name and never resolves
+it; a FHIR reader following that reference gets nothing. Recorded at both sites where it
+happens.
+
+**Verified in process, not live — and that is a gap rather than a pass.** The chain is
+pinned end to end in `tests/population-seed.test.ts` (claim → lift → ingest →
+`state.insurance`, with the display fallback proved load-bearing by removing it and
+watching the test fail), but it was **not** confirmed through a running server: this
+machine's dev server saturates its event loop at ~100% CPU and stops servicing new
+connections. That was measured to be independent of this change — stashing it and
+restarting still gave 135% CPU, and an isolated database with zero realms restored still
+gave 102% for the process's entire life — but it is unexplained, and until it is, the
+payer band has not been seen on a live console.
 
 **§7's risk row was recorded as measured true, and that record is also withdrawn.**
 Its text was: *"The equity screen still cannot fire after S5 — would mean the

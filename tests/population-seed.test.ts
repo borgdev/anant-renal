@@ -166,6 +166,40 @@ function bundleB(): Obj {
   };
 }
 
+/**
+ * A claim carrying the payer the way Synthea emits one.
+ *
+ * The `Coverage` is nested inside the payment record, because that is the only place the
+ * payer exists in a generated population — measured: ZERO of 28,447 Coverage resources in
+ * the pinned artifact are bundle entries. `ExplanationOfBenefit` is excluded by the
+ * projection, so the payer survives only if it is lifted first, which is what this
+ * fixture is here to prove.
+ */
+function claim(id: string, subject: string, payer: string, date: string): Obj {
+  return {
+    resourceType: 'ExplanationOfBenefit',
+    id,
+    status: 'active',
+    type: { coding: [{ code: 'professional' }] },
+    patient: { reference: `Patient/${subject}` },
+    created: date,
+    billablePeriod: { start: date },
+    contained: [
+      {
+        resourceType: 'Coverage',
+        // The literal id Synthea gives every one of them, so a lift that passed the
+        // contained resource through unchanged would collide rather than work.
+        id: 'coverage',
+        status: 'active',
+        type: { text: payer },
+        beneficiary: { reference: `Patient/${subject}` },
+        payor: [{ display: payer }],
+      },
+      { resourceType: 'ServiceRequest', id: 'sr-claim' },
+    ],
+  };
+}
+
 /** Write a population artifact for `realmId` to a temp root and return that root. */
 function writePopulation(realmId: string = REALM, bundles: Obj[] = [bundleA(), bundleB()]): string {
   const root = mkdtempSync(join(tmpdir(), 'hh-pop-'));
@@ -384,6 +418,63 @@ describe('seedRealmFromPopulation — the exit criteria (S3)', () => {
       // unguarded seeder would leave hundreds behind in a real population.
       expect(realm.presences.list()).toHaveLength(before);
       expect(realm.presences.list().some((p) => /population-seed|fhir-ingest/.test(p.agentSpecId))).toBe(false);
+    } finally {
+      realm.stop();
+    }
+  });
+});
+
+describe('the payer lift, end to end (S6)', () => {
+  it('carries the payer from the claim through to the patient’s state', async () => {
+    // The whole chain in one test, because each link is silent when it breaks: the payer
+    // is nested inside a payment record the projection excludes, `canonical.ts` reads the
+    // payor by reference, and `enrich.ts` reads the payer back off the GRAPH. A break in
+    // any of the three leaves no `insurance` entity and every patient banding as
+    // `unknown` — a fairness axis that looks wired and reports nothing.
+    //
+    // `NO_INSURANCE` is chosen deliberately: it is a real band in the measured
+    // population (24 of 244 patients) and it is not a payer name, so a test that passed
+    // by accident on a string like 'Medicare' cannot pass here.
+    const bundles = [
+      {
+        resourceType: 'Bundle',
+        type: 'collection',
+        entry: [
+          { resource: patient('syn-c', '1960-01-01', 'female') },
+          { resource: condition('c-c-esrd', 'syn-c', 'End-stage renal disease (disorder)') },
+          { resource: claim('eob-c', 'syn-c', 'NO_INSURANCE', '2026-04-01T00:00:00Z') },
+        ],
+      },
+    ];
+    const root = writePopulation('realm:payer', bundles);
+    const { realm } = await harness('realm:payer');
+    try {
+      await seedRealmFromPopulation(realm, { realmId: 'realm:payer', root, ...SEED_OPTS });
+
+      const local = 'realm-payer-pt-0001';
+      // The report reads the PATIENT, not the graph — this is the field it bands.
+      expect(patientState(realm, local)['insurance']).toBe('NO_INSURANCE');
+
+      // …and it got there from the entity, which is why the lift had to happen at all.
+      const coverages = realm.graph.listKind('insurance');
+      expect(coverages).toHaveLength(1);
+      expect((coverages[0]!.state as Obj)['patientId']).toBe(local);
+      expect((coverages[0]!.state as Obj)['payerId']).toBe('NO_INSURANCE');
+    } finally {
+      realm.stop();
+    }
+  });
+
+  it('leaves the payer absent when the patient has no claim', async () => {
+    // The static fixture's position, and the reason the axis counts those patients as
+    // `unknown` rather than dropping them: an absent payer is a visible gap.
+    const { realm } = await harness('realm:nopayer');
+    try {
+      const root = writePopulation('realm:nopayer', [bundleB()]);
+      await seedRealmFromPopulation(realm, { realmId: 'realm:nopayer', root, ...SEED_OPTS });
+
+      expect(realm.graph.listKind('insurance')).toHaveLength(0);
+      expect(patientState(realm, 'realm-nopayer-pt-0001')['insurance']).toBeUndefined();
     } finally {
       realm.stop();
     }
